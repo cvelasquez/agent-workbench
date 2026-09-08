@@ -1,0 +1,9 @@
+packages:
+  - 'packages/*'
+
+# node-pty es un modulo nativo: necesita correr su script de instalacion para
+# resolver el prebuild (o compilarlo). esbuild lo necesita para bajar su binario.
+# pnpm 10+ bloquea los scripts de instalacion salvo que se listen aca.
+allowBuilds:
+  node-pty: true
+  esbuild: true

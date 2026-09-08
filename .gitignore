@@ -1,0 +1,20 @@
+node_modules/
+dist/
+build/
+.vite/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.local
+*.tsbuildinfo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Carpetas temporales de los chequeos
+.check-follower/
+.check-git/
+
+# Lanzador generado por "pnpm package"
+/Agent Workbench.cmd

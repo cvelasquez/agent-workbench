@@ -1,0 +1,3273 @@
+/*
+  Hoja de estilos unica.
+
+  Tema claro y oscuro: **todo color sale de una variable** definida en los dos
+  bloques de abajo, sin excepciones. Es lo que hace que agregar un panel no
+  implique acordarse de los dos temas: si el color es una variable, ya funciona
+  en los dos.
+
+  `:root` sin atributo trae el tema oscuro para el instante anterior a que
+  `useTheme` escriba `data-theme` en <html>. Sin eso hay un destello blanco en
+  cada recarga.
+*/
+
+:root,
+:root[data-theme='dark'] {
+  --surface: #12141a;
+  --chrome: #1a1d25;
+  --chrome-alt: #161920;
+  --raised: #1f232c;
+  --border: #272b35;
+  --text: #d8dee9;
+  --text-dim: #7c869b;
+  --accent: #5fb3a1;
+  --danger: #e06c75;
+  --warning: #d6a15e;
+
+  --hover: rgba(255, 255, 255, 0.05);
+  --diff-added: rgba(95, 179, 161, 0.13);
+  --diff-removed: rgba(224, 108, 117, 0.13);
+  --diff-hunk: rgba(124, 134, 155, 0.14);
+  --mark: rgba(214, 161, 94, 0.35);
+
+  /* Resaltado de sintaxis. Pocos tonos, agrupados por rol. */
+  --code-keyword: #c792ea;
+  --code-string: #a3d18a;
+  --code-number: #e0a05f;
+  --code-comment: #6b7386;
+  --code-title: #82b8f0;
+  --code-attr: #7fd1c0;
+  --code-meta: #9aa3b5;
+  --code-danger: #e06c75;
+
+  /*
+    Saturacion y luminosidad del color de proyecto (ver `project-color.ts`). El
+    tono lo pone el hash del cwd; estas dos son fijas por tema, porque si
+    variaran algunos tonos saldrian ilegibles sobre este fondo.
+  */
+  --project-color-s: 55%;
+  --project-color-l: 58%;
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --surface: #fbfbfd;
+  --chrome: #eef0f5;
+  --chrome-alt: #f5f6fa;
+  --raised: #ffffff;
+  --border: #d7dbe4;
+  --text: #22262e;
+  --text-dim: #6a7183;
+  --accent: #2c7f6c;
+  --danger: #c1382b;
+  --warning: #9a6414;
+
+  --hover: rgba(0, 0, 0, 0.045);
+  --diff-added: rgba(44, 127, 108, 0.13);
+  --diff-removed: rgba(193, 56, 43, 0.11);
+  --diff-hunk: rgba(106, 113, 131, 0.13);
+  --mark: rgba(214, 161, 94, 0.45);
+
+  --code-keyword: #8250c4;
+  --code-string: #2f7d3f;
+  --code-number: #a35a12;
+  --code-comment: #8a91a1;
+  --code-title: #2360b4;
+  --code-attr: #16736a;
+  --code-meta: #6a7183;
+  --code-danger: #c1382b;
+
+  --project-color-s: 60%;
+  --project-color-l: 42%;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--surface);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+code,
+kbd {
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---------- encabezado ---------- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.app-name {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.header-spacer {
+  flex: 1 1 auto;
+  min-width: 8px;
+}
+
+.status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.status-open {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.status-reconnecting {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.status-failed {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.meta {
+  color: var(--text-dim);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta-dim {
+  opacity: 0.75;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.banner-error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-bottom: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.banner-notice {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-bottom: 1px solid var(--warning);
+  color: var(--warning);
+  align-items: flex-start;
+  line-height: 1.5;
+}
+
+.banner-notice code {
+  font-size: 11px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.banner-close {
+  margin-left: auto;
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* ---------- cuerpo ---------- */
+
+.app-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* ---------- barra lateral ---------- */
+
+/*
+  El `width` lo escribe React con el ancho arrastrado; lo de aca es el valor
+  con el que se dibuja si todavia no hay ninguno guardado.
+*/
+.sidebar {
+  width: 270px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome-alt);
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+
+.sidebar-header {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.sidebar-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.sidebar-filter:focus {
+  outline: 1px solid var(--accent);
+}
+
+.icon-button {
+  flex: 0 0 auto;
+  /* inline-flex y no bloque de texto: adentro puede ir un simbolo (× ⟳ «) o un
+     SVG, y solo asi los dos quedan centrados igual. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.link-button {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.link-button:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
+
+.sidebar-progress {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+}
+
+.sidebar-empty {
+  padding: 12px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.project {
+  padding: 1px 6px;
+}
+
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.project-toggle:hover {
+  background: var(--hover);
+}
+
+.chevron {
+  flex: 0 0 auto;
+  display: inline-block;
+  transition: transform 0.12s ease;
+  color: var(--text-dim);
+}
+
+.chevron-open {
+  transform: rotate(90deg);
+}
+
+/* El tono del proyecto, el mismo que el subrayado de sus pestanas. */
+.project-swatch {
+  flex: 0 0 auto;
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  min-height: 12px;
+}
+
+.project-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.project-missing {
+  margin: 0 6px 4px 26px;
+  font-size: 10px;
+  color: var(--warning);
+}
+
+.session-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0 0 0 18px;
+}
+
+.session-item {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border-left: 1px solid var(--border);
+  text-align: left;
+}
+
+.session-item:hover:not(:disabled) {
+  background: var(--hover);
+  border-left-color: var(--accent);
+}
+
+.session-title {
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-meta {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* ---------- area de trabajo ---------- */
+
+.workspace {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+  Con la columna derecha expandida, la conversacion cede el ancho en vez de
+  desaparecer. Un chat de 360 px sigue siendo legible, y dejarlo en pantalla es
+  lo que permite volver: si se ocultara, expandir se convertiria en un cambio de
+  pantalla y no en un cambio de reparto.
+*/
+.workspace-narrow {
+  flex: 0 0 360px;
+}
+
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px 6px 0;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  /*
+    Sin scroll horizontal: las pestanas se encogen (ver `.tab`). Una barra que
+    se desplaza esconde pestanas, y esconder es justo lo que uno no quiere
+    cuando tiene muchas abiertas.
+  */
+  overflow-x: hidden;
+}
+
+/*
+  Las pestanas se encogen a medida que entran mas, como en Firefox.
+
+  `flex: 1 1 auto` con un maximo y un minimo: con pocas nada cambia, y con
+  muchas todas ceden parejo hasta los 44 px, que es lo que necesitan el punto de
+  estado y la ×. La etiqueta se recorta con puntos suspensivos y el `title`
+  sigue teniendo el `cwd` entero.
+*/
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 44px;
+  max-width: 200px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--text-dim);
+  user-select: none;
+  /*
+    El color del proyecto, como subrayado. Va con `box-shadow` y no con
+    `border-bottom` porque la pestana activa usa ese borde para fundirse con el
+    panel de abajo, y pisarlo la despegaria.
+  */
+  box-shadow: inset 0 -3px 0 var(--tab-project-color, transparent);
+}
+
+.tab:hover {
+  background: var(--hover);
+}
+
+.tab-active {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.tab-dead .tab-label {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.tab-dot-dead {
+  background: var(--text-dim);
+}
+
+.tab-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+  La × solo en la pestana activa o bajo el mouse. Con las pestanas encogidas,
+  una fila de cruces siempre visibles se come el poco ancho que queda para el
+  nombre — que es lo unico que distingue una pestana de otra.
+*/
+.tab-close {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+  padding: 0 2px;
+  opacity: 0;
+}
+
+.tab:hover .tab-close,
+.tab-active .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  color: var(--danger);
+}
+
+.tab-input {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--text);
+  font: inherit;
+  padding: 1px 4px;
+  width: 150px;
+}
+
+.tab-new {
+  /* No se encoge con las demas: es el unico boton de la fila. */
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.tab-new:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+/* ---------- centro: la conversacion ---------- */
+
+.chat-stack {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+/* Cuerpo de la conversacion, en el centro. Mismo esqueleto que `.panel-body`. */
+.conversation-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- cuadro de escritura ---------- */
+
+.composer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--chrome-alt);
+}
+
+/*
+  El borde de arriba del cuadro de escritura es el tirador de su alto.
+
+  Reemplaza al padding superior en vez de sumarse: la franja tiene que caer
+  sobre la linea que separa el cuadro de la conversacion, que es donde uno
+  apunta para agrandarlo. Se estira a los lados para tapar el padding lateral,
+  asi el gesto se agarra en todo el ancho y no solo en el medio.
+*/
+.composer-divider {
+  height: 8px;
+  margin: 0 -10px 0;
+  border-left: none;
+}
+
+/* Se resalta el borde entero al arrastrar: el destino es el cuadro, no un punto. */
+.composer-dragging {
+  outline: 1px dashed var(--accent);
+  outline-offset: -3px;
+}
+
+.composer-problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  font-size: 11.5px;
+}
+
+.composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.chip-image img {
+  display: block;
+  height: 56px;
+  width: auto;
+  max-width: 140px;
+  object-fit: cover;
+  border-radius: 5px;
+  cursor: zoom-in;
+}
+
+.chip-image {
+  margin: 0;
+  line-height: 0;
+  overflow: hidden;
+}
+
+.chip-text {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.chip-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.chip-toggle:hover {
+  color: var(--text);
+}
+
+.chip-icon {
+  color: var(--accent);
+}
+
+.chip-chevron {
+  font-size: 9px;
+}
+
+.chip-preview {
+  flex: 1 0 100%;
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-dim);
+  scrollbar-width: thin;
+}
+
+.chip-remove {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  border-radius: 3px;
+  padding: 0 3px;
+  opacity: 0;
+}
+
+.chip:hover .chip-remove,
+.chip:focus-within .chip-remove {
+  opacity: 1;
+}
+
+.chip-remove:hover {
+  color: var(--danger);
+}
+
+.composer-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  resize: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.composer-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-spacer {
+  flex: 1 1 auto;
+}
+
+/*
+  El combo de modo va a la izquierda y con la etiqueta un poco mas marcada: es
+  el unico de los tres que cambia lo que el agente **puede hacer**, no como lo
+  hace.
+*/
+.agent-select-mode {
+  font-weight: 500;
+}
+
+/*
+  Los combos de modelo y esfuerzo.
+
+  Van en la barra del cuadro de escritura y no en la cabecera de la aplicacion
+  porque pertenecen a la pestana activa, no a la ventana: dos pestanas pueden
+  estar corriendo con modelos distintos.
+*/
+.agent-select {
+  flex: 0 0 auto;
+  max-width: 130px;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+}
+
+.agent-select:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.composer-send,
+.composer-stop {
+  padding: 5px 14px;
+  border-radius: 5px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.composer-send {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.composer-send:disabled {
+  background: none;
+  border-color: var(--border);
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.composer-stop:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ---------- terminales ---------- */
+
+.terminal-stack {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  padding: 6px 8px;
+}
+
+/*
+  Todas las terminales quedan montadas y apiladas. Las inactivas se ocultan con
+  `visibility`, no con `display: none`: sin caja no hay medidas, y xterm
+  necesita medir para hacer fit. Con display:none la pestana volveria rota.
+*/
+.terminal-surface {
+  position: absolute;
+  inset: 6px 8px;
+}
+
+.terminal-surface-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.terminal-surface .xterm {
+  height: 100%;
+}
+
+/* ---------- estado vacio ---------- */
+
+/*
+  El cartel de "no hay pestanas".
+
+  El `flex: 1 1 auto` no es de adorno: `.chat-stack` es un flex **en fila**, asi
+  que sin el, esta caja toma el ancho de su contenido y el centrado de adentro
+  centra dentro de esos 380 px — el cartel terminaba pegado a la izquierda de
+  una pantalla vacia.
+*/
+.empty-state {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  color: var(--text-dim);
+}
+
+/*
+  El clip de adjuntar de una nota.
+
+  Es un `label` con un `input file` escondido adentro, asi que hay que darle a
+  mano la caja que el `.icon-button` le da a un boton de verdad.
+*/
+.note-attach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.empty-hint {
+  font-size: 12px;
+  max-width: 380px;
+  text-align: center;
+}
+
+.primary-button {
+  margin-top: 8px;
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  color: var(--accent);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.primary-button:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* ---------- panel derecho ---------- */
+
+
+/*
+  El divisor es angosto pero se agarra con un area mayor: 4 px de linea son
+  imposibles de acertar con el mouse.
+*/
+.divider {
+  flex: 0 0 auto;
+  width: 7px;
+  cursor: col-resize;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 2px,
+    var(--border) 2px,
+    var(--border) 3px,
+    transparent 3px
+  );
+  touch-action: none;
+}
+
+.divider:hover {
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 2px,
+    var(--accent) 2px,
+    var(--accent) 4px,
+    transparent 4px
+  );
+}
+
+/*
+  La columna derecha es una pila vertical: arriba el panel de solapas, abajo la
+  consola. Las dos partes son opcionales y cualquiera de las dos puede quedarse
+  con la columna entera.
+*/
+.panel-slot {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+  Escondida, la columna se colapsa **pero sigue montada**: adentro vive la
+  terminal, y desmontarla en cada Alt+P costaria soltar el enganche y repintar
+  con el replay. A 0 px el contenedor no tiene caja, que es exactamente el caso
+  que `TerminalView` sabe que no debe medir ni reportarle al pty.
+*/
+.panel-slot-collapsed {
+  width: 0 !important;
+  overflow: hidden;
+}
+
+.panel-slot-expanded {
+  flex: 1 1 auto;
+}
+
+/*
+  La pestanita que devuelve la columna derecha.
+
+  Ocupa lugar en la fila en vez de flotar por encima: superpuesta taparia el
+  final de cada linea de la conversacion, que es justo lo que se gano al
+  esconder el panel. Angosta, con la etiqueta de costado, para que se lea sin
+  robarle ancho al chat.
+*/
+.panel-peek {
+  flex: 0 0 auto;
+  width: 22px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--chrome-alt);
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0;
+}
+
+.panel-peek:hover {
+  background: var(--chrome);
+  color: var(--text);
+}
+
+.panel-peek-arrow {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.panel-peek-label {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* La de la barra de proyectos: mismo boton, el borde del otro lado. */
+.panel-peek-left {
+  border-left: none;
+  border-right: 1px solid var(--border);
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  /* flex:1 con min-height:0 — sin el minimo, el contenido largo empuja a la
+     consola fuera de la pantalla en vez de hacer scroll adentro. */
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  min-width: 0;
+  background: var(--chrome-alt);
+  border-left: 1px solid var(--border);
+}
+
+/* Mismo criterio que `.panel-slot-collapsed`: se esconde, no se desmonta. */
+.side-panel-hidden {
+  flex: 0 0 0;
+  visibility: hidden;
+  overflow: hidden;
+  border-left: none;
+}
+
+.side-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.side-panel-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-panel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.side-panel-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 5px 5px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.side-panel-tab:hover {
+  background: var(--hover);
+}
+
+.side-panel-tab-active {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.side-panel-badge {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+/* La CLI escribio algo que nadie miro. Sin numero: no se cuentan lineas. */
+.side-panel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex: 0 0 auto;
+}
+
+/*
+  Cuerpo del panel: las tres solapas ocupan la misma caja.
+
+  La CLI se apila encima con `position: absolute` porque tiene que estar montada
+  siempre; las otras dos se dibujan en el flujo normal cuando les toca. Que el
+  cuerpo sea `relative` es lo que hace que la terminal herede el tamano del
+  panel aunque su solapa no este delante — y por eso cambiar de solapa no
+  dispara un resize del pty.
+*/
+.side-panel-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cli-slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.cli-slot-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ---------- consola del sistema ---------- */
+
+/* Mismo criterio que `.divider`, pero en el otro eje: linea fina, area gruesa. */
+.hdivider {
+  flex: 0 0 auto;
+  height: 7px;
+  cursor: row-resize;
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 3px,
+    var(--border) 3px,
+    var(--border) 4px,
+    transparent 4px
+  );
+  border-left: 1px solid var(--border);
+  touch-action: none;
+}
+
+.hdivider:hover {
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    var(--accent) 2px,
+    var(--accent) 4px,
+    transparent 4px
+  );
+}
+
+.console-slot {
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.console-pane {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+
+.console-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--chrome-alt);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+
+/*
+  `position: relative` para que la terminal, que se posiciona absoluta, se mida
+  contra esta caja y no contra el area de trabajo de la izquierda.
+*/
+/*
+  ---------- solapas de tira: la consola y las notas ----------
+
+  Una sola familia para los dos. Antes eran `.console-tab*` y `.notes-tab*`,
+  identicas en intencion y distintas en todo lo demas: el `+` de la consola iba
+  al lado de la ultima solapa y el de las notas arriba, en su cabecera; una se
+  plegaba con un `▾` a la derecha y la otra haciendo clic en el titulo.
+
+  No es cosmetica. Con dos hojas separadas, tocar una y olvidar la otra es lo
+  normal, y eso es exactamente lo que las dejo distintas. La barra de pestanas
+  del agente (`.tab`) **no** entra aca: esas son sesiones de trabajo con nombre
+  que se reordenan y se arrastran, y atarlas a esto uniria dos cosas que van a
+  divergir.
+*/
+.strip-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  /* Sin scroll vertical: la solapa activa asoma 1 px y lo dispararia. */
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.strip-tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  max-width: 160px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding-left: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.strip-tab:hover {
+  background: var(--chrome-alt);
+}
+
+.strip-tab.is-active {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Una consola cuyo proceso termino: se puede leer, no se puede usar. */
+.strip-tab.is-dead .strip-tab-label {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.strip-tab-label,
+.strip-tab-close,
+.strip-tab-new {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.strip-tab-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strip-tab-close {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  color: var(--text-dim);
+  opacity: 0;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+/* La × solo aparece en la solapa que se esta mirando o bajo el mouse: una fila
+   de cruces siempre visibles convierte la barra en un campo minado. */
+.strip-tab:hover .strip-tab-close,
+.strip-tab.is-active .strip-tab-close {
+  opacity: 1;
+}
+
+.strip-tab-close:hover {
+  color: var(--danger);
+  background: var(--hover);
+}
+
+/* El `+` va al lado de la ultima solapa, como en cualquier barra de pestanas. */
+.strip-tab-new {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 7px;
+}
+
+.strip-tab-new:hover {
+  color: var(--text);
+}
+
+.strip-spacer {
+  flex: 1 1 auto;
+}
+
+/*
+  Una tira plegada: la consola al pie de la columna, las notas al pie de la
+  barra de proyectos.
+
+  Ocupa una fila entera y no un icono a proposito: tiene que leerse como "aca
+  hay algo", no como un boton mas. Y lo que la despliega esta donde ella esta,
+  no en un interruptor lejano — es la misma razon por la que el hito 17 saco
+  los interruptores de la cabecera.
+*/
+.strip-collapsed {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--chrome-alt);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.strip-collapsed:hover {
+  background: var(--chrome);
+  color: var(--text);
+}
+
+.strip-collapsed-arrow {
+  font-size: 10px;
+}
+
+/* Cuantas quedaron abiertas ahi dentro. */
+.strip-collapsed-count {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--chrome);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.console-body .terminal-surface {
+  inset: 4px 4px 4px 8px;
+}
+
+.console-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 8px;
+  text-align: center;
+}
+
+/* Cuerpo comun de los tres paneles. */
+.panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-subhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  min-height: 34px;
+}
+
+.panel-subhead-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-tagline {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.panel-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px 14px;
+  scrollbar-width: thin;
+}
+
+.panel-note {
+  margin: 14px 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.panel-note code {
+  font-size: 11px;
+}
+
+/* ---------- conversacion ---------- */
+
+.conversation-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+/*
+  "La CLI te esta esperando". Va al pie, entre el hilo y el cuadro de escritura,
+  que es donde uno mira cuando espera que pase algo. Sale del estado que la CLI
+  publica por proceso, no del archivo de sesion.
+*/
+.conversation-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-top: 1px solid var(--warning);
+  background: var(--chrome-alt);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.conversation-waiting-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex: 0 0 auto;
+  animation: waiting-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes waiting-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Sin animacion para quien la pidio apagada. */
+@media (prefers-reduced-motion: reduce) {
+  .conversation-waiting-dot {
+    animation: none;
+  }
+}
+
+.conversation-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.conversation-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.conversation-matches {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.conversation-spacer {
+  flex: 1 1 auto;
+}
+
+.conversation-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+}
+
+.conversation-more {
+  align-self: center;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.conversation-more:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.conversation-empty {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 20px 4px;
+}
+
+
+/* ---------- turnos de la conversacion ---------- */
+
+/*
+  Lo del usuario lleva marco y fondo; lo del asistente, nada.
+
+  No es una preferencia estetica: el asistente escribe diez veces mas, y
+  enmarcar cada respuesta convierte la lectura en un catalogo de cajas. Lo que
+  hay que poder encontrar de un vistazo mientras se baja por la conversacion es
+  *que pedi yo*.
+*/
+.turn {
+  position: relative;
+  padding: 2px 0;
+}
+
+.turn-user {
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  padding: 8px 12px;
+}
+
+.turn-match {
+  outline: 1px solid var(--warning);
+  outline-offset: 2px;
+}
+
+.turn-actions {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  border-radius: 4px;
+}
+
+.turn:hover .turn-actions,
+.turn:focus-within .turn-actions {
+  opacity: 1;
+}
+
+.turn-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.turn-who {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* La duracion y el esfuerzo salen del archivo; no se calculan. */
+.turn-meta-bit {
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+/*
+  Un mensaje escrito con el agente ya trabajando. Se marca porque no arranco un
+  turno: lo absorbio uno en curso. Va con el color de aviso y no con el del
+  acento, para que no se lea como una etiqueta mas de las de al lado.
+*/
+.turn-queued {
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--warning);
+  color: var(--warning);
+}
+
+/* Plegado de un mensaje propio largo. Se pliega la vista, no el dato. */
+.fold-toggle {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.fold-toggle:hover {
+  text-decoration: underline;
+}
+
+/*
+  Imagenes del historial: se piden al aparecer, y el clic las abre en el visor.
+
+  Hasta el hito 19 el clic las agrandaba en el sitio, con una clase
+  `conversation-image-zoom` que ya no existe: una imagen que crece dentro del
+  hilo empuja hacia abajo todo lo que sigue, y la linea que uno estaba leyendo
+  se va a otro lado en el mismo clic.
+*/
+.conversation-image {
+  display: block;
+  max-width: 260px;
+  max-height: 180px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: zoom-in;
+  margin: 4px 0;
+}
+
+.conversation-image-placeholder {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  margin: 4px 0;
+  width: fit-content;
+}
+
+.part-mine {
+  white-space: pre-wrap;
+}
+
+.part-text {
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  font-size: 12.5px;
+}
+
+/* ---------- markdown de las respuestas ---------- */
+
+.md > *:first-child {
+  margin-top: 0;
+}
+
+.md > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-paragraph {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+
+.md-heading {
+  margin: 14px 0 6px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.md-h1 {
+  font-size: 16px;
+}
+
+.md-h2 {
+  font-size: 14.5px;
+}
+
+.md-h3 {
+  font-size: 13.5px;
+}
+
+.md-h4,
+.md-h5,
+.md-h6 {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.md-list {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.md-list li {
+  margin: 2px 0;
+}
+
+.md-quote {
+  margin: 0 0 8px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--border);
+  color: var(--text-dim);
+  white-space: pre-wrap;
+}
+
+.md-rule {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+.md code {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+/* El bloque de codigo hace scroll adentro: nunca empuja el ancho del chat. */
+.md-code {
+  position: relative;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  background: var(--chrome-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.md-code code {
+  background: none;
+  padding: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.md-code-lang {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  font-size: 9.5px;
+  color: var(--text-dim);
+  text-transform: lowercase;
+}
+
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 0 0 8px;
+  scrollbar-width: thin;
+}
+
+.md-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.md-table th,
+.md-table td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-table th {
+  background: var(--chrome-alt);
+  font-weight: 600;
+}
+
+.md a {
+  color: var(--accent);
+}
+
+.part-truncated {
+  color: var(--warning);
+  font-size: 11px;
+}
+
+.part-text mark,
+.tool-pre mark {
+  background: var(--mark);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* ---------- herramientas ---------- */
+
+/*
+  La tanda de acciones plegada.
+
+  Cerrada tiene que leerse como una linea de indice y no como otra tarjeta mas:
+  sin marco, con el texto atenuado y el reloj a la derecha. Abierta se corre un
+  poco hacia adentro y le pone una guia al costado, para que se vea de un
+  vistazo donde empieza y donde termina lo que estaba resumido.
+*/
+.tool-group {
+  margin: 4px 0;
+}
+
+.tool-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  border-radius: 5px;
+}
+
+.tool-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-group-summary:hover {
+  background: var(--chrome);
+  color: var(--text);
+}
+
+.tool-group-chevron {
+  font-size: 10px;
+  transition: transform 0.12s ease;
+}
+
+.tool-group[open] > .tool-group-summary > .tool-group-chevron {
+  transform: rotate(90deg);
+}
+
+.tool-group-count {
+  flex: 1 1 auto;
+}
+
+.tool-group-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.tool-group-body {
+  margin-left: 7px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.tool {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--chrome);
+}
+
+.tool-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  list-style: none;
+}
+
+.tool-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-summary::before {
+  content: "▸";
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.tool[open] > .tool-summary::before {
+  content: "▾";
+}
+
+.tool-name {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-error {
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+.tool-images {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.tool-block {
+  padding: 0 8px 8px;
+}
+
+.tool-label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 3px;
+}
+
+.tool-pre {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--surface);
+  border-radius: 4px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* Un stdout largo no puede empujar el resto del panel fuera de la pantalla. */
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.tool-pre-error {
+  color: var(--danger);
+}
+
+/* ---------- medidor ---------- */
+
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/*
+  El medidor en la barra de busqueda: una sola fila.
+
+  Comparte las variables y los colores con la version apilada; lo unico propio
+  es que no crece y que la barra pasa a ser un trozo de ancho fijo, porque al
+  lado de un buscador que si crece una barra elastica bailaria con cada tecla.
+*/
+.meter-compact {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.meter-bar-inline {
+  display: block;
+  width: 56px;
+  flex: 0 0 auto;
+}
+
+/* El relleno es un <span> aca dentro, y un inline ignora el alto. */
+.meter-bar-inline .meter-fill {
+  display: block;
+}
+
+.meter-compact .meter-value {
+  font-size: 11px;
+}
+
+/*
+  Antes de la primera respuesta.
+
+  Se dibuja el hueco de la barra aunque no haya nada que pintar adentro: si
+  apareciera recien con el primer numero, la fila del buscador se reacomodaria
+  sola a mitad de una conversacion.
+*/
+.meter-idle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.meter-idle .meter-value {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.meter-idle .meter-bar {
+  flex: 1 1 56px;
+}
+
+.meter-idle .meter-bar-inline {
+  flex: 0 0 auto;
+}
+
+.meter-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.meter-row-dim {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.meter-label {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+
+.meter-value {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.meter-dim {
+  color: var(--text-dim);
+}
+
+.meter-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s;
+}
+
+.meter-fill-ok {
+  background: var(--accent);
+}
+
+.meter-fill-warn {
+  background: var(--warning);
+}
+
+.meter-fill-danger {
+  background: var(--danger);
+}
+
+.meter-note {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ---------- git ---------- */
+
+.git-headline {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.git-branch {
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-upstream {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-ab {
+  display: flex;
+  gap: 5px;
+  font-size: 11px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  white-space: nowrap;
+}
+
+.git-ahead {
+  color: var(--accent);
+}
+
+.git-behind {
+  color: var(--warning);
+}
+
+.git-group {
+  margin-bottom: 12px;
+}
+
+.git-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+
+.git-group-count {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text-dim);
+  letter-spacing: 0;
+}
+
+.git-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.git-item {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  padding: 3px 5px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.git-item:hover {
+  background: var(--hover);
+}
+
+/* Una carpeta nueva se muestra pero no se abre: no hay diff de un directorio. */
+.git-item-static {
+  cursor: default;
+}
+
+.git-item-static:hover {
+  background: none;
+}
+
+.git-badge {
+  flex: 0 0 auto;
+  width: 15px;
+  text-align: center;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  color: var(--text-dim);
+}
+
+.git-badge-added,
+.git-badge-untracked {
+  color: var(--accent);
+}
+
+.git-badge-modified,
+.git-badge-renamed,
+.git-badge-copied,
+.git-badge-type-changed {
+  color: var(--warning);
+}
+
+.git-badge-deleted,
+.git-badge-conflict {
+  color: var(--danger);
+}
+
+.git-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.git-path-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-path-dir {
+  font-size: 10px;
+  color: var(--text-dim);
+  direction: rtl;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-worktree {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 5px;
+}
+
+.git-worktree-branch {
+  font-size: 12px;
+}
+
+.git-worktree-path {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- diff ---------- */
+
+.diff {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  /* Un diff no envuelve: se desplaza. Envolver rompe la alineacion vertical. */
+  white-space: pre;
+  min-width: max-content;
+}
+
+.diff-line {
+  display: flex;
+  align-items: baseline;
+}
+
+.diff-num {
+  flex: 0 0 auto;
+  width: 34px;
+  padding-right: 6px;
+  text-align: right;
+  color: var(--text-dim);
+  opacity: 0.6;
+  user-select: none;
+}
+
+.diff-marker {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.diff-text {
+  flex: 1 1 auto;
+}
+
+.diff-line-added {
+  background: var(--diff-added);
+}
+
+.diff-line-added .diff-marker {
+  color: var(--accent);
+}
+
+.diff-line-removed {
+  background: var(--diff-removed);
+}
+
+.diff-line-removed .diff-marker {
+  color: var(--danger);
+}
+
+.diff-line-hunk {
+  background: var(--diff-hunk);
+  color: var(--text-dim);
+}
+
+.diff-line-meta {
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+/* ---------- arbol de archivos ---------- */
+
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+  Fila = boton principal + accion.
+
+  El fondo del hover va en el contenedor y no en el boton para que la fila se
+  ilumine entera, incluido el hueco del icono de carpeta.
+*/
+.tree-item {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.tree-item:hover {
+  background: var(--hover);
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-right: 6px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+/*
+  El boton de carpeta ocupa su lugar siempre —con `visibility`, no con
+  `display`— para que la fila no se mueva ni el nombre se recorte distinto al
+  pasar el mouse. Se ve al pasar por encima, y tambien con el foco del teclado:
+  si solo respondiera al hover, seria inalcanzable sin mouse.
+*/
+.tree-action {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 2px 6px 2px 2px;
+  color: var(--text-dim);
+  visibility: hidden;
+}
+
+.tree-item:hover .tree-action,
+.tree-action:focus-visible,
+.tree-action-done {
+  visibility: visible;
+}
+
+/* El acuse de copiado, que dura un segundo y se ve aunque el mouse ya se fue. */
+.tree-action-done {
+  color: var(--accent);
+}
+
+.tree-action:hover {
+  color: var(--accent);
+}
+
+.tree-chevron {
+  flex: 0 0 auto;
+  width: 10px;
+  color: var(--text-dim);
+  transition: transform 0.12s ease;
+}
+
+.tree-chevron-open {
+  transform: rotate(90deg);
+}
+
+.tree-row-dir .tree-name {
+  font-weight: 500;
+}
+
+.tree-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-size {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.tree-loading,
+.tree-empty,
+.tree-hidden {
+  padding: 3px 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ---------- previsualizacion ---------- */
+
+.preview {
+  display: flex;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.preview-gutter {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-right: 8px;
+  margin-right: 8px;
+  border-right: 1px solid var(--border);
+  color: var(--text-dim);
+  opacity: 0.55;
+  user-select: none;
+}
+
+.preview-code {
+  flex: 1 1 auto;
+  margin: 0;
+  font: inherit;
+  /* Sin envolver: envolver desalinea la columna de numeros. */
+  white-space: pre;
+  min-width: max-content;
+}
+
+/* Resaltado. Los tonos salen de las variables del tema. */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-type,
+.hljs-built_in {
+  color: var(--code-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-quote {
+  color: var(--code-string);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: var(--code-number);
+}
+
+.hljs-comment {
+  color: var(--code-comment);
+  font-style: italic;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--code-title);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+  color: var(--code-attr);
+}
+
+.hljs-meta,
+.hljs-tag,
+.hljs-punctuation {
+  color: var(--code-meta);
+}
+
+.hljs-deletion {
+  color: var(--code-danger);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
+
+/* ---------- menu contextual ---------- */
+
+.context-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+
+.context-menu-item {
+  padding: 6px 10px;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+/* ---------- dialogo ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.modal {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.modal-body {
+  overflow-y: auto;
+  padding: 12px 14px 16px;
+}
+
+.modal-section {
+  margin: 14px 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+
+.modal-section:first-child {
+  margin-top: 0;
+}
+
+.modal-hint {
+  margin: 8px 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.shortcut-list {
+  margin: 0;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.shortcut-row dt {
+  flex: 0 0 110px;
+}
+
+.shortcut-row dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+
+/* ---------- preguntas de eleccion ---------- */
+
+/*
+  La unica tarjeta del hilo que espera una accion en vez de contar algo que ya
+  paso, y por eso es la unica que lleva el color de acento en el borde. Antes
+  caia en el render generico de herramienta: nombre colapsado y JSON crudo.
+*/
+.question {
+  margin-top: 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--chrome);
+  padding: 10px;
+}
+
+/* Ya contestada: se queda como registro y deja de pedir atencion. */
+.question-done {
+  border-color: var(--border);
+}
+
+.question-item + .question-item {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.question-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.question-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.question-done .question-header {
+  color: var(--text-dim);
+}
+
+.question-text {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.question-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.question-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.question-option:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.question-option:disabled {
+  cursor: default;
+}
+
+.question-option-picked {
+  border-color: var(--accent);
+  background: var(--diff-added);
+}
+
+.question-option-label {
+  font-size: 12px;
+}
+
+.question-option-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.question-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.question-send {
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.question-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.question-note,
+.question-sent {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/*
+  La respuesta propia.
+
+  El boton se ve como una opcion mas —porque para la CLI lo es— pero con el
+  borde punteado: es la unica de la lista que no estaba escrita de antemano.
+*/
+.question-option-write {
+  border-style: dashed;
+}
+
+.question-write {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px dashed var(--accent);
+  border-radius: 5px;
+}
+
+.question-write-input {
+  width: 100%;
+  resize: vertical;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.question-write-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.question-write-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.question-write-cancel {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 0;
+}
+
+.question-write-cancel:hover {
+  color: var(--text);
+}
+
+/*
+  Una respuesta que no llego.
+
+  Va en rojo y ocupa su propia linea: la tarjeta se vuelve a abrir, y sin esto
+  el usuario veria los botones habilitados de nuevo sin saber por que.
+*/
+.question-failed {
+  flex: 1 1 100%;
+  font-size: 11px;
+  color: var(--danger);
+}
+
+/* ---------- archivar sesiones ---------- */
+
+/*
+  El icono vive en la fila y aparece al pasar el mouse. Archivar no es
+  destructivo —esconde de la lista, el .jsonl no se toca— asi que puede estar
+  a un clic; un borrar de verdad no podria (CLAUDE.md 6.1).
+*/
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.session-row > .session-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-action {
+  opacity: 0;
+  flex: none;
+}
+
+/* Al enfocar con teclado tambien: si no, la fila es inalcanzable sin mouse. */
+.session-row:hover .session-action,
+.session-action:focus-visible {
+  opacity: 1;
+}
+
+.session-action:disabled {
+  opacity: 0;
+}
+
+.session-row:hover .session-action:disabled {
+  opacity: 0.35;
+}
+
+/* Archivada y a la vista: se lee, pero no compite con las demas. */
+.session-archived > .session-item {
+  opacity: 0.55;
+  border-left-style: dashed;
+}
+
+.session-selected > .session-item {
+  background: var(--diff-added);
+  border-left-color: var(--accent);
+}
+
+.sidebar-archived-toggle {
+  width: 100%;
+  padding: 4px 10px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-archived-toggle:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.sidebar-archived-toggle.is-on {
+  color: var(--accent);
+}
+
+.sidebar-selection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--chrome);
+  border-top: 1px solid var(--accent);
+  /* flex: none la deja fuera del alto de la lista, sin empujar sus filas. */
+  flex: none;
+}
+
+/* La caja de archivo. Hereda el color del boton con `currentColor`. */
+.archive-icon {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+/* ---------- notas sueltas, al pie de la barra lateral ---------- */
+
+.notes {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  background: var(--chrome);
+}
+
+/* El borde superior se arrastra. Es fino, pero se agarra unos px arriba y abajo. */
+.notes-resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: row-resize;
+  z-index: 1;
+}
+
+.notes-resize:hover {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.notes-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.notes-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+
+.notes-empty {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.note-editor {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 6px;
+  background: var(--chrome-alt);
+}
+
+.note-editor-dragging {
+  outline: 1px dashed var(--accent);
+  outline-offset: -3px;
+}
+
+.note-closing {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--text);
+}
+
+.link-danger:hover {
+  color: var(--danger);
+}
+
+.note-input {
+  flex: 1 1 auto;
+  min-height: 60px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+  resize: none;
+  scrollbar-width: thin;
+}
+
+.note-input:focus {
+  outline: 1px solid var(--accent);
+}
+
+.note-images {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.note-thumb img {
+  cursor: zoom-in;
+}
+
+.note-thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 56px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+.note-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.note-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* El visor grande. Encima de todo, y se va con un clic o con Esc. */
+.notes-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  cursor: zoom-out;
+}
+
+.notes-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--raised);
+}
+
+.notes-lightbox-missing {
+  color: var(--text-dim);
+}
+
+/* ---------- selector de carpetas (proyecto nuevo) ---------- */
+
+/*
+  Se apoya en la familia `.modal`, que ya existia para el dialogo de atajos.
+  Lo propio de aca es la lista: alto fijo para que el dialogo no cambie de
+  tamanio al entrar en una carpeta con dos subcarpetas y despues en una con
+  doscientas.
+*/
+.picker-modal {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0 12px 12px;
+  gap: 8px;
+}
+
+.picker-roots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.picker-root {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--chrome);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.picker-root:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* La ruta actual. Se muestra; no se escribe: la lleva el servidor. */
+.picker-path {
+  margin: 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.picker-list {
+  height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  padding: 4px;
+}
+
+.picker-entry {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-entry:hover {
+  background: var(--hover);
+}
+
+.picker-up {
+  color: var(--text-dim);
+}
+
+.picker-problem {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--danger);
+}
+
+.picker-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.picker-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.picker-create-input {
+  width: 170px;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.picker-open {
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--surface);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.picker-open:hover {
+  filter: brightness(1.08);
+}
+
+/* ---------- visor de imagenes ---------- */
+
+/*
+  Superpuesto a todo. Lo usan las miniaturas del hilo y las fichas del cuadro de
+  escritura: en los dos casos la miniatura sirve para saber cual es la imagen, y
+  esto para leerla.
+
+  El fondo es opaco a proposito y no un velo tenue: lo que se viene a mirar es
+  una captura de pantalla, y detras hay otra pantalla llena de texto.
+*/
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.88);
+  cursor: zoom-out;
+}
+
+.viewer-frame {
+  display: flex;
+  min-height: 0;
+  cursor: default;
+}
+
+.viewer-image {
+  max-width: 92vw;
+  max-height: 84vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 92vw;
+  color: #d8dee9;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.viewer-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-close {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  font-size: 18px;
+  line-height: 1.2;
+  color: #d8dee9;
+  border: 1px solid rgba(216, 222, 233, 0.35);
+  border-radius: 5px;
+}
+
+.viewer-close:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

@@ -1,0 +1,26 @@
+{
+  "name": "agent-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Interfaz visual local para la CLI de Claude Code",
+  "license": "MIT",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @agent-workbench/server dev",
+    "build": "pnpm --filter @agent-workbench/web build",
+    "start": "pnpm --filter @agent-workbench/server start",
+    "package": "node scripts/package.mjs",
+    "typecheck": "pnpm -r typecheck",
+    "check": "pnpm --filter @agent-workbench/server check",
+    "demo": "node scripts/demo/run.mjs",
+    "demo:shots": "node scripts/demo/shots.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "typescript": "^5.7.3"
+  }
+}

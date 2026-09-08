@@ -1,0 +1,13 @@
+{
+  "name": "@agent-workbench/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tipos del protocolo cliente-servidor de Agent Workbench",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}
