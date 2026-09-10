@@ -41,8 +41,28 @@ import { attachTerminalSocket } from './terminal-socket.js';
 import { WorkspaceStore } from './workspace-store.js';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
-const webRoot = path.resolve(serverDir, '../../web');
-const webDist = path.join(webRoot, 'dist');
+
+/**
+ * Verdadero solo dentro del paquete que se publica en npm. Lo inyecta esbuild
+ * al empaquetar (`scripts/build-npm.mjs`); corriendo desde el repositorio la
+ * variable no existe, y `typeof` sobre algo no declarado responde `undefined`
+ * en vez de lanzar.
+ *
+ * Se decide al compilar y no mirando el disco, por lo mismo que `isProduction`
+ * mas abajo: "si existe tal carpeta, entonces…" es justo lo que hace que un dia
+ * arranque distinto sin que nadie sepa por que.
+ *
+ * Cambia tres cosas, las tres porque un paquete instalado no es este
+ * repositorio: la interfaz compilada viaja al lado del servidor en vez de
+ * `packages/web/dist`; el directorio por defecto es desde donde el usuario
+ * corrio el comando; y no hay modo desarrollo que ofrecer, porque el paquete no
+ * lleva ni las fuentes de la interfaz ni Vite.
+ */
+declare const __PACKAGED__: boolean | undefined;
+const isPackaged = typeof __PACKAGED__ !== 'undefined' && __PACKAGED__ === true;
+
+const webRoot = isPackaged ? serverDir : path.resolve(serverDir, '../../web');
+const webDist = isPackaged ? path.join(serverDir, 'web') : path.join(webRoot, 'dist');
 const repoRoot = path.resolve(serverDir, '../../..');
 
 /**
@@ -54,14 +74,16 @@ const repoRoot = path.resolve(serverDir, '../../..');
  *
  * `pnpm dev` monta Vite; `pnpm start` sirve los archivos ya compilados.
  */
-const isProduction = process.argv.includes('--prod');
+const isProduction = isPackaged || process.argv.includes('--prod');
 
 /** Sugerencia de directorio para la primera pestana. */
 function resolveDefaultCwd(): string {
   const override = process.env['AGENT_WORKBENCH_CWD'];
   if (override !== undefined && override.length > 0) return path.resolve(override);
-  // pnpm ejecuta el script dentro de packages/server, asi que process.cwd() no
-  // sirve como valor por defecto.
+  // Instalado desde npm, el comando se corre parado en el proyecto donde se va
+  // a trabajar, y eso es exactamente `process.cwd()`. Desde el repositorio no
+  // sirve: pnpm ejecuta el script dentro de packages/server.
+  if (isPackaged) return process.cwd();
   return repoRoot;
 }
 

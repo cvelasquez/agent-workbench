@@ -104,6 +104,31 @@ salen de ahí y de ningún otro lado**: son públicas, y una captura de tu
 instalación real muestra los nombres de tus proyectos. Si cambiás la interfaz,
 volvé a generarlas con ese comando en vez de reemplazarlas a mano.
 
+## Publicar una versión
+
+Lo que se publica en npm es `dist-npm/`, que genera `pnpm build:npm` — no el
+repositorio. Sale de la versión del `package.json` de la raíz, así que empezá
+por ahí:
+
+```bash
+npm version patch --no-git-tag-version   # o minor / major, en la raíz
+pnpm build:npm
+cd dist-npm && npm pack --dry-run        # revisá la lista de archivos
+npm publish                              # pide el segundo factor
+```
+
+npm **no deja republicar una versión ya publicada**, ni siquiera idéntica: si
+algo salió mal, se corrige y se sube la siguiente. Por eso conviene mirar
+`npm pack --dry-run` antes, y probar el `.tgz` instalándolo en una carpeta
+vacía:
+
+```bash
+cd dist-npm && npm pack
+mkdir /tmp/prueba && cd /tmp/prueba && npm init -y
+npm install /ruta/al/agent-workbench-<version>.tgz
+./node_modules/.bin/agent-workbench
+```
+
 ---
 
 ## Qué encaja y qué no

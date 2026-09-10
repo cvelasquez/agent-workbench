@@ -14,12 +14,14 @@
     "build": "pnpm --filter @agent-workbench/web build",
     "start": "pnpm --filter @agent-workbench/server start",
     "package": "node scripts/package.mjs",
+    "build:npm": "node scripts/build-npm.mjs",
     "typecheck": "pnpm -r typecheck",
     "check": "pnpm --filter @agent-workbench/server check",
     "demo": "node scripts/demo/run.mjs",
     "demo:shots": "node scripts/demo/shots.mjs"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "playwright": "^1.63.0",
     "typescript": "^5.7.3"
   }

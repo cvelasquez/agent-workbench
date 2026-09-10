@@ -38,7 +38,6 @@ que la aplicación lo toque.
 | | |
 |---|---|
 | **Node.js** | 20 o superior |
-| **pnpm** | se activa con `corepack enable pnpm` |
 | **git** | para el panel de cambios; el resto funciona sin él |
 | **La CLI de Claude Code** | instalada y con sesión iniciada — [guía de instalación](https://docs.claude.com/en/docs/claude-code/setup) |
 
@@ -46,17 +45,27 @@ Agent Workbench **no** incluye la CLI ni la descarga: usa la que ya tenés en el
 `PATH`. Si no la encuentra, te lo dice y no abre sesiones.
 
 Probado sobre Windows 11 con PowerShell, que es la plataforma principal.
-macOS y Linux funcionan igual.
+macOS y Linux funcionan igual. En Linux, la dependencia `node-pty` no trae
+binario precompilado y se compila al instalar: hacen falta `python3`, `make` y
+un compilador de C++ (`build-essential` en Debian y Ubuntu).
 
 ---
 
-## Arrancar
+## Instalar
 
 ```bash
-corepack enable pnpm
-pnpm install
-pnpm dev
+npm install -g agent-workbench
 ```
+
+Después, parado en el proyecto en el que quieras trabajar:
+
+```bash
+agent-workbench
+```
+
+Para probarlo una vez sin instalarlo, `npx agent-workbench` — baja unos 60 MB
+cada vez que la caché de npm está fría, casi todo del binario de la terminal.
+Para uso diario conviene la instalación global.
 
 El servidor imprime una URL con un token y la abre en el navegador:
 
@@ -64,9 +73,20 @@ El servidor imprime una URL con un token y la abre en el navegador:
   URL          http://127.0.0.1:52341/?token=…
 ```
 
-Esa URL es la única forma de entrar. El token es distinto en cada arranque.
+Esa URL es la única forma de entrar. El token es distinto en cada arranque, y el
+servidor escucha solo en `127.0.0.1`.
 
-### Para uso diario
+---
+
+## Desde el código
+
+Para trabajar en la aplicación, o si preferís no instalar nada global:
+
+```bash
+corepack enable pnpm
+pnpm install
+pnpm dev       # Vite con recarga en caliente
+```
 
 ```bash
 pnpm build     # compila la interfaz una vez
