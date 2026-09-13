@@ -16,6 +16,7 @@ import type {
   TerminalId,
 } from '@agent-workbench/shared';
 import { AgentConnection, type ConnectionStatus } from './connection.js';
+import { isMemoryPanelRequest } from './useMemory.js';
 
 export interface WorkspaceError {
   message: string;
@@ -207,6 +208,12 @@ export function useWorkspace(): Workspace {
           break;
 
         case 'error':
+          // Un pedido del panel de memoria lo explica el panel, junto al
+          // formulario que lo provoco: repetirlo arriba eran dos avisos con dos ×.
+          if (isMemoryPanelRequest(message.requestId)) {
+            if (message.detail !== undefined) console.error('[servidor]', message.detail);
+            break;
+          }
           setError({ message: message.message, at: Date.now() });
           // Un fallo al abrir la CLI no puede dejar el boton diciendo
           // "Abriendo…" para siempre.

@@ -1,5 +1,5 @@
 /**
- * Columna derecha: la CLI, los cambios, los archivos y los planes.
+ * Columna derecha: la CLI, los cambios, los archivos, los planes y la memoria.
  *
  * Desde el hito 7 la terminal vive **aca**, no en el centro: el centro es la
  * conversacion. La solapa se llama `CLI` porque es lo que es — el sitio donde
@@ -19,18 +19,21 @@
 import type { GitStatus } from '@agent-workbench/shared';
 import { FilesPanel } from './FilesPanel.js';
 import { GitPanel } from './GitPanel.js';
+import { MemoryPanel } from './MemoryPanel.js';
 import { PlansPanel } from './PlansPanel.js';
 import type { FilesView } from './useFiles.js';
 import type { GitView } from './useGit.js';
+import type { MemoryView } from './useMemory.js';
 import type { PlansView } from './usePlans.js';
 
-export type PanelTab = 'cli' | 'git' | 'files' | 'plans';
+export type PanelTab = 'cli' | 'git' | 'files' | 'plans' | 'memory';
 
 export const PANEL_TABS: readonly { id: PanelTab; label: string }[] = [
   { id: 'cli', label: 'CLI' },
   { id: 'git', label: 'Cambios' },
   { id: 'files', label: 'Archivos' },
   { id: 'plans', label: 'Planes' },
+  { id: 'memory', label: 'Memoria' },
 ];
 
 /** Cuantos archivos tocados mostrar en la pastilla de la pestana "Cambios". */
@@ -71,6 +74,7 @@ interface SidePanelProps {
   git: GitView;
   files: FilesView;
   plans: PlansView;
+  memory: MemoryView;
   /** Escribe texto en la terminal sin enviarlo. */
   onInsert: (text: string) => void;
   onReveal: (path: string) => void;
@@ -91,11 +95,15 @@ export function SidePanel({
   git,
   files,
   plans,
+  memory,
   onInsert,
   onReveal,
   onHide,
 }: SidePanelProps): JSX.Element {
   const changes = changeCount(git.status);
+  // Solo con el puente instalado: sin el, el panel no lista notas, y una
+  // pastilla con un numero que no lleva a ninguna lista confunde.
+  const notes = memory.status?.installed === true ? memory.status.notes.length : 0;
 
   return (
     <section className={`side-panel${hidden ? ' side-panel-hidden' : ''}`} aria-hidden={hidden}>
@@ -125,13 +133,22 @@ export function SidePanel({
             key={entry.id}
             className={`side-panel-tab${entry.id === tab ? ' side-panel-tab-active' : ''}`}
             onClick={() => onTabChange(entry.id)}
+            title={entry.label}
           >
-            {entry.label}
+            {/*
+              La etiqueta va aparte para poder recortarla: con cinco solapas y
+              la columna en su minimo, las solapas se encogen en vez de empujar
+              la ultima fuera del panel.
+            */}
+            <span className="side-panel-tab-label">{entry.label}</span>
             {entry.id === 'git' && changes > 0 && (
               <span className="side-panel-badge">{changes}</span>
             )}
             {entry.id === 'plans' && plans.plans.length > 0 && (
               <span className="side-panel-badge">{plans.plans.length}</span>
+            )}
+            {entry.id === 'memory' && notes > 0 && (
+              <span className="side-panel-badge">{notes}</span>
             )}
             {/*
               La CLI escribio algo y nadie lo vio. Es el unico aviso de que hay
@@ -152,6 +169,7 @@ export function SidePanel({
 
         {tab === 'git' && <GitPanel view={git} />}
         {tab === 'plans' && <PlansPanel view={plans} />}
+        {tab === 'memory' && <MemoryPanel view={memory} />}
         {tab === 'files' && (
           <FilesPanel
             view={files}

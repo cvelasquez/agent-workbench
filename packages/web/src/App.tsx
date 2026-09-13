@@ -17,6 +17,7 @@ import { useConversation } from './useConversation.js';
 import { useFiles } from './useFiles.js';
 import { usePlans } from './usePlans.js';
 import { useGit } from './useGit.js';
+import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
 import { THEME_ICON, THEME_LABEL, useTheme } from './useTheme.js';
 import { useWorkspace } from './useWorkspace.js';
@@ -141,7 +142,11 @@ export function App(): JSX.Element {
     // la conversacion vivia aca. Ahora esta en el centro y la solapa que quedo
     // en su lugar es la CLI: se migra en silencio en vez de caer al default.
     readStored<PanelTab>(PANEL_TAB_KEY, 'cli', (raw) =>
-      raw === 'git' || raw === 'files' || raw === 'cli' || raw === 'plans'
+      raw === 'git' ||
+      raw === 'files' ||
+      raw === 'cli' ||
+      raw === 'plans' ||
+      raw === 'memory'
         ? raw
         : raw === 'conversation'
           ? 'cli'
@@ -239,6 +244,14 @@ export function App(): JSX.Element {
     dato que avisa no puede depender de estar mirandolo.
   */
   const plans = usePlans(connection, activeTerminalId);
+  /*
+    La memoria, con el panel abierto aunque su solapa no este delante, como
+    git: de ahi sale la pastilla con la cantidad de notas, y una pastilla que
+    solo aparece mirando la lista no avisa nada —y ademas ensanchaba la solapa
+    al entrar—. El watcher del servidor mira un puñado de nombres del proyecto
+    y no recorre nada, asi que tenerlo prendido no cuesta lo que un arbol.
+  */
+  const memory = useMemory(connection, panelOpen ? activeTerminalId : null);
 
   /*
     La CLI esta a la vista si su solapa esta delante y el panel abierto. Si no,
@@ -949,6 +962,7 @@ export function App(): JSX.Element {
                 git={git}
                 files={files}
                 plans={plans}
+                memory={memory}
                 onInsert={insertIntoTerminal}
                 onReveal={revealPath}
                 onHide={togglePanel}

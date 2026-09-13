@@ -43,6 +43,29 @@ function withNeedle(text: string, needle: string, keyBase: string): (JSX.Element
 }
 
 /**
+ * Decide si un enlace relativo se puede abrir dentro de la app.
+ *
+ * Devuelve la accion, o null si ese destino no es de quien renderiza. Un
+ * `[x](archivo.md)` nunca se vuelve un `<a>`: navegaria la pagina entera fuera
+ * de la app. Sin resolvedor, o si el resolvedor no lo reconoce, se muestra como
+ * texto, igual que siempre.
+ */
+export type LocalLinkResolver = (href: string) => (() => void) | null;
+
+const LOCAL_LINK = /^\[([^\]\n]+)\]\(([^)\s]+)\)$/;
+
+function localTarget(
+  raw: string,
+  resolve: LocalLinkResolver,
+): { label: string; href: string; open: () => void } | null {
+  const match = LOCAL_LINK.exec(raw);
+  if (match === null) return null;
+  const href = match[2] ?? '';
+  const open = resolve(href);
+  return open === null ? null : { label: match[1] ?? '', href, open };
+}
+
+/**
  * Marcado en linea: `codigo`, **negrita**, *cursiva*, ~~tachado~~ y enlaces —
  * los de markdown y las URLs sueltas.
  *
@@ -53,7 +76,12 @@ function withNeedle(text: string, needle: string, keyBase: string): (JSX.Element
  * no hace falta: lo que no matchea se muestra tal cual, que en un renderizador
  * de markdown es el unico modo de fallar aceptable.
  */
-function renderInline(text: string, needle: string, keyBase: string): (JSX.Element | string)[] {
+function renderInline(
+  text: string,
+  needle: string,
+  keyBase: string,
+  localLink: LocalLinkResolver | undefined,
+): (JSX.Element | string)[] {
   const nodes: (JSX.Element | string)[] = [];
   let rest = text;
   let key = 0;
@@ -92,9 +120,19 @@ function renderInline(text: string, needle: string, keyBase: string): (JSX.Eleme
           </a>,
         );
         break;
-      default:
+      default: {
+        const local = localLink === undefined ? null : localTarget(token.text, localLink);
+        if (local !== null) {
+          nodes.push(
+            <button key={id} className="md-local-link" onClick={local.open} title={local.href}>
+              {withNeedle(local.label, needle, id)}
+            </button>,
+          );
+          break;
+        }
         nodes.push(<span key={id}>{withNeedle(token.text, needle, id)}</span>);
         break;
+      }
     }
 
     rest = rest.slice(match.index + match.length);
@@ -160,9 +198,11 @@ interface MarkdownProps {
   text: string;
   /** Termino de la busqueda, para resaltarlo. Vacio si no hay busqueda. */
   needle?: string;
+  /** Enlaces relativos que se abren dentro de la app, p. ej. las notas del indice. */
+  localLink?: LocalLinkResolver;
 }
 
-export function Markdown({ text, needle = '' }: MarkdownProps): JSX.Element {
+export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.Element {
   const lines = text.split('\n');
   const blocks: Block[] = [];
   let index = 0;
@@ -208,7 +248,7 @@ export function Markdown({ text, needle = '' }: MarkdownProps): JSX.Element {
         key,
         node: (
           <p key={key} className={`md-heading md-h${level}`}>
-            {renderInline(heading[2] ?? '', needle, key)}
+            {renderInline(heading[2] ?? '', needle, key, localLink)}
           </p>
         ),
       });
@@ -233,7 +273,7 @@ export function Markdown({ text, needle = '' }: MarkdownProps): JSX.Element {
               <thead>
                 <tr>
                   {header.map((cell, i) => (
-                    <th key={i}>{renderInline(cell, needle, `${key}-h${i}`)}</th>
+                    <th key={i}>{renderInline(cell, needle, `${key}-h${i}`, localLink)}</th>
                   ))}
                 </tr>
               </thead>
@@ -241,7 +281,7 @@ export function Markdown({ text, needle = '' }: MarkdownProps): JSX.Element {
                 {rows.map((row, r) => (
                   <tr key={r}>
                     {row.map((cell, c) => (
-                      <td key={c}>{renderInline(cell, needle, `${key}-${r}-${c}`)}</td>
+                      <td key={c}>{renderInline(cell, needle, `${key}-${r}-${c}`, localLink)}</td>
                     ))}
                   </tr>
                 ))}
@@ -264,7 +304,7 @@ export function Markdown({ text, needle = '' }: MarkdownProps): JSX.Element {
         key,
         node: (
           <blockquote key={key} className="md-quote">
-            {renderInline(body.join('\n'), needle, key)}
+            {renderInline(body.join('\n'), needle, key, localLink)}
           </blockquote>
         ),
       });
@@ -294,7 +334,7 @@ export function Markdown({ text, needle = '' }: MarkdownProps): JSX.Element {
       }
 
       const children = items.map((item, i) => (
-        <li key={i}>{renderInline(item, needle, `${key}-l${i}`)}</li>
+        <li key={i}>{renderInline(item, needle, `${key}-l${i}`, localLink)}</li>
       ));
       blocks.push({
         key,
@@ -334,7 +374,7 @@ export function Markdown({ text, needle = '' }: MarkdownProps): JSX.Element {
       key,
       node: (
         <p key={key} className="md-paragraph">
-          {renderInline(paragraph.join('\n'), needle, key)}
+          {renderInline(paragraph.join('\n'), needle, key, localLink)}
         </p>
       ),
     });

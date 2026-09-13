@@ -136,7 +136,7 @@ function CheckIcon(): JSX.Element {
  * lado. Vuelve solo al icono normal al segundo, asi que no deja la fila con un
  * estado raro pegado.
  */
-function CopyPathButton({
+export function CopyPathButton({
   className,
   title,
   onCopy,

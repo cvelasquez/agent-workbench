@@ -30,6 +30,7 @@ import {
 import { appConfigDir } from './paths.js';
 import { inheritedChildSessionMarker } from './pty-session.js';
 import { RepoHub } from './repo-hub.js';
+import { MemoryHub } from './memory-hub.js';
 import { PasteStore } from './paste-store.js';
 import { SessionIndex } from './session-index.js';
 import { ModelVariantRegistry } from './model-variants.js';
@@ -240,6 +241,9 @@ async function main(): Promise<void> {
   await notes.load();
   const conversations = new ConversationHub(registry, cliStatus, modelVariants);
   const repos = new RepoHub(registry);
+  // Memoria compartida de cada proyecto: `.agents/memory/`. Es lo unico que
+  // escribe dentro de un proyecto, y solo cuando el usuario lo confirma.
+  const memory = new MemoryHub(registry);
   const pasteStore = new PasteStore();
 
   const app = express();
@@ -275,6 +279,7 @@ async function main(): Promise<void> {
     notes,
     conversations,
     repos,
+    memory,
     cliStatus,
     defaultCwd,
   });
@@ -318,6 +323,7 @@ async function main(): Promise<void> {
     conversations.disposeAll();
     cliStatus.dispose();
     repos.disposeAll();
+    void memory.disposeAll();
     // Los procesos no sobreviven al cierre; las pestanas si, en disco.
     registry.disposeAll();
 

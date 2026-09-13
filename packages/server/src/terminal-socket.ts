@@ -21,6 +21,7 @@ import {
   type ConversationState,
   type GitStatus,
   type IndexStatus,
+  type MemoryStatus,
   type ProjectSummary,
   type ServerErrorCode,
   type ServerMessage,
@@ -33,6 +34,8 @@ import { cliNotFoundMessage, type CliLocation } from './cli-locator.js';
 import type { ArchivedSessions } from './archived-sessions.js';
 import type { CliStatusWatcher } from './cli-status.js';
 import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
+import { MemoryBridgeError } from './memory-bridge.js';
+import { UnknownTerminalError, type MemoryHub } from './memory-hub.js';
 import { NotesError, type NotesStore } from './notes-store.js';
 import type { PartsUpdate } from './conversation-follower.js';
 import type { ConversationHub } from './conversation-hub.js';
@@ -79,6 +82,8 @@ export interface TerminalSocketOptions {
   notes: NotesStore;
   conversations: ConversationHub;
   repos: RepoHub;
+  /** Memoria compartida del proyecto de cada pestana (`memory.*`). */
+  memory: MemoryHub;
   /** Estado en vivo de la CLI. Lo usa `notes.send` para esperar el arranque. */
   cliStatus: CliStatusWatcher;
   defaultCwd: string;
@@ -99,6 +104,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     notes,
     conversations,
     repos,
+    memory,
     cliStatus,
     defaultCwd,
   } = options;
@@ -140,6 +146,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     if (detail !== undefined) payload.detail = detail;
     if (requestId !== undefined) payload.requestId = requestId;
     send(socket, payload);
+  };
+
+  /** Le pone a una respuesta el `requestId` del pedido, si lo trajo. */
+  const withRequestId = <T extends ServerMessage & { requestId?: string }>(
+    message: T,
+    requestId: string | undefined,
+  ): T => {
+    if (requestId !== undefined) message.requestId = requestId;
+    return message;
   };
 
   const terminalListMessage = (): ServerMessage => ({
@@ -210,6 +225,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
   const onGitStatus = (terminalId: TerminalId, status: GitStatus): void =>
     broadcast({ type: 'git.status', terminalId, status });
+
+  const onMemoryStatus = (terminalId: TerminalId, status: MemoryStatus): void =>
+    broadcast({ type: 'memory.status', terminalId, status });
 
   const onConversationState = (terminalId: TerminalId, state: ConversationState): void =>
     broadcast({ type: 'conversation.state', terminalId, state });
@@ -311,6 +329,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('plans', onConversationPlans);
   conversations.on('parts', onConversationParts);
   repos.on('status', onGitStatus);
+  memory.on('status', onMemoryStatus);
 
   // ---- upgrade ----
 
@@ -356,6 +375,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     // para que el seguimiento se apague cuando no queda nadie mirando.
     const subscriptions = new Set<TerminalId>();
     const gitSubscriptions = new Set<TerminalId>();
+    const memorySubscriptions = new Set<TerminalId>();
     /*
       Los selectores de carpeta son **de este socket** y mueren con el. No hay
       nada que sobreviva a la conexion que los pidio: sin `pickerId` vivo, el
@@ -399,6 +419,30 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         'internal',
         'No se pudo guardar la nota.',
         error instanceof Error ? error.message : String(error),
+      );
+    };
+
+    /**
+     * Errores de `memory.*`. Lo que rechaza el guardia de rutas es
+     * `invalid-path`; lo demas, `memory-failed` con su mensaje, que el puente
+     * escribe para mostrarse tal cual.
+     */
+    const sendMemoryError = (error: unknown, requestId: string | undefined): void => {
+      if (error instanceof UnknownTerminalError) {
+        sendError(socket, 'unknown-terminal', 'La terminal ya no existe.', undefined, requestId);
+        return;
+      }
+      if (error instanceof InvalidPathError) {
+        sendError(socket, 'invalid-path', error.message, undefined, requestId);
+        return;
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      sendError(
+        socket,
+        'memory-failed',
+        error instanceof MemoryBridgeError ? detail : `No se pudo completar la operación: ${detail}`,
+        detail,
+        requestId,
       );
     };
 
@@ -658,11 +702,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             // Sin pestana no hay nada que seguir, la mire quien la mire.
             conversations.drop(message.terminalId);
             repos.drop(message.terminalId);
+            memory.drop(message.terminalId);
             // Las imagenes que se pegaron en esta pestana ya no le sirven a
             // nadie: la conversacion que las nombraba se fue con ella.
             void pasteStore.clearTerminal(message.terminalId);
             subscriptions.delete(message.terminalId);
             gitSubscriptions.delete(message.terminalId);
+            memorySubscriptions.delete(message.terminalId);
             broadcast({ type: 'terminal.closed', terminalId: message.terminalId });
           }
           break;
@@ -832,6 +878,119 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
         case 'git.refresh':
           repos.refresh(message.terminalId);
+          break;
+
+        /*
+          Memoria compartida. El `cwd` sale del registro y todo lo que toca
+          disco pasa por la cola de ese directorio en el hub. La suscripcion
+          queda anotada aunque la primera lectura falle: el watcher sigue
+          mirando y avisa cuando el problema se arregla.
+
+          Cada respuesta y cada error llevan el `requestId` del pedido: es lo
+          unico que le dice al panel si un fallo es suyo.
+        */
+        case 'memory.subscribe':
+          void (async () => {
+            // Una segunda suscripcion del mismo socket contaria dos veces en el
+            // refcount y el watcher no se apagaria nunca.
+            if (memorySubscriptions.has(message.terminalId)) {
+              memory.unsubscribe(message.terminalId);
+              memorySubscriptions.delete(message.terminalId);
+            }
+            if (cwdOf(message.terminalId) === null) {
+              sendMemoryError(new UnknownTerminalError(), message.requestId);
+              return;
+            }
+            memorySubscriptions.add(message.terminalId);
+            try {
+              const status = await memory.subscribe(message.terminalId);
+              if (status === null) {
+                memorySubscriptions.delete(message.terminalId);
+                sendMemoryError(new UnknownTerminalError(), message.requestId);
+                return;
+              }
+              send(socket, { type: 'memory.status', terminalId: message.terminalId, status });
+            } catch (error) {
+              sendMemoryError(error, message.requestId);
+            }
+          })();
+          break;
+
+        case 'memory.unsubscribe':
+          if (memorySubscriptions.delete(message.terminalId)) {
+            memory.unsubscribe(message.terminalId);
+          }
+          break;
+
+        case 'memory.plan':
+          void memory
+            .plan(message.terminalId, message.options)
+            .then((changes) => {
+              send(
+                socket,
+                withRequestId(
+                  { type: 'memory.planned', terminalId: message.terminalId, changes },
+                  message.requestId,
+                ),
+              );
+            })
+            .catch((error: unknown) => sendMemoryError(error, message.requestId));
+          break;
+
+        /*
+          La unica escritura de la app dentro de un proyecto. El servidor rehace
+          el plan con las opciones: lo que el cliente previsualizo es
+          informativo, no una orden de escritura.
+        */
+        case 'memory.install':
+          void memory
+            .install(message.terminalId, message.options)
+            .then(({ applied, status }) => {
+              send(
+                socket,
+                withRequestId(
+                  { type: 'memory.installed', terminalId: message.terminalId, applied },
+                  message.requestId,
+                ),
+              );
+              if (status !== null) memory.publish(message.terminalId, status);
+            })
+            .catch((error: unknown) => sendMemoryError(error, message.requestId));
+          break;
+
+        case 'memory.import':
+          void memory
+            .importNative(message.terminalId)
+            .then(({ copied, skipped, status }) => {
+              send(
+                socket,
+                withRequestId(
+                  { type: 'memory.imported', terminalId: message.terminalId, copied, skipped },
+                  message.requestId,
+                ),
+              );
+              if (status !== null) memory.publish(message.terminalId, status);
+            })
+            .catch((error: unknown) => sendMemoryError(error, message.requestId));
+          break;
+
+        case 'memory.read':
+          void memory
+            .read(message.terminalId, message.name)
+            .then((note) => {
+              if (note === null) {
+                sendError(socket, 'memory-failed', 'Esa nota ya no existe.', undefined, message.requestId);
+                return;
+              }
+              send(
+                socket,
+                withRequestId(
+                  { type: 'memory.content', terminalId: message.terminalId, note },
+                  message.requestId,
+                ),
+              );
+            })
+            .catch((error: unknown) => sendMemoryError(error, message.requestId));
           break;
 
         case 'git.diff':
@@ -1124,6 +1283,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       subscriptions.clear();
       for (const terminalId of gitSubscriptions) repos.unsubscribe(terminalId);
       gitSubscriptions.clear();
+      for (const terminalId of memorySubscriptions) memory.unsubscribe(terminalId);
+      memorySubscriptions.clear();
       clients.delete(socket);
     };
 
@@ -1147,6 +1308,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('mode', onConversationMode);
     conversations.off('waiting', onConversationWaiting);
     repos.off('status', onGitStatus);
+    memory.off('status', onMemoryStatus);
     for (const client of wss.clients) client.terminate();
     wss.close();
   };

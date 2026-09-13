@@ -26,6 +26,7 @@ que la aplicación lo toque.
 | **Cambios** | Rama, adelanto y atraso contra la rama de seguimiento, worktrees, y los archivos tocados con su diff. **Solo lectura.** |
 | **Archivos** | El árbol del directorio de la pestaña, con carga perezosa, buscador por nombre y previsualización con resaltado de sintaxis. Un ojo muestra lo que esconden `.gitignore` y las carpetas de artefactos. Menú contextual para copiar rutas, insertarlas como `@ruta` o abrir el archivo con la app del sistema. |
 | **Planes** | Los planes que escribió esa conversación en modo plan, renderizados. |
+| **Memoria** | Lo que los agentes aprenden de un proyecto, en `.agents/memory/` y compartido: lo leen y lo escriben Claude Code, Codex, Antigravity y OpenCode —desde acá o desde su propia terminal— a través de `AGENTS.md` y `CLAUDE.md`. La app instala ese puente mostrando antes cada cambio, importa la memoria que ya tenía Claude Code y te da, para copiar, el fragmento de la memoria global de cada CLI. |
 | **Tema** | Claro, oscuro, o el del sistema. |
 
 <p>
@@ -142,6 +143,11 @@ red saliente.
   conversaciones. Lo que la aplicación guarda (pestañas abiertas, caché del
   índice) va a su propio directorio de configuración, nunca dentro de
   `~/.claude/`.
+- **En tus proyectos escribe una sola cosa, y sólo si confirmás:** la memoria
+  compartida. Antes muestra archivo por archivo qué va a cambiar, y se limita a
+  `.agents/memory/`, a lo que está entre sus marcas en `AGENTS.md` y
+  `CLAUDE.md`, y a unas líneas al final de `.gitignore`. La configuración global
+  de cada CLI no la toca.
 - **El servidor escucha solo en `127.0.0.1`**, en un puerto efímero, con un
   token aleatorio por arranque que exigen el WebSocket y todas las rutas HTTP,
   y rechaza peticiones cuyo `Origin` no sea el propio.

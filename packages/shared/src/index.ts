@@ -7,3 +7,4 @@ export * from './git.js';
 export * from './files.js';
 export * from './protocol.js';
 export * from './notes.js';
+export * from './memory.js';
