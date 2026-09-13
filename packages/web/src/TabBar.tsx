@@ -10,21 +10,91 @@
  * recortada hace falta otra forma de reconocerlas: cada una lleva un subrayado
  * del **color de su proyecto** (`project-color.ts`), que sale de un hash del
  * `cwd` y por lo tanto no se configura ni se guarda.
+ *
+ * **El punto dice que esta haciendo el agente**, no solo si el proceso vive.
+ * Trabajando late, parado es un punto lleno, esperando una respuesta es un
+ * signo de admiracion. El dato sale del archivo que la CLI mantiene por
+ * proceso (CLAUDE.md 4.13) — no se mira la pantalla de la terminal, que es la
+ * heuristica sobre texto con secuencias de escape que este proyecto ya
+ * descarto dos veces.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { TerminalDescriptor, TerminalId } from '@agent-workbench/shared';
+import type { TerminalActivity, TerminalDescriptor, TerminalId } from '@agent-workbench/shared';
 import { projectColor } from './project-color.js';
 
 interface TabBarProps {
   terminals: TerminalDescriptor[];
   activeTerminalId: TerminalId | null;
+  /** Que esta haciendo la CLI de cada pestana. Sin entrada = sin proceso. */
+  activity: ReadonlyMap<TerminalId, TerminalActivity>;
   canOpen: boolean;
   onSelect: (terminalId: TerminalId) => void;
   onClose: (terminalId: TerminalId) => void;
   onRename: (terminalId: TerminalId, label: string) => void;
   onReorder: (terminalIds: TerminalId[]) => void;
   onNew: () => void;
+}
+
+/**
+ * El punto de estado de una pestana.
+ *
+ * Cinco estados y ninguno es decorativo:
+ *
+ * | Estado | Que se ve |
+ * |---|---|
+ * | trabajando | tres puntitos que laten |
+ * | parado | punto lleno |
+ * | esperando una respuesta | `!` |
+ * | dormida | punto hueco |
+ * | terminada | punto apagado |
+ *
+ * Se dibuja a codigo y no con un gif: sigue el tema claro y oscuro, se ve
+ * nitido en cualquier pantalla y no mete un binario en el repositorio. Con
+ * `prefers-reduced-motion` deja de latir y queda como el de "parado" — una cosa
+ * que se mueve sola en la barra es exactamente lo que esa preferencia evita.
+ */
+function TabStatus({
+  terminal,
+  activity,
+}: {
+  terminal: TerminalDescriptor;
+  activity: TerminalActivity | undefined;
+}): JSX.Element {
+  if (!terminal.alive) {
+    const dormida = terminal.sleeping;
+    return (
+      <span
+        className={`tab-dot${dormida ? ' tab-dot-sleeping' : ' tab-dot-dead'}`}
+        title={dormida ? 'Dormida: se lee, sin CLI abierta' : 'La CLI de esta pestaña se cerró'}
+      />
+    );
+  }
+
+  if (activity === 'waiting') {
+    return (
+      <span className="tab-bang" title="La CLI está esperando una respuesta tuya">
+        !
+      </span>
+    );
+  }
+
+  if (activity === 'busy') {
+    return (
+      <span className="tab-working" title="El agente está trabajando" aria-label="trabajando">
+        <i />
+        <i />
+        <i />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="tab-dot"
+      title={activity === 'idle' ? 'Lista, sin nada en curso' : 'CLI abierta'}
+    />
+  );
 }
 
 function defaultLabel(terminal: TerminalDescriptor): string {
@@ -37,6 +107,7 @@ function defaultLabel(terminal: TerminalDescriptor): string {
 export function TabBar({
   terminals,
   activeTerminalId,
+  activity,
   canOpen,
   onSelect,
   onClose,
@@ -110,7 +181,7 @@ export function TabBar({
               />
             ) : (
               <>
-                <span className={`tab-dot${terminal.alive ? '' : ' tab-dot-dead'}`} />
+                <TabStatus terminal={terminal} activity={activity.get(terminal.terminalId)} />
                 <span className="tab-label">{defaultLabel(terminal)}</span>
                 <button
                   className="tab-close"

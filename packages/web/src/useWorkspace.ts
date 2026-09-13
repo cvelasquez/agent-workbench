@@ -11,6 +11,7 @@ import type {
   IndexStatus,
   ProjectSummary,
   ServerMessage,
+  TerminalActivity,
   TerminalDescriptor,
   TerminalId,
 } from '@agent-workbench/shared';
@@ -54,6 +55,18 @@ export interface Workspace {
   /** Abre una consola del sistema en ese directorio. */
   openShell: (cwd: string) => void;
   closeTerminal: (terminalId: TerminalId) => void;
+  /**
+   * Le da CLI a una pestana dormida, o revive una que murio.
+   *
+   * Arrancar la aplicacion ya no lanza un proceso por pestana: se restauran
+   * dormidas —legibles y sin gastar nada— y la CLI aparece cuando hace falta
+   * escribirle al agente.
+   */
+  wakeTerminal: (terminalId: TerminalId) => void;
+  /** Pestanas para las que se pidio la CLI y todavia no arranco. */
+  waking: ReadonlySet<TerminalId>;
+  /** Que esta haciendo la CLI de cada pestana. Ausente = sin proceso. */
+  activity: ReadonlyMap<TerminalId, TerminalActivity>;
   renameTerminal: (terminalId: TerminalId, label: string) => void;
   reorderTabs: (terminalIds: TerminalId[]) => void;
   refreshIndex: () => void;
@@ -88,6 +101,15 @@ export function useWorkspace(): Workspace {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [indexStatus, setIndexStatus] = useState<IndexStatus>(EMPTY_INDEX_STATUS);
   const [activeTerminalId, setActiveTerminalId] = useState<TerminalId | null>(null);
+  const [waking, setWaking] = useState<Set<TerminalId>>(new Set());
+  /*
+    Que esta haciendo la CLI de cada pestana.
+
+    Llega por `terminal.activity`, que late cada 700 ms y no arrastra la lista
+    de pestanas. Una pestana sin entrada es una sin proceso: dormida, muerta, o
+    recien lanzada y todavia sin registrar.
+  */
+  const [activity, setActivity] = useState<Map<TerminalId, TerminalActivity>>(new Map());
   const [error, setError] = useState<WorkspaceError | null>(null);
 
   // Las pestanas que abrimos nosotros pasan a estar activas; las que abrio otra
@@ -130,6 +152,17 @@ export function useWorkspace(): Workspace {
 
         case 'terminal.list': {
           setAllTerminals(message.terminals);
+          // La CLI ya arranco —o la pestana se fue—: en los dos casos deja de
+          // haber algo que esperar.
+          setWaking((current) => {
+            if (current.size === 0) return current;
+            const next = new Set(current);
+            for (const id of current) {
+              const found = message.terminals.find((t) => t.terminalId === id);
+              if (found === undefined || found.alive) next.delete(id);
+            }
+            return next.size === current.size ? current : next;
+          });
           // La pestana activa se elige solo entre las de la CLI: una consola
           // vive en el panel derecho y no tiene por que robar el foco de la
           // barra de pestanas.
@@ -156,6 +189,13 @@ export function useWorkspace(): Workspace {
           break;
         }
 
+        case 'terminal.activity':
+          setActivity((current) => {
+            if (current.get(message.terminalId) === message.activity) return current;
+            return new Map(current).set(message.terminalId, message.activity);
+          });
+          break;
+
         case 'index.status':
           setIndexStatus(message.status);
           break;
@@ -168,6 +208,9 @@ export function useWorkspace(): Workspace {
 
         case 'error':
           setError({ message: message.message, at: Date.now() });
+          // Un fallo al abrir la CLI no puede dejar el boton diciendo
+          // "Abriendo…" para siempre.
+          setWaking((current) => (current.size === 0 ? current : new Set()));
           if (message.detail !== undefined) console.error('[servidor]', message.detail);
           if (message.requestId !== undefined) {
             ownRequests.current.delete(message.requestId);
@@ -191,6 +234,7 @@ export function useWorkspace(): Workspace {
         case 'git.diff':
         case 'files.listing':
         case 'files.preview':
+        case 'files.results':
         case 'notes.list':
         case 'notes.imageData':
           break;
@@ -244,6 +288,14 @@ export function useWorkspace(): Workspace {
 
   const closeTerminal = useCallback(
     (terminalId: TerminalId) => connection.send({ type: 'terminal.close', terminalId }),
+    [connection],
+  );
+
+  const wakeTerminal = useCallback(
+    (terminalId: TerminalId) => {
+      setWaking((current) => new Set(current).add(terminalId));
+      connection.send({ type: 'terminal.wake', terminalId });
+    },
     [connection],
   );
 
@@ -304,6 +356,9 @@ export function useWorkspace(): Workspace {
     openTerminal,
     openShell,
     closeTerminal,
+    wakeTerminal,
+    waking,
+    activity,
     renameTerminal,
     reorderTabs,
     refreshIndex,

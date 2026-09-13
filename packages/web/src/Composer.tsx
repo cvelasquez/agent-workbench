@@ -58,8 +58,14 @@ interface Draft {
 interface ComposerProps {
   connection: AgentConnection;
   terminalId: TerminalId | null;
-  /** false si el proceso de la pestana termino: no hay a quien escribirle. */
+  /** false si la pestana no tiene CLI corriendo: no hay a quien escribirle. */
   alive: boolean;
+  /**
+   * true si la pestana esta dormida —restaurada y sin proceso— en vez de
+   * terminada. Cambia lo que dice el cuadro: una espera que la abras, la otra
+   * ya corrio y se murio.
+   */
+  sleeping?: boolean;
   /** Controles extra a la derecha de la barra (modelo, esfuerzo). */
   controls?: JSX.Element;
   /**
@@ -76,6 +82,7 @@ export function Composer({
   connection,
   terminalId,
   alive,
+  sleeping = false,
   controls,
   leading,
 }: ComposerProps): JSX.Element {
@@ -297,7 +304,11 @@ export function Composer({
           siguen en el dialogo del boton `?`.
         */
         placeholder={
-          disabled ? 'La sesion de esta pestana termino.' : 'Escribi tu mensaje.'
+          !disabled
+            ? 'Escribi tu mensaje.'
+            : sleeping
+              ? 'Esta pestaña todavía no tiene la CLI abierta.'
+              : 'La sesion de esta pestana termino.'
         }
         disabled={disabled}
         onChange={(event) => setText(event.target.value)}

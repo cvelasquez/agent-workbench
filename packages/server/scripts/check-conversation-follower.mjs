@@ -660,16 +660,23 @@ check('con la imagen y el texto ya limpio',
   split.parts[0]?.parts[1]?.text === 'y un texto',
   split.parts[0]?.parts.map((p) => p.kind).join(','));
 
-// 3. Dos imagenes en un mismo mensaje: dos partes, numeradas 0 y 1 y en orden.
+// 3. Dos imagenes en un mismo mensaje, **encadenadas**, que es lo que la CLI
+//    escribe de verdad: el segundo adjunto cuelga del primero, no del mensaje.
+//
+//    Remedido sobre los 39 adjuntos de imagen de la instalacion: 34 cuelgan de
+//    una linea `user` y 5 de otro adjunto — y esos 5 son exactamente los casos
+//    en los que se veia la ruta cruda en vez de la miniatura. La version
+//    anterior de esta prueba colgaba los dos del mensaje, que es una forma que
+//    no pasa nunca, y por eso el bug paso por delante sin que nadie lo viera.
 const twoFile = path.join(dir, 'dos-imagenes.jsonl');
 await writeFile(twoFile,
   userStr('i3', '@"' + pathOf('a.png') + '" @"' + pathOf('b.png') + '" compara') +
   imageAttach('at3', 'i3', pathOf('a.png')) +
-  imageAttach('at4', 'i3', pathOf('b.png')));
+  imageAttach('at4', 'at3', pathOf('b.png')));
 const twoFollower = new ConversationFollower(twoFile);
 const two = await twoFollower.poll();
 const twoParts = two.added[0]?.parts ?? [];
-check('dos adjuntos -> dos partes de imagen',
+check('dos adjuntos encadenados -> dos partes de imagen',
   twoParts.filter((p) => p.kind === 'image').length === 2,
   twoParts.map((p) => p.kind).join(','));
 check('numeradas 0 y 1, en orden',
@@ -678,6 +685,31 @@ check('numeradas 0 y 1, en orden',
 check('y las dos rutas fuera del texto',
   twoParts[2]?.text === 'compara',
   JSON.stringify(twoParts[2]?.text));
+
+// 3b. Los bytes de la segunda tambien se encuentran: el que dibuja la miniatura
+//     es otro camino, y tenia el mismo supuesto.
+const secondBytes = await loadConversationImage(twoFile, 'i3', 1, 'attachment');
+check('la segunda imagen encadenada se puede traer por (eventId, 1)',
+  secondBytes?.data === PNG_1PX, String(secondBytes?.data).slice(0, 24));
+const firstBytes = await loadConversationImage(twoFile, 'i3', 0, 'attachment');
+check('y la primera sigue saliendo', firstBytes?.data === PNG_1PX);
+const thirdBytes = await loadConversationImage(twoFile, 'i3', 2, 'attachment');
+check('pedir una tercera que no existe -> null', thirdBytes === null);
+
+// 3c. Las dos colgando del mensaje tambien valen: es lo que hace la CLI cuando
+//     hay una sola imagen por mensaje, y nada garantiza que no encadene menos
+//     en otra version.
+const flatFile = path.join(dir, 'dos-imagenes-planas.jsonl');
+await writeFile(flatFile,
+  userStr('i3b', '@"' + pathOf('a.png') + '" @"' + pathOf('b.png') + '" compara') +
+  imageAttach('at3b', 'i3b', pathOf('a.png')) +
+  imageAttach('at4b', 'i3b', pathOf('b.png')));
+const flatFollower = new ConversationFollower(flatFile);
+const flat = await flatFollower.poll();
+const flatParts = flat.added[0]?.parts ?? [];
+check('dos adjuntos del mismo mensaje -> dos partes igual',
+  flatParts.filter((p) => p.kind === 'image').length === 2 && flatParts[2]?.text === 'compara',
+  flatParts.map((p) => p.kind).join(','));
 
 // 4. Un `@ruta` que la CLI **no** adjunto se sigue viendo: se quita el
 //    envoltorio, no el mensaje (§4.12). Sin adjunto no hay miniatura que lo

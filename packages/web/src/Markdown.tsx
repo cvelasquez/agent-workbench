@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { nextInlineToken } from './inline-markup.js';
 
 /** Resalta las coincidencias de la busqueda dentro de un tramo de texto. */
 function withNeedle(text: string, needle: string, keyBase: string): (JSX.Element | string)[] {
@@ -42,24 +43,24 @@ function withNeedle(text: string, needle: string, keyBase: string): (JSX.Element
 }
 
 /**
- * Marcado en linea: `codigo`, **negrita**, *cursiva*, ~~tachado~~ y enlaces.
+ * Marcado en linea: `codigo`, **negrita**, *cursiva*, ~~tachado~~ y enlaces —
+ * los de markdown y las URLs sueltas.
  *
- * Una sola expresion regular con alternativas, aplicada de izquierda a derecha.
+ * Que es cada token lo decide `inline-markup.ts`, que no tiene JSX y por eso
+ * esta cubierto por `pnpm check`. Aca solo se dibuja.
+ *
  * No cubre anidamientos raros —negrita dentro de un enlace dentro de codigo— y
  * no hace falta: lo que no matchea se muestra tal cual, que en un renderizador
  * de markdown es el unico modo de fallar aceptable.
  */
-const INLINE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|(\[[^\]\n]+\]\([^)\s]+\))/;
-
 function renderInline(text: string, needle: string, keyBase: string): (JSX.Element | string)[] {
   const nodes: (JSX.Element | string)[] = [];
   let rest = text;
   let key = 0;
 
   while (rest.length > 0) {
-    const match = INLINE.exec(rest);
-    if (match === null || match.index === undefined) {
+    const match = nextInlineToken(rest);
+    if (match === null) {
       nodes.push(...withNeedle(rest, needle, `${keyBase}-${key++}`));
       break;
     }
@@ -68,35 +69,35 @@ function renderInline(text: string, needle: string, keyBase: string): (JSX.Eleme
       nodes.push(...withNeedle(rest.slice(0, match.index), needle, `${keyBase}-${key++}`));
     }
 
-    const token = match[0];
     const id = `${keyBase}-i${key++}`;
+    const { token } = match;
 
-    if (token.startsWith('`')) {
-      nodes.push(<code key={id}>{token.slice(1, -1)}</code>);
-    } else if (token.startsWith('**') || token.startsWith('__')) {
-      nodes.push(<strong key={id}>{withNeedle(token.slice(2, -2), needle, id)}</strong>);
-    } else if (token.startsWith('~~')) {
-      nodes.push(<del key={id}>{withNeedle(token.slice(2, -2), needle, id)}</del>);
-    } else if (token.startsWith('*')) {
-      nodes.push(<em key={id}>{withNeedle(token.slice(1, -1), needle, id)}</em>);
-    } else {
-      const split = token.indexOf('](');
-      const label = token.slice(1, split);
-      const href = token.slice(split + 2, -1);
-      // Solo esquemas navegables. Un `javascript:` no llega al DOM.
-      const safe = /^(https?:|mailto:)/i.test(href);
-      nodes.push(
-        safe ? (
-          <a key={id} href={href} target="_blank" rel="noreferrer noopener">
-            {withNeedle(label, needle, id)}
-          </a>
-        ) : (
-          <span key={id}>{withNeedle(token, needle, id)}</span>
-        ),
-      );
+    switch (token.kind) {
+      case 'code':
+        nodes.push(<code key={id}>{token.text}</code>);
+        break;
+      case 'strong':
+        nodes.push(<strong key={id}>{withNeedle(token.text, needle, id)}</strong>);
+        break;
+      case 'del':
+        nodes.push(<del key={id}>{withNeedle(token.text, needle, id)}</del>);
+        break;
+      case 'em':
+        nodes.push(<em key={id}>{withNeedle(token.text, needle, id)}</em>);
+        break;
+      case 'link':
+        nodes.push(
+          <a key={id} href={token.href} target="_blank" rel="noreferrer noopener">
+            {withNeedle(token.label, needle, id)}
+          </a>,
+        );
+        break;
+      default:
+        nodes.push(<span key={id}>{withNeedle(token.text, needle, id)}</span>);
+        break;
     }
 
-    rest = rest.slice(match.index + token.length);
+    rest = rest.slice(match.index + match.length);
   }
 
   return nodes;

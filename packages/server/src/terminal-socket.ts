@@ -24,6 +24,8 @@ import {
   type ProjectSummary,
   type ServerErrorCode,
   type ServerMessage,
+  type SessionPlan,
+  type TerminalActivity,
   type TerminalId,
 } from '@agent-workbench/shared';
 import { readAgentDefaults } from './agent-defaults.js';
@@ -35,7 +37,7 @@ import { NotesError, type NotesStore } from './notes-store.js';
 import type { PartsUpdate } from './conversation-follower.js';
 import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
-import { listDirectory, readPreview } from './file-browser.js';
+import { listDirectory, readPreview, searchFiles } from './file-browser.js';
 import { readDiff } from './git-repo.js';
 import { InvalidPathError, resolveInside } from './path-guard.js';
 import { PasteImageError, PasteStore, MAX_IMAGES_PER_SUBMIT } from './paste-store.js';
@@ -146,14 +148,45 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     order: registry.getOrder(),
   });
 
+  /**
+   * Escribe en una pty y explica bien cuando no se puede.
+   *
+   * Desde el hito 21 hay pestanas **sin proceso** —las que devuelve una
+   * restauracion, y las que murieron con Ctrl+C— y para esas "la terminal ya no
+   * existe" es falso: la pestana esta ahi, se lee, y lo que falta es la CLI.
+   * El cliente distingue los dos casos por el codigo y ofrece abrirla.
+   */
+  const writeToTerminal = (socket: WebSocket, terminalId: TerminalId, data: string): boolean => {
+    if (registry.write(terminalId, data)) return true;
+    if (registry.get(terminalId) === null) {
+      sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+    } else {
+      sendError(
+        socket,
+        'terminal-asleep',
+        'Esta pestaña no tiene la CLI abierta. Abrila para escribirle al agente.',
+      );
+    }
+    return false;
+  };
+
   // ---- eventos del registro y del indice, hacia todos los clientes ----
 
   const onRegistryChanged = (): void => broadcast(terminalListMessage());
+
   const onRegistryExit = (
     terminalId: TerminalId,
     exitCode: number,
     signal: number | null,
   ): void => broadcast({ type: 'terminal.exit', terminalId, exitCode, signal });
+
+  /*
+    Que esta haciendo la CLI de cada pestana. Va a todos los clientes y no solo
+    al que mira esa pestana: lo dibuja la barra de pestanas, que las muestra
+    todas a la vez.
+  */
+  const onRegistryActivity = (terminalId: TerminalId, activity: TerminalActivity): void =>
+    broadcast({ type: 'terminal.activity', terminalId, activity });
 
   const onIndexStatus = (status: IndexStatus): void =>
     broadcast({ type: 'index.status', status });
@@ -190,6 +223,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   */
   const onConversationWaiting = (terminalId: TerminalId, waitingFor: string | null): void =>
     broadcast({ type: 'conversation.waiting', terminalId, waitingFor });
+
+  const onConversationPlans = (terminalId: TerminalId, plans: SessionPlan[]): void =>
+    broadcast({ type: 'conversation.plans', terminalId, plans });
 
   const onConversationTurns = (
     terminalId: TerminalId,
@@ -237,10 +273,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       if (index > 0) {
         await new Promise((resolve) => setTimeout(resolve, ANSWER_KEY_INTERVAL_MS));
       }
-      if (!registry.write(terminalId, key)) {
-        sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
-        return;
-      }
+      if (!writeToTerminal(socket, terminalId, key)) return;
     }
   };
 
@@ -266,6 +299,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
   registry.on('changed', onRegistryChanged);
   registry.on('exit', onRegistryExit);
+  registry.on('activity', onRegistryActivity);
   index.on('status', onIndexStatus);
   index.on('projects', onIndexProjects);
   conversations.on('append', onConversationAppend);
@@ -274,6 +308,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('mode', onConversationMode);
   conversations.on('waiting', onConversationWaiting);
   conversations.on('turns', onConversationTurns);
+  conversations.on('plans', onConversationPlans);
   conversations.on('parts', onConversationParts);
   repos.on('status', onGitStatus);
 
@@ -400,9 +435,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'input':
           // Sin filtrar: Ctrl+V, Alt+V, Esc Esc y compania tienen que llegar
           // intactos o la CLI pierde funcionalidad.
-          if (!registry.write(message.terminalId, message.data)) {
-            sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
-          }
+          writeToTerminal(socket, message.terminalId, message.data);
           break;
 
         /*
@@ -447,9 +480,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             const payload = buildSubmission(text, references, { send: message.send !== false });
             // Un cuadro vacio no le manda un Enter a la CLI.
             if (payload === null) return;
-            if (!registry.write(terminalId, payload)) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
-            }
+            writeToTerminal(socket, terminalId, payload);
           })();
           break;
 
@@ -555,9 +586,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         }
 
         case 'agent.interrupt':
-          if (!registry.write(message.terminalId, INTERRUPT)) {
-            sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
-          }
+          writeToTerminal(socket, message.terminalId, INTERRUPT);
           break;
 
         case 'resize':
@@ -590,6 +619,32 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                   'No se pudo abrir la pestana.',
                   error instanceof Error ? error.message : String(error),
                   message.requestId,
+                );
+              }
+            }
+          })();
+          break;
+
+        /*
+          Una pestana dormida no tiene proceso: existe, se lee y no gasta nada.
+          Esto es lo que pasa cuando el usuario quiere escribirle al agente.
+        */
+        case 'terminal.wake':
+          void (async () => {
+            try {
+              const descriptor = await registry.wake(message.terminalId);
+              if (descriptor === null) {
+                sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              }
+            } catch (error) {
+              if (error instanceof TerminalOpenError) {
+                sendError(socket, error.code, error.message, error.detail);
+              } else {
+                sendError(
+                  socket,
+                  'internal',
+                  'No se pudo abrir la CLI de la pestaña.',
+                  error instanceof Error ? error.message : String(error),
                 );
               }
             }
@@ -674,6 +729,33 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               defaults: await defaultsFor(message.terminalId),
               waitingFor: snapshot.waitingFor,
             });
+            // Los planes van en su propio mensaje y no dentro del reset: la
+            // conversacion se rehace muchas veces —cada `conversation.reset`—
+            // y los planes casi nunca cambian.
+            if (snapshot.plans.length > 0) {
+              send(socket, {
+                type: 'conversation.plans',
+                terminalId: message.terminalId,
+                plans: snapshot.plans,
+              });
+            }
+          })();
+          break;
+
+        /*
+          El contenido de un plan, al abrirlo en su solapa. El servidor
+          comprueba que sea un plan **de esta conversacion** antes de leerlo.
+        */
+        case 'plans.read':
+          void (async () => {
+            const plan = await conversations
+              .readPlan(message.terminalId, message.fileName)
+              .catch(() => null);
+            if (plan === null) {
+              sendError(socket, 'read-failed', 'No se pudo leer el plan.');
+              return;
+            }
+            send(socket, { type: 'plans.content', terminalId: message.terminalId, plan });
           })();
           break;
 
@@ -787,10 +869,36 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               return;
             }
             try {
-              const listing = await listDirectory(cwd, message.path);
+              const listing = await listDirectory(cwd, message.path, {
+                includeHidden: message.includeHidden === true,
+              });
               send(socket, { type: 'files.listing', terminalId: message.terminalId, listing });
             } catch (error) {
               sendPathError(error, 'No se pudo leer el directorio.');
+            }
+          })();
+          break;
+
+        /*
+          La busqueda por nombre es lo unico del panel que mira mas de un nivel
+          de una, y por eso es lo unico que lleva topes propios. El `cwd` lo
+          sigue poniendo el servidor: lo que llega del cliente es el texto que
+          se escribio, nunca una ruta.
+        */
+        case 'files.search':
+          void (async () => {
+            const cwd = cwdOf(message.terminalId);
+            if (cwd === null) {
+              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              return;
+            }
+            try {
+              const result = await searchFiles(cwd, message.query, {
+                includeHidden: message.includeHidden === true,
+              });
+              send(socket, { type: 'files.results', terminalId: message.terminalId, result });
+            } catch (error) {
+              sendPathError(error, 'No se pudo buscar en el directorio.');
             }
           })();
           break;
@@ -1002,9 +1110,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
             const payload = buildSubmission(note.text, references);
             if (payload === null) return;
-            if (!registry.write(message.terminalId, payload)) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
-            }
+            writeToTerminal(socket, message.terminalId, payload);
           })();
           break;
       }
@@ -1028,6 +1134,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   return () => {
     httpServer.off('upgrade', onUpgrade);
     registry.off('changed', onRegistryChanged);
+    registry.off('activity', onRegistryActivity);
     registry.off('exit', onRegistryExit);
     index.off('status', onIndexStatus);
     index.off('projects', onIndexProjects);
@@ -1035,6 +1142,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('state', onConversationState);
     conversations.off('reset', onConversationReset);
     conversations.off('turns', onConversationTurns);
+    conversations.off('plans', onConversationPlans);
     conversations.off('parts', onConversationParts);
     conversations.off('mode', onConversationMode);
     conversations.off('waiting', onConversationWaiting);

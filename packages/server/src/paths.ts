@@ -2,9 +2,10 @@
  * Rutas del sistema que usa la app.
  *
  * Dos reglas que se aplican aca:
- *  - De `~/.claude/` se leen **dos** carpetas y ninguna se escribe: `projects/`
- *    —el historial— y `sessions/`, que es el estado en vivo de cada proceso de
- *    la CLI (ver `cli-status.ts`). Nada mas se abre; en particular
+ *  - De `~/.claude/` se leen **tres** carpetas y ninguna se escribe:
+ *    `projects/` —el historial—, `sessions/` —el estado en vivo de cada proceso
+ *    de la CLI, ver `cli-status.ts`— y `plans/`, donde la CLI deja los planes
+ *    del modo plan (`plans-store.ts`). Nada mas se abre; en particular
  *    `.credentials.json` no se toca nunca.
  *  - Lo que la app guarda va a su propio directorio de configuracion, jamas
  *    dentro de `~/.claude/`.
@@ -27,6 +28,17 @@ export function sessionsRoot(): string {
  */
 export function cliSessionsStateRoot(): string {
   return path.join(homedir(), '.claude', 'sessions');
+}
+
+/**
+ * Planes del modo plan. Solo lectura.
+ *
+ * La CLI escribe ahi un `.md` por plan y lo anuncia en el JSONL — con una linea
+ * `plan_mode`, o con un `Write` a esa carpeta (`jsonl-events.ts`). La app no
+ * escribe nada aca, y solo abre los archivos que la conversacion nombro.
+ */
+export function plansRoot(): string {
+  return path.join(homedir(), '.claude', 'plans');
 }
 
 /**

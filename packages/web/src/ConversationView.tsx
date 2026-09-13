@@ -40,6 +40,7 @@ import type {
 } from '@agent-workbench/shared';
 import { ContextMeter } from './ContextMeter.js';
 import { ImageViewer } from './ImageViewer.js';
+import { nextUrl } from './inline-markup.js';
 import { Markdown } from './Markdown.js';
 import { imageKey, type ConversationFeed } from './useConversation.js';
 
@@ -244,18 +245,77 @@ function highlight(text: string, needle: string): JSX.Element {
   return <>{nodes}</>;
 }
 
+/**
+ * Texto plano con sus URLs convertidas en enlaces.
+ *
+ * Lo que escribe el usuario **no** pasa por el markdown —es texto, no un
+ * documento— pero eso dejaba sin abrir justo los enlaces que uno mas pega: el
+ * ticket, el PR, la documentacion. En la solapa CLI el clic funcionaba, porque
+ * la terminal carga `WebLinksAddon`; en el hilo no pasaba nada.
+ *
+ * Convierte las URLs y nada mas. Un `**texto**` escrito por el usuario se
+ * sigue viendo con sus asteriscos, que es lo correcto: eso lo escribio asi.
+ */
+function linkify(text: string, needle: string): JSX.Element {
+  const nodes: JSX.Element[] = [];
+  let rest = text;
+  let key = 0;
+
+  while (rest.length > 0) {
+    const found = nextUrl(rest);
+    if (found === null) {
+      nodes.push(<span key={key++}>{highlight(rest, needle)}</span>);
+      break;
+    }
+
+    if (found.index > 0) {
+      nodes.push(<span key={key++}>{highlight(rest.slice(0, found.index), needle)}</span>);
+    }
+    nodes.push(
+      <a key={key++} href={found.href} target="_blank" rel="noreferrer noopener">
+        {highlight(found.href, needle)}
+      </a>,
+    );
+    rest = rest.slice(found.index + found.length);
+  }
+
+  return <>{nodes}</>;
+}
+
+/** En que anda la CLI de la pestana que se esta mirando. */
+export type CliPresence = 'live' | 'sleeping' | 'exited';
+
 interface ConversationViewProps {
   view: ConversationFeed;
   /** Manda `Esc Esc` a la pty para abrir el menu de rewind de la CLI. */
   onRewind: () => void;
   /** Abre la solapa CLI: es donde se contesta lo que la CLI este esperando. */
   onGoToCli: () => void;
+  /**
+   * Si la pestana tiene CLI, y si no, por que.
+   *
+   * `sleeping` es una pestana restaurada: la conversacion se lee entera y no
+   * hay ningun proceso. `exited` es la que murio —dos `Ctrl+C` en la solapa
+   * CLI, por ejemplo—. Las dos se arreglan igual, abriendo la CLI, pero no
+   * dicen lo mismo y por eso no se mezclan.
+   */
+  cliPresence: CliPresence;
+  /** Codigo de salida, para la que murio. */
+  exitCode: number | null;
+  /** Lanza la CLI de esta pestana, reusando su conversacion. */
+  onWakeCli: () => void;
+  /** true mientras se espera que el servidor confirme el arranque. */
+  waking: boolean;
 }
 
 export function ConversationView({
   view,
   onRewind,
   onGoToCli,
+  cliPresence,
+  exitCode,
+  onWakeCli,
+  waking,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -494,7 +554,52 @@ export function ConversationView({
         })}
       </div>
 
-      <WaitingBar waitingFor={waitingFor} onGoToCli={onGoToCli} />
+      {cliPresence === 'live' ? (
+        <WaitingBar waitingFor={waitingFor} onGoToCli={onGoToCli} />
+      ) : (
+        <WakeBar presence={cliPresence} exitCode={exitCode} waking={waking} onWake={onWakeCli} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * La pestana no tiene CLI, y aca esta el boton para abrirla.
+ *
+ * Va en el mismo sitio que la barra de "esperando una respuesta" —entre el hilo
+ * y el cuadro de escritura— porque contesta la misma pregunta: por que no puedo
+ * escribir, y que hago al respecto.
+ *
+ * Son dos situaciones distintas con la misma salida. Una pestana **dormida** es
+ * lo que devuelve arrancar la aplicacion: la conversacion esta entera y se lee,
+ * pero no hay ningun proceso, porque restaurar seis pestanas no tiene por que
+ * lanzar seis CLI. Una **terminada** ya corrio y murio, casi siempre con dos
+ * `Ctrl+C` en la solapa CLI. Decirle "dormida" a la segunda seria mentir sobre
+ * lo que acaba de pasar.
+ */
+function WakeBar({
+  presence,
+  exitCode,
+  waking,
+  onWake,
+}: {
+  presence: CliPresence;
+  exitCode: number | null;
+  waking: boolean;
+  onWake: () => void;
+}): JSX.Element {
+  const text =
+    presence === 'sleeping'
+      ? 'Esta conversación se lee sin la CLI abierta. Abrila para escribirle al agente.'
+      : `La CLI de esta pestaña se cerró${exitCode === null ? '' : ` (código ${exitCode})`}.`;
+
+  return (
+    <div className="conversation-waiting conversation-wake" role="status">
+      <span className="conversation-wake-dot" aria-hidden="true" />
+      <span>{text}</span>
+      <button className="primary-button primary-button-small" onClick={onWake} disabled={waking}>
+        {waking ? 'Abriendo…' : 'Abrir CLI'}
+      </button>
     </div>
   );
 }
@@ -1091,7 +1196,7 @@ function FoldableText({
 
   return (
     <div className="part-text part-mine">
-      {highlight(visible, needle)}
+      {linkify(visible, needle)}
       {truncated && <span className="part-truncated"> … (recortado)</span>}
       {foldable && (
         <button className="fold-toggle" onClick={() => setOpen((value) => !value)}>

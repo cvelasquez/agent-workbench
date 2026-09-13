@@ -88,6 +88,30 @@ function CopyIcon(): JSX.Element {
   );
 }
 
+/**
+ * El ojo de lo oculto.
+ *
+ * Abierto o tachado segun el estado, que es como se lee un ojo en cualquier
+ * lado: no hace falta explicar cual es cual.
+ */
+function EyeIcon({ open }: { open: boolean }): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <path
+        d="M1.4 8S3.8 3.9 8 3.9 14.6 8 14.6 8 12.2 12.1 8 12.1 1.4 8 1.4 8z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      {!open && (
+        <path d="M2.6 13.4L13.4 2.6" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      )}
+    </svg>
+  );
+}
+
 /** Acuse de copiado. */
 function CheckIcon(): JSX.Element {
   return (
@@ -176,7 +200,18 @@ export function FilesPanel({
   onInsert,
   onReveal,
 }: FilesPanelProps): JSX.Element {
-  const { listings, loading, preview, loadingPreview, closePreview, refresh } = view;
+  const {
+    listings,
+    loading,
+    preview,
+    loadingPreview,
+    closePreview,
+    refresh,
+    query,
+    setQuery,
+    showHidden,
+    toggleHidden,
+  } = view;
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   const separator = platform === 'win32' ? '\\' : '/';
@@ -264,6 +299,7 @@ export function FilesPanel({
   }
 
   const root = listings.get('');
+  const searchingFor = query.trim();
 
   return (
     <div className="panel-body">
@@ -277,6 +313,17 @@ export function FilesPanel({
           onCopy={() => copyQuoted('')}
         />
         <button
+          className={showHidden ? 'icon-button icon-button-on' : 'icon-button'}
+          onClick={toggleHidden}
+          title={
+            showHidden
+              ? 'Esconder de nuevo lo que ocultan .gitignore y la lista fija'
+              : 'Mostrar también lo que ocultan .gitignore y la lista fija'
+          }
+        >
+          <EyeIcon open={showHidden} />
+        </button>
+        <button
           className="icon-button"
           onClick={() => onReveal('')}
           title="Abrir esta carpeta en el explorador del sistema"
@@ -288,8 +335,41 @@ export function FilesPanel({
         </button>
       </div>
 
+      {/*
+        La caja va arriba del arbol y no en la cabecera: es del contenido, no
+        del panel, y con el texto escrito los resultados **reemplazan** al arbol
+        —la misma regla que el diff y la previsualizacion, porque partir 640 px
+        en dos deja las dos mitades inservibles.
+      */}
+      <div className="tree-search">
+        <input
+          className="tree-search-input"
+          value={query}
+          placeholder="Buscar archivos por nombre…"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && query.length > 0) {
+              event.stopPropagation();
+              setQuery('');
+            }
+          }}
+        />
+        {query.length > 0 && (
+          <button className="tree-search-clear" onClick={() => setQuery('')} title="Limpiar (Esc)">
+            ×
+          </button>
+        )}
+      </div>
+
       <div className="panel-scroll">
-        {root === undefined ? (
+        {searchingFor.length > 0 ? (
+          <SearchResults
+            view={view}
+            onContextMenu={openMenu}
+            onReveal={onReveal}
+            onCopyPath={copyQuoted}
+          />
+        ) : root === undefined ? (
           <p className="panel-note">
             {loading.has('') ? 'Leyendo el directorio…' : 'No se pudo leer el directorio.'}
           </p>
@@ -309,6 +389,88 @@ export function FilesPanel({
         <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />
       )}
     </div>
+  );
+}
+
+/**
+ * Lo que encontro la busqueda: una lista plana, con la ruta de cada uno.
+ *
+ * Plana y no un arbol podado, porque lo que se busca esta a cualquier
+ * profundidad y reconstruir las ramas intermedias solo agrega filas que nadie
+ * pidio. La ruta va debajo del nombre, que es lo que desempata entre tres
+ * `index.ts`.
+ */
+function SearchResults({
+  view,
+  onContextMenu,
+  onReveal,
+  onCopyPath,
+}: {
+  view: FilesView;
+  onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
+  onReveal: (path: string) => void;
+  onCopyPath: (path: string) => void;
+}): JSX.Element {
+  const { results, searching, openFile, toggleDirectory } = view;
+
+  if (results === null) {
+    return <p className="panel-note">{searching ? 'Buscando…' : 'Escribí para buscar.'}</p>;
+  }
+
+  if (results.entries.length === 0) {
+    return <p className="panel-note">Ningún archivo con ese nombre.</p>;
+  }
+
+  return (
+    <ul className="tree tree-results">
+      {results.entries.map((entry) => (
+        <li key={entry.path}>
+          <div className="tree-item">
+            <button
+              className={`tree-row tree-row-${entry.kind}${
+                entry.hidden === undefined ? '' : ' tree-row-hidden'
+              }`}
+              onClick={() =>
+                entry.kind === 'dir' ? toggleDirectory(entry.path) : openFile(entry.path)
+              }
+              onContextMenu={(event) => onContextMenu(event, entry.path, entry.kind)}
+              title={entry.path}
+            >
+              <span className="tree-chevron">{entry.kind === 'dir' ? '›' : ''}</span>
+              <span className="tree-result">
+                <span className="tree-name">{entry.name}</span>
+                <span className="tree-result-path">{entry.path}</span>
+              </span>
+              {entry.kind === 'file' && (
+                <span className="tree-size">{formatSize(entry.sizeBytes)}</span>
+              )}
+            </button>
+
+            <CopyPathButton
+              className="tree-action"
+              title={`Copiar la ruta de ${entry.name} entre comillas`}
+              onCopy={() => onCopyPath(entry.path)}
+            />
+
+            {entry.kind === 'dir' && (
+              <button
+                className="tree-action"
+                onClick={() => onReveal(entry.path)}
+                title={`Abrir ${entry.name} en el explorador del sistema`}
+              >
+                <FolderIcon />
+              </button>
+            )}
+          </div>
+        </li>
+      ))}
+
+      {results.truncated && (
+        <li className="tree-hidden" title="Acotá la búsqueda para verlos todos">
+          hay más resultados de los que se muestran
+        </li>
+      )}
+    </ul>
   );
 }
 
@@ -400,13 +562,23 @@ function TreeRow({
       */}
       <div className="tree-item">
         <button
-          className={`tree-row tree-row-${entry.kind}`}
+          className={`tree-row tree-row-${entry.kind}${
+            entry.hidden === undefined ? '' : ' tree-row-hidden'
+          }`}
           style={{ paddingLeft: `${depth * 12 + 6}px` }}
           onClick={() =>
             entry.kind === 'dir' ? toggleDirectory(entry.path) : openFile(entry.path)
           }
           onContextMenu={(event) => onContextMenu(event, entry.path, entry.kind)}
-          title={entry.path}
+          title={
+            entry.hidden === undefined
+              ? entry.path
+              : `${entry.path}\n${
+                  entry.hidden === 'ignored'
+                    ? 'oculto por .gitignore'
+                    : 'oculto siempre: .git, node_modules, dist, bin, obj'
+                }`
+          }
         >
           <span className={`tree-chevron${isOpen ? ' tree-chevron-open' : ''}`}>
             {entry.kind === 'dir' ? '›' : ''}

@@ -15,6 +15,7 @@ import { useDragSize } from './useDragSize.js';
 import { readStored, writeStored } from './window-prefs.js';
 import { useConversation } from './useConversation.js';
 import { useFiles } from './useFiles.js';
+import { usePlans } from './usePlans.js';
 import { useGit } from './useGit.js';
 import { useNotes } from './useNotes.js';
 import { THEME_ICON, THEME_LABEL, useTheme } from './useTheme.js';
@@ -104,6 +105,9 @@ export function App(): JSX.Element {
     openTerminal,
     openShell,
     closeTerminal,
+    wakeTerminal,
+    waking,
+    activity,
     renameTerminal,
     reorderTabs,
     refreshIndex,
@@ -137,7 +141,11 @@ export function App(): JSX.Element {
     // la conversacion vivia aca. Ahora esta en el centro y la solapa que quedo
     // en su lugar es la CLI: se migra en silencio en vez de caer al default.
     readStored<PanelTab>(PANEL_TAB_KEY, 'cli', (raw) =>
-      raw === 'git' || raw === 'files' || raw === 'cli' ? raw : raw === 'conversation' ? 'cli' : null,
+      raw === 'git' || raw === 'files' || raw === 'cli' || raw === 'plans'
+        ? raw
+        : raw === 'conversation'
+          ? 'cli'
+          : null,
     ),
   );
   const [panelWidth, setPanelWidth] = useState(() =>
@@ -224,6 +232,13 @@ export function App(): JSX.Element {
   const conversation = useConversation(connection, activeTerminalId);
   const git = useGit(connection, panelOpen ? activeTerminalId : null);
   const files = useFiles(connection, panelOpen && panelTab === 'files' ? activeTerminalId : null);
+  /*
+    Los planes se escuchan siempre, no solo con la solapa delante: la lista
+    llega con la conversacion —no se pide— y es lo que alimenta el contador de
+    la solapa. Es la misma excepcion que ya tenia git, por el mismo motivo: un
+    dato que avisa no puede depender de estar mirandolo.
+  */
+  const plans = usePlans(connection, activeTerminalId);
 
   /*
     La CLI esta a la vista si su solapa esta delante y el panel abierto. Si no,
@@ -762,6 +777,7 @@ export function App(): JSX.Element {
           <TabBar
             terminals={terminals}
             activeTerminalId={activeTerminalId}
+            activity={activity}
             canOpen={cliAvailable && defaultCwd.length > 0}
             onSelect={setActiveTerminal}
             onClose={closeTerminal}
@@ -796,6 +812,24 @@ export function App(): JSX.Element {
                   if (!panelOpen) togglePanel();
                   changePanelTab('cli');
                 }}
+                /*
+                  Una pestana restaurada llega **dormida**: la conversacion se
+                  lee entera y no hay ningun proceso detras. El boton de abrir
+                  la CLI vive al pie del hilo, que es donde uno se da cuenta de
+                  que no puede escribir.
+                */
+                cliPresence={
+                  activeTerminal === null || activeTerminal.alive
+                    ? 'live'
+                    : activeTerminal.sleeping
+                      ? 'sleeping'
+                      : 'exited'
+                }
+                exitCode={activeTerminal?.exitCode ?? null}
+                waking={activeTerminalId !== null && waking.has(activeTerminalId)}
+                onWakeCli={() => {
+                  if (activeTerminalId !== null) wakeTerminal(activeTerminalId);
+                }}
               />
             )}
           </div>
@@ -805,6 +839,7 @@ export function App(): JSX.Element {
               connection={connection}
               terminalId={activeTerminalId}
               alive={activeTerminal.alive}
+              sleeping={activeTerminal.sleeping}
               leading={
                 <ModeControl
                   mode={conversation.permissionMode}
@@ -913,6 +948,7 @@ export function App(): JSX.Element {
                 onToggleExpanded={toggleExpanded}
                 git={git}
                 files={files}
+                plans={plans}
                 onInsert={insertIntoTerminal}
                 onReveal={revealPath}
                 onHide={togglePanel}

@@ -27,10 +27,13 @@ import {
   type ConversationImageSource,
   type ConversationState,
   type PermissionMode,
+  type PlanContent,
   type SessionId,
+  type SessionPlan,
   type TerminalId,
 } from '@agent-workbench/shared';
 import { readAgentDefaults } from './agent-defaults.js';
+import { describePlans, readPlan } from './plans-store.js';
 import type { CliStatusWatcher } from './cli-status.js';
 import {
   ConversationFollower,
@@ -73,6 +76,8 @@ export interface ConversationSnapshot {
   permissionMode: PermissionMode | null;
   /** Que espera la CLI, o null si no espera nada. No sale del JSONL. */
   waitingFor: string | null;
+  /** Planes que esta conversacion escribio, los mas nuevos primero. */
+  plans: SessionPlan[];
 }
 
 interface Entry {
@@ -145,6 +150,13 @@ export interface ConversationHubEvents {
   turns: (terminalId: TerminalId, turns: TurnUpdate[]) => void;
   /** Mensajes ya entregados a los que se les agrego una imagen adjunta. */
   parts: (terminalId: TerminalId, updates: PartsUpdate[]) => void;
+  /**
+   * La lista de planes de la pestana cambio.
+   *
+   * Va entera y no solo el plan nuevo: son tres o cuatro entradas de un par de
+   * campos, y mandar la lista completa deja al cliente sin nada que fusionar.
+   */
+  plans: (terminalId: TerminalId, plans: SessionPlan[]) => void;
 }
 
 export declare interface ConversationHub {
@@ -192,6 +204,7 @@ export class ConversationHub extends EventEmitter {
         permissionMode: null,
         usage: { ...EMPTY_CONTEXT_USAGE },
         waitingFor: null,
+        plans: [],
       };
     }
 
@@ -232,6 +245,7 @@ export class ConversationHub extends EventEmitter {
       usage: entry.follower.getUsage(),
       permissionMode: entry.observedMode ?? entry.assumedMode,
       waitingFor: entry.waitingFor,
+      plans: await describePlans(entry.follower.getPlanFiles()),
     };
   }
 
@@ -319,7 +333,25 @@ export class ConversationHub extends EventEmitter {
       usage: entry.follower.getUsage(),
       permissionMode: entry.follower.getPermissionMode(),
       waitingFor: entry.waitingFor,
+      // Este snapshot es sincronico y describir un plan pide el disco. Quien
+      // necesita los planes usa `subscribe`, que si puede esperar.
+      plans: [],
     };
+  }
+
+  /**
+   * Contenido de un plan de esta pestana.
+   *
+   * Se comprueba que el plan sea **de esta conversacion** antes de leerlo: el
+   * nombre llega del cliente, y aunque salio de una lista que mando este mismo
+   * servidor, un nombre que nadie nombro no se abre. Es el mismo criterio que
+   * el guardia de rutas del panel de archivos (§6.3).
+   */
+  async readPlan(terminalId: TerminalId, fileName: string): Promise<PlanContent | null> {
+    const entry = this.entries.get(terminalId);
+    if (entry === undefined) return null;
+    if (!entry.follower.getPlanFiles().includes(fileName)) return null;
+    return readPlan(fileName);
   }
 
   /**
@@ -513,6 +545,10 @@ export class ConversationHub extends EventEmitter {
         this.emit('append', terminalId, result.added, entry.follower.getUsage(), mode);
       }
       if (result.turns.length > 0) this.emit('turns', terminalId, result.turns);
+      // Un plan nuevo: la solapa lo muestra sin que nadie tenga que recargar.
+      if (result.plans.length > 0) {
+        this.emit('plans', terminalId, await describePlans(entry.follower.getPlanFiles()));
+      }
       if (result.parts.length > 0) this.emit('parts', terminalId, result.parts);
 
       // Y el aviso suelto, para el caso que no trae mensajes: uno cambia el

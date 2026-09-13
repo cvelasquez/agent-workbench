@@ -14,11 +14,17 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
-import type { TerminalDescriptor, TerminalId, TerminalKind } from '@agent-workbench/shared';
+import type {
+  TerminalActivity,
+  TerminalDescriptor,
+  TerminalId,
+  TerminalKind,
+} from '@agent-workbench/shared';
 import type { CliLocation } from './cli-locator.js';
 import type { CliStatusWatcher } from './cli-status.js';
 import { debugLog } from './debug.js';
 import { OutputBuffer } from './output-buffer.js';
+import { sessionFilePath } from './paths.js';
 import { PtySession, type LaunchSpec } from './pty-session.js';
 import { autoAnswerResumeDialog } from './resume-dialog.js';
 import type { ShellLocation } from './shell-locator.js';
@@ -47,11 +53,65 @@ const DEFAULT_ROWS = 24;
 
 export type OutputListener = (terminalId: TerminalId, chunk: string) => void;
 
+/**
+ * El estado que publica la CLI, traducido a lo que dibuja la barra de pestanas.
+ *
+ * Los tres conocidos salen tal cual; cualquier otro se trata como trabajando.
+ * Es la eleccion conservadora: un estado que no conocemos significa que la CLI
+ * esta en algo, y mostrarlo como parado invitaria a escribirle justo cuando no
+ * corresponde. Sin archivo no hay proceso: `offline`.
+ */
+function toActivity(status: string | null): TerminalActivity {
+  if (status === null) return 'offline';
+  if (status === 'idle' || status === 'busy' || status === 'waiting') return status;
+  return 'busy';
+}
+
+/**
+ * true si esa sesion ya tiene archivo en el historial de la CLI.
+ *
+ * Decide entre `--resume` y `--session-id` al despertar una pestana: reanudar
+ * una sesion que nunca escribio nada deja a la CLI mostrando un error, y la
+ * pestana en pantalla queda sin explicacion.
+ */
+async function sessionFileExists(cwd: string, sessionId: string): Promise<boolean> {
+  try {
+    await stat(sessionFilePath(cwd, sessionId));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface TerminalEntry {
   descriptor: TerminalDescriptor;
-  session: PtySession;
+  /**
+   * La pty, o null si la pestana esta **dormida**.
+   *
+   * Dormida es una pestana sin proceso: existe, se lee su conversacion, sus
+   * archivos y su git, y no hay ninguna CLI corriendo. Es lo que devuelve una
+   * restauracion — arrancar la aplicacion no lanza seis procesos de varios
+   * cientos de MB para leer lo que ya esta escrito en el JSONL.
+   *
+   * Tambien queda en null cuando el proceso termina, pero eso se distingue por
+   * el `exitCode` del descriptor: son dos cosas distintas para el usuario.
+   */
+  session: PtySession | null;
   buffer: OutputBuffer;
   listeners: Set<OutputListener>;
+  /**
+   * Ultimo tamano que pidio el cliente, aunque no hubiera pty.
+   *
+   * Es lo que hace que una pestana dormida no despierte en 80x24. El cliente
+   * mide el contenedor y manda `resize` igual —la terminal esta montada aunque
+   * la pestana no tenga proceso—, asi que cuando aparece la pty ya sabemos de
+   * que tamano tiene que nacer. Un pty desincronizado rompe el renderizado de
+   * la CLI (§3.1), y "se arregla solo cuando el usuario mueva el divisor" no es
+   * un arreglo.
+   */
+  size: { cols: number; rows: number };
+  /** Corta la suscripcion al estado que la CLI publica por proceso. */
+  stopWatchingActivity: (() => void) | null;
   /**
    * Corta la espera del dialogo de reanudar, si esta pestana la tenia.
    *
@@ -93,6 +153,13 @@ export interface TerminalRegistryEvents {
   output: (terminalId: TerminalId, chunk: string) => void;
   exit: (terminalId: TerminalId, exitCode: number, signal: number | null) => void;
   changed: () => void;
+  /**
+   * Cambio lo que esta haciendo la CLI de esa pestana.
+   *
+   * Va aparte de `changed` porque late cada 700 ms y `changed` reenvia la lista
+   * entera de pestanas: seria repetir todo para cambiar una palabra.
+   */
+  activity: (terminalId: TerminalId, activity: TerminalActivity) => void;
 }
 
 export declare interface TerminalRegistry {
@@ -185,7 +252,7 @@ export class TerminalRegistry extends EventEmitter {
     const kind: TerminalKind = options.kind ?? 'agent';
     // Se resuelve que se va a lanzar antes que nada: asi el error que ve el
     // usuario es "falta la CLI" o "falta la consola" y no uno de mas adelante.
-    const launcher = this.launcherFor(kind);
+    this.launcherFor(kind);
 
     if (this.terminals.size >= MAX_TERMINALS) {
       throw new TerminalOpenError(
@@ -194,19 +261,107 @@ export class TerminalRegistry extends EventEmitter {
       );
     }
 
-    let info;
+    await this.assertDirectory(options.cwd);
+
+    const resumed = kind === 'agent' && options.resumeSessionId !== undefined;
+    const terminalId = randomUUID();
+    const descriptor: TerminalDescriptor = {
+      terminalId,
+      kind,
+      cwd: options.cwd,
+      sessionId: kind === 'agent' ? (options.resumeSessionId ?? randomUUID()) : '',
+      label: options.label ?? '',
+      resumed,
+      createdAt: Date.now(),
+      // Lo pone `spawn`. Una entrada que no llega a tener proceso no queda en
+      // el registro: el catch de abajo la saca.
+      alive: false,
+      exitCode: null,
+      sleeping: true,
+    };
+
+    const entry: TerminalEntry = {
+      descriptor,
+      session: null,
+      buffer: new OutputBuffer(),
+      listeners: new Set(),
+      size: { cols: options.cols ?? DEFAULT_COLS, rows: options.rows ?? DEFAULT_ROWS },
+      cancelResumeAnswer: null,
+      stopWatchingActivity: null,
+    };
+    this.terminals.set(terminalId, entry);
+
     try {
-      info = await stat(options.cwd);
-    } catch {
-      throw new TerminalOpenError('invalid-cwd', `El directorio no existe: ${options.cwd}`);
-    }
-    if (!info.isDirectory()) {
-      throw new TerminalOpenError('invalid-cwd', `No es un directorio: ${options.cwd}`);
+      this.spawn(entry, { resume: resumed });
+    } catch (error) {
+      this.terminals.delete(terminalId);
+      throw error;
     }
 
-    const resumed = launcher.kind === 'agent' && options.resumeSessionId !== undefined;
-    const sessionId =
-      launcher.kind === 'agent' ? (options.resumeSessionId ?? randomUUID()) : '';
+    this.insertInOrder(terminalId, entry.descriptor);
+    this.persist();
+    this.emit('changed');
+
+    return entry.descriptor;
+  }
+
+  /**
+   * Le da proceso a una pestana dormida, o revive una que murio.
+   *
+   * Es la otra mitad de restaurar sin lanzar nada: la pestana ya esta en
+   * pantalla con su conversacion, y esto es lo que pasa cuando el usuario
+   * quiere escribirle al agente. Reusa el mismo `terminalId` y el mismo
+   * `sessionId` — no es una pestana nueva, es la misma.
+   */
+  async wake(terminalId: TerminalId): Promise<TerminalDescriptor | null> {
+    const entry = this.terminals.get(terminalId);
+    if (entry === undefined) return null;
+    if (entry.session !== null && entry.descriptor.alive) return entry.descriptor;
+
+    await this.assertDirectory(entry.descriptor.cwd);
+
+    /*
+      Se reanuda solo si hay algo que reanudar. Una pestana que se cerro antes
+      del primer turno no tiene archivo de sesion, y ahi `--resume` deja a la
+      CLI mostrando un error en vez de una conversacion; con `--session-id`
+      arranca limpia y sigue escribiendo el archivo que ya esperabamos.
+    */
+    const resume =
+      entry.descriptor.kind === 'agent' &&
+      entry.descriptor.sessionId.length > 0 &&
+      (await sessionFileExists(entry.descriptor.cwd, entry.descriptor.sessionId));
+
+    this.spawn(entry, { resume });
+    this.persist();
+    this.emit('changed');
+    return entry.descriptor;
+  }
+
+  /** El `cwd` tiene que existir y ser un directorio. Vale para abrir y despertar. */
+  private async assertDirectory(cwd: string): Promise<void> {
+    let info;
+    try {
+      info = await stat(cwd);
+    } catch {
+      throw new TerminalOpenError('invalid-cwd', `El directorio no existe: ${cwd}`);
+    }
+    if (!info.isDirectory()) {
+      throw new TerminalOpenError('invalid-cwd', `No es un directorio: ${cwd}`);
+    }
+  }
+
+  /**
+   * Lanza la pty de una entrada que ya existe.
+   *
+   * Lo usan `open()` y `wake()`, y por eso esta aca afuera: eran el mismo
+   * codigo, y dos copias de esto es como una de las dos termina sin el
+   * contestador del dialogo de reanudar.
+   */
+  private spawn(entry: TerminalEntry, options: { resume: boolean }): void {
+    const { terminalId, kind, cwd, sessionId } = entry.descriptor;
+    const launcher = this.launcherFor(kind);
+    const { buffer } = entry;
+
     // Sin --fork-session: al reanudar queremos seguir escribiendo el mismo
     // archivo, para que el seguimiento incremental del Hito 3 no se corte.
     const launch: LaunchSpec =
@@ -216,40 +371,47 @@ export class TerminalRegistry extends EventEmitter {
             args: [
               ...launcher.cli.prefixArgs,
               ...PERMISSION_MODE_ARGS,
-              ...(resumed ? ['--resume', sessionId] : ['--session-id', sessionId]),
+              ...(options.resume ? ['--resume', sessionId] : ['--session-id', sessionId]),
             ],
           }
         : { file: launcher.shell.file, args: [...launcher.shell.args] };
-
-    const terminalId = randomUUID();
-    const buffer = new OutputBuffer();
 
     let session: PtySession;
     try {
       session = new PtySession({
         launch,
-        cwd: options.cwd,
-        cols: options.cols ?? DEFAULT_COLS,
-        rows: options.rows ?? DEFAULT_ROWS,
+        cwd,
+        cols: entry.size.cols,
+        rows: entry.size.rows,
         onData: (chunk) => {
           buffer.push(chunk);
-          const entry = this.terminals.get(terminalId);
-          const listenerCount = entry?.listeners.size ?? 0;
+          const target = this.terminals.get(terminalId);
+          const listenerCount = target?.listeners.size ?? 0;
           debugLog(
             'pty',
             `salida ${chunk.length} bytes de ${terminalId.slice(0, 8)}, ${listenerCount} oyentes`,
           );
-          if (entry !== undefined) {
-            for (const listener of entry.listeners) listener(terminalId, chunk);
+          if (target !== undefined) {
+            for (const listener of target.listeners) listener(terminalId, chunk);
           }
           this.emit('output', terminalId, chunk);
         },
         onExit: (exitCode, signal) => {
-          const entry = this.terminals.get(terminalId);
-          if (entry !== undefined) {
+          const target = this.terminals.get(terminalId);
+          if (target !== undefined) {
             // La pestana no se cierra sola: queda muerta y visible, para que el
-            // usuario vea el codigo de salida en vez de que desaparezca.
-            entry.descriptor = { ...entry.descriptor, alive: false, exitCode };
+            // usuario vea el codigo de salida en vez de que desaparezca. Sin
+            // proceso vuelve a ser una pestana que se lee y se puede despertar.
+            target.session = null;
+            target.descriptor = {
+              ...target.descriptor,
+              alive: false,
+              exitCode,
+              sleeping: false,
+            };
+            target.stopWatchingActivity?.();
+            target.stopWatchingActivity = null;
+            this.emit('activity', terminalId, 'offline');
           }
           this.emit('exit', terminalId, exitCode, signal);
           this.emit('changed');
@@ -263,26 +425,9 @@ export class TerminalRegistry extends EventEmitter {
       );
     }
 
-    const descriptor: TerminalDescriptor = {
-      terminalId,
-      kind,
-      cwd: options.cwd,
-      sessionId,
-      label: options.label ?? '',
-      resumed,
-      createdAt: Date.now(),
-      alive: true,
-      exitCode: null,
-    };
-
-    const entry: TerminalEntry = {
-      descriptor,
-      session,
-      buffer,
-      listeners: new Set(),
-      cancelResumeAnswer: null,
-    };
-    this.terminals.set(terminalId, entry);
+    entry.session = session;
+    entry.descriptor = { ...entry.descriptor, alive: true, exitCode: null, sleeping: false };
+    this.watchActivity(entry);
 
     /*
       Reanudar una sesion vieja y grande abre un dialogo que el usuario contesta
@@ -290,14 +435,14 @@ export class TerminalRegistry extends EventEmitter {
       `resume-dialog.ts`; si el dialogo no aparece —que es lo normal— no se
       escribe nada.
     */
-    if (resumed && this.cliStatus !== null) {
+    if (options.resume && this.cliStatus !== null) {
       entry.cancelResumeAnswer = autoAnswerResumeDialog({
         watcher: this.cliStatus,
         sessionId,
         readOutput: () => buffer.read(),
         write: (data) => {
           const target = this.terminals.get(terminalId);
-          if (target === undefined) return false;
+          if (target === undefined || target.session === null) return false;
           target.session.write(data);
           return true;
         },
@@ -308,39 +453,87 @@ export class TerminalRegistry extends EventEmitter {
         },
       });
     }
-
-    this.insertInOrder(terminalId, descriptor);
-    this.persist();
-    this.emit('changed');
-
-    return descriptor;
   }
 
   /**
-   * Reabre las pestanas guardadas del arranque anterior.
+   * Sigue el estado que la CLI publica por proceso, para esta pestana.
    *
-   * Los procesos no sobreviven al cierre: lo que se restaura es la lista, y
-   * cada pestana se relanza con `--resume` sobre su conversacion.
+   * Es lo que hace que la barra de pestanas pueda decir si el agente esta
+   * trabajando, parado o esperando una respuesta. El sondeo es **uno solo** y
+   * compartido con todo lo que mira ese directorio (`cli-status.ts`), asi que
+   * seguir seis pestanas no cuesta seis lecturas.
+   */
+  private watchActivity(entry: TerminalEntry): void {
+    entry.stopWatchingActivity?.();
+    entry.stopWatchingActivity = null;
+
+    const { terminalId, kind, sessionId } = entry.descriptor;
+    if (this.cliStatus === null || kind !== 'agent' || sessionId.length === 0) return;
+
+    entry.stopWatchingActivity = this.cliStatus.subscribe(sessionId, (status) => {
+      this.emit('activity', terminalId, toActivity(status?.status ?? null));
+    });
+  }
+
+  /**
+   * Reabre las pestanas guardadas del arranque anterior, **dormidas**.
    *
-   * Se lanzan de a una y no en paralelo a proposito: cada pestana es un proceso
-   * de varios cientos de MB, y arrancar diez de golpe deja la maquina de
-   * rodillas justo cuando el usuario esta abriendo la app.
+   * Los procesos no sobreviven al cierre, y hasta el hito 21 esto relanzaba un
+   * `claude --resume` por cada pestana guardada: seis pestanas eran seis
+   * procesos de varios cientos de MB arrancando a la vez para leer algo que ya
+   * estaba escrito en el JSONL. La conversacion, el medidor, git y el arbol
+   * salen del archivo y del `cwd`; la pty solo hace falta para *escribirle* al
+   * agente.
+   *
+   * Asi que se restaura la lista y nada mas. La CLI la pide el usuario, pestana
+   * por pestana, con `terminal.wake`.
+   *
+   * Se comprueba que el directorio siga existiendo: una pestana dormida
+   * apuntando a una carpeta borrada no sirve para nada y se veria como una
+   * conversacion vacia sin explicacion.
    */
   async restore(tabs: readonly PersistedTab[]): Promise<void> {
     for (const tab of tabs) {
       if (this.terminals.size >= MAX_TERMINALS) break;
       try {
-        await this.open({
-          cwd: tab.cwd,
-          resumeSessionId: tab.sessionId,
-          label: tab.label,
-        });
+        await this.assertDirectory(tab.cwd);
       } catch (error) {
         // Una carpeta que ya no existe no puede frenar la restauracion del resto.
         const reason = error instanceof Error ? error.message : String(error);
         console.warn(`[workspace] no se restauro la pestana de ${tab.cwd}: ${reason}`);
+        continue;
       }
+
+      const terminalId = randomUUID();
+      const descriptor: TerminalDescriptor = {
+        terminalId,
+        kind: 'agent',
+        cwd: tab.cwd,
+        sessionId: tab.sessionId,
+        label: tab.label,
+        // Cuando despierte va a ser un `--resume` de verdad; decirlo desde ya
+        // es lo que hace que la pestana se dibuje con su flecha de reanudada.
+        resumed: true,
+        createdAt: Date.now(),
+        alive: false,
+        exitCode: null,
+        sleeping: true,
+      };
+
+      this.terminals.set(terminalId, {
+        descriptor,
+        session: null,
+        buffer: new OutputBuffer(),
+        listeners: new Set(),
+        size: { cols: DEFAULT_COLS, rows: DEFAULT_ROWS },
+        cancelResumeAnswer: null,
+        stopWatchingActivity: null,
+      });
+      this.insertInOrder(terminalId, descriptor);
     }
+
+    this.persist();
+    this.emit('changed');
   }
 
   /**
@@ -378,7 +571,9 @@ export class TerminalRegistry extends EventEmitter {
 
     entry.listeners.clear();
     entry.cancelResumeAnswer?.();
-    entry.session.dispose();
+    entry.stopWatchingActivity?.();
+    // Una pestana dormida no tiene nada que terminar: se saca y listo.
+    entry.session?.dispose();
     this.terminals.delete(terminalId);
     this.order = this.order.filter((id) => id !== terminalId);
     this.persist();
@@ -415,9 +610,16 @@ export class TerminalRegistry extends EventEmitter {
     for (const entry of this.terminals.values()) entry.listeners.delete(listener);
   }
 
+  /**
+   * Escribe en la pty, si la hay.
+   *
+   * Devuelve false con la pestana dormida, y eso no es un error: es el estado
+   * normal de una pestana restaurada. Quien llama decide que hacer —el socket
+   * lo dice, el cliente ofrece abrir la CLI.
+   */
   write(terminalId: TerminalId, data: string): boolean {
     const entry = this.terminals.get(terminalId);
-    if (entry === undefined) return false;
+    if (entry === undefined || entry.session === null) return false;
     /*
       Si alguien ya esta escribiendo, el menu del dialogo de reanudar no esta
       como lo dejamos: se abandona la espera antes de que mande un `2` que
@@ -429,9 +631,18 @@ export class TerminalRegistry extends EventEmitter {
     return true;
   }
 
+  /**
+   * Reenvia el tamano al pty, y lo recuerda.
+   *
+   * Lo recuerda **aunque no haya pty**: una pestana dormida tiene su terminal
+   * montada del lado del cliente y manda su tamano igual. Sin eso, despertarla
+   * arrancaba la CLI en 80x24 hasta que alguien moviera un divisor.
+   */
   resize(terminalId: TerminalId, cols: number, rows: number): boolean {
     const entry = this.terminals.get(terminalId);
     if (entry === undefined) return false;
+    entry.size = { cols, rows };
+    if (entry.session === null) return false;
     entry.session.resize(cols, rows);
     return true;
   }
@@ -459,7 +670,8 @@ export class TerminalRegistry extends EventEmitter {
     for (const entry of this.terminals.values()) {
       entry.listeners.clear();
       entry.cancelResumeAnswer?.();
-      entry.session.dispose();
+      entry.stopWatchingActivity?.();
+      entry.session?.dispose();
     }
     this.terminals.clear();
     this.order = [];

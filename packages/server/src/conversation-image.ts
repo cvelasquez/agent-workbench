@@ -59,20 +59,41 @@ export async function loadConversationImage(
     Las adjuntas no se pueden buscar por posicion dentro de una linea: cada una
     es una linea propia, y su indice es el orden en que cuelgan del mensaje. Se
     cuentan al pasar.
+
+    Y no todas cuelgan del mensaje: con dos imagenes, la segunda cuelga de la
+    primera (§4.9.2). Por eso se lleva la **cadena** —el mensaje y los adjuntos
+    que ya se le reconocieron— en vez de un solo id.
   */
   let seen = 0;
+  const chain = new Set([eventId]);
   const consider = (line: string): LoadedImage | null => {
     // Filtro barato antes de parsear: casi ninguna linea es la que se busca y
-    // `JSON.parse` sobre 290 KB no es gratis. Sirve para las dos formas — el
-    // `parentUuid` de una adjunta tambien es el `eventId` que se busca.
-    if (!line.includes(eventId)) return null;
+    // `JSON.parse` sobre 290 KB no es gratis. La cadena tiene un id mas por
+    // imagen adjunta, asi que sigue siendo una pasada corta.
+    let mentions = false;
+    for (const id of chain) {
+      if (line.includes(id)) {
+        mentions = true;
+        break;
+      }
+    }
+    if (!mentions) return null;
+
     const record = parseJsonlLine(line);
     if (record === null) return null;
 
     if (source === 'content') return imageFromContent(record, eventId, index);
 
-    const found = imageFromAttachment(record, eventId);
+    const parent = record['parentUuid'];
+    if (typeof parent !== 'string' || !chain.has(parent)) return null;
+
+    const found = imageFromAttachment(record);
     if (found === null) return null;
+
+    // Este adjunto pasa a ser padre posible del que siga.
+    const ownId = record['uuid'];
+    if (typeof ownId === 'string' && ownId.length > 0) chain.add(ownId);
+
     return seen++ === index ? found : null;
   };
 
@@ -148,18 +169,16 @@ function imageFromContent(
 }
 
 /**
- * Una linea `attachment` que cuelga del mensaje: lo que deja el cuadro de
- * escritura, que le nombra la imagen a la CLI por ruta (§5.3).
+ * Una linea `attachment` de imagen: lo que deja el cuadro de escritura, que le
+ * nombra la imagen a la CLI por ruta (§5.3).
  *
- * Devuelve la imagen de **esta** linea; quien llama cuenta cual es. Tiene que
- * ser asi porque el indice es el orden entre las adjuntas del mismo mensaje, y
- * eso no se sabe mirando una linea sola.
+ * Devuelve la imagen de **esta** linea; quien llama decide si le corresponde —
+ * de que mensaje cuelga y que numero es. Tiene que ser asi porque el indice es
+ * el orden entre las adjuntas del mismo mensaje, y eso no se sabe mirando una
+ * linea sola.
  */
-function imageFromAttachment(
-  record: Record<string, unknown>,
-  eventId: string,
-): LoadedImage | null {
-  if (record['type'] !== 'attachment' || record['parentUuid'] !== eventId) return null;
+function imageFromAttachment(record: Record<string, unknown>): LoadedImage | null {
+  if (record['type'] !== 'attachment') return null;
 
   const attachment = record['attachment'];
   if (typeof attachment !== 'object' || attachment === null) return null;

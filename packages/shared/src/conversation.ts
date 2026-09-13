@@ -161,6 +161,42 @@ export interface MessageUsage {
   cacheReadInputTokens: number;
 }
 
+/**
+ * Un plan que esta conversacion escribio.
+ *
+ * La CLI deja los planes del modo plan en `~/.claude/plans/<archivo>.md` y los
+ * nombra en el JSONL. Lo que viaja es el **nombre del archivo**, nunca la ruta:
+ * la carpeta la pone el servidor, que es la regla de siempre para cualquier
+ * ruta de esta aplicacion.
+ *
+ * Se listan los de **esta** sesion y no la carpeta entera: un plan de otro
+ * proyecto en el panel de este es ruido, y el panel esta atado a la pestana
+ * como todo lo demas de la columna derecha.
+ */
+export interface SessionPlan {
+  /** Nombre del archivo, con extension. Es el id con el que se lo pide. */
+  fileName: string;
+  /** El nombre sin extension. Es lo que se muestra. */
+  title: string;
+  /**
+   * false si el archivo ya no esta en disco.
+   *
+   * Pasa de verdad: una linea `plan_mode` puede nombrar un plan que nunca se
+   * llego a escribir (`planExists: false`), y un plan viejo se puede borrar. Se
+   * dice en vez de esconderlo — la conversacion lo nombro.
+   */
+  exists: boolean;
+  modifiedAt: number;
+  sizeBytes: number;
+}
+
+/** El contenido de un plan, ya recortado. */
+export interface PlanContent {
+  fileName: string;
+  text: string;
+  truncated: boolean;
+}
+
 export interface ConversationEvent {
   /** `uuid` de la linea. Sintetico si la linea no traia uno. */
   eventId: string;
@@ -503,4 +539,31 @@ export function parseContextUsage(value: unknown): ContextUsage | null {
     totalCacheReadTokens,
     assistantMessages,
   };
+}
+
+
+export function parseSessionPlan(value: unknown): SessionPlan | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+
+  const fileName = asNonEmptyString(record['fileName']);
+  const title = asNonEmptyString(record['title']);
+  const modifiedAt = asFiniteNumber(record['modifiedAt']);
+  const sizeBytes = asFiniteNumber(record['sizeBytes']);
+  if (fileName === null || title === null || modifiedAt === null || sizeBytes === null) {
+    return null;
+  }
+
+  return { fileName, title, exists: record['exists'] === true, modifiedAt, sizeBytes };
+}
+
+export function parsePlanContent(value: unknown): PlanContent | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+
+  const fileName = asNonEmptyString(record['fileName']);
+  const text = asString(record['text']);
+  if (fileName === null || text === null) return null;
+
+  return { fileName, text, truncated: record['truncated'] === true };
 }

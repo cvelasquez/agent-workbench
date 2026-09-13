@@ -119,7 +119,41 @@ export interface TerminalDescriptor {
   alive: boolean;
   /** Codigo de salida, null mientras siga viva. */
   exitCode: number | null;
+  /**
+   * true si la pestana esta **dormida**: existe, se lee, y no tiene proceso.
+   *
+   * Es lo que devuelve una restauracion. Arrancar la aplicacion no lanza una
+   * CLI por cada pestana guardada —seis pestanas eran seis procesos de varios
+   * cientos de MB para leer lo que ya esta escrito en el JSONL— y la conversion
+   * a pestana viva la pide el usuario con `terminal.wake`.
+   *
+   * No se confunde con una que murio: esa tiene `exitCode`, y lo que se le
+   * ofrece al usuario dice otra cosa.
+   */
+  sleeping: boolean;
 }
+
+/**
+ * Que esta haciendo la CLI de una pestana, ahora mismo.
+ *
+ * No sale del JSONL —ahi no esta— sino del archivo que la CLI mantiene por
+ * proceso vivo, `~/.claude/sessions/<pid>.json` (CLAUDE.md 4.13). Es el mismo
+ * dato que ya alimentaba la barra del pie de la conversacion; lo que cambia es
+ * que ahora viaja para **todas** las pestanas, porque la barra de pestanas las
+ * dibuja todas.
+ *
+ * `offline` es no tener proceso: una pestana dormida, una que murio, o una que
+ * la CLI todavia no registro. Son estados distintos para la aplicacion, pero
+ * para "que esta haciendo" son el mismo: nada.
+ */
+export type TerminalActivity = 'busy' | 'idle' | 'waiting' | 'offline';
+
+export const TERMINAL_ACTIVITIES: readonly TerminalActivity[] = [
+  'busy',
+  'idle',
+  'waiting',
+  'offline',
+];
 
 // ---------------------------------------------------------------------------
 // Parsers
@@ -222,5 +256,8 @@ export function parseTerminalDescriptor(value: unknown): TerminalDescriptor | nu
     createdAt,
     alive,
     exitCode: typeof rawExitCode === 'number' ? rawExitCode : null,
+    // Ausente = de una version anterior del protocolo, donde toda pestana
+    // tenia proceso.
+    sleeping: record['sleeping'] === true,
   };
 }

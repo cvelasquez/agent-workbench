@@ -292,6 +292,12 @@ kbd {
   border-color: var(--accent);
 }
 
+/* Un interruptor encendido: el ojo del arbol. */
+.icon-button-on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .link-button {
   flex: 0 0 auto;
   color: var(--text-dim);
@@ -517,6 +523,86 @@ kbd {
 
 .tab-dot-dead {
   background: var(--text-dim);
+}
+
+/*
+  Dormida: el hueco del punto, sin relleno.
+
+  Es deliberadamente lo mismo que hace el medidor de contexto en una
+  conversacion nueva — reservar el sitio y dejarlo vacio. Un punto lleno de otro
+  color diria que pasa algo; lo que pasa es que no hay nada corriendo.
+*/
+.tab-dot-sleeping {
+  background: transparent;
+  border: 1px solid var(--text-dim);
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+}
+
+/*
+  Trabajando: tres puntitos que laten por turnos.
+
+  Ocupa lo mismo que el punto y se dibuja a codigo — nada de un gif, que no
+  seguiria el tema claro y oscuro y se veria borroso en una pantalla HiDPI.
+*/
+.tab-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  height: 6px;
+}
+
+.tab-working i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: tab-working-pulse 1.1s ease-in-out infinite;
+}
+
+.tab-working i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.tab-working i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes tab-working-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* Esperando una respuesta: lo unico que pide atencion de verdad. */
+.tab-bang {
+  flex: 0 0 auto;
+  width: 6px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--warning);
+}
+
+/*
+  Quien pidio menos movimiento no quiere tres puntos latiendo en la barra. Se
+  quedan quietos y siguen diciendo lo mismo: hay tres, no es el punto de
+  "parado".
+*/
+@media (prefers-reduced-motion: reduce) {
+  .tab-working i {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .tab-label {
@@ -1441,6 +1527,37 @@ kbd {
   background: var(--chrome-alt);
   font-size: 12px;
   color: var(--text);
+}
+
+/*
+  La pestana no tiene CLI. Mismo sitio que la barra de "esperando una
+  respuesta" —contesta la misma pregunta: por que no puedo escribir— pero en
+  tono neutro: no es una alerta, es el estado normal de una pestana restaurada.
+*/
+.conversation-wake {
+  border-top-color: var(--border);
+}
+
+.conversation-wake-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--text-dim);
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+.conversation-wake span:nth-of-type(2) {
+  flex: 1 1 auto;
+  color: var(--text-dim);
+}
+
+.primary-button-small {
+  /* El margen del boton grande es para el estado vacio, donde va debajo de un
+     parrafo. En una barra de una linea lo descoloca. */
+  margin-top: 0;
+  padding: 3px 10px;
+  font-size: 11px;
 }
 
 .conversation-waiting-dot {
@@ -2398,6 +2515,83 @@ kbd {
   opacity: 0.7;
 }
 
+/*
+  Caja de busqueda del arbol.
+
+  Va entre la cabecera y el arbol —es del contenido, no del panel— y con texto
+  escrito los resultados reemplazan al arbol entero.
+*/
+.tree-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 6px;
+}
+
+.tree-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 5px 24px 5px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.tree-search-input:focus {
+  outline: 1px solid var(--accent);
+}
+
+.tree-search-clear {
+  position: absolute;
+  right: 12px;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.tree-search-clear:hover {
+  color: var(--text);
+}
+
+/* Un resultado lleva su ruta debajo: es lo que desempata entre tres index.ts. */
+.tree-result {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+}
+
+.tree-result-path {
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* De derecha a izquierda: el final de la ruta dice mas que el principio. */
+  direction: rtl;
+  text-align: left;
+}
+
+.tree-results .tree-row {
+  padding-left: 6px;
+}
+
+/*
+  Lo que se ve solo con el ojo abierto.
+
+  Atenuado y en cursiva: esta ahi para poder abrirlo, no para competir con lo
+  que el proyecto muestra normalmente.
+*/
+.tree-row-hidden .tree-name {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 .tree-loading,
 .tree-empty,
 .tree-hidden {
@@ -2405,6 +2599,61 @@ kbd {
   font-size: 10px;
   color: var(--text-dim);
   font-style: italic;
+}
+
+/* ---------- planes ---------- */
+
+.plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.plan-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.plan-row:hover {
+  background: var(--hover);
+}
+
+.plan-name {
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.plan-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* Un plan que la conversacion nombro y ya no esta: se dice, no se esconde. */
+.plan-row-missing {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.plan-row-missing:hover {
+  background: transparent;
+}
+
+/*
+  El cuerpo del plan usa el mismo markdown del hilo. Lo unico propio es el
+  respiro de los costados: aca no hay avatar ni reloj que marquen el margen.
+*/
+.plan-body {
+  padding: 6px 10px 16px;
 }
 
 /* ---------- previsualizacion ---------- */

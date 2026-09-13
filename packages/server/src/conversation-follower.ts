@@ -32,6 +32,7 @@ import {
 } from '@agent-workbench/shared';
 import {
   stripFileReference,
+  toPlanFileName,
   toConversationEvent,
   toTurnDuration,
   toUserImageAttachment,
@@ -51,6 +52,14 @@ const READ_CHUNK_BYTES = 256 * 1024;
  * dia terminen en cientos de MB. Se descartan los mas viejos.
  */
 const MAX_EVENTS = 4_000;
+
+/**
+ * Cuantos eslabones de la cadena de adjuntos se recuerdan.
+ *
+ * Cada entrada solo sirve para el adjunto que venga justo despues, asi que con
+ * cien alcanza de sobra: en la instalacion entera hay 39 adjuntos de imagen.
+ */
+const MAX_ATTACHMENT_LINKS = 100;
 
 const NEWLINE = 0x0a;
 
@@ -87,6 +96,14 @@ export interface PollResult {
    * ya.
    */
   turns: TurnUpdate[];
+  /**
+   * Planes que esta conversacion nombro y no estaban antes.
+   *
+   * Van aparte de los eventos porque no son una tarjeta del hilo: el plan se ve
+   * en su propia solapa, y lo que lo anuncia en el JSONL —una linea `plan_mode`
+   * o un `Write` a la carpeta de planes— ya se dibuja como lo que es.
+   */
+  plans: string[];
   /** Eventos ya entregados a los que se les agrego una imagen adjunta. */
   parts: PartsUpdate[];
 }
@@ -171,6 +188,11 @@ export class ConversationFollower {
     readonly filePath: string,
     private readonly installVariants?: ModelVariantRegistry,
   ) {}
+
+  /** Planes que esta conversacion nombro, en orden de aparicion. */
+  getPlanFiles(): readonly string[] {
+    return this.planFiles;
+  }
 
   /** La configuracion que rige esta pestana. La relee el hub. */
   setConfiguredAlias(alias: string | null): void {
@@ -258,10 +280,10 @@ export class ConversationFollower {
       if (this.events.length > 0 || this.offset > 0) {
         this.reset();
         this.state = 'waiting';
-        return { reset: true, added: [], turns: [], parts: [] };
+        return { reset: true, added: [], turns: [], plans: [], parts: [] };
       }
       this.state = 'waiting';
-      return { reset: false, added: [], turns: [], parts: [] };
+      return { reset: false, added: [], turns: [], plans: [], parts: [] };
     }
 
     let didReset = false;
@@ -272,10 +294,13 @@ export class ConversationFollower {
     }
 
     this.state = 'live';
-    if (size === this.offset) return { reset: didReset, added: [], turns: [], parts: [] };
+    if (size === this.offset) {
+      return { reset: didReset, added: [], turns: [], plans: [], parts: [] };
+    }
 
     this.turns = [];
     this.partUpdates = [];
+    this.freshPlans = [];
     const added = await this.readFrom(size);
     // Lo que se aplico a un evento de este mismo lote ya viaja dentro de el.
     const fresh = new Set(added.map((event) => event.eventId));
@@ -293,9 +318,11 @@ export class ConversationFollower {
           .map((update) => [update.eventId, update]),
       ).values(),
     ];
+    const plans = this.freshPlans;
     this.turns = [];
     this.partUpdates = [];
-    return { reset: didReset, added, turns, parts };
+    this.freshPlans = [];
+    return { reset: didReset, added, turns, plans, parts };
   }
 
   private reset(): void {
@@ -306,6 +333,8 @@ export class ConversationFollower {
     this.dropped = 0;
     this.usage = { ...EMPTY_CONTEXT_USAGE };
     this.permissionMode = null;
+    this.attachmentRoots.clear();
+    this.planFiles = [];
   }
 
   private async readFrom(size: number): Promise<ConversationEvent[]> {
@@ -379,6 +408,17 @@ export class ConversationFollower {
     }
 
     /*
+      Un plan del modo plan. Tampoco es una tarjeta: el plan se lee en su
+      solapa. La linea que lo nombra sigue su camino normal —puede ser un
+      `Write`, que si es una tarjeta— asi que esto no devuelve.
+    */
+    const planFile = toPlanFileName(record);
+    if (planFile !== null && !this.planFiles.includes(planFile)) {
+      this.planFiles.push(planFile);
+      this.freshPlans.push(planFile);
+    }
+
+    /*
       El modo de permiso. Como `cost-state`, no es una tarjeta de la
       conversacion pero es la unica fuente de un dato que se muestra.
     */
@@ -444,6 +484,33 @@ export class ConversationFollower {
   }
 
   /**
+   * De que mensaje cuelga cada linea `attachment` ya vista.
+   *
+   * Con dos imagenes en un mensaje, la CLI **encadena** los adjuntos: el
+   * segundo trae como `parentUuid` el `uuid` del primero, no el del mensaje
+   * (§4.9.2). Buscar el evento por ese id no encuentra nada —un adjunto no es
+   * un evento— y la segunda imagen se perdia: sin miniatura, y con su `@"ruta"`
+   * de sesenta caracteres todavia en el texto.
+   *
+   * Es un mapa y no una busqueda hacia atras porque la cadena puede ser de
+   * cualquier largo, y cada eslabon ya paso por aca.
+   */
+  private readonly attachmentRoots = new Map<string, string>();
+
+  /**
+   * Planes de esta sesion, en el orden en que la conversacion los nombro.
+   *
+   * Es una lista y no un Set porque el orden es informacion —el ultimo plan es
+   * casi siempre el que interesa— y aun asi no se repiten: la misma sesion
+   * nombra el mismo archivo varias veces (una linea `plan_mode` por turno del
+   * modo plan, mas el `Write`).
+   */
+  private planFiles: string[] = [];
+
+  /** Los que aparecieron en esta pasada, para avisarlos. */
+  private freshPlans: string[] = [];
+
+  /**
    * Le pega al mensaje la imagen que la CLI adjunto en la linea siguiente.
    *
    * Dos cosas pasan aca, y la segunda es la mitad del sentido de todo esto:
@@ -464,7 +531,14 @@ export class ConversationFollower {
    * una tarjeta que valga la pena inventar.
    */
   private applyImageAttachment(attachment: UserImageAttachment): void {
-    const target = this.events.find((event) => event.eventId === attachment.eventId);
+    // El padre puede ser el mensaje o el adjunto anterior. En el segundo caso,
+    // el mensaje es el que ya se anoto para ese eslabon.
+    const rootId = this.attachmentRoots.get(attachment.eventId) ?? attachment.eventId;
+    if (attachment.attachmentId.length > 0) {
+      this.rememberAttachment(attachment.attachmentId, rootId);
+    }
+
+    const target = this.events.find((event) => event.eventId === rootId);
     if (target === undefined) return;
 
     const isAttached = (part: ConversationPart): boolean =>
@@ -493,6 +567,21 @@ export class ConversationFollower {
 
     target.parts = [...cleaned.slice(0, at), image, ...cleaned.slice(at)];
     this.partUpdates.push({ eventId: target.eventId, parts: target.parts });
+  }
+
+  /**
+   * Anota un eslabon de la cadena de adjuntos, con tope.
+   *
+   * Solo sirve para el adjunto que venga inmediatamente despues, asi que
+   * guardar los de toda una sesion no compra nada. Se descarta el mas viejo
+   * —`Map` conserva el orden de insercion— y con eso el mapa no crece con el
+   * archivo.
+   */
+  private rememberAttachment(attachmentId: string, rootId: string): void {
+    this.attachmentRoots.set(attachmentId, rootId);
+    if (this.attachmentRoots.size <= MAX_ATTACHMENT_LINKS) return;
+    const oldest = this.attachmentRoots.keys().next();
+    if (!oldest.done) this.attachmentRoots.delete(oldest.value);
   }
 
   /**

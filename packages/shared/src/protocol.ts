@@ -36,6 +36,8 @@ import {
   parseContextUsage,
   parseConversationEvent,
   parseConversationPart,
+  parsePlanContent,
+  parseSessionPlan,
   CONVERSATION_IMAGE_SOURCES,
   CONVERSATION_STATES,
   type ContextUsage,
@@ -43,14 +45,18 @@ import {
   type ConversationImageSource,
   type ConversationPart,
   type ConversationState,
+  type PlanContent,
+  type SessionPlan,
 } from './conversation.js';
 import {
   parseDirectoryListing,
   parseDirectoryPickerListing,
   parseFilePreview,
+  parseFileSearchResult,
   type DirectoryListing,
   type DirectoryPickerListing,
   type FilePreview,
+  type FileSearchResult,
 } from './files.js';
 import { parseGitDiff, parseGitStatus, type GitDiff, type GitStatus } from './git.js';
 import { parseNote, type Note } from './notes.js';
@@ -58,10 +64,12 @@ import {
   parseIndexStatus,
   parseProjectSummary,
   parseTerminalDescriptor,
+  TERMINAL_ACTIVITIES,
   TERMINAL_KINDS,
   type IndexStatus,
   type ProjectSummary,
   type SessionId,
+  type TerminalActivity,
   type TerminalDescriptor,
   type TerminalId,
   type TerminalKind,
@@ -251,6 +259,22 @@ export interface ClientOpenTerminalMessage {
 }
 
 /** Cierra la pestana y termina el proceso. */
+/**
+ * Le da proceso a una pestana dormida, o revive una que murio.
+ *
+ * Es lo unico nuevo que hace falta para que arrancar la aplicacion no lance una
+ * CLI por pestana: la conversacion, el medidor y los paneles salen del archivo
+ * y del `cwd`, asi que una pestana sin proceso se lee igual. La pty aparece
+ * cuando hay algo que escribirle al agente, y eso lo decide el usuario.
+ *
+ * Reusa el mismo `terminalId` y el mismo `sessionId`: no es una pestana nueva,
+ * es la misma que ya estaba en pantalla.
+ */
+export interface ClientWakeTerminalMessage {
+  type: 'terminal.wake';
+  terminalId: TerminalId;
+}
+
 export interface ClientCloseTerminalMessage {
   type: 'terminal.close';
   terminalId: TerminalId;
@@ -379,6 +403,30 @@ export interface ClientListFilesMessage {
   type: 'files.list';
   terminalId: TerminalId;
   path: string;
+  /**
+   * true para que vengan tambien las entradas que se ocultan solas.
+   *
+   * Es el ojo del panel. Sin esto no hay forma de mirar un archivo que
+   * `.gitignore` esconde —un `.env` de ejemplo, un `dist/` recien construido—
+   * mas que desde afuera de la aplicacion.
+   */
+  includeHidden?: boolean;
+}
+
+/**
+ * Busca archivos por nombre dentro del `cwd` de la pestana.
+ *
+ * Un nivel por peticion sirve para recorrer y no para buscar, asi que esto es
+ * lo unico del panel que mira mas de un nivel de una. Va acotado por tres topes
+ * a la vez —resultados, directorios visitados y tiempo— porque en un repo
+ * grande cualquiera de los tres solo se queda corto.
+ */
+export interface ClientSearchFilesMessage {
+  type: 'files.search';
+  terminalId: TerminalId;
+  query: string;
+  /** El mismo ojo que `files.list`: con true, tambien busca en lo ignorado. */
+  includeHidden?: boolean;
 }
 
 /** Previsualizacion de solo lectura de un archivo del `cwd`. */
@@ -386,6 +434,20 @@ export interface ClientReadFileMessage {
   type: 'files.read';
   terminalId: TerminalId;
   path: string;
+}
+
+/**
+ * Pide el contenido de un plan de esta pestana.
+ *
+ * Viaja el **nombre del archivo** que el servidor mando en la lista de planes,
+ * nunca una ruta: la carpeta la pone el servidor, y antes de leer comprueba que
+ * ese plan sea uno de los que esta conversacion nombro. Es la regla de §2.4
+ * aplicada a la tercera carpeta de `~/.claude/` que la app lee.
+ */
+export interface ClientReadPlanMessage {
+  type: 'plans.read';
+  terminalId: TerminalId;
+  fileName: string;
 }
 
 /**
@@ -512,6 +574,7 @@ export type ClientMessage =
   | ClientInterruptMessage
   | ClientResizeMessage
   | ClientOpenTerminalMessage
+  | ClientWakeTerminalMessage
   | ClientCloseTerminalMessage
   | ClientAttachTerminalMessage
   | ClientDetachTerminalMessage
@@ -527,8 +590,10 @@ export type ClientMessage =
   | ClientRefreshGitMessage
   | ClientGitDiffMessage
   | ClientListFilesMessage
+  | ClientSearchFilesMessage
   | ClientReadFileMessage
   | ClientRevealFileMessage
+  | ClientReadPlanMessage
   | ClientCreateNoteMessage
   | ClientUpdateNoteMessage
   | ClientDeleteNoteMessage
@@ -632,6 +697,20 @@ export interface ServerTerminalClosedMessage {
 }
 
 /** Avance del indexado. La UI muestra progreso en vez de congelarse. */
+/**
+ * Que esta haciendo la CLI de una pestana.
+ *
+ * Va aparte de `terminal.list` a proposito: esto cambia cada 700 ms —es un
+ * sondeo del estado que la CLI publica por proceso— y la lista de pestanas no.
+ * Mandar la lista entera en cada latido seria repetir todo para cambiar una
+ * palabra.
+ */
+export interface ServerTerminalActivityMessage {
+  type: 'terminal.activity';
+  terminalId: TerminalId;
+  activity: TerminalActivity;
+}
+
 export interface ServerIndexStatusMessage {
   type: 'index.status';
   status: IndexStatus;
@@ -825,6 +904,32 @@ export interface ServerFilePreviewMessage {
 }
 
 /**
+ * Los planes que escribio esta conversacion.
+ *
+ * Se manda entera al suscribirse y cada vez que aparece uno nuevo. La lista es
+ * de tres o cuatro entradas de un par de campos, asi que reenviarla completa
+ * sale mas barato que ensenarle al cliente a fusionar.
+ */
+export interface ServerConversationPlansMessage {
+  type: 'conversation.plans';
+  terminalId: TerminalId;
+  plans: SessionPlan[];
+}
+
+/** El contenido de un plan, recortado y listo para renderizar. */
+export interface ServerPlanContentMessage {
+  type: 'plans.content';
+  terminalId: TerminalId;
+  plan: PlanContent;
+}
+
+export interface ServerFileSearchMessage {
+  type: 'files.results';
+  terminalId: TerminalId;
+  result: FileSearchResult;
+}
+
+/**
  * La lista completa de notas. Se manda al conectar y tras cada cambio.
  *
  * Con una excepcion: quien escribe el texto **no** la recibe de vuelta. Un eco
@@ -849,6 +954,8 @@ export type ServerErrorCode =
   | 'spawn-failed'
   | 'bad-message'
   | 'unknown-terminal'
+  /** La pestana existe pero no tiene CLI corriendo: dormida o terminada. */
+  | 'terminal-asleep'
   | 'invalid-cwd'
   | 'too-many-terminals'
   | 'invalid-path'
@@ -867,6 +974,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'spawn-failed',
   'bad-message',
   'unknown-terminal',
+  'terminal-asleep',
   'invalid-cwd',
   'too-many-terminals',
   'invalid-path',
@@ -899,6 +1007,7 @@ export type ServerMessage =
   | ServerTerminalReplayMessage
   | ServerTerminalExitMessage
   | ServerTerminalClosedMessage
+  | ServerTerminalActivityMessage
   | ServerIndexStatusMessage
   | ServerIndexProjectsMessage
   | ServerConversationResetMessage
@@ -915,6 +1024,9 @@ export type ServerMessage =
   | ServerPickerListingMessage
   | ServerFilesListingMessage
   | ServerFilePreviewMessage
+  | ServerFileSearchMessage
+  | ServerConversationPlansMessage
+  | ServerPlanContentMessage
   | ServerNotesListMessage
   | ServerNoteImageMessage
   | ServerErrorMessage;
@@ -1056,6 +1168,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const terminalId = asNonEmptyString(record['terminalId']);
       return terminalId === null ? null : { type: 'terminal.close', terminalId };
     }
+    case 'terminal.wake': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      return terminalId === null ? null : { type: 'terminal.wake', terminalId };
+    }
     case 'terminal.attach': {
       const terminalId = asNonEmptyString(record['terminalId']);
       const cols = asPositiveInt(record['cols']);
@@ -1133,7 +1249,24 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const listPath = asString(record['path']);
       return terminalId === null || listPath === null
         ? null
-        : { type: 'files.list', terminalId, path: listPath };
+        : {
+            type: 'files.list',
+            terminalId,
+            path: listPath,
+            includeHidden: record['includeHidden'] === true,
+          };
+    }
+    case 'files.search': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const query = asString(record['query']);
+      return terminalId === null || query === null
+        ? null
+        : {
+            type: 'files.search',
+            terminalId,
+            query,
+            includeHidden: record['includeHidden'] === true,
+          };
     }
     case 'files.read': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -1141,6 +1274,13 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return terminalId === null || readPath === null
         ? null
         : { type: 'files.read', terminalId, path: readPath };
+    }
+    case 'plans.read': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const fileName = asNonEmptyString(record['fileName']);
+      return terminalId === null || fileName === null
+        ? null
+        : { type: 'plans.read', terminalId, fileName };
     }
     case 'files.reveal': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -1283,6 +1423,13 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     case 'terminal.closed': {
       const terminalId = asNonEmptyString(record['terminalId']);
       return terminalId === null ? null : { type: 'terminal.closed', terminalId };
+    }
+    case 'terminal.activity': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const activity = asLiteral(record['activity'], TERMINAL_ACTIVITIES);
+      return terminalId === null || activity === null
+        ? null
+        : { type: 'terminal.activity', terminalId, activity };
     }
     case 'index.status': {
       const status = parseIndexStatus(record['status']);
@@ -1451,6 +1598,27 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || preview === null
         ? null
         : { type: 'files.preview', terminalId, preview };
+    }
+    case 'conversation.plans': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const plans = asArrayOf(record['plans'], parseSessionPlan);
+      return terminalId === null || plans === null
+        ? null
+        : { type: 'conversation.plans', terminalId, plans };
+    }
+    case 'plans.content': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const plan = parsePlanContent(record['plan']);
+      return terminalId === null || plan === null
+        ? null
+        : { type: 'plans.content', terminalId, plan };
+    }
+    case 'files.results': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const result = parseFileSearchResult(record['result']);
+      return terminalId === null || result === null
+        ? null
+        : { type: 'files.results', terminalId, result };
     }
     case 'notes.list': {
       const notes = asArrayOf(record['notes'], parseNote);

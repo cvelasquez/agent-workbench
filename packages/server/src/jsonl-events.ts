@@ -394,16 +394,29 @@ function toQueuedUserEvent(
  *                 "type":"image/png"}}}}
  * ```
  *
- * Medido sobre los 285 archivos de esta instalacion, 17 adjuntos de imagen:
- * los 17 traen `base64`, los 17 cuelgan de una linea `user`, y los 17 estan a
- * **una** linea de distancia. Aun asi el seguidor no asume la distancia: busca
- * el evento por `parentUuid`, que es el unico dato que lo dice de verdad.
+ * **Con dos imagenes, la segunda cuelga de la primera.** Es lo que rompia la
+ * miniatura de la segunda, y no se ve hasta que se miran los `parentUuid`
+ * seguidos:
+ *
+ * ```
+ * 1323 user        uuid=06511bc8   @"…pegada-6.png" @"…pegada-7.png" pero yo…
+ * 1324 attachment  parent=06511bc8  uuid=e7e2efda   pegada-6.png
+ * 1325 attachment  parent=e7e2efda  <- el adjunto anterior   pegada-7.png
+ * ```
+ *
+ * Remedido sobre los 39 adjuntos de imagen de la instalacion: 34 cuelgan de una
+ * linea `user` y **5 de otro adjunto**, y los 39 estan a una linea de su padre.
+ * La distancia igual no se usa —se sigue el `parentUuid`, que es el unico dato
+ * que lo dice de verdad— asi que quien aplica el adjunto tiene que saber
+ * recorrer la cadena hasta el mensaje. De ahi `attachmentId`.
  *
  * Sin bytes, igual que la otra forma: viaja la referencia y el contenido se
  * pide aparte (`loadConversationImage`).
  */
 export interface UserImageAttachment {
-  /** `uuid` del mensaje del que cuelga. */
+  /** `uuid` de la propia linea, que es de quien puede colgar la siguiente. */
+  attachmentId: string;
+  /** `uuid` del mensaje **o del adjunto anterior** del que cuelga. */
   eventId: string;
   mediaType: string;
   /**
@@ -450,10 +463,12 @@ export function toUserImageAttachment(
   const eventId = record['parentUuid'];
   if (typeof eventId !== 'string' || eventId.length === 0) return null;
 
+  const attachmentId = record['uuid'];
   const mediaType = file['type'];
   const filename = attachment['filename'] ?? attachment['displayPath'];
 
   return {
+    attachmentId: typeof attachmentId === 'string' ? attachmentId : '',
     eventId,
     mediaType: typeof mediaType === 'string' && mediaType.length > 0 ? mediaType : 'image/png',
     filename: typeof filename === 'string' ? filename : '',
@@ -581,6 +596,80 @@ export function toConversationEvent(
     // Un mensaje que llego como linea `user` arranco su propio turno.
     queued: false,
   };
+}
+
+/**
+ * El nombre del archivo de un plan que esta linea nombra, o null.
+ *
+ * La CLI escribe los planes del modo plan en `~/.claude/plans/<slug>.md` y los
+ * anuncia de **dos** formas distintas. Medido sobre los archivos de esta
+ * instalacion, y las dos hacen falta:
+ *
+ *  1. Una linea `attachment` con `plan_mode` o `plan_mode_exit`, que trae
+ *     `planFilePath`. Ocho casos, los ocho con la ruta:
+ *
+ *     ```
+ *     {"type":"attachment","attachment":{"type":"plan_mode",
+ *       "planFilePath":"C:\\Users\\…\\.claude\\plans\\virtual-chasing-peacock.md",
+ *       "planExists":false}}
+ *     ```
+ *
+ *  2. Un `tool_use` de `Write` a esa misma carpeta. Es lo que hizo la sesion
+ *     que motivo este panel: **no** tiene ninguna linea `plan_mode`, y mirando
+ *     solo la primera forma se habria quedado afuera justo el caso del pedido.
+ *
+ * Devuelve el **nombre del archivo**, no la ruta: la carpeta la pone el
+ * servidor (`plansRoot()`), igual que con cualquier otra ruta que toca la app
+ * (CLAUDE.md 2.4). Una ruta de plan que apunte a otro lado no es un plan de la
+ * CLI y no se mira.
+ */
+export function toPlanFileName(record: Record<string, unknown>): string | null {
+  const attachment = recordOf(record['attachment']);
+  if (attachment !== null) {
+    const type = attachment['type'];
+    if (type === 'plan_mode' || type === 'plan_mode_exit') {
+      return planFileNameOf(attachment['planFilePath']);
+    }
+  }
+
+  if (record['type'] !== 'assistant') return null;
+  const message = recordOf(record['message']);
+  if (message === null) return null;
+  const content = message['content'];
+  if (!Array.isArray(content)) return null;
+
+  for (const block of content) {
+    const blockRecord = recordOf(block);
+    if (blockRecord === null || blockRecord['type'] !== 'tool_use') continue;
+    if (blockRecord['name'] !== 'Write') continue;
+    const input = recordOf(blockRecord['input']);
+    if (input === null) continue;
+    const name = planFileNameOf(input['file_path']);
+    if (name !== null) return name;
+  }
+
+  return null;
+}
+
+/**
+ * El nombre del archivo, si la ruta esta dentro de la carpeta de planes.
+ *
+ * Se compara el tramo `.claude/plans/` y se acepta un solo segmento detras:
+ * cualquier otra cosa —un `..`, una subcarpeta, una ruta de otro lado— no es un
+ * plan de la CLI y devuelve null. La comparacion tolera los dos separadores
+ * porque el JSONL de Windows trae `\\` y el de macOS `/`.
+ */
+function planFileNameOf(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  const normalized = value.replace(/\\/g, '/');
+  const marker = '/.claude/plans/';
+  const at = normalized.toLowerCase().lastIndexOf(marker);
+  if (at === -1) return null;
+
+  const name = normalized.slice(at + marker.length);
+  if (name.length === 0 || name.includes('/')) return null;
+  if (name === '.' || name === '..') return null;
+  return name;
 }
 
 /**

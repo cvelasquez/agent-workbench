@@ -1,5 +1,5 @@
 /**
- * Columna derecha: la CLI, los cambios y los archivos.
+ * Columna derecha: la CLI, los cambios, los archivos y los planes.
  *
  * Desde el hito 7 la terminal vive **aca**, no en el centro: el centro es la
  * conversacion. La solapa se llama `CLI` porque es lo que es — el sitio donde
@@ -19,15 +19,18 @@
 import type { GitStatus } from '@agent-workbench/shared';
 import { FilesPanel } from './FilesPanel.js';
 import { GitPanel } from './GitPanel.js';
+import { PlansPanel } from './PlansPanel.js';
 import type { FilesView } from './useFiles.js';
 import type { GitView } from './useGit.js';
+import type { PlansView } from './usePlans.js';
 
-export type PanelTab = 'cli' | 'git' | 'files';
+export type PanelTab = 'cli' | 'git' | 'files' | 'plans';
 
 export const PANEL_TABS: readonly { id: PanelTab; label: string }[] = [
   { id: 'cli', label: 'CLI' },
   { id: 'git', label: 'Cambios' },
   { id: 'files', label: 'Archivos' },
+  { id: 'plans', label: 'Planes' },
 ];
 
 /** Cuantos archivos tocados mostrar en la pastilla de la pestana "Cambios". */
@@ -67,6 +70,7 @@ interface SidePanelProps {
   onToggleExpanded: () => void;
   git: GitView;
   files: FilesView;
+  plans: PlansView;
   /** Escribe texto en la terminal sin enviarlo. */
   onInsert: (text: string) => void;
   onReveal: (path: string) => void;
@@ -86,6 +90,7 @@ export function SidePanel({
   onToggleExpanded,
   git,
   files,
+  plans,
   onInsert,
   onReveal,
   onHide,
@@ -125,6 +130,9 @@ export function SidePanel({
             {entry.id === 'git' && changes > 0 && (
               <span className="side-panel-badge">{changes}</span>
             )}
+            {entry.id === 'plans' && plans.plans.length > 0 && (
+              <span className="side-panel-badge">{plans.plans.length}</span>
+            )}
             {/*
               La CLI escribio algo y nadie lo vio. Es el unico aviso de que hay
               algo esperando del otro lado —un permiso, una pregunta— cuando la
@@ -143,6 +151,7 @@ export function SidePanel({
         <div className={`cli-slot${tab === 'cli' ? '' : ' cli-slot-hidden'}`}>{cli}</div>
 
         {tab === 'git' && <GitPanel view={git} />}
+        {tab === 'plans' && <PlansPanel view={plans} />}
         {tab === 'files' && (
           <FilesPanel
             view={files}

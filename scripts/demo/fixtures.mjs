@@ -14,7 +14,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const CLI_VERSION = '2.1.263';
@@ -851,6 +851,47 @@ Una decisión antes de cerrar:`,
  *   `configDir` es donde la app busca `workspace.json` con ese `home`.
  * @returns {{ mainCwd: string, tabs: Array<{cwd: string, sessionId: string, label: string}> }}
  */
+/**
+ * Un plan del modo plan, para la solapa "Planes".
+ *
+ * La CLI escribe estos archivos en `~/.claude/plans/` y los nombra en el JSONL;
+ * el panel lista los de la sesion que se esta mirando. Sin uno en los datos de
+ * demo, la solapa sale siempre vacia.
+ */
+const DEMO_PLAN_FILE = 'carrito-persistente-storage.md';
+const DEMO_PLAN = `# Plan: que el carrito sobreviva a la recarga
+
+## Contexto
+
+El carrito vive solo en memoria (\`useState\` en \`CartProvider\`), asi que una
+recarga lo vacia. Paso en produccion con un carrito de nueve productos y el
+usuario lo reporto como "se borro solo".
+
+## Que se toca
+
+| Archivo | Cambio |
+|---|---|
+| \`src/cart/CartProvider.tsx\` | leer el estado inicial de \`localStorage\` |
+| \`src/cart/storage.ts\` | nuevo: leer, escribir y validar lo guardado |
+| \`tests/cart.test.ts\` | dos casos: recarga con items y storage corrupto |
+
+## Decisiones
+
+- **\`localStorage\` y no una cookie.** El carrito no viaja al servidor en cada
+  peticion y son varios KB; una cookie los mandaria en todas.
+- **Lo guardado se valida al leer.** Un carrito de una version anterior —o
+  editado a mano— no puede romper la portada: si no tiene la forma esperada,
+  se descarta y se arranca vacio.
+- **Se guarda el id y la cantidad, no el producto entero.** El precio y el stock
+  se piden de nuevo al cargar: guardarlos deja al usuario mirando un precio que
+  ya no existe.
+
+## Lo que queda afuera
+
+Sincronizar el carrito entre dispositivos. Eso necesita cuenta de usuario y es
+otro trabajo.
+`;
+
 export function buildFixtures(dirs) {
   const root = dirs.root;
   const home = dirs.home;
@@ -935,6 +976,30 @@ export function buildFixtures(dirs) {
     contextStart: 21_300,
     steps: MAIN_STEPS,
   });
+
+  /*
+    El plan de esa conversacion. Dos cosas: el archivo en la carpeta de planes
+    de la CLI, y la linea del JSONL que lo nombra — que es como el panel sabe
+    que este plan es de esta sesion y no de otra.
+  */
+  mkdirSync(path.join(home, '.claude', 'plans'), { recursive: true });
+  writeFileSync(path.join(home, '.claude', 'plans', DEMO_PLAN_FILE), DEMO_PLAN);
+  appendFileSync(
+    path.join(home, '.claude', 'projects', slugFor(main.cwd), `${main.sessionId}.jsonl`),
+    `${JSON.stringify({
+      type: 'attachment',
+      uuid: 'plan-1',
+      parentUuid: null,
+      timestamp: new Date(now - 30 * MIN).toISOString(),
+      attachment: {
+        type: 'plan_mode_exit',
+        planFilePath: path.join(home, '.claude', 'plans', DEMO_PLAN_FILE),
+        planExists: true,
+      },
+      sessionId: main.sessionId,
+      cwd: main.cwd,
+    })}\n`,
+  );
 
   // --- El resto de tienda-online ----------------------------------------------
   quick(ctx, TIENDA, 'main', 2 * DAY + 3 * HOUR, 'Agregá un filtro por categoría al catálogo, arriba de la lista.', 'Agregué el `<select>` con las tres categorías en `ProductList.tsx` y la función `byCategory` en `filters.ts`. El filtro se aplica en memoria sobre lo que ya bajó del API.');

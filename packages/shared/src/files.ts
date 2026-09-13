@@ -29,6 +29,18 @@ export type DirectoryEntryKind = 'dir' | 'file';
 
 export const DIRECTORY_ENTRY_KINDS: readonly DirectoryEntryKind[] = ['dir', 'file'];
 
+/**
+ * Por que una entrada no se ve por omision.
+ *
+ * `ignored` lo dice `.gitignore` —con toda su cadena de reglas, que la resuelve
+ * el propio git— y `always` es la lista fija de carpetas de artefactos. Son dos
+ * cosas distintas y se distinguen porque el usuario las lee distinto: lo
+ * primero lo decidio el, lo segundo lo decidimos nosotros.
+ */
+export type HiddenReason = 'ignored' | 'always';
+
+export const HIDDEN_REASONS: readonly HiddenReason[] = ['ignored', 'always'];
+
 export interface DirectoryEntry {
   name: string;
   /** Ruta relativa al `cwd` de la pestana, con `/`. */
@@ -37,6 +49,13 @@ export interface DirectoryEntry {
   /** 0 en los directorios. */
   sizeBytes: number;
   modifiedAt: number;
+  /**
+   * Por que estaria escondida, o null si se ve siempre.
+   *
+   * Solo llega con entradas escondidas: el arbol las pide aparte, con el ojo
+   * abierto, y las dibuja atenuadas. Sin el ojo no viajan.
+   */
+  hidden?: HiddenReason;
 }
 
 export interface DirectoryListing {
@@ -47,6 +66,24 @@ export interface DirectoryListing {
   truncated: boolean;
   /** Cuantas entradas se ocultaron por `.gitignore` o por la lista fija. */
   hiddenCount: number;
+}
+
+/**
+ * Resultado de buscar archivos por nombre.
+ *
+ * Va aparte de `DirectoryListing` porque no es un nivel del arbol: es una lista
+ * plana de rutas de cualquier profundidad, y lo que decide el orden es cuanto
+ * se parece el nombre a lo que se escribio.
+ *
+ * `truncated` no distingue por que se corto —resultados, directorios visitados
+ * o tiempo— a proposito: para quien busca los tres significan lo mismo, que hay
+ * mas y conviene escribir algo mas preciso.
+ */
+export interface FileSearchResult {
+  /** La consulta que produjo esto. El cliente descarta las respuestas viejas. */
+  query: string;
+  entries: DirectoryEntry[];
+  truncated: boolean;
 }
 
 export interface FilePreview {
@@ -83,7 +120,21 @@ export function parseDirectoryEntry(value: unknown): DirectoryEntry | null {
   ) {
     return null;
   }
-  return { name, path: entryPath, kind, sizeBytes, modifiedAt };
+
+  const hidden = asLiteral(record['hidden'], HIDDEN_REASONS);
+  const entry: DirectoryEntry = { name, path: entryPath, kind, sizeBytes, modifiedAt };
+  return hidden === null ? entry : { ...entry, hidden };
+}
+
+export function parseFileSearchResult(value: unknown): FileSearchResult | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+
+  const query = asString(record['query']);
+  const entries = asArrayOf(record['entries'], parseDirectoryEntry);
+  if (query === null || entries === null) return null;
+
+  return { query, entries, truncated: record['truncated'] === true };
 }
 
 export function parseDirectoryListing(value: unknown): DirectoryListing | null {
