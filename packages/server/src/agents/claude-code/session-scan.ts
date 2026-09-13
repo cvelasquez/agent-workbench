@@ -25,6 +25,9 @@ const TAIL_MAX_BYTES = 64 * 1024;
 
 const TITLE_MAX_LENGTH = 90;
 
+/** Lo que dice la barra de una sesion sin ningun texto que sirva de titulo. */
+export const UNTITLED_SESSION_TITLE = 'Sesion sin titulo';
+
 export interface ScanResult {
   cwd: string | null;
   /** Sin `agent` ni `cwd`: los pone el indice, que sabe de que CLI es. */
@@ -62,8 +65,12 @@ function extractMessageText(content: unknown): string | null {
  * Como casi todos los titulos salen de aca, vale la pena: se sacan los saltos
  * de linea, los comandos de la CLI y las etiquetas de sistema que ensucian el
  * listado.
+ *
+ * Exportada porque el titulo de una sesion de Codex sale igual de su primer
+ * mensaje, y dos limpiezas distintas harian que la misma barra se leyera
+ * distinto segun la CLI.
  */
-function toTitle(raw: string): string {
+export function toTitle(raw: string): string {
   let text = raw
     .replace(/<[^>]{1,80}>/g, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
@@ -148,12 +155,12 @@ export async function scanSessionFile(filePath: string, sessionId: string): Prom
     title = toTitle(firstUserText);
     titleSource = 'first-message';
   } else {
-    title = 'Sesion sin titulo';
+    title = UNTITLED_SESSION_TITLE;
     titleSource = 'none';
   }
 
   if (title.length === 0) {
-    title = 'Sesion sin titulo';
+    title = UNTITLED_SESSION_TITLE;
     titleSource = 'none';
   }
 

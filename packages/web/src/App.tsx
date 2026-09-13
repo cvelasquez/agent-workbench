@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   controlsFor,
+  discoveringSession,
   effectivePanelTab,
   instructionsFileFor,
+  openToolCallNotice,
+  projectAgent,
   sessionResumable,
   shortcutsAgent,
+  tabBarAgent,
 } from './agent-ui.js';
 import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
@@ -97,6 +101,7 @@ export function App(): JSX.Element {
     agents,
     defaultAgent,
     capabilitiesFor,
+    offerAgentChoice,
     cliAvailable,
     cliVersion,
     cliMissingMessage,
@@ -136,9 +141,20 @@ export function App(): JSX.Element {
     donde la prueba el chequeo. Con la CLI de hoy todo esta encendido.
   */
   const activeAgent = activeTerminal?.agent ?? null;
-  const activeControls = useMemo(
-    () => controlsFor(capabilitiesFor(activeAgent)),
-    [capabilitiesFor, activeAgent],
+  const activeCapabilities = capabilitiesFor(activeAgent);
+  const activeControls = useMemo(() => controlsFor(activeCapabilities), [activeCapabilities]);
+
+  /*
+    Con que CLI abre el `+` de la barra de pestanas cuando hay para elegir: la
+    del ultimo trabajo en el proyecto de la pestana activa, o la de por
+    defecto. Con una sola CLI no se calcula: el boton abre sin nombrar ninguna,
+    como siempre, y decide el servidor.
+  */
+  const newTabCwd = activeTerminal?.cwd ?? defaultCwd;
+  const newTabAgent = useMemo(
+    () =>
+      offerAgentChoice ? tabBarAgent(terminals, newTabCwd, platform, agents, defaultAgent) : null,
+    [offerAgentChoice, terminals, newTabCwd, platform, agents, defaultAgent],
   );
 
   /*
@@ -314,6 +330,19 @@ export function App(): JSX.Element {
   const modelProvisional = observedModel === null && currentModel !== null;
   const effortProvisional = observedEffort === null && currentEffort !== null;
   const cliUnseen = useCliActivity(connection, activeTerminalId, cliVisible);
+
+  /*
+    Por que el cuadro no deja mandar, si no deja. Solo una CLI que no publica
+    su estado y tiene una herramienta sin resultado: puede ser un menu de
+    aprobacion, y un mensaje llegaria ahi como teclas (A1 del hito 25). Con
+    Claude Code es siempre null: ella si dice cuando espera.
+  */
+  const toolCallNotice = openToolCallNotice(
+    activeCapabilities,
+    conversation.openToolCall,
+    agents.find((info) => info.id === activeAgent)?.label ?? null,
+    activeTerminal?.alive ?? false,
+  );
 
   const togglePanel = useCallback(() => {
     setPanelVisible((current) => {
@@ -721,7 +750,9 @@ export function App(): JSX.Element {
       </header>
 
       {!cliAvailable && cliMissingMessage !== null && (
-        <div className="banner banner-error">{cliMissingMessage}</div>
+        // Respeta los saltos de linea: sin ninguna CLI, el texto de la primera
+        // va arriba y las demas en una linea aparte.
+        <div className="banner banner-error banner-lines">{cliMissingMessage}</div>
       )}
 
       {/*
@@ -776,7 +807,14 @@ export function App(): JSX.Element {
             projects={projects}
             indexStatus={indexStatus}
             disabled={!cliAvailable}
-            onOpenProject={(cwd) => openTerminal({ cwd })}
+            onOpenProject={(cwd, agent) =>
+              openTerminal({ cwd, ...(agent !== undefined ? { agent } : {}) })
+            }
+            agents={agents}
+            offerAgentChoice={offerAgentChoice}
+            agentForProject={(project) =>
+              projectAgent(terminals, project, platform, agents, defaultAgent)
+            }
             onOpenSession={(cwd, session) =>
               openTerminal({
                 cwd,
@@ -844,7 +882,12 @@ export function App(): JSX.Element {
             onClose={closeTerminal}
             onRename={renameTerminal}
             onReorder={reorderTabs}
-            onNew={() => openTerminal({ cwd: activeTerminal?.cwd ?? defaultCwd })}
+            onNew={(agent) =>
+              openTerminal({ cwd: newTabCwd, ...(agent !== undefined ? { agent } : {}) })
+            }
+            agents={agents}
+            offerAgentChoice={offerAgentChoice}
+            newTabAgent={newTabAgent}
           />
 
           <div className="chat-stack">
@@ -894,6 +937,11 @@ export function App(): JSX.Element {
                 onWakeCli={() => {
                   if (activeTerminalId !== null) wakeTerminal(activeTerminalId);
                 }}
+                discovering={
+                  activeTerminal !== null &&
+                  discoveringSession(activeAgent, activeTerminal.sessionId, activeCapabilities)
+                }
+                toolCallNotice={toolCallNotice}
               />
             )}
           </div>
@@ -905,6 +953,7 @@ export function App(): JSX.Element {
               alive={activeTerminal.alive}
               sleeping={activeTerminal.sleeping}
               imagesAllowed={activeControls.imagesAllowed}
+              blockedReason={toolCallNotice}
               leading={
                 activeControls.modeCycle === null ? undefined : (
                   <ModeControl

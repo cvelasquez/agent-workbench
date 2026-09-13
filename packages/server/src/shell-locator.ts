@@ -19,8 +19,8 @@
  * `/bin/bash` como respaldo.
  *
  * No se le agrega ni se le quita nada al entorno aca: eso lo decide
- * `AgentRegistry.consoleEnvironment()` en `agents/registry.ts`, con los mismos
- * filtros que usan las pestanas de cada CLI.
+ * `AgentRegistry.composedEnvironment()` en `agents/registry.ts`, el mismo que
+ * usan las pestanas de cada CLI.
  */
 
 import { access } from 'node:fs/promises';

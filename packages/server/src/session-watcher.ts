@@ -17,9 +17,19 @@
  *
  * chokidar y no `fs.watch`: el modo recursivo de `fs.watch` no existe en Linux,
  * y esta app tiene que correr en las tres plataformas.
+ *
+ * **Una raiz que todavia no existe no se le pasa a chokidar** (A3 del hito 25).
+ * chokidar vigila una ruta inexistente mirando su carpeta padre, y el padre de
+ * una raiz es la carpeta entera de la CLI —con Codex, `CODEX_HOME`, donde estan
+ * sus credenciales—, que la app no lista nunca. Tampoco puede quedar sin
+ * vigilar hasta reiniciar: es el primer uso de cualquiera, porque la carpeta de
+ * sesiones nace con la primera sesion, y la pestana que la escribe se quedaria
+ * sin ver su respuesta. Asi que se mira con `stat` **esa ruta exacta** cada
+ * tanto, y cuando aparece se empieza a vigilar avisando de lo que ya trae.
  */
 
-import chokidar, { type FSWatcher } from 'chokidar';
+import { stat } from 'node:fs/promises';
+import chokidar, { type ChokidarOptions, type FSWatcher } from 'chokidar';
 import type { AgentId } from '@agent-workbench/shared';
 import type { HistoryRoot } from './agents/adapter.js';
 import type { AgentRegistry } from './agents/registry.js';
@@ -29,15 +39,52 @@ import type { SessionIndex } from './session-index.js';
 /** Agrupado para el reindexado. La CLI escribe muchas veces por respuesta. */
 const INDEX_DEBOUNCE_MS = 750;
 
+/**
+ * Cada cuanto se mira si aparecio una raiz que no existia. Una raiz nace una
+ * vez en la vida de una instalacion, y un `stat` cada cinco segundos no le
+ * cuesta nada a nadie.
+ */
+const ROOT_PROBE_MS = 5_000;
+
+export interface WatchSessionsOptions {
+  /** Para el chequeo. */
+  rootProbeMs?: number;
+  /** Para el chequeo: con que se crea cada watcher. */
+  watch?: (path: string, options: ChokidarOptions) => FSWatcher;
+}
+
+/** Lo que el watcher usa de cada consumidor. */
+type IndexSink = Pick<SessionIndex, 'refreshPath'>;
+type HubSink = Pick<ConversationHub, 'onHistoryChanged'>;
+type AgentSource = Pick<AgentRegistry, 'all'>;
+
+async function isDirectory(target: string): Promise<boolean> {
+  try {
+    return (await stat(target)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export function watchSessions(
-  index: SessionIndex,
-  hub: ConversationHub,
-  agents: AgentRegistry,
+  index: IndexSink,
+  hub: HubSink,
+  agents: AgentSource,
+  options: WatchSessionsOptions = {},
 ): () => void {
+  const probeMs = options.rootProbeMs ?? ROOT_PROBE_MS;
+  const createWatcher = options.watch ?? ((target, watchOptions) => chokidar.watch(target, watchOptions));
   const pending = new Map<string, NodeJS.Timeout>();
   const watchers: FSWatcher[] = [];
+  const probes = new Set<NodeJS.Timeout>();
+  let stopped = false;
 
-  const watchRoot = (agent: AgentId, root: HistoryRoot): void => {
+  /**
+   * `announceExisting` es para una raiz que aparecio con el servidor andando:
+   * lo que ya trae se avisa como si acabara de llegar, porque llego despues del
+   * escaneo del indice y la pestana que lo escribio esta esperando.
+   */
+  const watchRoot = (agent: AgentId, root: HistoryRoot, announceExisting: boolean): void => {
     const onFileEvent = (filePath: string): void => {
       if (!root.accepts(filePath)) return;
 
@@ -58,9 +105,9 @@ export function watchSessions(
 
     let watcher: FSWatcher;
     try {
-      watcher = chokidar.watch(root.path, {
+      watcher = createWatcher(root.path, {
         depth: root.depth,
-        ignoreInitial: true,
+        ignoreInitial: !announceExisting,
         awaitWriteFinish: root.awaitWriteFinish,
       });
     } catch (error) {
@@ -76,11 +123,38 @@ export function watchSessions(
     watchers.push(watcher);
   };
 
+  /** Mira la raiz exacta hasta que exista. Nunca su padre. */
+  const probeRoot = (agent: AgentId, root: HistoryRoot): void => {
+    let checking = false;
+    const probe = setInterval(() => {
+      if (checking) return;
+      checking = true;
+      void isDirectory(root.path).then((exists) => {
+        checking = false;
+        if (!exists || stopped || !probes.has(probe)) return;
+        clearInterval(probe);
+        probes.delete(probe);
+        watchRoot(agent, root, true);
+      });
+    }, probeMs);
+    probe.unref();
+    probes.add(probe);
+  };
+
   for (const { adapter } of agents.all()) {
-    for (const root of adapter.history.roots()) watchRoot(adapter.id, root);
+    for (const root of adapter.history.roots()) {
+      void isDirectory(root.path).then((exists) => {
+        if (stopped) return;
+        if (exists) watchRoot(adapter.id, root, false);
+        else probeRoot(adapter.id, root);
+      });
+    }
   }
 
   return () => {
+    stopped = true;
+    for (const probe of probes) clearInterval(probe);
+    probes.clear();
     for (const timer of pending.values()) clearTimeout(timer);
     pending.clear();
     for (const watcher of watchers) void watcher.close();

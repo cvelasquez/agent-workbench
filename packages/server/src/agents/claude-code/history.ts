@@ -157,5 +157,8 @@ export function createClaudeCodeHistory(variants: ModelVariantRegistry): History
     },
 
     plans: { describe: describePlans, read: readPlan },
+
+    // La CLI abre y cierra el archivo en cada linea: el watcher alcanza.
+    followPollMs: null,
   };
 }

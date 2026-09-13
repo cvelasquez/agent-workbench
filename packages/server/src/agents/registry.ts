@@ -17,6 +17,7 @@ import {
 } from '@agent-workbench/shared';
 import type { AgentAdapter, CliLocation } from './adapter.js';
 import { createClaudeCodeAdapter } from './claude-code/index.js';
+import { createCodexAdapter } from './codex/index.js';
 
 export interface RegisteredAgent {
   adapter: AgentAdapter;
@@ -90,14 +91,17 @@ export class AgentRegistry {
   }
 
   /**
-   * El entorno de la consola del pie: el de cada adaptador, encadenado.
+   * El entorno de todo lo que la app lanza: el de cada adaptador, encadenado.
    *
-   * La consola no es de ninguna CLI, pero desde ella se puede lanzar cualquiera
-   * a mano, y tiene que arrancar igual que desde una pestana: sin el marcador
-   * que le apaga el transcript a una, ni lo que le estorbe a otra. Como cada
-   * adaptador solo quita, encadenarlos nunca agrega nada.
+   * Lo usan las consolas del pie **y** las pestanas de cualquier CLI (hito 25,
+   * C22). Desde una consola se puede lanzar cualquier CLI a mano, y una CLI
+   * puede lanzar a otra como herramienta: en los dos casos tiene que arrancar
+   * igual que desde su propia pestana, sin el marcador que le apaga el
+   * transcript a una ni lo que le estorbe a otra. Con una sola CLI registrada es
+   * exactamente el entorno de su adaptador. Como cada adaptador solo quita,
+   * encadenarlos nunca agrega nada.
    */
-  consoleEnvironment(base: NodeJS.ProcessEnv): Record<string, string> {
+  composedEnvironment(base: NodeJS.ProcessEnv): Record<string, string> {
     let env: Record<string, string> = {};
     for (const [key, value] of Object.entries(base)) {
       if (value !== undefined) env[key] = value;
@@ -166,7 +170,13 @@ export function resolveAgentForOpen(input: ResolveAgentInput): AgentId | null {
   return fromTabs ?? input.defaultAgent;
 }
 
-/** El registro de la app, con todos los adaptadores que hay. */
+/**
+ * El registro de la app, con todos los adaptadores que hay.
+ *
+ * Claude Code primero: con las dos instaladas sigue siendo la CLI por defecto,
+ * y `Alt+T` en un proyecto sin pestanas abre lo mismo que abria antes de que
+ * existiera la segunda.
+ */
 export function createAgentRegistry(): AgentRegistry {
-  return new AgentRegistry([createClaudeCodeAdapter()]);
+  return new AgentRegistry([createClaudeCodeAdapter(), createCodexAdapter()]);
 }

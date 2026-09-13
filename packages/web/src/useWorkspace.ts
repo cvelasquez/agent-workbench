@@ -268,6 +268,7 @@ export function useWorkspace(): Workspace {
         case 'conversation.append':
         case 'conversation.page':
         case 'conversation.state':
+        case 'conversation.toolCall':
         case 'git.status':
         case 'git.diff':
         case 'files.listing':

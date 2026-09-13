@@ -20,8 +20,16 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { TerminalActivity, TerminalDescriptor, TerminalId } from '@agent-workbench/shared';
-import { restingDotTitle } from './agent-ui.js';
+import type {
+  AgentId,
+  AgentInfo,
+  TerminalActivity,
+  TerminalDescriptor,
+  TerminalId,
+} from '@agent-workbench/shared';
+import { AgentBadge } from './AgentBadge.js';
+import { AgentSplitButton } from './AgentSplitButton.js';
+import { restingDotTitle, tabBadgeVisible } from './agent-ui.js';
 import { projectColor } from './project-color.js';
 
 interface TabBarProps {
@@ -34,7 +42,14 @@ interface TabBarProps {
   onClose: (terminalId: TerminalId) => void;
   onRename: (terminalId: TerminalId, label: string) => void;
   onReorder: (terminalIds: TerminalId[]) => void;
-  onNew: () => void;
+  /** Sin `agent` decide el servidor: con una sola CLI es lo de siempre. */
+  onNew: (agent?: AgentId) => void;
+  /** Las CLIs anunciadas, para el menu y el titulo de las insignias. */
+  agents: readonly AgentInfo[];
+  /** Mas de una instalada: insignias y boton partido. */
+  offerAgentChoice: boolean;
+  /** Con que CLI abre el `+` (`tabBarAgent`). Solo cuenta con `offerAgentChoice`. */
+  newTabAgent: AgentId | null;
 }
 
 /**
@@ -113,6 +128,9 @@ export function TabBar({
   onRename,
   onReorder,
   onNew,
+  agents,
+  offerAgentChoice,
+  newTabAgent,
 }: TabBarProps): JSX.Element {
   const [editingId, setEditingId] = useState<TerminalId | null>(null);
   const [draftLabel, setDraftLabel] = useState('');
@@ -181,7 +199,13 @@ export function TabBar({
             ) : (
               <>
                 <TabStatus terminal={terminal} activity={activity.get(terminal.terminalId)} />
-                <span className="tab-label">{defaultLabel(terminal)}</span>
+                <span className="tab-label">
+                  {/* Adentro de la etiqueta: se recorta con ella y no sube el minimo de 44 px. */}
+                  {terminal.agent !== null && tabBadgeVisible(offerAgentChoice, terminal.agent) && (
+                    <AgentBadge agent={terminal.agent} agents={agents} />
+                  )}
+                  {defaultLabel(terminal)}
+                </span>
                 <button
                   className="tab-close"
                   onClick={(event) => {
@@ -198,9 +222,16 @@ export function TabBar({
         );
       })}
 
-      <button className="tab-new" onClick={onNew} disabled={!canOpen} title="Nueva pestana (Ctrl+T)">
-        +
-      </button>
+      <AgentSplitButton
+        className="tab-new"
+        text="+"
+        title="Nueva pestana (Ctrl+T)"
+        disabled={!canOpen}
+        offerAgentChoice={offerAgentChoice}
+        agents={agents}
+        agent={newTabAgent}
+        onOpen={onNew}
+      />
     </div>
   );
 }

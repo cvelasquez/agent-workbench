@@ -20,10 +20,14 @@ import { useMemo, useState } from 'react';
 import {
   resumeCwdFor,
   type AgentId,
+  type AgentInfo,
   type IndexStatus,
   type ProjectSummary,
   type SessionSummary,
 } from '@agent-workbench/shared';
+import { AgentBadge } from './AgentBadge.js';
+import { AgentSplitButton } from './AgentSplitButton.js';
+import { sessionAgentView } from './agent-ui.js';
 import { formatWhen } from './format-when.js';
 import { NotesPanel } from './NotesPanel.js';
 import { projectColor } from './project-color.js';
@@ -35,7 +39,14 @@ interface SidebarProps {
   disabled: boolean;
   /** Sesiones con una pestana abierta. No se archivan: ver `canArchive`. */
   openSessionIds: Set<string>;
-  onOpenProject: (cwd: string) => void;
+  /** Sin `agent` decide el servidor: con una sola CLI es lo de siempre. */
+  onOpenProject: (cwd: string, agent?: AgentId) => void;
+  /** Las CLIs anunciadas: el menu del `+` y las insignias de las filas. */
+  agents: readonly AgentInfo[];
+  /** Mas de una instalada: boton partido en cada proyecto e insignia en cada fila. */
+  offerAgentChoice: boolean;
+  /** Con que CLI abre el `+` de un proyecto (`projectAgent`). */
+  agentForProject: (project: ProjectSummary) => AgentId | null;
   /** Retoma una sesion del historial, con su CLI: la sesion sabe de cual es. */
   onOpenSession: (cwd: string, session: SessionSummary) => void;
   /**
@@ -113,6 +124,9 @@ export function Sidebar({
   disabled,
   openSessionIds,
   onOpenProject,
+  agents,
+  offerAgentChoice,
+  agentForProject,
   onOpenSession,
   canResume,
   platform,
@@ -311,18 +325,20 @@ export function Sidebar({
                   <span className="project-name">{projectName(project)}</span>
                   <span className="project-count">{project.sessions.length}</span>
                 </button>
-                <button
+                <AgentSplitButton
                   className="icon-button"
-                  onClick={() => onOpenProject(project.cwd)}
-                  disabled={!canOpen}
+                  text="+"
                   title={
                     project.cwdExists
                       ? 'Nueva sesion en este proyecto'
                       : 'La carpeta ya no existe en disco'
                   }
-                >
-                  +
-                </button>
+                  disabled={!canOpen}
+                  offerAgentChoice={offerAgentChoice}
+                  agents={agents}
+                  agent={offerAgentChoice ? agentForProject(project) : null}
+                  onOpen={(agent) => onOpenProject(project.cwd, agent)}
+                />
               </div>
 
               {!project.cwdExists && (
@@ -336,6 +352,7 @@ export function Sidebar({
                   {project.sessions.map((session) => {
                     const isSelected = selected.has(session.sessionId);
                     const blocked = !canArchive(session);
+                    const agentView = sessionAgentView(session.agent, agents, offerAgentChoice);
 
                     return (
                       <li
@@ -363,9 +380,12 @@ export function Sidebar({
                             onOpenSession(resumeCwdFor(session.cwd, project.cwd, platform), session);
                           }}
                           disabled={!canOpen || !canResume(session.agent)}
-                          title={session.title}
+                          title={agentView.unavailableTitle ?? session.title}
                         >
-                          <span className="session-title">{session.title}</span>
+                          <span className="session-title">
+                            {agentView.badge && <AgentBadge agent={session.agent} agents={agents} />}
+                            {session.title}
+                          </span>
                           <span className="session-meta">{formatWhen(session.updatedAt)}</span>
                         </button>
 

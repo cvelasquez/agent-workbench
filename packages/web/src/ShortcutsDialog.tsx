@@ -101,6 +101,10 @@ export function ShortcutsDialog({ agent, onClose }: ShortcutsDialogProps): JSX.E
                 con <kbd>Alt + V</kbd>; el cuadro de escritura es el que tiene las teclas de arriba.
               </p>
               <ShortcutList shortcuts={AGENT_UI[agent.id].shortcuts} />
+              {/* Las teclas que la CLI tiene y que aca no le llegan. */}
+              {AGENT_UI[agent.id].shortcutsNote !== null && (
+                <p className="modal-hint">{AGENT_UI[agent.id].shortcutsNote}</p>
+              )}
             </>
           )}
 

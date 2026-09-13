@@ -11,9 +11,11 @@
  * carpeta borrada cambiara, y un proyecto del historial no puede partirse en
  * dos porque su carpeta ya no esta.
  *
- * `platform` es `process.platform` del **servidor**. El cliente nunca calcula
- * esta clave: la recibe hecha, porque en un navegador no hay forma de saber si
- * las mayusculas de una ruta importan.
+ * `platform` es `process.platform` del **servidor**. En un navegador no hay
+ * forma de saber si las mayusculas de una ruta importan, asi que el cliente no
+ * usa la suya: la clave de un proyecto la recibe hecha, y cuando tiene que
+ * comparar dos `cwd` por su cuenta —con que CLI abre el `+`, la misma regla que
+ * `Alt+T` en el servidor— usa la plataforma que el servidor manda en `hello`.
  */
 
 /** Raiz de unidad de Windows ya normalizada: `C:\`. */
@@ -62,8 +64,9 @@ function windowsKey(cwd: string): string {
  * **Salvo que difieran solo en mayusculas, en Windows.** Ahi los dos slugs son
  * la misma carpeta para NTFS, asi que reanudar con cualquiera encuentra el
  * archivo, y el del proyecto es el que se usaba antes del Hito 24: la pestana
- * cae junto a las de su proyecto (la comparacion de `insertInOrder` es exacta),
- * comparte sus consolas y guarda en `workspace.json` el mismo `cwd` que ellas.
+ * comparte las consolas de su proyecto y guarda en `workspace.json` el mismo
+ * `cwd` que ellas. (Donde cae en la barra ya no depende de esto: desde el
+ * Hito 25 `insertionIndex` compara la clave normalizada.)
  *
  * `platform` es la del servidor, como en `normalizeCwdKey`.
  */

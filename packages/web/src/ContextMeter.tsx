@@ -25,7 +25,7 @@
  */
 
 import type { ContextUsage, ContextWindowSource } from '@agent-workbench/shared';
-import { meterIdleDetail } from './agent-ui.js';
+import { meterIdleDetail, meterIdleWindow } from './agent-ui.js';
 
 /** Umbrales de color. Son de presentacion: la CLI no publica ninguno. */
 const WARN_RATIO = 0.75;
@@ -100,9 +100,12 @@ export function ContextMeter({
       primera respuesta. El limite, en cambio, solo aparece si el usuario lo
       declaro: un `opus` a secas no dice si son 200k o 1M (ver
       `agent-defaults.ts`), y anunciar 200k en una sesion de 1M seria la misma
-      mentira de la regla 2 con otra ropa.
+      mentira de la regla 2 con otra ropa. La excepcion es una CLI que escribe
+      la ventana exacta al empezar el turno: ahi ya es un dato (ver
+      `meterIdleWindow`).
     */
     const detail = meterIdleDetail(instructionsFile);
+    const idleWindow = meterIdleWindow(source, usage, fallbackWindow);
 
     return (
       <div className={`meter meter-idle${compact ? ' meter-compact' : ''}`} title={detail}>
@@ -110,8 +113,8 @@ export function ContextMeter({
         <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
         <span className="meter-value">
           sin medir
-          {fallbackWindow !== null && (
-            <span className="meter-dim"> / {formatTokens(fallbackWindow)}</span>
+          {idleWindow !== null && (
+            <span className="meter-dim"> / {formatTokens(idleWindow)}</span>
           )}
         </span>
       </div>

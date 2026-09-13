@@ -29,6 +29,7 @@ import type {
   ConversationPart,
   ConversationState,
   EnvironmentNoticeId,
+  ImageReferenceStyle,
   PermissionMode,
   PlanContent,
   SessionPlan,
@@ -57,7 +58,11 @@ export interface LaunchInput {
 
 export type LaunchSession =
   | { kind: 'known'; sessionId: string }
-  /** La CLI pone el id y se descubre despues. En este hito nadie lo devuelve. */
+  /**
+   * La CLI pone el id y se descubre despues: la pestana nace con `sessionId ''`
+   * y el gancho de `onSpawned` lo avisa con `reportSessionId`. Es lo que
+   * devuelve Codex en una sesion nueva.
+   */
   | { kind: 'discover' };
 
 export interface LaunchPlan {
@@ -77,7 +82,10 @@ export interface AgentEnvironment {
 /** Lo que recibe el gancho posterior al lanzamiento. */
 export interface SpawnedContext {
   terminalId: string;
+  /** `''` si la sesion se descubre despues (`LaunchSession` de tipo `discover`). */
   sessionId: string;
+  /** El `cwd` de la pty. Con el se casa una sesion descubierta con su pestana. */
+  cwd: string;
   /** true si ESTE lanzamiento es una reanudacion, no si la pestana dice `resumed`. */
   resumed: boolean;
   /** Pid del proceso de la pty. Con un shim `.cmd` es el del interprete. */
@@ -93,6 +101,46 @@ export interface SpawnedContext {
    * registro de terminales; ninguna CLI con `sessionIdAtLaunch` lo llama.
    */
   reportSessionId(sessionId: string): void;
+}
+
+/**
+ * Lo que devuelve el gancho posterior al lanzamiento.
+ *
+ * Cuatro momentos distintos, y por eso cuatro miembros: soltarlo sin mas,
+ * avisarle que el proceso termino, que alguien escribio en la pty, y que texto
+ * le mando la app. Los tres ultimos son opcionales: el contestador del dialogo
+ * de reanudar de Claude Code solo necesita el primero. Como el registro
+ * reparte cada momento lo explica `launch-hook-slot.ts`.
+ */
+export interface LaunchHook {
+  /**
+   * Suelta el gancho ya: cierre de la pestana, apagado del servidor, o un
+   * lanzamiento nuevo sobre la misma pestana. Sin pasadas finales: en el
+   * apagado los adaptadores se liberan antes que las pestanas, y una pasada
+   * que corre despues no encuentra a nadie a quien avisar.
+   */
+  cancel(): void;
+  /**
+   * El proceso de la CLI termino y la pestana todavia existe. Es la ultima
+   * oportunidad de mirar lo que dejo escrito al salir; despues el gancho se
+   * suelta solo. Sin este miembro, el registro llama `cancel`.
+   */
+  onExit?(): void;
+  /**
+   * Alguien escribio en la pty: teclas del usuario, o un envio de la app. El
+   * gancho sigue vivo. Sin este miembro, el registro llama `cancel`: es la
+   * regla del contestador de Claude Code, que en cuanto otro escribe ya no sabe
+   * como quedo el menu. Un gancho que tiene que durar mientras se escribe —el
+   * que descubre la sesion de una CLI que pone el id ella misma, y que se entera
+   * justamente por lo que se escribe— lo declara, aunque no haga nada.
+   */
+  onInput?(): void;
+  /**
+   * Texto que la app va a escribir en la pty (cuadro de escritura o nota). Llega
+   * **antes** de la primera escritura: quien lo busca en el historial de la CLI
+   * no puede encontrar el archivo antes que el texto.
+   */
+  onSubmitted?(text: string): void;
 }
 
 // ---- Historial ----------------------------------------------------------------
@@ -125,8 +173,20 @@ export type HistoryExtra = Record<string, unknown>;
 export type ScannedSummary = Omit<SessionSummary, 'agent' | 'cwd' | 'archived'>;
 
 export interface ScannedSession {
-  /** El `cwd` del archivo, o null si no trae. Es tambien el `cwd` del resumen. */
+  /**
+   * El `cwd` del archivo, o null si no trae. Es la clave del proyecto, y el
+   * `cwd` del resumen salvo que `resumeCwd` diga otro.
+   */
   cwd: string | null;
+  /**
+   * Con que `cwd` se reanuda, cuando no es `cwd`. Ausente o null: el mismo.
+   *
+   * Existe porque no toda CLI reanuda donde empezo. Codex compara la carpeta
+   * de la pty con la del **ultimo** turno y, si difieren, abre un dialogo para
+   * elegir; el proyecto, en cambio, es donde nacio la sesion. Son dos datos y
+   * viajan separados.
+   */
+  resumeCwd?: string | null;
   /** Sin `agent`, `cwd` ni `archived`: los pone el indice. */
   summary: ScannedSummary;
   extra: HistoryExtra;
@@ -229,6 +289,17 @@ export interface SessionFollower {
    * Claude Code: la ruta es la suya, o es el re-apuntado de respaldo.
    */
   noticeChange(filePath: string): boolean;
+  /**
+   * true si la conversacion tiene una llamada a herramienta sin resultado,
+   * hecha por el proceso lanzado en `launchedAt` (epoch ms) o despues.
+   *
+   * Existe por las CLIs que no publican su estado: con una llamada abierta
+   * pueden estar mostrando un menu de aprobacion, y un mensaje del cuadro de
+   * escritura llegaria como teclas a ese menu —el Enter final aprueba—. Una
+   * llamada de un proceso anterior quedo huerfana al relanzar y no bloquea.
+   * Una CLI que si publica su estado devuelve false: ahi manda el estado.
+   */
+  hasOpenToolCall(launchedAt: number): boolean;
 }
 
 export interface HistorySource {
@@ -246,13 +317,32 @@ export interface HistorySource {
   changedRefs(filePath: string): Promise<readonly string[] | null>;
   /** Estado actual de una ref. null si ya no existe. */
   item(ref: string): Promise<HistoryItem | null>;
-  scan(item: HistoryItem): Promise<ScannedSession>;
+  /**
+   * Resumen de una sesion. null si el archivo existe pero no es una sesion que
+   * se liste (con Codex: una lanzada por otra app, o un formato que no se lee).
+   * El indice no la agrega ni la guarda en la cache: se vuelve a mirar en cada
+   * escaneo, que para un punado de archivos cuesta menos que marcarla.
+   * Lanza si el archivo es ilegible.
+   */
+  scan(item: HistoryItem): Promise<ScannedSession | null>;
   /** Una entrada salio valida de la cache: el adaptador recupera lo que aprendia al escanearla. */
   restored(item: HistoryItem, extra: HistoryExtra): void;
   /** ¿Hay algo que reanudar? Decide entre reanudar y sesion nueva al despertar. */
   exists(cwd: string, sessionId: string): Promise<boolean>;
   follow(target: { cwd: string; sessionId: string }): SessionFollower;
   readonly plans: PlanSource | null;
+  /**
+   * Cada cuantos ms el hub relee una sesion que alguien sigue, ademas de los
+   * avisos del watcher. null: solo los avisos.
+   *
+   * Existe por las CLIs que escriben su historial con el archivo abierto todo
+   * el turno. En Windows eso no genera avisos: NTFS no actualiza la fecha de
+   * modificacion hasta cerrar el handle, y el watcher ve nacer el archivo pero
+   * no lo que se le agrega (medido con Codex en la verificacion de cierre del
+   * hito 25: el hilo se quedaba en el primer mensaje). Releer es un `stat` y
+   * los bytes nuevos, si hay.
+   */
+  readonly followPollMs: number | null;
 }
 
 // ---- Estado del proceso -------------------------------------------------------
@@ -272,6 +362,44 @@ export interface StatusSource {
   dispose(): void;
 }
 
+// ---- Envio desde el cuadro de escritura ---------------------------------------
+
+/**
+ * Como se le escribe un mensaje a la CLI. Solo servidor: no viaja al cliente.
+ *
+ * Un envio se arma en **piezas** (`buildSubmissionWrites`, `pty-input.ts`) y
+ * cada pieza es un write propio, separado del siguiente por `pieceGapMs`. Una
+ * CLI que recibe todo en un solo pegado declara una sola pieza y la separacion
+ * no se usa nunca.
+ */
+export interface AgentInput {
+  /**
+   * Como nombra las imagenes adjuntas. Igual a `capabilities.imagesByPath`: una
+   * es lo que se le promete a la interfaz, la otra lo que se escribe, y el
+   * chequeo comprueba que coincidan.
+   */
+  readonly imageReference: ImageReferenceStyle | null;
+  /**
+   * Espera entre una pieza y la siguiente.
+   *
+   * Existe por las CLIs que en Windows reciben lo pegado como una rafaga de
+   * teclas y deciden por el tiempo entre teclas si un Enter es un salto de
+   * linea o un envio: dos piezas pegadas en el tiempo se funden en una.
+   */
+  readonly pieceGapMs: number;
+  /**
+   * Si lo pegado va entre `ESC[200~` y `ESC[201~`.
+   *
+   * Medido con node-pty 1.1.0 sobre ConPTY, con un lector de `ReadConsoleInput`
+   * (como leen las TUI en Windows): los marcadores no llegan como teclas, ni
+   * pidiendo `ESC[?2004h` ni sin pedirlo, y un ESC suelto si llega como Escape.
+   * O sea que en Windows un pegado con marcadores **no** interrumpe el turno,
+   * pero tampoco llega como pegado: llega como rafaga, con los saltos internos
+   * como Enter. Por eso lo que decide ahi es `pieceGapMs`.
+   */
+  readonly pasteMarkers: boolean;
+}
+
 // ---- El adaptador ---------------------------------------------------------------
 
 export interface AgentAdapter {
@@ -280,6 +408,7 @@ export interface AgentAdapter {
   readonly command: string;
   readonly installUrl: string;
   readonly capabilities: AgentCapabilities;
+  readonly input: AgentInput;
 
   locate(): Promise<CliLocation | null>;
   /** Texto cuando no esta. */
@@ -295,8 +424,8 @@ export interface AgentAdapter {
    * resuelve dentro de la terminal y la app ni se entera.
    */
   environment(base: NodeJS.ProcessEnv): AgentEnvironment;
-  /** Gancho posterior al lanzamiento. Devuelve como cancelarlo, o null. */
-  onSpawned(context: SpawnedContext): (() => void) | null;
+  /** Gancho posterior al lanzamiento, o null si no hay nada que hacer. */
+  onSpawned(context: SpawnedContext): LaunchHook | null;
 
   readonly history: HistorySource;
   readonly status: StatusSource | null;

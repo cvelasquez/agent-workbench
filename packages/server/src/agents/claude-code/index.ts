@@ -19,7 +19,9 @@ import {
 } from '@agent-workbench/shared';
 import type {
   AgentAdapter,
+  AgentInput,
   AgentStatus,
+  LaunchHook,
   LaunchInput,
   LaunchPlan,
   SpawnedContext,
@@ -57,6 +59,18 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
   rewind: true,
   contextWindowSource: 'usage-with-variants',
   plans: true,
+};
+
+/**
+ * Como se le escribe un mensaje: todo en un solo pegado, con las imagenes como
+ * `@"ruta"` y el Enter pegado al final (CLAUDE.md 5.3). Una sola pieza, asi que
+ * la separacion no se usa: es byte por byte lo que se escribia antes de que
+ * existieran las piezas.
+ */
+export const CLAUDE_CODE_INPUT: AgentInput = {
+  imageReference: 'at-quoted',
+  pieceGapMs: 0,
+  pasteMarkers: true,
 };
 
 /**
@@ -109,6 +123,7 @@ export function createClaudeCodeAdapter(): AgentAdapter {
     command: CLAUDE_CODE_COMMAND,
     installUrl: CLAUDE_CODE_INSTALL_URL,
     capabilities: CLAUDE_CODE_CAPABILITIES,
+    input: CLAUDE_CODE_INPUT,
 
     locate: () => locateCommand(CLAUDE_CODE_COMMAND),
 
@@ -146,15 +161,16 @@ export function createClaudeCodeAdapter(): AgentAdapter {
       `resume-dialog.ts`; si el dialogo no aparece —que es lo normal— no se
       escribe nada. Una sesion nueva no lo abre nunca.
     */
-    onSpawned(context: SpawnedContext): (() => void) | null {
+    onSpawned(context: SpawnedContext): LaunchHook | null {
       if (!context.resumed) return null;
-      return autoAnswerResumeDialog({
+      const cancel = autoAnswerResumeDialog({
         watcher,
         sessionId: context.sessionId,
         readOutput: context.readOutput,
         write: context.write,
         onDone: context.onDone,
       });
+      return { cancel };
     },
 
     history: createClaudeCodeHistory(variants),

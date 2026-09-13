@@ -68,6 +68,12 @@ export interface CacheEntryV4 {
   sizeBytes: number;
   /** `''` si el archivo no trae. */
   cwd: string;
+  /**
+   * Con que `cwd` se reanuda, si no es `cwd` (ver `ScannedSession.resumeCwd`).
+   * Opcional sin subir la version: una entrada que no lo trae es una en la que
+   * los dos coinciden, que es lo que decian todas las de antes.
+   */
+  resumeCwd?: string;
   summary: ScannedSummary;
   /**
    * Lo que la CLI aprendio al leer el archivo y tiene que recuperar al salir de
@@ -89,9 +95,12 @@ export interface IndexedSession {
   agent: AgentId;
   ref: string;
   group: string;
-  /** El `cwd` del archivo, o null si no trae. */
+  /** El `cwd` del archivo, o null si no trae. Es la clave del proyecto. */
   cwd: string | null;
-  /** Completo: con `agent`, `cwd` y `archived` en false (lo marca `withArchived`). */
+  /**
+   * Completo: con `agent`, `cwd` y `archived` en false (lo marca `withArchived`).
+   * Su `cwd` es el de reanudar, que puede no ser el de arriba.
+   */
   summary: SessionSummary;
 }
 
@@ -133,6 +142,7 @@ function parseEntryV4(value: unknown): CacheEntryV4 | null {
   const mtimeMs = asFiniteNumber(record['mtimeMs']);
   const sizeBytes = asFiniteNumber(record['sizeBytes']);
   const cwd = asString(record['cwd']);
+  const resumeCwd = record['resumeCwd'] === undefined ? undefined : asNonEmptyString(record['resumeCwd']);
   const summary = parseScannedSummary(record['summary']);
   const extra = asRecord(record['extra']);
   if (
@@ -142,12 +152,23 @@ function parseEntryV4(value: unknown): CacheEntryV4 | null {
     mtimeMs === null ||
     sizeBytes === null ||
     cwd === null ||
+    resumeCwd === null ||
     summary === null ||
     extra === null
   ) {
     return null;
   }
-  return { agent, ref, group, mtimeMs, sizeBytes, cwd, summary, extra };
+  return {
+    agent,
+    ref,
+    group,
+    mtimeMs,
+    sizeBytes,
+    cwd,
+    ...(resumeCwd !== undefined ? { resumeCwd } : {}),
+    summary,
+    extra,
+  };
 }
 
 /**
@@ -518,6 +539,7 @@ export class SessionIndex extends EventEmitter {
     const key = cacheKey(agent, item.ref);
     try {
       let cwd: string | null;
+      let resumeCwd: string | null;
       let summary: ScannedSummary;
       const cached = this.cache.entries[key];
       if (
@@ -529,10 +551,26 @@ export class SessionIndex extends EventEmitter {
         // sin lo que la CLI aprende al leer (con Claude Code, la variante).
         history.restored(item, cached.extra);
         cwd = cached.cwd.length > 0 ? cached.cwd : null;
+        resumeCwd = cached.resumeCwd !== undefined && cached.resumeCwd.length > 0 ? cached.resumeCwd : null;
         summary = cached.summary;
       } else {
         const scanned = await history.scan(item);
+        if (scanned === null) {
+          /*
+            Existe pero no es una sesion que se liste. No se cachea: una entrada
+            vieja de ese mismo archivo —de cuando si lo era— tampoco sirve ya.
+          */
+          if (key in this.cache.entries) {
+            delete this.cache.entries[key];
+            this.cacheDirty = true;
+          }
+          return null;
+        }
         cwd = scanned.cwd !== null && scanned.cwd.length > 0 ? scanned.cwd : null;
+        resumeCwd =
+          typeof scanned.resumeCwd === 'string' && scanned.resumeCwd.length > 0 && scanned.resumeCwd !== cwd
+            ? scanned.resumeCwd
+            : null;
         summary = scanned.summary;
         this.cache.entries[key] = {
           agent,
@@ -541,6 +579,8 @@ export class SessionIndex extends EventEmitter {
           mtimeMs: item.mtimeMs,
           sizeBytes: item.sizeBytes,
           cwd: cwd ?? '',
+          // Solo cuando difiere: una entrada de Claude Code queda igual que antes.
+          ...(resumeCwd !== null ? { resumeCwd } : {}),
           summary,
           extra: scanned.extra,
         };
@@ -551,7 +591,7 @@ export class SessionIndex extends EventEmitter {
         ref: item.ref,
         group: item.group,
         cwd,
-        summary: { ...summary, agent, cwd: cwd ?? '', archived: false },
+        summary: { ...summary, agent, cwd: resumeCwd ?? cwd ?? '', archived: false },
       };
     } catch {
       return null;
@@ -574,10 +614,20 @@ export class SessionIndex extends EventEmitter {
     }
     if (refs === null) return;
 
+    /*
+      Solo se avisa y se guarda si algo cambio. Una `codex exec` de otra app
+      escribe su rollout cada poco, y cada escritura es un aviso de un archivo
+      que no se lista ni se listaba: reemitir la barra entera a todos los
+      clientes y reescribir la cache por eso era trabajo para nada, y lo pagaba
+      tambien quien solo usa Claude Code.
+    */
+    let changed = false;
     for (const ref of refs) {
       const key = cacheKey(agent, ref);
-      delete this.cache.entries[key];
-      this.cacheDirty = true;
+      if (key in this.cache.entries) {
+        delete this.cache.entries[key];
+        this.cacheDirty = true;
+      }
 
       let item: HistoryItem | null;
       try {
@@ -587,16 +637,17 @@ export class SessionIndex extends EventEmitter {
       }
       const indexed = item === null ? null : await this.read(agent, history, item);
       if (indexed === null) {
-        this.sessions.delete(key);
+        if (this.sessions.delete(key)) changed = true;
         continue;
       }
       // Siempre de nuevo: la carpeta pudo aparecer o borrarse desde el escaneo.
       if (indexed.cwd !== null) this.cwdExists.set(indexed.cwd, await pathExists(indexed.cwd));
       // Un `set` sobre una clave que ya estaba conserva su posicion.
       this.sessions.set(key, indexed);
+      changed = true;
     }
 
-    this.emit('projects', this.getProjects(), true);
+    if (changed) this.emit('projects', this.getProjects(), true);
     await this.saveCache();
   }
 }

@@ -22,23 +22,12 @@ import type {
   ConversationRole,
   MessageUsage,
 } from '@agent-workbench/shared';
-
-/** Texto de un mensaje. Alcanza para leer la respuesta sin traer un libro. */
-const TEXT_MAX_CHARS = 8_000;
-/** Entrada de una herramienta. Un Write completo no aporta en el panel. */
-const TOOL_INPUT_MAX_CHARS = 2_000;
-/** Resultado de una herramienta. Van colapsados por defecto. */
-const TOOL_RESULT_MAX_CHARS = 4_000;
-
-interface Truncated {
-  text: string;
-  truncated: boolean;
-}
-
-function cut(raw: string, limit: number): Truncated {
-  if (raw.length <= limit) return { text: raw, truncated: false };
-  return { text: raw.slice(0, limit), truncated: true };
-}
+import {
+  TEXT_MAX_CHARS,
+  TOOL_INPUT_MAX_CHARS,
+  TOOL_RESULT_MAX_CHARS,
+  cut,
+} from '../transport-limits.js';
 
 /**
  * Envoltorios que escribe la CLI cuando el usuario le da una orden **a ella**.

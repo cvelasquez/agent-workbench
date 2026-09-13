@@ -21,6 +21,12 @@ export interface HeadReadOptions {
   maxLines: number;
   /** Tope duro de bytes leidos, por si las lineas son enormes. */
   maxBytes: number;
+  /**
+   * Se llama con cada linea completa, en orden. true corta la lectura despues
+   * de esa linea: quien ya sabe por la primera que el archivo no le sirve no
+   * tiene por que leer el resto de la cabeza.
+   */
+  stopAfter?: (line: string, index: number) => boolean;
 }
 
 export interface TailReadOptions {
@@ -45,7 +51,9 @@ export async function readHeadLines(
     let position = 0;
     const buffer = Buffer.allocUnsafe(CHUNK_SIZE);
 
-    while (position < options.maxBytes && lines.length < options.maxLines) {
+    let stopped = false;
+
+    while (!stopped && position < options.maxBytes && lines.length < options.maxLines) {
       const toRead = Math.min(CHUNK_SIZE, options.maxBytes - position);
       const { bytesRead } = await handle.read(buffer, 0, toRead, position);
       if (bytesRead === 0) break;
@@ -56,8 +64,14 @@ export async function readHeadLines(
       let newlineIndex = pending.indexOf('\n');
       while (newlineIndex !== -1 && lines.length < options.maxLines) {
         const line = pending.slice(0, newlineIndex).trim();
-        if (line.length > 0) lines.push(line);
         pending = pending.slice(newlineIndex + 1);
+        if (line.length > 0) {
+          lines.push(line);
+          if (options.stopAfter?.(line, lines.length - 1) === true) {
+            stopped = true;
+            break;
+          }
+        }
         newlineIndex = pending.indexOf('\n');
       }
     }

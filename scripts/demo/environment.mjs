@@ -2,9 +2,10 @@
  * Levanta la app contra los datos de `fixtures.mjs`, aislada de la maquina.
  *
  * La app lee tres cosas del entorno y las tres se apuntan a la carpeta de demo:
- * el home (`~/.claude/projects` y `~/.claude/sessions`), el directorio de
- * configuracion propio (`workspace.json`, notas, archivadas) y el `PATH`, donde
- * la CLI simulada va primera. No hay ningun modo especial en el servidor: corre
+ * el home (`~/.claude/projects`, `~/.claude/sessions` y `CODEX_HOME`), el
+ * directorio de configuracion propio (`workspace.json`, notas, archivadas) y el
+ * `PATH`, filtrado para que no aparezca ninguna CLI de verdad y con la simulada
+ * primera (`isolation.mjs`). No hay ningun modo especial en el servidor: corre
  * el mismo codigo que en uso normal, con otro entorno.
  *
  * En Windows la carpeta se monta como unidad `W:` con `subst`, para que ninguna
@@ -13,10 +14,12 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFixtures } from './fixtures.mjs';
+import { assertDemoPath, availableAgentsFromStartup, demoEnvironment } from './isolation.mjs';
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const isWindows = process.platform === 'win32';
@@ -66,7 +69,8 @@ function mountDrive(root) {
  * @param {{ mode: 'dev' | 'prod', openBrowser: boolean }} options
  *   `prod` sirve `packages/web/dist` y necesita un `pnpm build` previo; `dev`
  *   monta Vite y recarga en caliente.
- * @returns {Promise<{ url: string, demo: ReturnType<typeof prepareDemo>, stop: () => void }>}
+ * @returns {Promise<{ url: string, availableAgents: string[], demo: ReturnType<typeof prepareDemo>, stop: () => void }>}
+ *   `availableAgents`: los ids de la linea `CLIs disponibles` del arranque.
  */
 export async function startDemoServer({ mode, openBrowser }) {
   if (mode === 'prod' && !existsSync(path.join(repoRoot, 'packages', 'web', 'dist', 'index.html'))) {
@@ -74,28 +78,27 @@ export async function startDemoServer({ mode, openBrowser }) {
   }
 
   const demo = prepareDemo();
+
+  const env = demoEnvironment(process.env, { home: demo.home, bin: demo.bin, mainCwd: demo.mainCwd });
+  if (!openBrowser) env['AGENT_WORKBENCH_NO_OPEN'] = '1';
+  // Antes de montar nada: si la demo ve una CLI de verdad, no se arranca.
+  assertDemoPath(demo.bin, env['PATH']);
+
   const unmount = mountDrive(demo.root);
 
-  const env = {
-    ...process.env,
-    HOME: demo.home,
-    USERPROFILE: demo.home,
-    APPDATA: path.join(demo.home, 'AppData', 'Roaming'),
-    XDG_CONFIG_HOME: path.join(demo.home, '.config'),
-    PATH: `${demo.bin}${path.delimiter}${process.env['PATH'] ?? ''}`,
-    AGENT_WORKBENCH_CWD: demo.mainCwd,
-  };
-  if (!openBrowser) env['AGENT_WORKBENCH_NO_OPEN'] = '1';
-  // Corrido desde una sesion de la CLI, el marcador heredado hace que la app
-  // muestre el aviso de CLAUDE.md 4.10, y saldria en las capturas.
-  delete env['CLAUDE_CODE_CHILD_SESSION'];
-
-  const server = spawn('pnpm', [mode === 'prod' ? 'start' : 'dev'], {
-    cwd: repoRoot,
+  /*
+    El mismo Node que corre este script, con el CLI de `tsx` del servidor: lo
+    mismo que hace `pnpm dev` / `pnpm start`, sin necesitar `pnpm` ni `node` en
+    el PATH filtrado (ver `isolation.mjs`).
+  */
+  const serverDir = path.join(repoRoot, 'packages', 'server');
+  const tsxCli = createRequire(path.join(serverDir, 'package.json')).resolve('tsx/cli');
+  const server = spawn(process.execPath, [tsxCli, 'src/index.ts', ...(mode === 'prod' ? ['--prod'] : [])], {
+    cwd: serverDir,
     env,
-    shell: true,
     detached: !isWindows,
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
 
   let stopped = false;
@@ -112,27 +115,39 @@ export async function startDemoServer({ mode, openBrowser }) {
   };
   process.on('exit', stop);
 
-  const url = await new Promise((resolve, reject) => {
+  /*
+    Se espera la URL y tambien la linea `CLIs disponibles`: la imprime el mismo
+    arranque, pero puede llegar en otro trozo de la salida. Sin ella no se sabe
+    que CLIs vio el servidor.
+  */
+  const { url, availableAgents } = await new Promise((resolve, reject) => {
     let buffer = '';
+    let settled = false;
     const timer = setTimeout(() => {
+      settled = true;
       stop();
-      reject(new Error('El servidor no imprimio la URL en 60 s.'));
+      reject(new Error('El servidor no imprimio la URL y las CLIs disponibles en 60 s.'));
     }, 60_000);
     server.stdout.on('data', (chunk) => {
       process.stdout.write(chunk);
+      if (settled) return;
       buffer += chunk.toString();
       const match = buffer.match(/URL\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=\S+)/);
-      if (match !== null) {
+      const agents = availableAgentsFromStartup(buffer);
+      if (match !== null && agents !== null) {
+        settled = true;
         clearTimeout(timer);
-        resolve(match[1]);
+        resolve({ url: match[1], availableAgents: agents });
       }
     });
     server.stderr.on('data', (chunk) => process.stderr.write(chunk));
     server.on('exit', (code) => {
       clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       reject(new Error(`El servidor termino con codigo ${code} antes de imprimir la URL.`));
     });
   });
 
-  return { url, demo, stop };
+  return { url, availableAgents, demo, stop };
 }

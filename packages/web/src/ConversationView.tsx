@@ -39,10 +39,12 @@ import type {
   ConversationToolResultPart,
   ContextWindowSource,
 } from '@agent-workbench/shared';
+import { DISCOVERING_HINT } from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
 import { ImageViewer } from './ImageViewer.js';
 import { nextUrl } from './inline-markup.js';
 import { Markdown } from './Markdown.js';
+import { toolCategory } from './tool-categories.js';
 import { imageKey, type ConversationFeed } from './useConversation.js';
 
 /** Margen para decidir si el usuario estaba mirando el final. */
@@ -55,37 +57,6 @@ interface Card {
   event: ConversationEvent;
   /** Partes ya sin los resultados que se dibujan dentro de su llamada. */
   parts: ConversationPart[];
-}
-
-/**
- * Como se llama un grupo de herramientas del mismo tipo.
- *
- * La CLI resume su propia tanda de acciones en una linea —"Ran 5 shell
- * commands"— y esta es la misma idea: quince tarjetas colapsadas seguidas,
- * cada una con su hora y su etiqueta de esfuerzo al pie, ocupan media pantalla
- * para decir "corri comandos". Lo que se lee de un vistazo es *que* hizo, no
- * cuantas veces llamo a Bash.
- *
- * La lista es corta y explicita a proposito. Un nombre que no este —una
- * herramienta nueva, un MCP— no se fuerza a ninguna categoria: se agrupa con
- * las de su mismo nombre y se muestra tal cual. Inventarle una categoria a lo
- * que no conocemos es como se termina resumiendo mal.
- */
-const TOOL_CATEGORIES: readonly { key: string; names: readonly string[]; label: string }[] = [
-  { key: 'shell', names: ['Bash', 'PowerShell', 'BashOutput', 'KillShell'], label: 'comandos de consola' },
-  { key: 'read', names: ['Read', 'NotebookRead'], label: 'archivos leidos' },
-  { key: 'find', names: ['Glob', 'Grep', 'LS'], label: 'busquedas en el proyecto' },
-  { key: 'edit', names: ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'], label: 'ediciones' },
-  { key: 'web', names: ['WebSearch', 'WebFetch', 'ToolSearch'], label: 'busquedas' },
-  { key: 'agent', names: ['Task', 'Agent'], label: 'subagentes' },
-  { key: 'todo', names: ['TodoWrite'], label: 'listas de tareas' },
-];
-
-function toolCategory(name: string): { key: string; label: string | null } {
-  const found = TOOL_CATEGORIES.find((entry) => entry.names.includes(name));
-  // Sin categoria conocida, la clave es el nombre: dos llamadas seguidas a la
-  // misma herramienta siguen siendo una tanda, y el resumen las nombra.
-  return found === undefined ? { key: `name:${name}`, label: null } : found;
 }
 
 /** true si lo elegido en una pregunta es texto escrito y no opciones. */
@@ -321,6 +292,16 @@ interface ConversationViewProps {
   onWakeCli: () => void;
   /** true mientras se espera que el servidor confirme el arranque. */
   waking: boolean;
+  /**
+   * true si la pestana todavia no sabe su sesion y la gana con el primer
+   * mensaje (`discoveringSession`). La vista vacia lo dice.
+   */
+  discovering?: boolean;
+  /**
+   * Por que no se puede mandar nada desde el cuadro, o null
+   * (`openToolCallNotice`). Se dibuja al pie, donde va la barra de "esperando".
+   */
+  toolCallNotice?: string | null;
 }
 
 export function ConversationView({
@@ -334,6 +315,8 @@ export function ConversationView({
   exitCode,
   onWakeCli,
   waking,
+  discovering = false,
+  toolCallNotice = null,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -524,6 +507,18 @@ export function ConversationView({
               : state === 'waiting'
                 ? 'Esperando el primer mensaje. El archivo de la sesion se crea cuando la conversacion arranca.'
                 : 'La sesion todavia no tiene mensajes.'}
+            {/*
+              Una CLI que pone el id ella misma: la pestana todavia no tiene
+              sesion y por eso tampoco esta en la barra lateral. Se dice debajo
+              del texto de siempre, sin estado nuevo: para el usuario es la misma
+              espera.
+            */}
+            {state === 'waiting' && discovering && (
+              <>
+                <br />
+                {DISCOVERING_HINT}
+              </>
+            )}
           </p>
         )}
 
@@ -581,7 +576,11 @@ export function ConversationView({
       </div>
 
       {cliPresence === 'live' ? (
-        <WaitingBar waitingFor={waitingFor} onGoToCli={onGoToCli} />
+        waitingFor === null && toolCallNotice !== null ? (
+          <ToolCallBar notice={toolCallNotice} onGoToCli={onGoToCli} />
+        ) : (
+          <WaitingBar waitingFor={waitingFor} onGoToCli={onGoToCli} />
+        )
       ) : (
         <WakeBar presence={cliPresence} exitCode={exitCode} waking={waking} onWake={onWakeCli} />
       )}
@@ -663,6 +662,33 @@ function WaitingBar({
     <div className="conversation-waiting" role="status">
       <span className="conversation-waiting-dot" aria-hidden="true" />
       <span>{text}</span>
+      <button className="link-button" onClick={onGoToCli}>
+        Ir a la solapa CLI
+      </button>
+    </div>
+  );
+}
+
+/**
+ * La CLI puede estar esperando una aprobacion, pero no lo publica.
+ *
+ * Mismo sitio y misma forma que la barra de "esperando": contesta la misma
+ * pregunta —por que no puedo escribir— y la salida es la misma, la solapa CLI.
+ * La diferencia es que aca no se sabe que espera algo; se sabe que hay una
+ * herramienta sin resultado, y por eso el texto dice "puede". Enviar queda
+ * apagado mientras tanto: un mensaje llegaria como teclas a ese menu.
+ */
+function ToolCallBar({
+  notice,
+  onGoToCli,
+}: {
+  notice: string;
+  onGoToCli: () => void;
+}): JSX.Element {
+  return (
+    <div className="conversation-waiting" role="status">
+      <span className="conversation-waiting-dot" aria-hidden="true" />
+      <span>{notice}</span>
       <button className="link-button" onClick={onGoToCli}>
         Ir a la solapa CLI
       </button>

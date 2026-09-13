@@ -53,6 +53,36 @@ export function outdatedServerMessage(serverProtocolVersion: number): string {
   );
 }
 
+/**
+ * El cartel cuando no hay ninguna CLI instalada.
+ *
+ * El texto de la **primera** registrada —la de siempre— y una linea que nombra
+ * las demas, no los textos de instalacion de todas: quien usaba la app con una
+ * sola CLI tiene que seguir viendo el cartel de siempre, y no las instrucciones
+ * de instalar otra que no pidio. null si la primera no trae texto.
+ */
+function missingCliMessage(agents: readonly AgentInfo[]): string | null {
+  const [first, ...others] = agents;
+  if (first === undefined || first.missingMessage === null) return null;
+  if (others.length === 0) return first.missingMessage;
+  return `${first.missingMessage}\nTambien funciona con: ${others.map((agent) => agent.label).join(', ')}`;
+}
+
+/**
+ * La version de una CLI con su nombre, para la cabecera con varias.
+ *
+ * Sin repetir el nombre si la version ya lo dice: las CLIs imprimen cosas como
+ * `2.1.270 (Claude Code)` o `codex-cli 0.154.0`, y anteponerles la etiqueta
+ * dejaba `Claude Code 2.1.270 (Claude Code)`. Se compara sin mayusculas, porque
+ * lo que importa es que el nombre ya se lea.
+ */
+function versionWithLabel(agent: AgentInfo): string {
+  const version = agent.version ?? '?';
+  return version.toLowerCase().includes(agent.label.toLowerCase())
+    ? version
+    : `${agent.label} ${version}`;
+}
+
 export function summarizeAgents(
   agents: readonly AgentInfo[],
   helloReceived: boolean,
@@ -74,18 +104,15 @@ export function summarizeAgents(
   if (available.length === 1) {
     cliVersion = available[0]?.version ?? null;
   } else if (available.length > 1) {
-    cliVersion = available.map((agent) => `${agent.label} ${agent.version ?? '?'}`).join(' · ');
+    cliVersion = available.map(versionWithLabel).join(' · ');
   }
 
-  const missing = agents
-    .map((agent) => agent.missingMessage)
-    .filter((message): message is string => message !== null);
   const noneAvailable = helloReceived && available.length === 0;
 
   return {
     cliAvailable: !helloReceived || available.length > 0,
     cliVersion,
-    cliMissingMessage: noneAvailable && missing.length > 0 ? missing.join('\n') : null,
+    cliMissingMessage: noneAvailable ? missingCliMessage(agents) : null,
     environmentNotice: agents.find((agent) => agent.environmentNotice !== null)?.environmentNotice ?? null,
   };
 }

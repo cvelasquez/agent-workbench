@@ -31,6 +31,7 @@ import { RepoHub } from './repo-hub.js';
 import { MemoryHub } from './memory-hub.js';
 import { PasteStore } from './paste-store.js';
 import { SessionIndex } from './session-index.js';
+import { startupAgentLines } from './startup-summary.js';
 import { NotesStore } from './notes-store.js';
 import { locateShell, type ShellLocation } from './shell-locator.js';
 import { watchSessions } from './session-watcher.js';
@@ -173,9 +174,8 @@ Corre "pnpm build" antes de "pnpm start", o usa "pnpm dev".`,
 /**
  * Lo que se imprime al arrancar.
  *
- * Con una sola CLI registrada son exactamente las lineas de siempre. Con mas de
- * una, cada CLI lleva su nombre entre parentesis, porque "CLI  NO ENCONTRADA"
- * dejaria de decir cual.
+ * Las lineas de las CLIs cuentan las **disponibles** (`startup-summary.ts`): con
+ * una sola instalada son las de siempre, aunque haya mas registradas.
  */
 function describeStartup(
   url: string,
@@ -191,20 +191,14 @@ function describeStartup(
   console.log(`  URL          ${url}`);
   console.log(`  Modo         ${isProduction ? 'produccion (interfaz compilada)' : 'desarrollo'}`);
   console.log(`  Directorio   ${cwd}`);
-  const missing: string[] = [];
-  for (const info of agentList) {
-    const title = agentList.length === 1 ? 'CLI          ' : `CLI (${info.label})  `;
-    const location = agents.get(info.id)?.location ?? null;
-    if (location === null) {
-      console.log(`  ${title}NO ENCONTRADA`);
-      if (info.missingMessage !== null) missing.push(info.missingMessage);
-    } else {
-      console.log(`  ${title}${info.version ?? 'version desconocida'}`);
-      console.log(`  Binario      ${location.resolvedPath}`);
-    }
-  }
-  for (const message of missing) console.log(`\n  ${message}`);
-  if (missing.length > 0 && agentList.length > 1) console.log('');
+  const startupAgents = agentList.map((info) => ({
+    id: info.id,
+    label: info.label,
+    version: info.version,
+    resolvedPath: agents.get(info.id)?.location?.resolvedPath ?? null,
+    missingMessage: info.missingMessage,
+  }));
+  for (const agentLine of startupAgentLines(startupAgents)) console.log(agentLine);
   console.log(`  Consola      ${shell === null ? 'no encontrada' : shell.file}`);
   if (agentList.some((info) => info.environmentNotice === 'child-session-marker')) {
     console.log('');
@@ -312,13 +306,21 @@ async function main(): Promise<void> {
   void index.start();
   const stopWatching = watchSessions(index, conversations, agents);
 
-  // Las pestanas del arranque anterior tambien van en segundo plano: relanzar
-  // varias sesiones lleva su tiempo y la UI las va viendo aparecer.
-  if (agents.anyAvailable() && process.env['AGENT_WORKBENCH_NO_RESTORE'] !== '1') {
+  /*
+    Las pestanas del arranque anterior tambien van en segundo plano: relanzar
+    varias sesiones lleva su tiempo y la UI las va viendo aparecer.
+
+    Se cargan aunque no haya ninguna CLI disponible: la restauracion es la que
+    guarda aparte las pestanas que no puede mostrar, y sin ella el primer cambio
+    —abrir una consola— reescribiria el archivo sin ninguna.
+  */
+  if (process.env['AGENT_WORKBENCH_NO_RESTORE'] !== '1') {
     void store.load().then((state) => {
-      if (state.tabs.length === 0) return;
-      console.log(`Restaurando ${state.tabs.length} pestana(s) del arranque anterior...`);
-      return registry.restore(state.tabs);
+      if (state.tabs.length === 0 && state.foreignTabs.length === 0) return;
+      if (agents.anyAvailable()) {
+        console.log(`Restaurando ${state.tabs.length} pestana(s) del arranque anterior...`);
+      }
+      return registry.restore(state);
     });
   }
 

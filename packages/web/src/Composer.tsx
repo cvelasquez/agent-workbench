@@ -81,6 +81,15 @@ interface ComposerProps {
    * una lo avisa en vez de dejar una miniatura que no se va a poder mandar.
    */
   imagesAllowed?: boolean;
+  /**
+   * Por que no se puede mandar ahora, o null. Enviar se apaga y el titulo lo
+   * dice; lo escrito se queda y se puede seguir escribiendo.
+   *
+   * Hoy lo usa una sola cosa: una CLI que no publica su estado con una llamada
+   * a herramienta abierta, que puede ser un menu de aprobacion esperando. Ahi
+   * un mensaje llegaria como teclas al menu, y el Enter final aprueba.
+   */
+  blockedReason?: string | null;
 }
 
 export function Composer({
@@ -91,6 +100,7 @@ export function Composer({
   controls,
   leading,
   imagesAllowed = true,
+  blockedReason = null,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -202,7 +212,7 @@ export function Composer({
   }, [terminalId, replaceAttachments]);
 
   const submit = useCallback(() => {
-    if (terminalId === null) return;
+    if (terminalId === null || blockedReason !== null) return;
 
     const folded = attachments.items
       .filter((item): item is Extract<Attachment, { kind: 'text' }> => item.kind === 'text')
@@ -217,7 +227,7 @@ export function Composer({
     connection.send({ type: 'agent.submit', terminalId, text: body, images });
     setText('');
     attachments.clear();
-  }, [connection, terminalId, text, attachments]);
+  }, [connection, terminalId, text, attachments, blockedReason]);
 
   const interrupt = useCallback(() => {
     if (terminalId === null) return;
@@ -346,8 +356,8 @@ export function Composer({
         <button
           className="composer-send"
           onClick={submit}
-          disabled={disabled || !hasSomething}
-          title="Enviar (Enter)"
+          disabled={disabled || !hasSomething || blockedReason !== null}
+          title={blockedReason ?? 'Enviar (Enter)'}
         >
           Enviar
         </button>

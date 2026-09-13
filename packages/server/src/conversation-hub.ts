@@ -74,6 +74,8 @@ export interface ConversationSnapshot {
   permissionMode: PermissionMode | null;
   /** Que espera la CLI, o null si no espera nada. No sale del JSONL. */
   waitingFor: string | null;
+  /** Ver `Entry.openToolCall`. */
+  openToolCall: boolean;
   /** Planes que esta conversacion escribio, los mas nuevos primero. */
   plans: SessionPlan[];
 }
@@ -124,8 +126,26 @@ interface Entry {
    * proceso (`adapter.status`; con Claude Code, `~/.claude/sessions/<pid>.json`).
    */
   waitingFor: string | null;
+  /**
+   * true si la CLI no publica su estado y la conversacion tiene una llamada a
+   * herramienta del proceso vivo sin resultado (`hasOpenToolCall`).
+   *
+   * Es la misma pregunta que hace el socket antes de mandar un mensaje, llevada
+   * al cliente para que el cuadro de escritura no deje apretar Enviar (A1 del
+   * hito 25). Se recalcula despues de cada lectura y cuando la pty cambia —se
+   * lanza o termina—, que es lo que mueve el `launchedAt` contra el que se mide.
+   */
+  openToolCall: boolean;
+  /**
+   * true desde que la lectura inicial —la silenciosa— esta en la cadena. Antes
+   * de eso una lectura con aviso mandaria por evento lo mismo que despues va en
+   * el snapshot, y el cliente lo veria dos veces.
+   */
+  primed: boolean;
   /** Corta la suscripcion al vigilante de estado al soltar la pestana. */
   stopWatchingStatus: (() => void) | null;
+  /** La relectura periodica de una CLI que la pide (`history.followPollMs`), o null. */
+  followTicker: NodeJS.Timeout | null;
 }
 
 export interface ConversationHubEvents {
@@ -143,6 +163,8 @@ export interface ConversationHubEvents {
    * linea en el JSONL mientras espera.
    */
   waiting: (terminalId: TerminalId, waitingFor: string | null) => void;
+  /** Cambio `openToolCall` de la pestana. Solo CLIs que no publican su estado. */
+  toolCall: (terminalId: TerminalId, open: boolean) => void;
   append: (
     terminalId: TerminalId,
     events: ConversationEvent[],
@@ -185,6 +207,20 @@ export class ConversationHub extends EventEmitter {
     private readonly agents: AgentRegistry,
   ) {
     super();
+    /*
+      Una pestana que cambio de sesion —la descubrio el adaptador despues de
+      lanzar, o se relanzo con otra— tiene que seguir la nueva. Con Claude Code
+      no pasa nunca: el id se fija al lanzar.
+    */
+    registry.on('session', (terminalId) => void this.rebind(terminalId));
+    /*
+      Lanzar o terminar una pty cambia contra que proceso se mide una llamada
+      abierta: la de un proceso anterior quedo huerfana. `changed` llega en los
+      dos casos, y recalcular es recorrer un mapa chico por pestana seguida.
+    */
+    registry.on('changed', () => {
+      for (const [terminalId, entry] of this.entries) this.refreshOpenToolCall(terminalId, entry);
+    });
   }
 
   /**
@@ -195,16 +231,23 @@ export class ConversationHub extends EventEmitter {
     const descriptor = this.registry.get(terminalId);
     if (descriptor === null) return null;
 
-    // Sin cwd o sin sesion no hay nada que seguir, y una consola directamente
-    // no escribe historial. Se dice, y no se crea un seguidor apuntando a una
-    // ruta inventada que despues diria "esperando" para siempre.
+    /*
+      Sin cwd no hay nada que seguir, y una consola directamente no escribe
+      historial. Tampoco una pestana sin sesion de una CLI que fija el id al
+      lanzar: ahi no hay sesion que esperar. Se dice, y no se crea un seguidor
+      apuntando a una ruta inventada que despues diria "esperando" para siempre.
+
+      Una pestana sin sesion de una CLI que pone el id ella misma, en cambio, si
+      se sigue: esta esperando su primer mensaje, que es cuando la sesion
+      aparece (`rebind`).
+    */
     const adapter =
       descriptor.agent === null ? null : (this.agents.get(descriptor.agent)?.adapter ?? null);
     if (
       descriptor.cwd.length === 0 ||
-      descriptor.sessionId.length === 0 ||
       descriptor.agent === null ||
-      adapter === null
+      adapter === null ||
+      (descriptor.sessionId.length === 0 && adapter.capabilities.sessionIdAtLaunch)
     ) {
       return {
         sessionId: descriptor.sessionId,
@@ -214,45 +257,33 @@ export class ConversationHub extends EventEmitter {
         permissionMode: null,
         usage: { ...EMPTY_CONTEXT_USAGE },
         waitingFor: null,
+        openToolCall: false,
         plans: [],
       };
     }
 
     let entry = this.entries.get(terminalId);
     if (entry === undefined) {
-      const follower = adapter.history.follow({
-        cwd: descriptor.cwd,
-        sessionId: descriptor.sessionId,
-      });
-      entry = {
-        sessionId: descriptor.sessionId,
-        agent: descriptor.agent,
-        adapter,
-        follower,
-        announcedMode: null,
-        assumedMode: adapter.capabilities.permissionCycle?.launchMode ?? null,
-        observedMode: null,
-        refs: 0,
-        timer: null,
-        polling: Promise.resolve(),
-        waitingFor: null,
-        stopWatchingStatus: null,
-      };
+      entry = this.createEntry(descriptor.agent, descriptor.cwd, descriptor.sessionId, adapter);
       this.entries.set(terminalId, entry);
       this.watchStatus(terminalId, entry, descriptor.sessionId);
+      this.startFollowTicker(terminalId, entry);
       // Lo que el seguidor necesita antes de leer. Con Claude Code, la variante
       // que el archivo nunca dice: sin esto el medidor mostraria 200k un
       // instante y 1M despues.
       await entry.follower.start();
       debugLog(
         'conversacion',
-        `sigo ${path.basename(follower.label)} de ${terminalId.slice(0, 8)}`,
+        `sigo ${path.basename(entry.follower.label)} de ${terminalId.slice(0, 8)}`,
       );
+      // Si mientras arrancaba la pestana cambio de sesion, la cuenta va a la entrada nueva.
+      entry = this.entries.get(terminalId) ?? entry;
     }
 
     entry.refs += 1;
 
     // Primera lectura completa del archivo, si ya existe.
+    entry.primed = true;
     await this.runPoll(terminalId, entry, { silent: true });
 
     const tail = entry.follower.getTail(INITIAL_EVENT_LIMIT);
@@ -265,6 +296,7 @@ export class ConversationHub extends EventEmitter {
       usage: entry.follower.getUsage(),
       permissionMode: entry.observedMode ?? entry.assumedMode,
       waitingFor: entry.waitingFor,
+      openToolCall: entry.openToolCall,
       plans: plans === null ? [] : await plans.describe(entry.follower.getPlanFiles()),
     };
   }
@@ -278,7 +310,8 @@ export class ConversationHub extends EventEmitter {
    */
   private watchStatus(terminalId: TerminalId, entry: Entry, sessionId: SessionId): void {
     const status = entry.adapter.status;
-    if (status === null) return;
+    // Sin sesion no hay proceso que buscar por su id.
+    if (status === null || sessionId.length === 0) return;
     entry.stopWatchingStatus = status.subscribe(sessionId, (current) => {
       // Sin etiqueta no se puede decir de que clase es, pero que espera si:
       // se avisa igual, con la copia generica.
@@ -292,8 +325,170 @@ export class ConversationHub extends EventEmitter {
     });
   }
 
+  /**
+   * Una entrada nueva para seguir una sesion. La usan `subscribe` y `rebind`:
+   * dos construcciones a mano son como una de las dos se queda sin algo.
+   */
+  private createEntry(
+    agent: AgentId,
+    cwd: string,
+    sessionId: SessionId,
+    adapter: AgentAdapter,
+  ): Entry {
+    return {
+      sessionId,
+      agent,
+      adapter,
+      follower: adapter.history.follow({ cwd, sessionId }),
+      announcedMode: null,
+      assumedMode: adapter.capabilities.permissionCycle?.launchMode ?? null,
+      observedMode: null,
+      refs: 0,
+      timer: null,
+      polling: Promise.resolve(),
+      waitingFor: null,
+      openToolCall: false,
+      primed: false,
+      stopWatchingStatus: null,
+      followTicker: null,
+    };
+  }
+
+  /**
+   * Relee cada `followPollMs` la sesion de una CLI que lo pide, mientras la
+   * entrada sea la vigente. Una lectura por tick como mucho: si ya hay una
+   * programada por el watcher, esa alcanza.
+   *
+   * Con Claude Code no corre: su `followPollMs` es null.
+   */
+  private startFollowTicker(terminalId: TerminalId, entry: Entry): void {
+    const everyMs = entry.adapter.history.followPollMs ?? null;
+    if (everyMs === null || entry.followTicker !== null) return;
+    entry.followTicker = setInterval(() => {
+      if (this.entries.get(terminalId) !== entry) return;
+      if (!entry.primed || entry.timer !== null) return;
+      this.schedulePoll(terminalId, entry);
+    }, everyMs);
+    entry.followTicker.unref();
+  }
+
+  private stopFollowTicker(entry: Entry): void {
+    if (entry.followTicker !== null) clearInterval(entry.followTicker);
+    entry.followTicker = null;
+  }
+
+  /**
+   * Recalcula `openToolCall` y avisa si cambio.
+   *
+   * Una CLI que publica su estado no entra nunca: ahi manda el estado, y su
+   * seguidor contesta false de todos modos. Sin pty viva tampoco hay a quien
+   * mandarle nada, asi que no hay nada que bloquear.
+   */
+  private refreshOpenToolCall(terminalId: TerminalId, entry: Entry): void {
+    if (entry.adapter.capabilities.statusSource) return;
+    const launchedAt = this.registry.launchedAtOf(terminalId);
+    const open = launchedAt !== null && entry.follower.hasOpenToolCall(launchedAt);
+    if (open === entry.openToolCall) return;
+    entry.openToolCall = open;
+    this.emit('toolCall', terminalId, open);
+  }
+
+  /**
+   * La pestana cambio de sesion: se suelta el seguidor viejo y se sigue la
+   * nueva, sin perder a quien estaba mirando.
+   *
+   * Pasa con una CLI que pone el id ella misma: la pestana nace esperando con
+   * `sessionId ''` y lo gana con el primer mensaje. Y al relanzar una pestana
+   * cuya sesion ya no esta, en sentido contrario. Quien miraba recibe un
+   * `reset` con la conversacion de la sesion nueva.
+   *
+   * Solo si alguien la sigue: sin entrada, el proximo `subscribe` ya lee el
+   * descriptor nuevo.
+   */
+  private async rebind(terminalId: TerminalId): Promise<void> {
+    const entry = this.entries.get(terminalId);
+    const descriptor = this.registry.get(terminalId);
+    if (entry === undefined || descriptor === null || descriptor.agent === null) return;
+    if (descriptor.sessionId === entry.sessionId) return;
+    const adapter = this.agents.get(descriptor.agent)?.adapter ?? null;
+    if (adapter === null) return;
+
+    if (entry.timer !== null) clearTimeout(entry.timer);
+    entry.timer = null;
+    entry.stopWatchingStatus?.();
+    entry.stopWatchingStatus = null;
+    this.stopFollowTicker(entry);
+
+    const next: Entry = {
+      ...this.createEntry(descriptor.agent, descriptor.cwd, descriptor.sessionId, adapter),
+      // Los que miraban siguen mirando.
+      refs: entry.refs,
+    };
+    // Desde aca, una lectura de la entrada vieja que estaba en la cadena sale por su guardia.
+    this.entries.set(terminalId, next);
+    this.watchStatus(terminalId, next, descriptor.sessionId);
+    this.startFollowTicker(terminalId, next);
+    debugLog(
+      'conversacion',
+      `${terminalId.slice(0, 8)} cambio de sesion: sigo ${path.basename(next.follower.label)}`,
+    );
+    await next.follower.start();
+    next.primed = true;
+    await this.runPoll(terminalId, next, { silent: true });
+    // Otro cambio mientras tanto ya aviso por su cuenta.
+    if (this.entries.get(terminalId) !== next) return;
+    this.emit('reset', terminalId);
+  }
+
+  /**
+   * true si la conversacion de una pestana tiene una llamada a herramienta sin
+   * resultado, hecha por el proceso lanzado en `launchedAt` o despues.
+   *
+   * Lo pregunta el socket antes de mandar un mensaje a una CLI que no publica
+   * su estado (A1 del hito 25). false si nadie sigue la pestana: sin seguidor no
+   * hay nada leido, y quien escribe desde el cuadro de escritura la esta mirando.
+   */
+  hasOpenToolCall(terminalId: TerminalId, launchedAt: number): boolean {
+    return this.entries.get(terminalId)?.follower.hasOpenToolCall(launchedAt) ?? false;
+  }
+
+  /**
+   * Lo mismo que `hasOpenToolCall`, pero leyendo antes lo que la CLI haya
+   * escrito y el watcher todavia no aviso.
+   *
+   * Lo usa el socket antes de cada pieza de un envio (A1 del hito 25): entre
+   * pieza y pieza pasan 400 ms, y el aviso del watcher tarda mas que eso
+   * (`awaitWriteFinish` de 300 ms, su sondeo de 100 y el `POLL_DEBOUNCE_MS`).
+   * Esperarlo dejaria salir el Enter sobre una llamada que ya esta en el
+   * archivo. Lo que queda es lo que la CLI tarda en escribir la llamada, y eso
+   * no se ve desde aca.
+   *
+   * La lectura es la de siempre, encadenada y con sus avisos: lo que traiga le
+   * llega al cliente igual que si lo hubiera disparado el watcher.
+   */
+  async checkOpenToolCall(terminalId: TerminalId, launchedAt: number): Promise<boolean> {
+    const entry = this.entries.get(terminalId);
+    if (entry === undefined) return false;
+    if (entry.primed) {
+      // Esta lectura cubre la que el watcher dejo programada.
+      if (entry.timer !== null) clearTimeout(entry.timer);
+      entry.timer = null;
+      await this.runPoll(terminalId, entry, { silent: false });
+    }
+    return this.hasOpenToolCall(terminalId, launchedAt);
+  }
+
+  /**
+   * El ultimo `openToolCall` calculado para la pestana: lo que ya se aviso.
+   * false si nadie la sigue.
+   */
+  isToolCallOpen(terminalId: TerminalId): boolean {
+    return this.entries.get(terminalId)?.openToolCall ?? false;
+  }
+
   private release(terminalId: TerminalId, entry: Entry): void {
     if (entry.timer !== null) clearTimeout(entry.timer);
+    this.stopFollowTicker(entry);
     entry.stopWatchingStatus?.();
     entry.stopWatchingStatus = null;
     this.entries.delete(terminalId);
@@ -358,6 +553,7 @@ export class ConversationHub extends EventEmitter {
       usage: entry.follower.getUsage(),
       permissionMode: entry.follower.getPermissionMode(),
       waitingFor: entry.waitingFor,
+      openToolCall: entry.openToolCall,
       // Este snapshot es sincronico y describir un plan pide el disco. Quien
       // necesita los planes usa `subscribe`, que si puede esperar.
       plans: [],
@@ -477,6 +673,7 @@ export class ConversationHub extends EventEmitter {
   disposeAll(): void {
     for (const entry of this.entries.values()) {
       if (entry.timer !== null) clearTimeout(entry.timer);
+      this.stopFollowTicker(entry);
       entry.stopWatchingStatus?.();
     }
     this.entries.clear();
@@ -519,6 +716,13 @@ export class ConversationHub extends EventEmitter {
         console.warn(`[conversacion] no se pudo leer ${entry.follower.label}:`, error);
         return;
       }
+
+      /*
+        Tambien en la lectura silenciosa: el snapshot que sale de ella lo lleva
+        adentro, y el aviso suelto que puede salir aca antes es inofensivo —dice
+        lo mismo que el snapshot que llega detras—.
+      */
+      this.refreshOpenToolCall(terminalId, entry);
 
       if (options.silent) return;
 

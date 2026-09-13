@@ -1,10 +1,11 @@
 # Agent Workbench
 
-Una interfaz visual local para la CLI de Claude Code.
+Una interfaz visual local para las CLIs de agentes de código. Funciona con la
+CLI de Claude Code y con la de Codex.
 
-No habla con ninguna API. Lanza el binario `claude` que ya tenés instalado y
-logueado, dentro de una pseudo-terminal, y le agrega alrededor lo que una
-terminal sola no da: pestañas, historial navegable, la conversación como
+No habla con ninguna API. Lanza la CLI que ya tenés instalada y logueada
+—`claude` o `codex`— dentro de una pseudo-terminal, y le agrega alrededor lo que
+una terminal sola no da: pestañas, historial navegable, la conversación como
 tarjetas, un medidor de contexto, el estado de git y un árbol de archivos.
 
 La terminal sigue siendo la terminal. Todo lo que escribís le llega a la CLI sin
@@ -20,7 +21,7 @@ que la aplicación lo toque.
 |---|---|
 | **Pestañas** | Varias sesiones vivas a la vez, cada una en su directorio. Sobreviven a un `F5`: los procesos viven en el servidor, no en la pestaña del navegador. El punto de cada una dice si el agente está trabajando, parado o esperando una respuesta. |
 | **Arranque sin gastar nada** | Al abrir la app las pestañas vuelven **dormidas**: se leen enteras y no lanzan ninguna CLI. La abrís con un botón cuando quieras escribirle al agente. |
-| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro. Abrir una la retoma con `--resume`, en el mismo archivo. |
+| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, las de Claude Code y las de Codex juntas bajo cada proyecto. Abrir una la retoma con su CLI, en el mismo archivo. |
 | **Conversación** | Los mensajes de la sesión activa, en vivo, con las herramientas plegadas y su resultado adentro. Búsqueda, salto entre resultados y copiado por mensaje. |
 | **Medidor de contexto** | Tokens de la última petición contra la ventana del modelo. Tokens, nunca dinero. |
 | **Cambios** | Rama, adelanto y atraso contra la rama de seguimiento, worktrees, y los archivos tocados con su diff. **Solo lectura.** |
@@ -43,9 +44,12 @@ que la aplicación lo toque.
 | **Node.js** | 20 o superior |
 | **git** | para el panel de cambios; el resto funciona sin él |
 | **La CLI de Claude Code** | instalada y con sesión iniciada — [guía de instalación](https://docs.claude.com/en/docs/claude-code/setup) |
+| **La CLI de Codex** (opcional) | instalada y con sesión iniciada — [guía](https://learn.chatgpt.com/docs/codex/cli) |
 
-Agent Workbench **no** incluye la CLI ni la descarga: usa la que ya tenés en el
-`PATH`. Si no la encuentra, te lo dice y no abre sesiones.
+Hace falta una de las dos. Agent Workbench **no** incluye ninguna CLI ni la
+descarga: usa las que ya tenés en el `PATH`. Si no encuentra ninguna, te lo dice
+y no abre sesiones. Con las dos instaladas, el `+` de nueva pestaña abre con la
+que usaste en ese proyecto, y su flecha te deja elegir la otra.
 
 Probado sobre Windows 11 con PowerShell, que es la plataforma principal.
 macOS y Linux funcionan igual. En Linux, la dependencia `node-pty` no trae
@@ -132,17 +136,17 @@ Nada sale de tu máquina. Sin telemetría, sin analítica, sin ninguna llamada d
 red saliente.
 
 - **Nunca toca tus credenciales.** No lee, copia ni reenvía
-  `~/.claude/.credentials.json` ni ningún token. No hay login en la interfaz: si
-  no iniciaste sesión, corrés `/login` dentro de la terminal y la aplicación ni
-  se entera.
+  `~/.claude/.credentials.json`, ni `auth.json` ni `config.toml` de Codex, ni
+  ningún token. No hay login en la interfaz: si no iniciaste sesión, lo hacés
+  dentro de la terminal de la CLI y la aplicación ni se entera.
 - **No agrega variables de autenticación** al entorno de los procesos que lanza.
   El entorno se hereda tal cual. La única excepción es que **quita**
   `CLAUDE_CODE_CHILD_SESSION` —que apaga el guardado del historial— y te avisa
   con un cartel cuando lo hace.
 - **De `~/.claude/` solo lee `projects/`**, que es el historial de
-  conversaciones. Lo que la aplicación guarda (pestañas abiertas, caché del
-  índice) va a su propio directorio de configuración, nunca dentro de
-  `~/.claude/`.
+  conversaciones. **De `~/.codex/`, solo `sessions/` y `archived_sessions/`.**
+  Lo que la aplicación guarda (pestañas abiertas, caché del índice) va a su
+  propio directorio de configuración, nunca dentro de la carpeta de una CLI.
 - **En tus proyectos escribe una sola cosa, y sólo si confirmás:** la memoria
   compartida. Antes muestra archivo por archivo qué va a cambiar, y se limita a
   `.agents/memory/`, a lo que está entre sus marcas en `AGENTS.md` y
@@ -223,5 +227,6 @@ la CLI —que difiere de lo que uno esperaría— y las trampas ya pisadas.
 
 MIT. Ver [`LICENSE`](LICENSE).
 
-Agent Workbench es un proyecto independiente. Funciona con la CLI de Claude Code,
-pero no está afiliado a Anthropic ni respaldado por ellos.
+Agent Workbench es un proyecto independiente. Funciona con las CLIs de Claude
+Code y de Codex, pero no está afiliado a Anthropic ni a OpenAI, ni respaldado
+por ellos.

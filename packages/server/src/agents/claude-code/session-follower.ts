@@ -144,4 +144,12 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
   getPlanFiles(): readonly string[] {
     return this.inner.getPlanFiles();
   }
+
+  /**
+   * Siempre false: esta CLI publica su estado, y un permiso pendiente lo dice
+   * `~/.claude/sessions/` (§4.13) sin adivinarlo por el historial.
+   */
+  hasOpenToolCall(): boolean {
+    return false;
+  }
 }

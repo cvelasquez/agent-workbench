@@ -7,9 +7,9 @@
  * el manejo de ConPTY, el resize y el cierre no se escriben dos veces.
  *
  * El entorno tambien lo decide quien la construye, y llega ya armado: el de una
- * pestana sale del adaptador de su CLI (`environment()` en `agents/adapter.ts`)
- * y el de la consola, de todos los adaptadores encadenados
- * (`AgentRegistry.consoleEnvironment`). Aca no se le agrega ni se le quita
+ * pestana y el de la consola salen de todos los adaptadores encadenados
+ * (`AgentRegistry.composedEnvironment`, que aplica el `environment()` de cada
+ * uno). Aca no se le agrega ni se le quita
  * nada. REGLA DURA que se cumple alla: el entorno se hereda del proceso padre y
  * **nunca gana variables**, mucho menos de autenticacion.
  */

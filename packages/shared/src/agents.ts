@@ -36,13 +36,25 @@ import {
  * valer siempre es que esta lista este contenida en aquella: una CLI que la
  * app lanza tiene que poder usar la memoria. Lo comprueba
  * `check-agent-registry.mjs`.
+ *
+ * Que un id este aca no quiere decir que el servidor lo lance: lo que viaja en
+ * `hello` son los adaptadores **registrados**, y un id sin adaptador se trata
+ * igual que una CLI no instalada. El orden es el de preferencia: con las dos
+ * instaladas, la que se abre por defecto sigue siendo la primera.
  */
-export const AGENT_IDS = ['claude-code'] as const;
+export const AGENT_IDS = ['claude-code', 'codex'] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
-/** Como nombra la CLI una imagen adjunta por ruta. `at-quoted`: `@"ruta"`. */
-export type ImageReferenceStyle = 'at-quoted';
-export const IMAGE_REFERENCE_STYLES: readonly ImageReferenceStyle[] = ['at-quoted'];
+/**
+ * Como nombra la CLI una imagen adjunta por ruta.
+ *
+ *  - `at-quoted`: `@"ruta"` dentro del mismo pegado que el texto.
+ *  - `bare-path-paste`: cada imagen en su propio pegado, con la ruta sola y
+ *    antes del texto. Es para una CLI que adjunta solo si el pegado **entero**
+ *    es la ruta de una imagen, y en la que `@` abre un buscador de archivos.
+ */
+export type ImageReferenceStyle = 'at-quoted' | 'bare-path-paste';
+export const IMAGE_REFERENCE_STYLES: readonly ImageReferenceStyle[] = ['at-quoted', 'bare-path-paste'];
 
 /** Como se menciona un archivo tecleandolo en la terminal. `at`: `@ruta `. */
 export type FileMentionStyle = 'at';
@@ -51,11 +63,13 @@ export const FILE_MENTION_STYLES: readonly FileMentionStyle[] = ['at'];
 /**
  * De donde sale la ventana de contexto.
  *
- * `usage-with-variants`: tokens por respuesta mas la variante resuelta
- * (CLAUDE.md 4.5.1).
+ *  - `usage-with-variants`: tokens por respuesta mas la variante resuelta
+ *    (CLAUDE.md 4.5.1).
+ *  - `token-count`: la CLI escribe la ventana exacta junto a los tokens, y la
+ *    anuncia al empezar cada turno. No hay nada que reconstruir.
  */
-export type ContextWindowSource = 'usage-with-variants';
-export const CONTEXT_WINDOW_SOURCES: readonly ContextWindowSource[] = ['usage-with-variants'];
+export type ContextWindowSource = 'usage-with-variants' | 'token-count';
+export const CONTEXT_WINDOW_SOURCES: readonly ContextWindowSource[] = ['usage-with-variants', 'token-count'];
 
 /** Avisos de entorno que un adaptador puede levantar al arrancar. */
 export type EnvironmentNoticeId = 'child-session-marker';

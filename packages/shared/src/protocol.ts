@@ -95,6 +95,7 @@ import {
 import {
   asArrayFiltered,
   asArrayOf,
+  asBoolean,
   asFiniteNumber,
   asLiteral,
   asNonEmptyString,
@@ -839,6 +840,11 @@ export interface ServerIndexProjectsMessage {
 export interface ServerConversationResetMessage {
   type: 'conversation.reset';
   terminalId: TerminalId;
+  /**
+   * Vacio mientras la CLI no dijo que sesion es: una CLI que pone el id ella
+   * misma lo escribe recien con el primer mensaje, y hasta entonces la pestana
+   * existe y se sigue sin tener sesion.
+   */
   sessionId: SessionId;
   state: ConversationState;
   events: ConversationEvent[];
@@ -853,6 +859,32 @@ export interface ServerConversationResetMessage {
   defaults: AgentDefaults;
   /** Que esta esperando la CLI, o null si no espera nada. Ver `waitingFor`. */
   waitingFor: string | null;
+  /**
+   * true si la CLI no publica su estado y tiene una llamada a herramienta de
+   * este proceso sin resultado. Ver `conversation.toolCall`. Un servidor que no
+   * lo manda equivale a false.
+   */
+  openToolCall: boolean;
+}
+
+/**
+ * Cambio si hay una llamada a herramienta abierta, sin mensajes nuevos.
+ *
+ * Solo para una CLI que no publica su estado. Con una llamada sin resultado
+ * puede estar mostrando un menu de aprobacion que la app no ve, y un mensaje
+ * del cuadro de escritura llegaria como teclas a ese menu: el Enter final
+ * aprueba. El servidor ya rechaza ese envio; esto es para que el cuadro lo
+ * diga antes y no deje apretar Enviar.
+ *
+ * Lo calcula el servidor y no el cliente porque depende de dos cosas que los
+ * eventos no traen: si el turno se cerro (la CLI lo escribe en lineas que no
+ * son mensajes) y cuando se lanzo el proceso de ahora (una llamada de un
+ * proceso anterior quedo huerfana y no bloquea).
+ */
+export interface ServerConversationToolCallMessage {
+  type: 'conversation.toolCall';
+  terminalId: TerminalId;
+  open: boolean;
 }
 
 /**
@@ -1167,6 +1199,7 @@ export type ServerMessage =
   | ServerConversationAppendMessage
   | ServerConversationModeMessage
   | ServerConversationWaitingMessage
+  | ServerConversationToolCallMessage
   | ServerConversationPageMessage
   | ServerConversationStateMessage
   | ServerConversationTurnsMessage
@@ -1665,7 +1698,8 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     }
     case 'conversation.reset': {
       const terminalId = asNonEmptyString(record['terminalId']);
-      const sessionId = asNonEmptyString(record['sessionId']);
+      // Vacio es valido: la pestana todavia no sabe su sesion. Ausente no.
+      const sessionId = asString(record['sessionId']);
       const state = asLiteral(record['state'], CONVERSATION_STATES);
       const events = asArrayOf(record['events'], parseConversationEvent);
       const usage = parseContextUsage(record['usage']);
@@ -1688,6 +1722,8 @@ export function parseServerMessage(raw: string): ServerMessage | null {
               : null,
             defaults: parseAgentDefaults(record['defaults']),
             waitingFor: asNonEmptyString(record['waitingFor']),
+            // Ausente es false: un servidor anterior no bloquea nada.
+            openToolCall: record['openToolCall'] === true,
           };
     }
     case 'conversation.append': {
@@ -1724,6 +1760,13 @@ export function parseServerMessage(raw: string): ServerMessage | null {
             // igual, y el cliente ya sabe que no la conoce.
             waitingFor: asNonEmptyString(record['waitingFor']),
           };
+    }
+    case 'conversation.toolCall': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const open = asBoolean(record['open']);
+      return terminalId === null || open === null
+        ? null
+        : { type: 'conversation.toolCall', terminalId, open };
     }
     case 'conversation.page': {
       const terminalId = asNonEmptyString(record['terminalId']);

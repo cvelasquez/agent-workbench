@@ -70,6 +70,12 @@ export interface ConversationFeed {
    */
   waitingFor: string | null;
   /**
+   * true si la CLI no publica su estado y tiene una llamada a herramienta sin
+   * resultado: puede haber un menu de aprobacion abierto que no se ve. Lo
+   * calcula el servidor (`conversation.toolCall`).
+   */
+  openToolCall: boolean;
+  /**
    * Lo que la configuracion anuncia, para cuando el archivo todavia no dijo
    * nada. Es provisional: en cuanto llega una respuesta manda lo observado.
    */
@@ -143,6 +149,7 @@ export function useConversation(
   const [images, setImages] = useState<Record<string, string | null>>({});
   const [permissionMode, setPermissionModeState] = useState<PermissionMode | null>(null);
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const [openToolCall, setOpenToolCall] = useState(false);
 
   /*
     Lo respondido y lo que fallo, **indexado por pestana**.
@@ -274,6 +281,7 @@ export function useConversation(
     setImages({});
     setPermissionModeState(null);
     setWaitingFor(null);
+    setOpenToolCall(false);
     requested.current.clear();
     oldestEventId.current = null;
 
@@ -286,6 +294,7 @@ export function useConversation(
           setDefaults(message.defaults);
           setPermissionModeState(message.permissionMode);
           setWaitingFor(message.waitingFor);
+          setOpenToolCall(message.openToolCall);
           setState(message.state);
           setHasMore(message.hasMore);
           setLoadingMore(false);
@@ -393,6 +402,16 @@ export function useConversation(
         case 'conversation.waiting':
           if (message.terminalId !== terminalId) break;
           setWaitingFor(message.waitingFor);
+          break;
+
+        /*
+          Se abrio o se cerro una llamada a herramienta de una CLI que no
+          publica su estado. Tampoco trae mensajes: la linea que la cierra
+          puede no ser un mensaje.
+        */
+        case 'conversation.toolCall':
+          if (message.terminalId !== terminalId) break;
+          setOpenToolCall(message.open);
           break;
 
         /*
@@ -524,6 +543,7 @@ export function useConversation(
     state,
     permissionMode,
     waitingFor,
+    openToolCall,
     hasMore,
     loadingMore,
     loadMore,

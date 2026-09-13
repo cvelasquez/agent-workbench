@@ -16,22 +16,34 @@ import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
 import type {
   AgentId,
+  SessionId,
   TerminalActivity,
   TerminalDescriptor,
   TerminalId,
   TerminalKind,
 } from '@agent-workbench/shared';
-import type { AgentAdapter, CliLocation } from './agents/adapter.js';
+import type { AgentAdapter, CliLocation, LaunchHook } from './agents/adapter.js';
 import {
   resolveAgentForOpen,
   type AgentRegistry,
   type RegisteredAgent,
 } from './agents/registry.js';
 import { debugLog } from './debug.js';
+import { LaunchHookSlot } from './launch-hook-slot.js';
 import { OutputBuffer } from './output-buffer.js';
 import { PtySession, type LaunchSpec } from './pty-session.js';
 import type { ShellLocation } from './shell-locator.js';
-import { WorkspaceStore, persistableTabs, type PersistedTab } from './workspace-store.js';
+import { insertionIndex } from './tab-order.js';
+import { ActivityBook } from './terminal-activity.js';
+import {
+  WorkspaceStore,
+  mergePersistedTabs,
+  orderedTabs,
+  persistableTabs,
+  type ForeignTab,
+  type PlacedTab,
+  type WorkspaceState,
+} from './workspace-store.js';
 
 /** Tope defensivo: cada pestana es un proceso real. */
 const MAX_TERMINALS = 24;
@@ -79,14 +91,24 @@ interface TerminalEntry {
   /** Corta la suscripcion al estado que la CLI publica por proceso. */
   stopWatchingActivity: (() => void) | null;
   /**
-   * Corta lo que el adaptador dejo corriendo despues de lanzar, si dejo algo.
+   * Lo que el adaptador dejo corriendo despues de lanzar, si dejo algo.
    *
-   * Con Claude Code es la espera del dialogo de reanudar. Se llama en cuanto el
-   * usuario escribe algo el mismo o la pestana se cierra: a partir de ahi el
-   * menu ya no esta como lo dejamos y un `2` cae en cualquier lado. Ver
-   * `agents/claude-code/resume-dialog.ts`.
+   * Con Claude Code es la espera del dialogo de reanudar, que se abandona en
+   * cuanto alguien escribe o la pestana se cierra: a partir de ahi el menu ya
+   * no esta como lo dejamos y un `2` cae en cualquier lado (ver
+   * `agents/claude-code/resume-dialog.ts`). Con una CLI que pone el id de sesion
+   * ella misma es la busqueda de esa sesion, que en cambio vive mientras se
+   * escribe. Quien recibe cada momento lo decide `launch-hook-slot.ts`.
    */
-  cancelLaunchHook: (() => void) | null;
+  launchHook: LaunchHookSlot;
+  /**
+   * Epoch ms del lanzamiento de la pty actual, o null si nunca tuvo.
+   *
+   * Lo pregunta el socket antes de mandar un mensaje a una CLI que no publica
+   * su estado: una llamada a herramienta abierta de **este** proceso puede
+   * estar esperando una aprobacion, una de un proceso anterior quedo huerfana.
+   */
+  launchedAt: number | null;
 }
 
 export interface OpenTerminalOptions {
@@ -132,6 +154,16 @@ export interface TerminalRegistryEvents {
    * entera de pestanas: seria repetir todo para cambiar una palabra.
    */
   activity: (terminalId: TerminalId, activity: TerminalActivity) => void;
+  /**
+   * Cambio la sesion de una pestana de agente.
+   *
+   * Pasa con una CLI que pone el id ella misma: la pestana nace sin id y lo
+   * gana cuando se descubre. Y al relanzar una pestana cuyo lanzamiento dice
+   * otra cosa que la que tenia —un id nuevo, o `''` si la sesion ya no esta—.
+   * El hub suelta el seguidor viejo y sigue el nuevo. Con Claude Code no pasa:
+   * el id se fija al lanzar y no cambia.
+   */
+  session: (terminalId: TerminalId, sessionId: SessionId) => void;
 }
 
 export declare interface TerminalRegistry {
@@ -148,6 +180,16 @@ export declare interface TerminalRegistry {
 export class TerminalRegistry extends EventEmitter {
   private readonly terminals = new Map<TerminalId, TerminalEntry>();
   private order: TerminalId[] = [];
+  /** La ultima actividad avisada de cada pestana, para quien se conecta despues. */
+  private readonly activity = new ActivityBook();
+  /**
+   * Pestanas guardadas de una CLI conocida que no esta disponible. No estan en
+   * pantalla, pero se vuelven a guardar en su lugar: desinstalar una CLI un rato
+   * no puede borrar las pestanas que tenia.
+   */
+  private unavailableTabs: PlacedTab[] = [];
+  /** Pestanas guardadas de una CLI que esta build no conoce. Idem, crudas. */
+  private foreignTabs: ForeignTab[] = [];
 
   constructor(
     private readonly agents: AgentRegistry,
@@ -295,7 +337,8 @@ export class TerminalRegistry extends EventEmitter {
       buffer: new OutputBuffer(),
       listeners: new Set(),
       size: { cols: options.cols ?? DEFAULT_COLS, rows: options.rows ?? DEFAULT_ROWS },
-      cancelLaunchHook: null,
+      launchHook: new LaunchHookSlot(),
+      launchedAt: null,
       stopWatchingActivity: null,
     };
     this.terminals.set(terminalId, entry);
@@ -375,13 +418,14 @@ export class TerminalRegistry extends EventEmitter {
     const { buffer } = entry;
 
     /*
-      Que se lanza, con que entorno y con que id de sesion lo decide el
-      adaptador de la CLI; aca solo se ejecuta. La consola no es de ninguna CLI
-      y recibe el entorno filtrado por todas: desde ella se puede lanzar
-      cualquiera a mano, y tiene que arrancar igual que desde una pestana.
+      Que se lanza y con que id de sesion lo decide el adaptador de la CLI; aca
+      solo se ejecuta. El entorno es el mismo para todo lo que se lanza, filtrado
+      por todas las CLIs (C22 del hito 25): desde una consola se puede lanzar
+      cualquiera a mano, y una CLI puede lanzar a otra como herramienta, y en los
+      dos casos tiene que arrancar igual que desde su propia pestana. Con una
+      sola CLI registrada es exactamente el entorno de su adaptador.
     */
     let launch: LaunchSpec;
-    let env: Record<string, string>;
     let adapter: AgentAdapter | null = null;
     let launchedSessionId = sessionId;
     if (launcher.kind === 'agent') {
@@ -393,15 +437,14 @@ export class TerminalRegistry extends EventEmitter {
         proposedSessionId: sessionId,
       });
       launch = { file: plan.file, args: plan.args };
-      env = adapter.environment(process.env).env;
       // Una CLI que pone el id ella misma deja la pestana sin id hasta que el
       // gancho lo descubra y lo avise (`reportSessionId`). Con Claude Code el
       // id es siempre el que ya tenia la pestana.
       launchedSessionId = plan.session.kind === 'known' ? plan.session.sessionId : '';
     } else {
       launch = { file: launcher.shell.file, args: [...launcher.shell.args] };
-      env = this.agents.consoleEnvironment(process.env);
     }
+    const env = this.agents.composedEnvironment(process.env);
 
     const launchedAt = Date.now();
     let session: PtySession;
@@ -440,7 +483,13 @@ export class TerminalRegistry extends EventEmitter {
             };
             target.stopWatchingActivity?.();
             target.stopWatchingActivity = null;
-            this.emit('activity', terminalId, 'offline');
+            this.setActivity(terminalId, 'offline');
+            /*
+              Con la pestana todavia en el registro: es la ultima oportunidad del
+              gancho de mirar lo que la CLI dejo escrito al salir, y lo que
+              encuentre tiene que tener a quien avisarle. Despues queda soltado.
+            */
+            target.launchHook.exit();
           }
           this.emit('exit', terminalId, exitCode, signal);
           this.emit('changed');
@@ -455,6 +504,7 @@ export class TerminalRegistry extends EventEmitter {
     }
 
     entry.session = session;
+    entry.launchedAt = launchedAt;
     entry.descriptor = {
       ...entry.descriptor,
       sessionId: launchedSessionId,
@@ -470,14 +520,18 @@ export class TerminalRegistry extends EventEmitter {
       contesta siempre igual, y se contesta solo si se cumplen las dos
       condiciones de `resume-dialog.ts`; en una sesion nueva no hay gancho.
 
-      Solo se pisa la referencia cuando hay gancho nuevo, igual que antes: sin
-      eso, despertar sin reanudar soltaria la cancelacion de uno anterior que
-      todavia estuviera esperando.
+      Un gancho de un lanzamiento anterior que todavia quedara se cancela al
+      poner el nuevo, haya nuevo o no: su `write` escribe en la pty **actual**, y
+      un `2` pensado para otro proceso cae en cualquier lado. Normalmente no
+      queda ninguno, porque la salida del proceso ya lo solto.
     */
     if (adapter !== null) {
-      const cancel = adapter.onSpawned({
+      let hook: LaunchHook | null = null;
+      let finished = false;
+      hook = adapter.onSpawned({
         terminalId,
         sessionId: launchedSessionId,
+        cwd,
         resumed: options.resume,
         pid: session.pid,
         launchedAt,
@@ -489,14 +543,23 @@ export class TerminalRegistry extends EventEmitter {
           return true;
         },
         onDone: (outcome) => {
+          finished = true;
           const target = this.terminals.get(terminalId);
-          if (target !== undefined) target.cancelLaunchHook = null;
+          if (target !== undefined && hook !== null) target.launchHook.forget(hook);
           debugLog('registro', `dialogo de reanudar en ${terminalId.slice(0, 8)}: ${outcome}`);
         },
         reportSessionId: (discovered) => this.reportSessionId(terminalId, discovered),
       });
-      if (cancel !== null) entry.cancelLaunchHook = cancel;
+      entry.launchHook.set(finished ? null : hook);
     }
+
+    /*
+      Si este lanzamiento dice otra sesion que la que tenia la pestana —un
+      despertar cuya sesion ya no esta, y la CLI arranca una nueva sin id— el hub
+      tiene que soltar el seguidor viejo. Con Claude Code el id no cambia nunca
+      y no se avisa nada.
+    */
+    if (launchedSessionId !== sessionId) this.emit('session', terminalId, launchedSessionId);
   }
 
   /**
@@ -504,8 +567,9 @@ export class TerminalRegistry extends EventEmitter {
    *
    * Es para las CLIs que ponen el id ellas mismas: la pestana nace sin id y lo
    * gana aca. Actualiza el descriptor, lo guarda —recien ahora hay algo que
-   * reanudar—, avisa y vuelve a seguir el estado del proceso con el id nuevo.
-   * Con Claude Code nadie lo llama: el id se fija al lanzar.
+   * reanudar—, avisa (el hub rehace su seguidor con `session`) y vuelve a seguir
+   * el estado del proceso con el id nuevo. Con Claude Code nadie lo llama: el
+   * id se fija al lanzar.
    */
   private reportSessionId(terminalId: TerminalId, sessionId: string): void {
     const entry = this.terminals.get(terminalId);
@@ -513,9 +577,38 @@ export class TerminalRegistry extends EventEmitter {
     if (sessionId.length === 0 || entry.descriptor.sessionId === sessionId) return;
 
     entry.descriptor = { ...entry.descriptor, sessionId };
-    if (entry.session !== null) this.watchActivity(entry);
     this.persist();
     this.emit('changed');
+    this.emit('session', terminalId, sessionId);
+    if (entry.session !== null) this.watchActivity(entry);
+  }
+
+  /**
+   * El texto que la app va a escribir en la pty de una pestana: el del cuadro
+   * de escritura o el de una nota. Lo llama el socket **antes** de la primera
+   * escritura, para que quien busca la sesion por ese texto no encuentre el
+   * archivo de la CLI antes que el texto.
+   */
+  noteSubmitted(terminalId: TerminalId, text: string): void {
+    this.terminals.get(terminalId)?.launchHook.submitted(text);
+  }
+
+  /** Epoch ms del lanzamiento de la pty viva de una pestana, o null si no tiene. */
+  launchedAtOf(terminalId: TerminalId): number | null {
+    const entry = this.terminals.get(terminalId);
+    if (entry === undefined || entry.session === null) return null;
+    return entry.launchedAt;
+  }
+
+  /** La ultima actividad avisada de cada pestana. Para el cliente que se conecta. */
+  activitySnapshot(): { terminalId: TerminalId; activity: TerminalActivity }[] {
+    return this.activity.snapshot();
+  }
+
+  /** Anota y avisa. Todo aviso de actividad pasa por aca. */
+  private setActivity(terminalId: TerminalId, activity: TerminalActivity): void {
+    this.activity.set(terminalId, activity);
+    this.emit('activity', terminalId, activity);
   }
 
   /**
@@ -531,18 +624,23 @@ export class TerminalRegistry extends EventEmitter {
     entry.stopWatchingActivity = null;
 
     const { terminalId, kind, agent, sessionId } = entry.descriptor;
-    if (kind !== 'agent' || agent === null || sessionId.length === 0) return;
+    if (kind !== 'agent' || agent === null) return;
 
-    // Una CLI que no publica su estado no tiene nada que seguir: se dice una
-    // vez que no se sabe, en vez de dejar la pestana como si estuviera libre.
+    /*
+      Una CLI que no publica su estado no tiene nada que seguir: se dice una
+      vez que no se sabe, en vez de dejar la pestana como si estuviera libre.
+      Con proceso vivo alcanza, aunque todavia no tenga id de sesion: una CLI
+      que lo pone ella misma ya esta corriendo antes de que se descubra.
+    */
     const status = this.agents.get(agent)?.adapter.status ?? null;
     if (status === null) {
-      this.emit('activity', terminalId, 'unknown');
+      if (entry.session !== null) this.setActivity(terminalId, 'unknown');
       return;
     }
+    if (sessionId.length === 0) return;
 
     entry.stopWatchingActivity = status.subscribe(sessionId, (current) => {
-      this.emit('activity', terminalId, current === null ? 'offline' : current.activity);
+      this.setActivity(terminalId, current === null ? 'offline' : current.activity);
     });
   }
 
@@ -563,16 +661,29 @@ export class TerminalRegistry extends EventEmitter {
    * apuntando a una carpeta borrada no sirve para nada y se veria como una
    * conversacion vacia sin explicacion. Y que su CLI siga instalada: sin ella
    * no hay con que despertarla.
+   *
+   * Lo que no se restaura por la CLI no se pierde (hito 25): las pestanas de una
+   * CLI que no esta disponible, y las de una que esta build no conoce, se
+   * guardan aparte y vuelven al archivo en su lugar en cada `persist`. Las de
+   * una carpeta borrada si se pierden, como siempre.
    */
-  async restore(tabs: readonly PersistedTab[]): Promise<void> {
-    for (const tab of tabs) {
-      if (this.terminals.size >= MAX_TERMINALS) break;
-      if ((this.agents.get(tab.agent)?.location ?? null) === null) {
-        console.warn(
-          `[workspace] no se restauro la pestana de ${tab.cwd}: su CLI no esta disponible.`,
-        );
+  async restore(state: WorkspaceState): Promise<void> {
+    this.unavailableTabs = [];
+    this.foreignTabs = [];
+    for (const [position, saved] of orderedTabs(state).entries()) {
+      if (saved.kind === 'foreign') {
+        this.foreignTabs.push({ position, raw: saved.raw });
         continue;
       }
+      const { tab } = saved;
+      if ((this.agents.get(tab.agent)?.location ?? null) === null) {
+        console.warn(
+          `[workspace] no se restauro la pestana de ${tab.cwd}: su CLI no esta disponible. Se conserva para cuando vuelva.`,
+        );
+        this.unavailableTabs.push({ position, tab });
+        continue;
+      }
+      if (this.terminals.size >= MAX_TERMINALS) continue;
       try {
         await this.assertDirectory(tab.cwd);
       } catch (error) {
@@ -605,7 +716,8 @@ export class TerminalRegistry extends EventEmitter {
         buffer: new OutputBuffer(),
         listeners: new Set(),
         size: { cols: DEFAULT_COLS, rows: DEFAULT_ROWS },
-        cancelLaunchHook: null,
+        launchHook: new LaunchHookSlot(),
+        launchedAt: null,
         stopWatchingActivity: null,
       });
       this.insertInOrder(terminalId, descriptor);
@@ -619,28 +731,21 @@ export class TerminalRegistry extends EventEmitter {
    * Deja la pestana nueva **junto a las de su mismo proyecto**, no al final.
    *
    * Con las pestanas encogidas y los nombres recortados, tenerlas desparramadas
-   * obliga a leerlas una por una. Agrupar por `cwd` es lo que hace que el color
-   * del subrayado sirva de algo: los del mismo tono quedan pegados.
+   * obliga a leerlas una por una. Agrupar por proyecto es lo que hace que el
+   * color del subrayado sirva de algo: los del mismo tono quedan pegados. La
+   * regla vive en `tab-order.ts`.
    *
    * El orden manual sigue mandando — esto solo decide donde cae la nueva, y un
    * arrastre posterior la mueve a donde el usuario quiera.
    */
   private insertInOrder(terminalId: TerminalId, descriptor: TerminalDescriptor): void {
-    // Una consola no esta en la barra de pestanas: va al final y no agrupa.
-    if (descriptor.kind !== 'agent') {
-      this.order.push(terminalId);
-      return;
-    }
-
-    let last = -1;
-    for (const [index, id] of this.order.entries()) {
-      const other = this.terminals.get(id)?.descriptor;
-      if (other === undefined) continue;
-      if (other.kind === 'agent' && other.cwd === descriptor.cwd) last = index;
-    }
-
-    if (last === -1) this.order.push(terminalId);
-    else this.order.splice(last + 1, 0, terminalId);
+    const index = insertionIndex(
+      this.order,
+      (id) => this.terminals.get(id)?.descriptor,
+      descriptor,
+      process.platform,
+    );
+    this.order.splice(index, 0, terminalId);
   }
 
   /** Cierra la pestana y termina el proceso. */
@@ -649,10 +754,11 @@ export class TerminalRegistry extends EventEmitter {
     if (entry === undefined) return false;
 
     entry.listeners.clear();
-    entry.cancelLaunchHook?.();
+    entry.launchHook.cancel();
     entry.stopWatchingActivity?.();
     // Una pestana dormida no tiene nada que terminar: se saca y listo.
     entry.session?.dispose();
+    this.activity.delete(terminalId);
     this.terminals.delete(terminalId);
     this.order = this.order.filter((id) => id !== terminalId);
     this.persist();
@@ -702,10 +808,10 @@ export class TerminalRegistry extends EventEmitter {
     /*
       Si alguien ya esta escribiendo, el menu del dialogo de reanudar no esta
       como lo dejamos: se abandona la espera antes de que mande un `2` que
-      caeria en cualquier lado. Vale tanto si lo escribio el usuario como si
-      son las propias teclas del contestador, que ya se marco terminado.
+      caeria en cualquier lado. Un gancho que tiene que seguir vivo mientras se
+      escribe lo declara (ver `launch-hook-slot.ts`).
     */
-    entry.cancelLaunchHook?.();
+    entry.launchHook.input();
     entry.session.write(data);
     return true;
   }
@@ -748,16 +854,23 @@ export class TerminalRegistry extends EventEmitter {
   disposeAll(): void {
     for (const entry of this.terminals.values()) {
       entry.listeners.clear();
-      entry.cancelLaunchHook?.();
+      // Sin pasada final: los adaptadores ya se liberaron (B4 del hito 25).
+      entry.launchHook.cancel();
       entry.stopWatchingActivity?.();
       entry.session?.dispose();
     }
     this.terminals.clear();
+    this.activity.clear();
     this.order = [];
   }
 
-  /** Guarda las pestanas de una CLI y **solo** esas (ver `persistableTabs`). */
+  /**
+   * Guarda las pestanas de una CLI y **solo** esas (ver `persistableTabs`), mas
+   * las que no se muestran pero no se pueden perder, cada una en su lugar.
+   */
   private persist(): void {
-    this.store.save({ tabs: persistableTabs(this.list()) });
+    this.store.save(
+      mergePersistedTabs(persistableTabs(this.list()), this.unavailableTabs, this.foreignTabs),
+    );
   }
 }

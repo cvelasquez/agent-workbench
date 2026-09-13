@@ -1,22 +1,16 @@
 /**
- * Seguimiento incremental de un archivo de sesion.
+ * Seguimiento incremental de un archivo de sesion de Claude Code.
  *
- * Guarda el offset en bytes y lee **solo lo nuevo**. Releer el archivo entero
- * en cada cambio no es una optimizacion prematura que nos ahorramos: la CLI
- * escribe en el JSONL en cada turno y hay sesiones de 2,9 MB, asi que releerlas
- * completas cada vez es releer megabytes por cada linea que se agrega.
+ * La lectura por offset —lineas partidas, UTF-8 cortado, archivo que encoge,
+ * tope y paginado— vive en `JsonlFollower` (`agents/jsonl-follower.ts`), que es
+ * de todas las CLIs. Esta clase es el **sink** de ese seguidor: lo que cada
+ * linea del JSONL de Claude Code significa (eventos, medidor, modo de permiso,
+ * planes, imagenes adjuntas).
  *
- * Dos detalles que hacen la diferencia entre que esto funcione y que se rompa
- * cada tanto de forma dificil de reproducir:
- *
- *  - **El resto parcial se guarda como `Buffer`, no como string.** Una lectura
- *    corta en cualquier byte, y decodificar UTF-8 a mitad de un caracter deja
- *    un `�` en el medio del texto. Solo se decodifican lineas completas.
- *  - **Si el archivo encoge, se reinicia.** Significa que lo reemplazaron o lo
- *    truncaron; seguir leyendo desde el offset viejo devolveria basura.
+ * Se partio asi en el hito 25 sin cambiar nada observable: la API publica es la
+ * misma y `check-conversation-follower.mjs` no se toco.
  */
 
-import { open, stat } from 'node:fs/promises';
 import {
   EMPTY_CONTEXT_USAGE,
   contextWindowFor,
@@ -38,21 +32,9 @@ import {
   toUserImageAttachment,
   type UserImageAttachment,
 } from './jsonl-events.js';
-import { parseJsonlLine } from '../../jsonl-reader.js';
-import type { PartsUpdate, PollResult, TurnUpdate } from '../adapter.js';
+import type { EventPage, PartsUpdate, PollResult, TurnUpdate } from '../adapter.js';
+import { JsonlFollower, type EventLookup, type JsonlLineSink } from '../jsonl-follower.js';
 import { ModelVariantRegistry } from './model-variants.js';
-
-/** Bloque de lectura. Las lineas largas (hasta 290 KB) igual se arman a mano. */
-const READ_CHUNK_BYTES = 256 * 1024;
-
-/**
- * Tope de eventos en memoria por sesion.
- *
- * Una sesion larga tiene ~10.000 lineas. Con el recorte por parte cada evento
- * pesa poco, pero el tope evita que una sesion enorme y una app abierta todo el
- * dia terminen en cientos de MB. Se descartan los mas viejos.
- */
-const MAX_EVENTS = 4_000;
 
 /**
  * Cuantos eslabones de la cadena de adjuntos se recuerdan.
@@ -62,17 +44,10 @@ const MAX_EVENTS = 4_000;
  */
 const MAX_ATTACHMENT_LINKS = 100;
 
-const NEWLINE = 0x0a;
-
-export class ConversationFollower {
-  private offset = 0;
-  private pending: Buffer = Buffer.alloc(0);
-  private lineNumber = 0;
-  private events: ConversationEvent[] = [];
-  /** Eventos viejos que se descartaron por el tope. Solo para saber si hay mas. */
-  private dropped = 0;
+export class ConversationFollower implements JsonlLineSink {
+  /** La lectura del archivo. Esta clase es su sink. */
+  private readonly jsonl: JsonlFollower;
   private usage: ContextUsage = { ...EMPTY_CONTEXT_USAGE };
-  private state: ConversationState = 'waiting';
   /** Duraciones vistas durante la lectura en curso. */
   private turns: TurnUpdate[] = [];
 
@@ -141,9 +116,16 @@ export class ConversationFollower {
    * escribieron ningun `cost-state` — que son casi todas mientras se trabaja.
    */
   constructor(
-    readonly filePath: string,
+    filePath: string,
     private readonly installVariants?: ModelVariantRegistry,
-  ) {}
+  ) {
+    this.jsonl = new JsonlFollower(filePath, this);
+  }
+
+  /** La ruta que se sigue. Siempre fija: esta CLI la conoce al lanzar. */
+  get filePath(): string {
+    return this.jsonl.filePath as string;
+  }
 
   /** Planes que esta conversacion nombro, en orden de aparicion. */
   getPlanFiles(): readonly string[] {
@@ -184,7 +166,7 @@ export class ConversationFollower {
   }
 
   getState(): ConversationState {
-    return this.state;
+    return this.jsonl.getState();
   }
 
   /** El modo de permiso que dice el archivo, o null si todavia no lo dijo. */
@@ -197,27 +179,13 @@ export class ConversationFollower {
   }
 
   /** Ultimos `limit` eventos, que es lo que se quiere ver al abrir el panel. */
-  getTail(limit: number): { events: ConversationEvent[]; hasMore: boolean } {
-    const events = this.events.slice(-limit);
-    return {
-      events,
-      hasMore: this.events.length > events.length || this.dropped > 0,
-    };
+  getTail(limit: number): EventPage {
+    return this.jsonl.getTail(limit);
   }
 
   /** Tramo anterior a un evento ya entregado. Vacio si ese id ya no esta. */
-  getPageBefore(
-    beforeEventId: string,
-    limit: number,
-  ): { events: ConversationEvent[]; hasMore: boolean } {
-    const index = this.events.findIndex((event) => event.eventId === beforeEventId);
-    if (index <= 0) return { events: [], hasMore: false };
-
-    const start = Math.max(0, index - limit);
-    return {
-      events: this.events.slice(start, index),
-      hasMore: start > 0 || this.dropped > 0,
-    };
+  getPageBefore(beforeEventId: string, limit: number): EventPage {
+    return this.jsonl.getPageBefore(beforeEventId, limit);
   }
 
   /**
@@ -227,37 +195,10 @@ export class ConversationFollower {
    * usuario manda el primer mensaje, no existe, y eso es lo normal.
    */
   async poll(): Promise<PollResult> {
-    let size: number;
-    try {
-      const info = await stat(this.filePath);
-      size = info.size;
-    } catch {
-      // Todavia no existe, o lo borraron. Si teniamos algo, se descarta.
-      if (this.events.length > 0 || this.offset > 0) {
-        this.reset();
-        this.state = 'waiting';
-        return { reset: true, added: [], turns: [], plans: [], parts: [] };
-      }
-      this.state = 'waiting';
-      return { reset: false, added: [], turns: [], plans: [], parts: [] };
-    }
-
-    let didReset = false;
-    if (size < this.offset) {
-      // Reemplazado o truncado: lo que sabiamos ya no vale.
-      this.reset();
-      didReset = true;
-    }
-
-    this.state = 'live';
-    if (size === this.offset) {
-      return { reset: didReset, added: [], turns: [], plans: [], parts: [] };
-    }
-
     this.turns = [];
     this.partUpdates = [];
     this.freshPlans = [];
-    const added = await this.readFrom(size);
+    const { reset, added } = await this.jsonl.poll();
     // Lo que se aplico a un evento de este mismo lote ya viaja dentro de el.
     const fresh = new Set(added.map((event) => event.eventId));
     const turns = this.turns.filter((turn) => !fresh.has(turn.eventId));
@@ -278,55 +219,22 @@ export class ConversationFollower {
     this.turns = [];
     this.partUpdates = [];
     this.freshPlans = [];
-    return { reset: didReset, added, turns, plans, parts };
+    return { reset, added, turns, plans, parts };
   }
 
-  private reset(): void {
-    this.offset = 0;
-    this.pending = Buffer.alloc(0);
-    this.lineNumber = 0;
-    this.events = [];
-    this.dropped = 0;
+  /**
+   * Del sink: el archivo encogio o desaparecio.
+   *
+   * Offset, lineas y eventos los olvida `JsonlFollower`; aca va lo que se
+   * acumulo leyendolos. Lo que viene de afuera del archivo —la configuracion,
+   * lo aprendido de la instalacion— no se toca, igual que antes de partir la
+   * clase.
+   */
+  reset(): void {
     this.usage = { ...EMPTY_CONTEXT_USAGE };
     this.permissionMode = null;
     this.attachmentRoots.clear();
     this.planFiles = [];
-  }
-
-  private async readFrom(size: number): Promise<ConversationEvent[]> {
-    const added: ConversationEvent[] = [];
-    const handle = await open(this.filePath, 'r');
-
-    try {
-      const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
-
-      while (this.offset < size) {
-        const toRead = Math.min(READ_CHUNK_BYTES, size - this.offset);
-        const { bytesRead } = await handle.read(buffer, 0, toRead, this.offset);
-        if (bytesRead === 0) break;
-        this.offset += bytesRead;
-
-        // Copia explicita: `buffer` se reusa en la vuelta siguiente.
-        const combined = Buffer.concat([this.pending, buffer.subarray(0, bytesRead)]);
-
-        let start = 0;
-        let newlineIndex = combined.indexOf(NEWLINE, start);
-        while (newlineIndex !== -1) {
-          const line = combined.subarray(start, newlineIndex).toString('utf8');
-          start = newlineIndex + 1;
-          const event = this.consumeLine(line);
-          if (event !== null) added.push(event);
-          newlineIndex = combined.indexOf(NEWLINE, start);
-        }
-
-        // El resto queda pendiente hasta que llegue su salto de linea.
-        this.pending = Buffer.from(combined.subarray(start));
-      }
-    } finally {
-      await handle.close();
-    }
-
-    return added;
   }
 
   /** true si la linea es la invocacion de `/model` que la CLI guarda. */
@@ -337,15 +245,18 @@ export class ConversationFollower {
     return typeof content === 'string' && content.includes('<command-name>/model</command-name>');
   }
 
-  /** Procesa una linea completa. Nunca lanza: el esquema cambia entre versiones. */
-  private consumeLine(rawLine: string): ConversationEvent | null {
-    const line = rawLine.trim();
-    this.lineNumber += 1;
-    if (line.length === 0) return null;
-
-    const record = parseJsonlLine(line);
-    if (record === null) return null;
-
+  /**
+   * Del sink: una linea completa y ya parseada. Nunca lanza: el esquema cambia
+   * entre versiones.
+   *
+   * El evento que devuelve lo guarda `JsonlFollower`, con su tope; `events` son
+   * los que ya guardo, para pegarle a uno anterior la duracion o una imagen.
+   */
+  consume(
+    record: Record<string, unknown>,
+    lineNumber: number,
+    events: EventLookup,
+  ): ConversationEvent | null {
     /*
       `cost-state` no es una tarjeta de la conversacion, pero es la unica linea
       que nombra el modelo con su variante. Se mira antes de descartarla.
@@ -409,7 +320,7 @@ export class ConversationFollower {
     */
     const turn = toTurnDuration(record);
     if (turn !== null) {
-      const target = this.events.find((event) => event.eventId === turn.eventId);
+      const target = events.find(turn.eventId);
       if (target !== undefined) {
         target.durationMs = turn.durationMs;
         this.turns.push(turn);
@@ -423,19 +334,15 @@ export class ConversationFollower {
     */
     const attachment = toUserImageAttachment(record);
     if (attachment !== null) {
-      this.applyImageAttachment(attachment);
+      this.applyImageAttachment(attachment, events);
       return null;
     }
 
-    const event = toConversationEvent(record, this.lineNumber);
+    const event = toConversationEvent(record, lineNumber);
     if (event === null) return null;
 
+    // Antes de que `JsonlFollower` lo guarde, en el mismo orden que siempre.
     this.accumulate(event);
-    this.events.push(event);
-    if (this.events.length > MAX_EVENTS) {
-      this.events.shift();
-      this.dropped += 1;
-    }
     return event;
   }
 
@@ -486,7 +393,7 @@ export class ConversationFollower {
    * arranca a mitad— no se hace nada. Una imagen suelta sin su mensaje no es
    * una tarjeta que valga la pena inventar.
    */
-  private applyImageAttachment(attachment: UserImageAttachment): void {
+  private applyImageAttachment(attachment: UserImageAttachment, events: EventLookup): void {
     // El padre puede ser el mensaje o el adjunto anterior. En el segundo caso,
     // el mensaje es el que ya se anoto para ese eslabon.
     const rootId = this.attachmentRoots.get(attachment.eventId) ?? attachment.eventId;
@@ -494,7 +401,7 @@ export class ConversationFollower {
       this.rememberAttachment(attachment.attachmentId, rootId);
     }
 
-    const target = this.events.find((event) => event.eventId === rootId);
+    const target = events.find(rootId);
     if (target === undefined) return;
 
     const isAttached = (part: ConversationPart): boolean =>

@@ -20,10 +20,14 @@
  *     ese menu en vez de escribir. Pegado, entra como texto plano. Verificado
  *     con las dos formas sobre la misma sesion.
  *
- * El `\r` que envia va **fuera** del pegado, despues del cierre. Se escribe
- * todo junto en un solo write: la pty es un flujo ordenado de bytes y la CLI lo
- * procesa en orden, asi que no hay carrera que sincronizar — comprobado
- * mandando tres lineas y un Enter en la misma llamada.
+ * El `\r` que envia va **fuera** del pegado, despues del cierre. Con Claude
+ * Code se escribe todo junto en un solo write: la pty es un flujo ordenado de
+ * bytes y la CLI lo procesa en orden, asi que no hay carrera que sincronizar —
+ * comprobado mandando tres lineas y un Enter en la misma llamada.
+ *
+ * No toda CLI lo consume asi. Por eso un envio se arma en **piezas**
+ * (`buildSubmissionWrites`) y es cada adaptador el que declara cuantas y con
+ * que separacion (`AgentInput` en `agents/adapter.ts`).
  */
 
 import { cycleDistance, type ImageReferenceStyle } from '@agent-workbench/shared';
@@ -101,6 +105,9 @@ export function fileReference(
 /** Una entrada por estilo: agregar uno a `ImageReferenceStyle` sin su forma no compila. */
 const IMAGE_REFERENCE_BUILDERS: Record<ImageReferenceStyle, (absolutePath: string) => string> = {
   'at-quoted': (absolutePath) => `@"${absolutePath}"`,
+  // La ruta sola: la CLI adjunta si el pegado entero es la ruta de una imagen.
+  // Sin comillas, porque las comillas harian que ya no lo fuera.
+  'bare-path-paste': (absolutePath) => absolutePath,
 };
 
 // ---------------------------------------------------------------------------
@@ -288,13 +295,81 @@ export function buildSubmission(
   attachments: readonly string[],
   options: { readonly send?: boolean } = {},
 ): string | null {
+  const payload = joinedPayload(text, attachments);
+  if (payload === null) return null;
+
+  const send = options.send ?? true;
+  return `${pasted(payload, true)}${send ? SUBMIT : ''}`;
+}
+
+/** Adjuntos y texto en un solo pegado, recortado. null si no queda nada. */
+function joinedPayload(text: string, attachments: readonly string[]): string | null {
   const pieces: string[] = [...attachments];
   const clean = sanitizeForPaste(text).trim();
   if (clean.length > 0) pieces.push(clean);
 
   const payload = pieces.join(' ').slice(0, MAX_SUBMIT_CHARS);
-  if (payload.length === 0) return null;
+  return payload.length === 0 ? null : payload;
+}
 
+/** Un texto ya saneado, con o sin los marcadores de pegado. */
+function pasted(payload: string, markers: boolean): string {
+  return markers ? `${PASTE_START}${payload}${PASTE_END}` : payload;
+}
+
+/** Lo que `buildSubmissionWrites` necesita saber de la CLI (`AgentInput`). */
+export interface SubmissionShape {
+  readonly imageReference: ImageReferenceStyle | null;
+  readonly pasteMarkers: boolean;
+}
+
+/**
+ * Las piezas de un envio del cuadro de escritura, cada una para un write propio.
+ *
+ * Quien escribe las separa con el `pieceGapMs` de la CLI. La forma depende de
+ * como nombra las imagenes:
+ *
+ *  - `at-quoted` (y sin imagenes, cualquier CLI sin estilo): **una sola pieza**,
+ *    la de `buildSubmission` —adjuntos y texto en un pegado, con el Enter
+ *    pegado al final—. Con marcadores es, byte por byte, lo que se escribia
+ *    antes de que hubiera piezas.
+ *  - `bare-path-paste`: un pegado por imagen con la ruta sola, despues el del
+ *    texto, y el Enter como pieza aparte. Sueltas y no concatenadas: si la CLI
+ *    recibe lo pegado como rafaga de teclas, dos pegados seguidos en el tiempo
+ *    se funden en uno, "ruta1ruta2texto", que ya no es la ruta de nada.
+ *
+ * Devuelve null si no hay nada que mandar, y tambien si hay imagenes y la CLI
+ * no tiene forma de nombrarlas: el socket lo rechaza antes, y esto no escribe
+ * a medias un mensaje sin sus imagenes.
+ */
+export function buildSubmissionWrites(
+  text: string,
+  imagePaths: readonly string[],
+  shape: SubmissionShape,
+  options: { readonly send?: boolean } = {},
+): string[] | null {
   const send = options.send ?? true;
-  return `${PASTE_START}${payload}${PASTE_END}${send ? SUBMIT : ''}`;
+  const style = shape.imageReference;
+  if (imagePaths.length > 0 && style === null) return null;
+
+  if (style !== 'bare-path-paste') {
+    const payload = joinedPayload(
+      text,
+      imagePaths.map((imagePath) => fileReference(imagePath, style ?? 'at-quoted')),
+    );
+    if (payload === null) return null;
+    return [`${pasted(payload, shape.pasteMarkers)}${send ? SUBMIT : ''}`];
+  }
+
+  const pieces: string[] = [];
+  for (const imagePath of imagePaths) {
+    const clean = sanitizeForPaste(fileReference(imagePath, style)).trim();
+    if (clean.length > 0) pieces.push(pasted(clean, shape.pasteMarkers));
+  }
+  const clean = sanitizeForPaste(text).trim().slice(0, MAX_SUBMIT_CHARS);
+  if (clean.length > 0) pieces.push(pasted(clean, shape.pasteMarkers));
+
+  if (pieces.length === 0) return null;
+  if (send) pieces.push(SUBMIT);
+  return pieces;
 }

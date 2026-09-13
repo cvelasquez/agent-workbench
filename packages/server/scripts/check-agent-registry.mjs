@@ -10,9 +10,10 @@
  * lanzamiento distinto cambia el modo de arranque, y un entorno con una
  * variable de mas es una violacion de la regla 2.1.
  *
- * Trabaja con `HOME`, `USERPROFILE`, `APPDATA` y `XDG_CONFIG_HOME` apuntando a
- * una carpeta temporal propia, fijadas **antes** de importar nada: nunca lee ni
- * escribe el `~/.claude` de verdad. No importa nada que cargue `node-pty`.
+ * Trabaja con `HOME`, `USERPROFILE`, `APPDATA`, `XDG_CONFIG_HOME` y `CODEX_HOME`
+ * apuntando a una carpeta temporal propia, fijadas **antes** de importar nada:
+ * nunca lee ni escribe el `~/.claude` ni el `~/.codex` de verdad. No importa
+ * nada que cargue `node-pty`.
  */
 
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -26,6 +27,8 @@ process.env['HOME'] = home;
 process.env['USERPROFILE'] = home;
 process.env['APPDATA'] = path.join(root, 'appdata');
 process.env['XDG_CONFIG_HOME'] = path.join(root, 'xdg');
+// El registro de la app tambien trae el adaptador de Codex (hito 25).
+process.env['CODEX_HOME'] = path.join(root, 'codex');
 
 const shared = await import('@agent-workbench/shared');
 const {
@@ -370,8 +373,10 @@ check(
   const oneOfTwo = summarizeAgents([info({ available: false, missingMessage: 'falta' }), info({ label: 'Otra', version: '1' })], true);
   check('una de dos instalada: sin cartel, y la version sin nombre',
     oneOfTwo.cliAvailable === true && oneOfTwo.cliMissingMessage === null && oneOfTwo.cliVersion === '1', JSON.stringify(oneOfTwo));
-  const noneOfTwo = summarizeAgents([info({ available: false, missingMessage: 'falta a' }), info({ available: false, missingMessage: 'falta b' })], true);
-  check('ninguna de dos: los dos textos, uno por linea', noneOfTwo.cliMissingMessage === 'falta a\nfalta b', JSON.stringify(noneOfTwo));
+  // Hito 25 (A6): con ninguna instalada, el texto de la primera y las demas por
+  // nombre. No las instrucciones de instalar cada una.
+  const noneOfTwo = summarizeAgents([info({ available: false, missingMessage: 'falta a' }), info({ label: 'Otra', available: false, missingMessage: 'falta b' })], true);
+  check('ninguna de dos: el texto de la primera y las demas por nombre', noneOfTwo.cliMissingMessage === 'falta a\nTambien funciona con: Otra', JSON.stringify(noneOfTwo));
   const empty = summarizeAgents([], true);
   check('hello sin CLIs: no disponible y sin texto que mostrar', empty.cliAvailable === false && empty.cliMissingMessage === null);
 
@@ -501,8 +506,8 @@ const assistantLine = (id, model, tokens) => line({
     listed[1].missingMessage === null && listed[1].available === true);
   check('version de la ubicacion, o null', listed[0].version === null && listed[1].version === 'fake-b 1.0');
 
-  const env = registry.consoleEnvironment({ SOLO_A: '1', SOLO_B: '2', PATH: 'x', VACIA: undefined });
-  check('consoleEnvironment aplica los filtros de todos', sameShape(env, { PATH: 'x' }), JSON.stringify(env));
+  const env = registry.composedEnvironment({ SOLO_A: '1', SOLO_B: '2', PATH: 'x', VACIA: undefined });
+  check('composedEnvironment aplica los filtros de todos', sameShape(env, { PATH: 'x' }), JSON.stringify(env));
   check('protectedDirs une las de todos sin repetir',
     sameShape([...registry.protectedDirs()].sort(), ['/a', '/b', '/compartida']));
   check('get de un id desconocido es null', registry.get('nope') === null);
@@ -551,6 +556,9 @@ const adapter = createClaudeCodeAdapter();
   check('el ciclo declarado es el que usa el servidor', sameShape([...adapter.capabilities.permissionCycle.modes], [...PERMISSION_MODE_CYCLE]));
   check('las capacidades sobreviven al viaje por la red',
     sameShape(parseAgentCapabilities(JSON.parse(JSON.stringify(adapter.capabilities))), expected));
+  // El envio: una sola pieza con el Enter adentro, como siempre (hito 25, A2).
+  check('envio de claude-code igual al literal',
+    sameShape(adapter.input, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true }), JSON.stringify(adapter.input));
   check('id, comando y etiqueta', adapter.id === 'claude-code' && adapter.command === 'claude' && adapter.label === 'Claude Code');
   check('AGENT_IDS nombra al adaptador', AGENT_IDS.includes(adapter.id));
 
@@ -584,14 +592,17 @@ const adapter = createClaudeCodeAdapter();
     fresh.args[modeIndex + 1] === LAUNCH_PERMISSION_MODE);
 
   const context = (resumedFlag, onDone = () => undefined) => ({
-    terminalId: 't', sessionId: 's', resumed: resumedFlag, pid: 1, launchedAt: Date.now(),
+    terminalId: 't', sessionId: 's', cwd: '/p', resumed: resumedFlag, pid: 1, launchedAt: Date.now(),
     readOutput: () => '', write: () => true, onDone, reportSessionId: () => undefined,
   });
   check('una sesion nueva no arranca el contestador del dialogo', adapter.onSpawned(context(false)) === null);
   let outcome = null;
-  const cancel = adapter.onSpawned(context(true, (value) => { outcome = value; }));
-  check('una reanudacion si lo arranca', typeof cancel === 'function');
-  cancel?.();
+  const hook = adapter.onSpawned(context(true, (value) => { outcome = value; }));
+  // Sin `onInput`: es lo que hace que el registro lo cancele en cuanto alguien escribe.
+  check('una reanudacion si lo arranca, como un gancho que solo se cancela',
+    typeof hook?.cancel === 'function' && hook.onExit === undefined && hook.onSubmitted === undefined &&
+    hook.onInput === undefined);
+  hook?.cancel();
   check('y se puede cancelar', outcome === 'cancelled', String(outcome));
 
   check('protectedDirs es la carpeta de la CLI del home', sameShape(adapter.protectedDirs(), [path.join(home, '.claude')]),
@@ -618,13 +629,16 @@ const adapter = createClaudeCodeAdapter();
   check('el adaptador usa ese mismo entorno', sameShape(adapter.environment(base), withMarker));
 
   // La consola del pie no es de ninguna CLI y aun asi no hereda el marcador:
-  // un `claude` lanzado a mano desde ahi tiene que guardar su historial.
+  // un `claude` lanzado a mano desde ahi tiene que guardar su historial. Desde
+  // el hito 25 las pestanas usan el mismo entorno (C22).
   const { createAgentRegistry } = await import('../src/agents/registry.ts');
   const appRegistry = createAgentRegistry();
-  const consoleEnv = appRegistry.consoleEnvironment(base);
+  const consoleEnv = appRegistry.composedEnvironment(base);
   check('la consola de la app no hereda el marcador y no gana nada',
     !('CLAUDE_CODE_CHILD_SESSION' in consoleEnv) && Object.keys(consoleEnv).every((key) => key in base) &&
     consoleEnv.PATH === 'p', JSON.stringify(consoleEnv));
+  check('con las CLIs de la app registradas, el entorno compuesto es el de claude-code: las demas no quitan nada',
+    sameShape(consoleEnv, withMarker.env), JSON.stringify(consoleEnv));
   appRegistry.disposeAll();
 }
 
@@ -681,7 +695,7 @@ const adapter = createClaudeCodeAdapter();
     { agent: 'claude-code', cwd: 'D:\\p', sessionId: 's1', label: 'uno' },
     { agent: 'claude-code', cwd: '/q', sessionId: 's2', label: '' },
   ];
-  store.save({ tabs });
+  store.save({ tabs, foreignTabs: [] });
   await store.flush();
   const written = JSON.parse(await readFile(statePath, 'utf8'));
   check('lo escrito sigue en version 1', written.version === 1, String(written.version));
@@ -700,13 +714,17 @@ const adapter = createClaudeCodeAdapter();
     ],
   }));
   const mixed = await quietly(() => store.load());
-  check('una pestana de una CLI desconocida se salta y las demas quedan',
+  check('una pestana de una CLI desconocida no se restaura y las demas quedan',
     mixed.value.tabs.map((tab) => `${tab.agent}:${tab.sessionId}`).join(',') === 'claude-code:sa,claude-code:sc',
     JSON.stringify(mixed.value.tabs));
+  // Desde el hito 25 se conserva cruda en vez de perderse (D15).
+  check('pero se conserva cruda, en su lugar',
+    sameShape(mixed.value.foreignTabs, [{ position: 1, raw: { agent: 'nope', cwd: 'D:\\b', sessionId: 'sb', label: '' } }]),
+    JSON.stringify(mixed.value.foreignTabs));
   check('y se avisa por consola', mixed.warnings.length === 1 && mixed.warnings[0].includes('D:\\b'), JSON.stringify(mixed.warnings));
 
   await writeFile(statePath, JSON.stringify({ version: 99, tabs }));
-  check('una version desconocida arranca sin pestanas', sameShape(await store.load(), { tabs: [] }));
+  check('una version desconocida arranca sin pestanas', sameShape(await store.load(), { tabs: [], foreignTabs: [] }));
 
   const descriptor = (overrides) => ({
     terminalId: 't', kind: 'agent', agent: 'claude-code', cwd: 'D:\\p', sessionId: 's', label: 'l',
@@ -1219,9 +1237,15 @@ const adapter = createClaudeCodeAdapter();
 
 const { ConversationHub } = await import('../src/conversation-hub.ts');
 
-/** Un registro de terminales de mentira: el hub solo le pide descriptores. */
+/**
+ * Un registro de terminales de mentira: el hub le pide descriptores y escucha
+ * los cambios de sesion, que aca no pasan nunca. Sin pty viva: una llamada a
+ * herramienta abierta no bloquea nada (eso lo prueba check-codex-adapter).
+ */
 const fakeTerminals = (descriptors) => ({
   get: (terminalId) => descriptors.find((d) => d.terminalId === terminalId) ?? null,
+  on: () => undefined,
+  launchedAtOf: () => null,
 });
 const descriptorOf = (terminalId, { agent = 'claude-code', cwd, sessionId, kind = 'agent' }) => ({
   terminalId, kind, cwd, agent, sessionId, label: terminalId, resumed: false,

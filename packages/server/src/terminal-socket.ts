@@ -30,7 +30,7 @@ import {
   type TerminalActivity,
   type TerminalId,
 } from '@agent-workbench/shared';
-import type { AgentAdapter, PartsUpdate } from './agents/adapter.js';
+import type { AgentAdapter, AgentInput, PartsUpdate } from './agents/adapter.js';
 import type { AgentRegistry } from './agents/registry.js';
 import type { ArchivedSessions } from './archived-sessions.js';
 import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
@@ -48,14 +48,14 @@ import {
   INTERRUPT,
   buildAnswerKeys,
   buildModeKeys,
-  buildSubmission,
-  fileReference,
+  buildSubmissionWrites,
 } from './pty-input.js';
 import type { RepoHub } from './repo-hub.js';
 import { revealPath } from './reveal.js';
 import type { SessionIndex } from './session-index.js';
 import type { ShellLocation } from './shell-locator.js';
 import { TerminalOpenError, type OutputListener, type TerminalRegistry } from './terminal-registry.js';
+import { TerminalWriteQueue, type PieceWriter } from './terminal-write-queue.js';
 import { rejectRequest } from './security.js';
 
 /**
@@ -70,6 +70,13 @@ const NOTE_SEND_TIMEOUT_MS = 15_000;
 
 /** Lo que se anuncia cuando no hay configuracion que leer. */
 const NO_DEFAULTS: AgentDefaults = { model: null, effort: null, contextWindow: null };
+
+/**
+ * Como se escribe un envio en una pestana sin CLI conocida: el texto en un solo
+ * pegado con el Enter al final, sin imagenes. Es lo que se hacia con cualquier
+ * pestana antes de que cada CLI declarara su forma.
+ */
+const PLAIN_INPUT: AgentInput = { imageReference: null, pieceGapMs: 0, pasteMarkers: true };
 
 export interface TerminalSocketOptions {
   httpServer: HttpServer;
@@ -113,6 +120,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   } = options;
 
   const pasteStore = options.pasteStore ?? new PasteStore();
+
+  /*
+    Una fila de escrituras por terminal, compartida por todos los sockets: lo
+    que dos ventanas le mandan a la misma pestana tambien se turna. Ver
+    `terminal-write-queue.ts`.
+  */
+  const writeQueue = new TerminalWriteQueue();
 
   // noServer: manejamos el upgrade a mano para no pisarnos con el WebSocket de
   // HMR de Vite, que vive en el mismo servidor HTTP.
@@ -183,10 +197,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
       return null;
     }
-    const style = adapterOf(terminalId)?.capabilities.imagesByPath ?? null;
+    const style = adapterOf(terminalId)?.input.imageReference ?? null;
     if (style === null) sendError(socket, 'agent-unsupported', unsupportedMessage);
     return style;
   };
+
+  /** Como se le escribe un envio a la CLI de una pestana. */
+  const inputOf = (terminalId: TerminalId): AgentInput => adapterOf(terminalId)?.input ?? PLAIN_INPUT;
 
   const terminalListMessage = (): ServerMessage => ({
     type: 'terminal.list',
@@ -273,6 +290,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   const onConversationWaiting = (terminalId: TerminalId, waitingFor: string | null): void =>
     broadcast({ type: 'conversation.waiting', terminalId, waitingFor });
 
+  /*
+    Una CLI que no publica su estado abrio —o cerro— una llamada a herramienta.
+    El cuadro de escritura lo usa para no dejar apretar Enviar mientras puede
+    haber un menu de aprobacion esperando (A1 del hito 25).
+  */
+  const onConversationToolCall = (terminalId: TerminalId, open: boolean): void =>
+    broadcast({ type: 'conversation.toolCall', terminalId, open });
+
   const onConversationPlans = (terminalId: TerminalId, plans: SessionPlan[]): void =>
     broadcast({ type: 'conversation.plans', terminalId, plans });
 
@@ -308,27 +333,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   };
 
   /**
-   * Escribe las pulsaciones de una respuesta, una cada tanto.
+   * Lo que escribe cada pieza de un trabajo de la fila.
    *
-   * El escalonado no es cortesia: mandadas en un solo write, el menu de la CLI
-   * se queda a mitad y no responde nada (medido; ver `ANSWER_KEY_INTERVAL_MS`).
-   * Cada tecla tiene que caer sobre el estado que dejo la anterior.
-   *
-   * Si la pestana desaparece a mitad se corta y se avisa una sola vez: seguir
-   * escribiendo en una terminal que ya no esta no arregla nada.
+   * Si la pestana desaparece a mitad, la fila corta ahi y se avisa una sola
+   * vez: seguir escribiendo en una terminal que ya no esta no arregla nada.
    */
-  const writeAnswerKeys = async (
-    socket: WebSocket,
-    terminalId: TerminalId,
-    keys: readonly string[],
-  ): Promise<void> => {
-    for (const [index, key] of keys.entries()) {
-      if (index > 0) {
-        await new Promise((resolve) => setTimeout(resolve, ANSWER_KEY_INTERVAL_MS));
-      }
-      if (!writeToTerminal(socket, terminalId, key)) return;
-    }
-  };
+  const pieceWriter =
+    (socket: WebSocket, terminalId: TerminalId): PieceWriter =>
+    (piece) =>
+      writeToTerminal(socket, terminalId, piece);
 
   /** El archivo se reemplazo: hay que rehacer la vista, no agregarle nada. */
   const onConversationReset = (terminalId: TerminalId): void => {
@@ -346,6 +359,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         permissionMode: snapshot.permissionMode,
         defaults,
         waitingFor: snapshot.waitingFor,
+        // El de ahora y no el del snapshot: leer la configuracion es asincrono,
+        // y un aviso que salio mientras tanto no puede quedar pisado por uno viejo.
+        openToolCall: conversations.isToolCallOpen(terminalId),
       });
     });
   };
@@ -360,6 +376,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('reset', onConversationReset);
   conversations.on('mode', onConversationMode);
   conversations.on('waiting', onConversationWaiting);
+  conversations.on('toolCall', onConversationToolCall);
   conversations.on('turns', onConversationTurns);
   conversations.on('plans', onConversationPlans);
   conversations.on('parts', onConversationParts);
@@ -491,6 +508,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       shellName: shell?.name ?? null,
     });
     send(socket, terminalListMessage());
+    /*
+      Lo que ya se sabe de cada pestana. La actividad viaja por evento, y sin
+      esto una recarga dejaba sin punto a toda pestana que no cambiara de estado
+      despues —con una CLI que no publica su estado, para siempre—.
+    */
+    for (const { terminalId, activity } of registry.activitySnapshot()) {
+      send(socket, { type: 'terminal.activity', terminalId, activity });
+    }
     send(socket, { type: 'index.status', status: index.getStatus() });
     send(socket, { type: 'index.projects', projects: index.getProjects(), replace: true });
     send(socket, { type: 'notes.list', notes: notes.list() });
@@ -522,32 +547,79 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           imagenes en disco antes de poder nombrarlas, y eso es asincrono. El
           orden importa —las rutas se arman en el orden en que se pegaron— asi
           que las escrituras van en serie y no en paralelo.
-        */
-        case 'agent.submit':
-          void (async () => {
-            const { terminalId, text, images } = message;
-            if (images.length > MAX_IMAGES_PER_SUBMIT) {
-              sendError(
-                socket,
-                'submit-failed',
-                `Se pueden adjuntar hasta ${MAX_IMAGES_PER_SUBMIT} imagenes por mensaje.`,
-              );
-              return;
-            }
 
-            const references: string[] = [];
-            // Sin imagenes no hay nada que comprobar: el texto va igual.
-            if (images.length > 0) {
-              const style = imageStyleFor(
-                socket,
-                terminalId,
-                'Esta CLI no recibe imagenes desde el cuadro de escritura.',
-              );
-              if (style === null) return;
+          Y va por la fila de la terminal, guardado de imagenes incluido: un
+          mensaje con una captura que tarda en guardarse no puede quedar detras
+          del que se mando despues.
+        */
+        case 'agent.submit': {
+          const { terminalId, text, images } = message;
+          if (images.length > MAX_IMAGES_PER_SUBMIT) {
+            sendError(
+              socket,
+              'submit-failed',
+              `Se pueden adjuntar hasta ${MAX_IMAGES_PER_SUBMIT} imagenes por mensaje.`,
+            );
+            break;
+          }
+          // Sin imagenes no hay nada que comprobar: el texto va igual.
+          if (
+            images.length > 0 &&
+            imageStyleFor(socket, terminalId, 'Esta CLI no recibe imagenes desde el cuadro de escritura.') === null
+          ) {
+            break;
+          }
+
+          /*
+            Una CLI que no publica su estado puede estar mostrando un menu de
+            aprobacion sin que la app lo sepa, y ahi el mensaje llegaria como
+            teclas: el Enter final aprueba, y un texto que empieza con la letra
+            de "aprobar siempre" aprueba para toda la sesion (A1 del hito 25).
+            Lo unico que se ve desde aca es una llamada a herramienta de este
+            proceso que todavia no tiene resultado, y con eso no se escribe nada.
+            Antes de encolar: un rechazo no tiene por que esperar su turno.
+          */
+          const submitting = adapterOf(terminalId);
+          const blindToApprovals = submitting !== null && !submitting.capabilities.statusSource;
+          const launchedAt = registry.launchedAtOf(terminalId);
+          if (
+            blindToApprovals &&
+            launchedAt !== null &&
+            conversations.hasOpenToolCall(terminalId, launchedAt)
+          ) {
+            sendError(
+              socket,
+              'submit-failed',
+              `${submitting.label} tiene una herramienta sin resultado: puede estar pidiendo una aprobacion. Contestala en la solapa CLI.`,
+            );
+            break;
+          }
+          /*
+            Y otra vez antes de cada pieza, leyendo el archivo en el momento.
+            Entre este chequeo y el Enter pasan el guardado de las imagenes, lo
+            que hubiera delante en la fila y 400 ms por pieza: con ocho imagenes,
+            casi cuatro segundos en los que la CLI puede abrir un menu. Si abre
+            uno, lo que falta —el Enter sobre todo— no se escribe.
+          */
+          const approvalGuard = blindToApprovals
+            ? async (): Promise<boolean> => {
+                const current = registry.launchedAtOf(terminalId);
+                // Sin proceso no hay menu: la escritura la rechaza la terminal.
+                return current === null || !(await conversations.checkOpenToolCall(terminalId, current));
+              }
+            : undefined;
+
+          const input = inputOf(terminalId);
+          const interrupted = (): void =>
+            sendError(socket, 'submit-failed', 'El mensaje no se termino de mandar: lo corto la interrupcion.');
+          void writeQueue.enqueue(
+            terminalId,
+            async (lane) => {
+              const imagePaths: string[] = [];
               try {
                 for (const image of images) {
                   const stored = await pasteStore.save(terminalId, image.mediaType, image.data);
-                  references.push(fileReference(stored.path, style));
+                  imagePaths.push(stored.path);
                 }
               } catch (error) {
                 const detail = error instanceof Error ? error.message : String(error);
@@ -561,14 +633,34 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 );
                 return;
               }
-            }
 
-            const payload = buildSubmission(text, references, { send: message.send !== false });
-            // Un cuadro vacio no le manda un Enter a la CLI.
-            if (payload === null) return;
-            writeToTerminal(socket, terminalId, payload);
-          })();
+              const pieces = buildSubmissionWrites(text, imagePaths, input, {
+                send: message.send !== false,
+              });
+              // Un cuadro vacio no le manda un Enter a la CLI.
+              if (pieces === null) return;
+              // Antes de la primera escritura: quien busca la sesion por este
+              // texto no puede encontrar el archivo de la CLI antes que el texto.
+              registry.noteSubmitted(terminalId, text);
+              const outcome = await lane.writePieces(
+                pieces,
+                input.pieceGapMs,
+                pieceWriter(socket, terminalId),
+                approvalGuard,
+              );
+              if (outcome === 'interrupted') interrupted();
+              if (outcome === 'blocked') {
+                sendError(
+                  socket,
+                  'submit-failed',
+                  `El mensaje no se termino de mandar: ${submitting?.label ?? 'la CLI'} abrio una herramienta mientras se escribia y puede estar pidiendo una aprobacion. Revisa la solapa CLI.`,
+                );
+              }
+            },
+            { onDropped: interrupted },
+          );
           break;
+        }
 
         /*
           Una respuesta a la pregunta de eleccion que la CLI tiene abierta.
@@ -592,28 +684,53 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             );
             break;
           }
-          const pending = conversations.getPendingQuestion(message.terminalId);
-          if (pending === null || pending.toolUseId !== message.toolUseId) {
-            sendError(
-              socket,
-              'answer-failed',
-              'Esa pregunta ya no esta esperando respuesta.',
-            );
-            break;
-          }
+          const interruptedAnswer = (): void =>
+            sendError(socket, 'answer-failed', 'La respuesta no se termino de mandar: la corto la interrupcion.');
+          /*
+            La comprobacion va dentro del turno de la fila, justo antes de
+            escribir: si habia algo mandandose delante, la pregunta pudo
+            cerrarse mientras tanto.
+          */
+          void writeQueue.enqueue(
+            message.terminalId,
+            async (lane) => {
+              const pending = conversations.getPendingQuestion(message.terminalId);
+              if (pending === null || pending.toolUseId !== message.toolUseId) {
+                sendError(
+                  socket,
+                  'answer-failed',
+                  'Esa pregunta ya no esta esperando respuesta.',
+                );
+                return;
+              }
 
-          const keys = buildAnswerKeys(
-            pending.questions.map((question) => ({
-              multiSelect: question.multiSelect,
-              optionCount: question.options.length,
-            })),
-            message.selections,
+              const keys = buildAnswerKeys(
+                pending.questions.map((question) => ({
+                  multiSelect: question.multiSelect,
+                  optionCount: question.options.length,
+                })),
+                message.selections,
+              );
+              if (keys === null) {
+                sendError(socket, 'answer-failed', 'La respuesta no corresponde a la pregunta.');
+                return;
+              }
+              /*
+                Las teclas van espaciadas, y no es cortesia: mandadas en un solo
+                write el menu de la CLI se queda a mitad y no responde nada
+                (medido; ver `ANSWER_KEY_INTERVAL_MS`). Una interrupcion corta
+                las que faltan: despues de un Esc el menu ya no esta, y los
+                numeros entrarian sueltos en el prompt.
+              */
+              const outcome = await lane.writePieces(
+                keys,
+                ANSWER_KEY_INTERVAL_MS,
+                pieceWriter(socket, message.terminalId),
+              );
+              if (outcome === 'interrupted') interruptedAnswer();
+            },
+            { onDropped: interruptedAnswer },
           );
-          if (keys === null) {
-            sendError(socket, 'answer-failed', 'La respuesta no corresponde a la pregunta.');
-            break;
-          }
-          void writeAnswerKeys(socket, message.terminalId, keys);
           break;
         }
 
@@ -668,7 +785,19 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             esto dos cambios seguidos partirian los dos del mismo lugar.
           */
           conversations.setPermissionMode(message.terminalId, message.mode);
-          void writeAnswerKeys(socket, message.terminalId, keys);
+          /*
+            Por la fila, para no intercalarse con un envio, pero sin dejarse
+            cortar por una interrupcion: un Esc no mueve el modo, y cortar las
+            pulsaciones a mitad dejaria la pestana en un modo intermedio que
+            nadie pidio y que no es el que se acaba de anotar.
+          */
+          void writeQueue.enqueue(
+            message.terminalId,
+            async (lane) => {
+              await lane.writePieces(keys, ANSWER_KEY_INTERVAL_MS, pieceWriter(socket, message.terminalId));
+            },
+            { interruptible: false },
+          );
           break;
         }
 
@@ -701,7 +830,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           break;
         }
 
+        /*
+          Esc no hace fila: tiene que llegar ya. Lo que faltaba escribir en esa
+          terminal se descarta antes, para que no caiga detras del Esc un
+          Enter que mande lo que el usuario acaba de interrumpir.
+        */
         case 'agent.interrupt':
+          writeQueue.interrupt(message.terminalId);
           writeToTerminal(socket, message.terminalId, INTERRUPT);
           break;
 
@@ -861,6 +996,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               permissionMode: snapshot.permissionMode,
               defaults: await defaultsFor(message.terminalId),
               waitingFor: snapshot.waitingFor,
+              openToolCall: conversations.isToolCallOpen(message.terminalId),
             });
             // Los planes van en su propio mensaje y no dentro del reset: la
             // conversacion se rehace muchas veces —cada `conversation.reset`—
@@ -1260,8 +1396,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
           El cliente abre la pestana y manda los dos ids; el contenido ya esta
           de este lado. Se arma el mismo pegado que un mensaje del cuadro de
-          escritura y se escribe por el mismo camino: `buildSubmission` es el
-          unico sitio que compone lo que entra en la pty.
+          escritura y se escribe por el mismo camino: `buildSubmissionWrites`
+          es el unico sitio que compone lo que entra en la pty, y la fila de la
+          terminal el unico que lo escribe.
 
           **La nota no se borra.** Mandarla no es cerrarla.
         */
@@ -1343,11 +1480,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             }
             // Antes de esperar el arranque: si la nota no puede ir entera, no
             // tiene sentido esperar quince segundos para decirlo.
-            const style =
-              note.images.length === 0
-                ? null
-                : imageStyleFor(socket, message.terminalId, 'Esta CLI no recibe imagenes; la nota no se mando.');
-            if (note.images.length > 0 && style === null) return;
+            if (
+              note.images.length > 0 &&
+              imageStyleFor(socket, message.terminalId, 'Esta CLI no recibe imagenes; la nota no se mando.') === null
+            ) {
+              return;
+            }
 
             if (!(await status.waitUntilReady(descriptor.sessionId, NOTE_SEND_TIMEOUT_MS))) {
               sendError(
@@ -1358,28 +1496,45 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               return;
             }
 
-            const references: string[] = [];
-            // `style` es null solo cuando la nota no tiene imagenes.
-            if (style !== null) {
-              try {
-                for (const image of note.images) {
-                  const stored = await pasteStore.save(
-                    message.terminalId,
-                    image.mediaType,
-                    image.data,
-                  );
-                  references.push(fileReference(stored.path, style));
+            /*
+              La espera queda fuera de la fila a proposito: es una espera por
+              la CLI, no una escritura, y lo que se le mande a la pestana
+              mientras tanto no tiene por que quedar quince segundos detras.
+            */
+            const input = inputOf(message.terminalId);
+            const interrupted = (): void =>
+              sendError(socket, 'submit-failed', 'La nota no se termino de mandar: la corto la interrupcion.');
+            await writeQueue.enqueue(
+              message.terminalId,
+              async (lane) => {
+                const imagePaths: string[] = [];
+                try {
+                  for (const image of note.images) {
+                    const stored = await pasteStore.save(
+                      message.terminalId,
+                      image.mediaType,
+                      image.data,
+                    );
+                    imagePaths.push(stored.path);
+                  }
+                } catch (error) {
+                  const detail = error instanceof Error ? error.message : String(error);
+                  sendError(socket, 'submit-failed', 'No se pudo adjuntar una imagen de la nota.', detail);
+                  return;
                 }
-              } catch (error) {
-                const detail = error instanceof Error ? error.message : String(error);
-                sendError(socket, 'submit-failed', 'No se pudo adjuntar una imagen de la nota.', detail);
-                return;
-              }
-            }
 
-            const payload = buildSubmission(note.text, references);
-            if (payload === null) return;
-            writeToTerminal(socket, message.terminalId, payload);
+                const pieces = buildSubmissionWrites(note.text, imagePaths, input);
+                if (pieces === null) return;
+                registry.noteSubmitted(message.terminalId, note.text);
+                const outcome = await lane.writePieces(
+                  pieces,
+                  input.pieceGapMs,
+                  pieceWriter(socket, message.terminalId),
+                );
+                if (outcome === 'interrupted') interrupted();
+              },
+              { onDropped: interrupted },
+            );
           })();
           break;
       }
@@ -1417,6 +1572,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('parts', onConversationParts);
     conversations.off('mode', onConversationMode);
     conversations.off('waiting', onConversationWaiting);
+    conversations.off('toolCall', onConversationToolCall);
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);
     for (const client of wss.clients) client.terminate();

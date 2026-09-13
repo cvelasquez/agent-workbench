@@ -202,6 +202,11 @@ kbd {
   color: var(--danger);
 }
 
+/* Un cartel cuyo texto trae saltos de linea propios. */
+.banner-lines {
+  white-space: pre-line;
+}
+
 .banner-notice {
   background: color-mix(in srgb, var(--warning) 12%, transparent);
   border-bottom: 1px solid var(--warning);
@@ -656,6 +661,64 @@ kbd {
 
 .tab-new:hover:not(:disabled) {
   color: var(--accent);
+}
+
+/*
+  Boton partido: el `+` abre directo y la flecha pegada abre el menu de CLIs.
+  Solo existe con mas de una CLI instalada; con una, el `+` es el de siempre y
+  nada de esto se aplica (ver `AgentSplitButton.tsx`).
+*/
+.split-button {
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+}
+
+.tab-new.split-button-main {
+  padding-right: 3px;
+}
+
+.tab-new.split-button-arrow {
+  padding: 4px 7px 4px 2px;
+  font-size: 10px;
+}
+
+/* En la barra lateral las dos mitades comparten el borde del medio. */
+.icon-button.split-button-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.icon-button.split-button-arrow {
+  min-width: 15px;
+  padding: 0 3px;
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  font-size: 9px;
+}
+
+.icon-button.split-button-main:hover:not(:disabled),
+.icon-button.split-button-arrow:hover:not(:disabled) {
+  position: relative;
+}
+
+/*
+  La CLI de una pestana o de una sesion, en dos letras. Va adentro de la
+  etiqueta y se recorta con ella: la pestana encogida no puede crecer por esto.
+*/
+.agent-badge {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 3px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 13px;
+  letter-spacing: 0.3px;
+  color: var(--text-dim);
+  vertical-align: 1px;
 }
 
 /* ---------- centro: la conversacion ---------- */
@@ -3120,6 +3183,53 @@ kbd {
 .context-menu-item:hover {
   background: var(--hover);
   color: var(--accent);
+}
+
+/* ---------- menu de CLIs ---------- */
+
+/* Mismo cuerpo que el menu contextual: es la misma clase de cosa. */
+.agent-menu {
+  position: fixed;
+  z-index: 45;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.agent-menu-item-active {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+.agent-menu-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.agent-menu-label {
+  flex: 1 1 auto;
+}
+
+.agent-menu-version {
+  font-size: 10px;
+  color: var(--text-dim);
 }
 
 /* ---------- dialogo ---------- */

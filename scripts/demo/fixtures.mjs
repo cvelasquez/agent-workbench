@@ -5,6 +5,7 @@
  *
  *   <root>/Proyectos/<nombre>       proyectos inventados; uno con git y cambios
  *   <home>/.claude/projects/<slug>  sesiones JSONL sinteticas, con el esquema real
+ *   <home>/.codex                   el CODEX_HOME de la demo, vacio
  *   <configDir>/workspace.json      tres pestanas abiertas al arrancar
  *   <bin>/claude(.cmd)              CLI simulada: contesta --version y se queda
  *
@@ -903,6 +904,9 @@ export function buildFixtures(dirs) {
   for (const dir of [root, home, bin]) rmSync(dir, { recursive: true, force: true });
   mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
   mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+  // El `CODEX_HOME` de la demo, vacio: con la variable definida, Codex exige
+  // que la carpeta exista.
+  mkdirSync(path.join(home, '.codex'), { recursive: true });
   mkdirSync(dirs.configDir, { recursive: true });
   mkdirSync(bin, { recursive: true });
 
