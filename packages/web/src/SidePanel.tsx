@@ -17,6 +17,7 @@
  */
 
 import type { GitStatus } from '@agent-workbench/shared';
+import { visiblePanelTabs } from './agent-ui.js';
 import { FilesPanel } from './FilesPanel.js';
 import { GitPanel } from './GitPanel.js';
 import { MemoryPanel } from './MemoryPanel.js';
@@ -45,7 +46,13 @@ function changeCount(status: GitStatus): number {
 }
 
 interface SidePanelProps {
+  /**
+   * La solapa a mostrar, ya resuelta contra lo que ofrece la CLI de la pestana
+   * (`effectivePanelTab`): nunca llega `plans` si no hay planes.
+   */
   tab: PanelTab;
+  /** false si la CLI de la pestana no tiene planes: la solapa no se ofrece. */
+  plansAvailable: boolean;
   /**
    * true si el panel esta escondido (Alt+P).
    *
@@ -75,14 +82,18 @@ interface SidePanelProps {
   files: FilesView;
   plans: PlansView;
   memory: MemoryView;
-  /** Escribe texto en la terminal sin enviarlo. */
-  onInsert: (text: string) => void;
+  /**
+   * Escribe texto en la terminal sin enviarlo. Sin el, el arbol no ofrece
+   * "Insertar como @ruta": la CLI de la pestana no menciona archivos asi.
+   */
+  onInsert?: (text: string) => void;
   onReveal: (path: string) => void;
   onHide: () => void;
 }
 
 export function SidePanel({
   tab,
+  plansAvailable,
   hidden,
   onTabChange,
   title,
@@ -128,7 +139,7 @@ export function SidePanel({
       </header>
 
       <nav className="side-panel-tabs">
-        {PANEL_TABS.map((entry) => (
+        {visiblePanelTabs(PANEL_TABS, plansAvailable).map((entry) => (
           <button
             key={entry.id}
             className={`side-panel-tab${entry.id === tab ? ' side-panel-tab-active' : ''}`}

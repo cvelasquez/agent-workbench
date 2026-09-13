@@ -22,22 +22,27 @@
  */
 
 import {
-  LAUNCH_PERMISSION_MODE,
-  PERMISSION_MODE_CYCLE,
-  PERMISSION_MODE_HINT,
   PERMISSION_MODE_LABEL,
   isPermissionMode,
+  type PermissionCycleCapability,
   type PermissionMode,
 } from '@agent-workbench/shared';
+import { modeTitle, shownMode } from './agent-ui.js';
 
 interface ModeControlProps {
   /** Modo observado en el archivo, o null si todavia no lo dijo. */
   mode: PermissionMode | null;
+  /**
+   * El ciclo que declara la CLI de la pestana: los modos, en el orden en que
+   * los recorre la tecla, y con cual se lanza. Es el mismo que usa el servidor
+   * para contar pulsaciones (lo compara `check-agent-registry.mjs`).
+   */
+  cycle: PermissionCycleCapability;
   disabled: boolean;
   onChange: (mode: PermissionMode) => void;
 }
 
-export function ModeControl({ mode, disabled, onChange }: ModeControlProps): JSX.Element {
+export function ModeControl({ mode, cycle, disabled, onChange }: ModeControlProps): JSX.Element {
   /*
     Sin observacion vale con que se lanzo la pestana, que lo pone la propia
     aplicacion (`--permission-mode auto`). No es una suposicion: es un
@@ -45,7 +50,7 @@ export function ModeControl({ mode, disabled, onChange }: ModeControlProps): JSX
     combo no tiene un estado "sin datos" como el de modelo — ahi el dato es de
     la CLI y puede no existir, aca es nuestro.
   */
-  const current = mode ?? LAUNCH_PERMISSION_MODE;
+  const current = shownMode(mode, cycle);
 
   return (
     <select
@@ -55,9 +60,9 @@ export function ModeControl({ mode, disabled, onChange }: ModeControlProps): JSX
       onChange={(event) => {
         if (isPermissionMode(event.target.value)) onChange(event.target.value);
       }}
-      title={`Modo ${PERMISSION_MODE_LABEL[current]}: ${PERMISSION_MODE_HINT[current]}. Cambiarlo manda shift+tab a la pestaña CLI`}
+      title={modeTitle(current, cycle)}
     >
-      {PERMISSION_MODE_CYCLE.map((entry) => (
+      {cycle.modes.map((entry) => (
         <option key={entry} value={entry}>
           {PERMISSION_MODE_LABEL[entry]}
         </option>

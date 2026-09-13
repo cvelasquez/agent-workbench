@@ -18,6 +18,7 @@
 
 import { useCallback, useState } from 'react';
 import { MAX_SUBMIT_IMAGES, MAX_SUBMIT_IMAGE_BYTES } from '@agent-workbench/shared';
+import { IMAGES_REFUSED_MESSAGE } from './agent-ui.js';
 
 /** A partir de cuantas lineas el texto pegado se pliega. */
 const FOLD_FROM_LINES = 5;
@@ -72,7 +73,12 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
-export function useComposerAttachments(): ComposerAttachments {
+/**
+ * @param imagesAllowed false si la CLI de la pestana no recibe imagenes por
+ *   ruta. Ahi pegar o soltar una imagen avisa y no la agrega: una miniatura que
+ *   el servidor va a rechazar al enviar es peor que decirlo en el momento.
+ */
+export function useComposerAttachments(imagesAllowed = true): ComposerAttachments {
   const [items, setItems] = useState<Attachment[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -120,17 +126,24 @@ export function useComposerAttachments(): ComposerAttachments {
 
   const acceptFiles = useCallback(
     (files: FileList | File[]) => {
-      for (const file of Array.from(files)) {
-        if (file.type.startsWith('image/')) addImage(file);
+      const images = Array.from(files).filter((file) => file.type.startsWith('image/'));
+      if (images.length > 0 && !imagesAllowed) {
+        setProblem(IMAGES_REFUSED_MESSAGE);
+        return;
       }
+      for (const file of images) addImage(file);
     },
-    [addImage],
+    [addImage, imagesAllowed],
   );
 
   const acceptPaste = useCallback(
     (data: DataTransfer): boolean => {
       const images = Array.from(data.files).filter((file) => file.type.startsWith('image/'));
       if (images.length > 0) {
+        if (!imagesAllowed) {
+          setProblem(IMAGES_REFUSED_MESSAGE);
+          return true;
+        }
         for (const file of images) addImage(file);
         return true;
       }
@@ -144,7 +157,7 @@ export function useComposerAttachments(): ComposerAttachments {
       setItems((current) => [...current, { id: newId(), kind: 'text', text, lines }]);
       return true;
     },
-    [addImage],
+    [addImage, imagesAllowed],
   );
 
   const remove = useCallback((id: string) => {

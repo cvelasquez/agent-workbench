@@ -20,6 +20,7 @@ import {
   type ConversationEvent,
   type ConversationState,
   type GitStatus,
+  type ImageReferenceStyle,
   type IndexStatus,
   type MemoryStatus,
   type ProjectSummary,
@@ -29,15 +30,13 @@ import {
   type TerminalActivity,
   type TerminalId,
 } from '@agent-workbench/shared';
-import { readAgentDefaults } from './agent-defaults.js';
-import { cliNotFoundMessage, type CliLocation } from './cli-locator.js';
+import type { AgentAdapter, PartsUpdate } from './agents/adapter.js';
+import type { AgentRegistry } from './agents/registry.js';
 import type { ArchivedSessions } from './archived-sessions.js';
-import type { CliStatusWatcher } from './cli-status.js';
 import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
 import { MemoryBridgeError } from './memory-bridge.js';
 import { UnknownTerminalError, type MemoryHub } from './memory-hub.js';
 import { NotesError, type NotesStore } from './notes-store.js';
-import type { PartsUpdate } from './conversation-follower.js';
 import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
 import { listDirectory, readPreview, searchFiles } from './file-browser.js';
@@ -52,7 +51,6 @@ import {
   buildSubmission,
   fileReference,
 } from './pty-input.js';
-import { inheritedChildSessionMarker } from './pty-session.js';
 import type { RepoHub } from './repo-hub.js';
 import { revealPath } from './reveal.js';
 import type { SessionIndex } from './session-index.js';
@@ -70,11 +68,13 @@ import { rejectRequest } from './security.js';
  */
 const NOTE_SEND_TIMEOUT_MS = 15_000;
 
+/** Lo que se anuncia cuando no hay configuracion que leer. */
+const NO_DEFAULTS: AgentDefaults = { model: null, effort: null, contextWindow: null };
+
 export interface TerminalSocketOptions {
   httpServer: HttpServer;
   port: number;
   token: string;
-  cli: CliLocation | null;
   shell: ShellLocation | null;
   registry: TerminalRegistry;
   index: SessionIndex;
@@ -84,8 +84,12 @@ export interface TerminalSocketOptions {
   repos: RepoHub;
   /** Memoria compartida del proyecto de cada pestana (`memory.*`). */
   memory: MemoryHub;
-  /** Estado en vivo de la CLI. Lo usa `notes.send` para esperar el arranque. */
-  cliStatus: CliStatusWatcher;
+  /**
+   * Las CLIs registradas. Se anuncian en `hello`, y de la de cada pestana sale
+   * lo que esa pestana puede hacer: cada accion que la CLI no declara se
+   * rechaza con `agent-unsupported` antes de escribir nada en la pty.
+   */
+  agents: AgentRegistry;
   defaultCwd: string;
   /** Donde aterrizan las imagenes pegadas. Inyectable para las pruebas. */
   pasteStore?: PasteStore;
@@ -96,7 +100,6 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     httpServer,
     port,
     token,
-    cli,
     shell,
     registry,
     index,
@@ -105,7 +108,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations,
     repos,
     memory,
-    cliStatus,
+    agents,
     defaultCwd,
   } = options;
 
@@ -155,6 +158,34 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   ): T => {
     if (requestId !== undefined) message.requestId = requestId;
     return message;
+  };
+
+  /** El adaptador de la CLI de una pestana de agente, o null. */
+  const adapterOf = (terminalId: TerminalId): AgentAdapter | null => {
+    const descriptor = registry.get(terminalId);
+    if (descriptor === null || descriptor.kind !== 'agent' || descriptor.agent === null) return null;
+    return agents.get(descriptor.agent)?.adapter ?? null;
+  };
+
+  /**
+   * Como nombra imagenes la CLI de una pestana, o null despues de avisar por
+   * que no se pueden mandar.
+   *
+   * Se pregunta **antes** de guardar nada en disco: una imagen que la CLI no va
+   * a recibir no tiene por que dejar un temporal.
+   */
+  const imageStyleFor = (
+    socket: WebSocket,
+    terminalId: TerminalId,
+    unsupportedMessage: string,
+  ): ImageReferenceStyle | null => {
+    if (registry.get(terminalId) === null) {
+      sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+      return null;
+    }
+    const style = adapterOf(terminalId)?.capabilities.imagesByPath ?? null;
+    if (style === null) sendError(socket, 'agent-unsupported', unsupportedMessage);
+    return style;
   };
 
   const terminalListMessage = (): ServerMessage => ({
@@ -265,11 +296,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
    * raro (suscribirse, o que el archivo de sesion se reemplace). Cachearlo
    * dejaria el combo mintiendo hasta reiniciar si el usuario edita su
    * configuracion.
+   *
+   * La lee el adaptador de la CLI de la pestana. Una consola no tiene CLI y no
+   * anuncia nada: el cuadro de escritura solo se dibuja para pestanas de agente.
    */
   const defaultsFor = async (terminalId: TerminalId): Promise<AgentDefaults> => {
     const descriptor = registry.get(terminalId);
-    if (descriptor === null) return { model: null, effort: null, contextWindow: null };
-    return readAgentDefaults(descriptor.cwd);
+    const adapter = adapterOf(terminalId);
+    if (descriptor === null || adapter === null) return NO_DEFAULTS;
+    return (await adapter.defaults(descriptor.cwd)) ?? NO_DEFAULTS;
   };
 
   /**
@@ -381,7 +416,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       nada que sobreviva a la conexion que los pidio: sin `pickerId` vivo, el
       servidor no lista nada.
     */
-    const pickers = new DirectoryPickers();
+    const pickers = new DirectoryPickers(agents.protectedDirs());
 
     /**
      * `cwd` de una pestana viva.
@@ -449,12 +484,10 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     send(socket, {
       type: 'hello',
       protocolVersion: PROTOCOL_VERSION,
-      cliAvailable: cli !== null,
-      cliVersion: cli?.version ?? null,
-      cliMissingMessage: cli === null ? cliNotFoundMessage() : null,
+      agents: agents.list(),
+      defaultAgent: agents.defaultAgent(),
       platform: process.platform,
       defaultCwd,
-      transcriptMarkerStripped: inheritedChildSessionMarker,
       shellName: shell?.name ?? null,
     });
     send(socket, terminalListMessage());
@@ -503,22 +536,31 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             }
 
             const references: string[] = [];
-            try {
-              for (const image of images) {
-                const stored = await pasteStore.save(terminalId, image.mediaType, image.data);
-                references.push(fileReference(stored.path));
-              }
-            } catch (error) {
-              const detail = error instanceof Error ? error.message : String(error);
-              sendError(
+            // Sin imagenes no hay nada que comprobar: el texto va igual.
+            if (images.length > 0) {
+              const style = imageStyleFor(
                 socket,
-                'submit-failed',
-                error instanceof PasteImageError
-                  ? detail
-                  : 'No se pudo guardar la imagen pegada.',
-                detail,
+                terminalId,
+                'Esta CLI no recibe imagenes desde el cuadro de escritura.',
               );
-              return;
+              if (style === null) return;
+              try {
+                for (const image of images) {
+                  const stored = await pasteStore.save(terminalId, image.mediaType, image.data);
+                  references.push(fileReference(stored.path, style));
+                }
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                sendError(
+                  socket,
+                  'submit-failed',
+                  error instanceof PasteImageError
+                    ? detail
+                    : 'No se pudo guardar la imagen pegada.',
+                  detail,
+                );
+                return;
+              }
             }
 
             const payload = buildSubmission(text, references, { send: message.send !== false });
@@ -539,6 +581,17 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           que lo elegido case con su forma.
         */
         case 'agent.answer': {
+          // Una CLI cuyas preguntas no se contestan con esta secuencia no
+          // recibe ninguna tecla: se contesta en su solapa CLI.
+          const answering = adapterOf(message.terminalId);
+          if (answering !== null && !answering.capabilities.questionCards) {
+            sendError(
+              socket,
+              'agent-unsupported',
+              'Esta CLI no recibe respuestas desde la conversacion. Contestala en la solapa CLI.',
+            );
+            break;
+          }
           const pending = conversations.getPendingQuestion(message.terminalId);
           if (pending === null || pending.toolUseId !== message.toolUseId) {
             sendError(
@@ -578,7 +631,26 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           pidio, que es peor que no hacer nada.
         */
         case 'agent.mode': {
-          const current = conversations.getPermissionMode(message.terminalId);
+          if (registry.get(message.terminalId) === null) {
+            sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+            break;
+          }
+          /*
+            El ciclo es de la CLI de la pestana. Una que no lo declara —o una
+            consola, que no tiene CLI— no recibe ninguna tecla: contar
+            pulsaciones sobre un ciclo que no existe deja a la pestana donde
+            nadie pidio.
+          */
+          const cycle = adapterOf(message.terminalId)?.capabilities.permissionCycle ?? null;
+          if (cycle === null) {
+            sendError(socket, 'agent-unsupported', 'Esta CLI no tiene modos de permiso que cambiar desde aca.');
+            break;
+          }
+          /*
+            Sin suscripcion el hub no sabe nada de la pestana, y ahi esta donde
+            la lanzo la aplicacion: el modo de arranque de su CLI.
+          */
+          const current = conversations.getPermissionMode(message.terminalId) ?? cycle.launchMode;
           if (current === message.mode) break;
 
           const keys = buildModeKeys(current, message.mode);
@@ -586,7 +658,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             sendError(
               socket,
               'mode-failed',
-              'No se puede llegar a ese modo desde el actual. Cambialo con shift+tab en la solapa CLI.',
+              `No se puede llegar a ese modo desde el actual. Cambialo con ${cycle.keyLabel} en la solapa CLI.`,
             );
             break;
           }
@@ -638,11 +710,26 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           break;
 
         case 'terminal.open':
+          /*
+            Una CLI que este lado no conoce no se reemplaza por la de por
+            defecto: abrir otra que la pedida es peor que no abrir nada.
+          */
+          if (message.unsupportedAgent !== undefined && message.kind !== 'shell') {
+            sendError(
+              socket,
+              'agent-unsupported',
+              'Este servidor no sabe lanzar esa CLI.',
+              message.unsupportedAgent,
+              message.requestId,
+            );
+            break;
+          }
           void (async () => {
             try {
               const descriptor = await registry.open({
                 cwd: message.cwd,
                 ...(message.kind !== undefined ? { kind: message.kind } : {}),
+                ...(message.agent !== undefined ? { agent: message.agent } : {}),
                 ...(message.resumeSessionId !== undefined
                   ? { resumeSessionId: message.resumeSessionId }
                   : {}),
@@ -1240,9 +1327,29 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             /*
               Una pty recien abierta puede estar todavia arrancando, y ahi el
               pegado se perderia o —peor— contestaria un menu. Se espera a que
-              la CLI se declare `idle`; si no llega, no se escribe nada.
+              la CLI se declare lista; si no llega, no se escribe nada. Una CLI
+              que no avisa cuando esta lista no recibe notas: pegar a ciegas es
+              justo lo que esta espera evita.
             */
-            if (!(await cliStatus.waitUntilIdle(descriptor.sessionId, NOTE_SEND_TIMEOUT_MS))) {
+            const adapter = adapterOf(message.terminalId);
+            const status = adapter?.capabilities.readySignal === true ? adapter.status : null;
+            if (status === null) {
+              sendError(
+                socket,
+                'agent-unsupported',
+                'Esta CLI no avisa cuando esta lista; la nota no se mando.',
+              );
+              return;
+            }
+            // Antes de esperar el arranque: si la nota no puede ir entera, no
+            // tiene sentido esperar quince segundos para decirlo.
+            const style =
+              note.images.length === 0
+                ? null
+                : imageStyleFor(socket, message.terminalId, 'Esta CLI no recibe imagenes; la nota no se mando.');
+            if (note.images.length > 0 && style === null) return;
+
+            if (!(await status.waitUntilReady(descriptor.sessionId, NOTE_SEND_TIMEOUT_MS))) {
               sendError(
                 socket,
                 'submit-failed',
@@ -1252,19 +1359,22 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             }
 
             const references: string[] = [];
-            try {
-              for (const image of note.images) {
-                const stored = await pasteStore.save(
-                  message.terminalId,
-                  image.mediaType,
-                  image.data,
-                );
-                references.push(fileReference(stored.path));
+            // `style` es null solo cuando la nota no tiene imagenes.
+            if (style !== null) {
+              try {
+                for (const image of note.images) {
+                  const stored = await pasteStore.save(
+                    message.terminalId,
+                    image.mediaType,
+                    image.data,
+                  );
+                  references.push(fileReference(stored.path, style));
+                }
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                sendError(socket, 'submit-failed', 'No se pudo adjuntar una imagen de la nota.', detail);
+                return;
               }
-            } catch (error) {
-              const detail = error instanceof Error ? error.message : String(error);
-              sendError(socket, 'submit-failed', 'No se pudo adjuntar una imagen de la nota.', detail);
-              return;
             }
 
             const payload = buildSubmission(note.text, references);

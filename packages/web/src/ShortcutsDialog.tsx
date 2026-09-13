@@ -19,11 +19,8 @@
  */
 
 import { useEffect } from 'react';
-
-interface Shortcut {
-  keys: string;
-  description: string;
-}
+import type { AgentInfo } from '@agent-workbench/shared';
+import { AGENT_UI, composerShortcuts, type Shortcut } from './agent-ui.js';
 
 const APP_SHORTCUTS: readonly Shortcut[] = [
   { keys: 'Alt + T', description: 'Nueva pestaña en el directorio de la pestaña actual' },
@@ -36,34 +33,27 @@ const APP_SHORTCUTS: readonly Shortcut[] = [
   },
 ];
 
-/**
- * El cuadro de escritura tiene teclas propias, y son distintas de las de la
- * terminal a proposito: es otro widget. Que `Enter` envie y `Shift+Enter` salte
- * de linea solo es posible porque el texto viaja como un pegado.
- */
-const COMPOSER_SHORTCUTS: readonly Shortcut[] = [
-  { keys: 'Enter', description: 'Enviar el mensaje' },
-  { keys: 'Shift + Enter', description: 'Salto de línea sin enviar' },
-  { keys: 'Ctrl + V', description: 'Pegar texto o una imagen (queda como miniatura)' },
-  { keys: 'Esc', description: 'Interrumpir lo que la CLI esté haciendo' },
-];
+/*
+  Las teclas del cuadro de escritura salen de `composerShortcuts` y las de la
+  CLI de `AGENT_UI` (`agent-ui.ts`): dependen de la CLI de la pestana, y ahi
+  las compara el chequeo con las de siempre.
 
-const CLI_SHORTCUTS: readonly Shortcut[] = [
-  { keys: 'Esc', description: 'Interrumpir lo que la CLI esté haciendo' },
-  { keys: 'Esc Esc', description: 'Abrir el menú de rewind' },
-  { keys: 'Ctrl + C', description: 'Cancelar' },
-  { keys: 'Ctrl + R', description: 'Buscar en el historial de comandos' },
-  { keys: 'Ctrl + O', description: 'Ver la salida completa' },
-  { keys: 'Shift + Tab', description: 'Cambiar el modo de permisos (con el foco en la terminal)' },
-  { keys: 'Alt + V', description: 'Pegar una imagen del portapapeles' },
-  { keys: 'Ctrl + V', description: 'Pegar texto del portapapeles' },
-];
+  El cuadro tiene teclas propias, y son distintas de las de la terminal a
+  proposito: es otro widget. Que `Enter` envie y `Shift+Enter` salte de linea
+  solo es posible porque el texto viaja como un pegado.
+*/
 
 interface ShortcutsDialogProps {
+  /**
+   * La CLI de la que habla el dialogo (`shortcutsAgent`): la de la pestana
+   * activa, o la que se usaria para abrir una. null solo antes del `hello`, y
+   * ahi no se dibuja la seccion de la terminal: no hay de quien hablar.
+   */
+  agent: AgentInfo | null;
   onClose: () => void;
 }
 
-export function ShortcutsDialog({ onClose }: ShortcutsDialogProps): JSX.Element {
+export function ShortcutsDialog({ agent, onClose }: ShortcutsDialogProps): JSX.Element {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
@@ -98,15 +88,21 @@ export function ShortcutsDialog({ onClose }: ShortcutsDialogProps): JSX.Element 
           <ShortcutList shortcuts={APP_SHORTCUTS} />
 
           <h3 className="modal-section">En el cuadro de escritura</h3>
-          <ShortcutList shortcuts={COMPOSER_SHORTCUTS} />
+          <ShortcutList
+            shortcuts={composerShortcuts(agent !== null && agent.capabilities.imagesByPath !== null)}
+          />
 
-          <h3 className="modal-section">De la CLI, dentro de la terminal</h3>
-          <p className="modal-hint">
-            Estas las maneja la CLI. La aplicación no las intercepta: le llegan tal cual. En la
-            terminal, el salto de línea sigue siendo <kbd>Ctrl + J</kbd> y la imagen se pega con{' '}
-            <kbd>Alt + V</kbd>; el cuadro de escritura es el que tiene las teclas de arriba.
-          </p>
-          <ShortcutList shortcuts={CLI_SHORTCUTS} />
+          {agent !== null && (
+            <>
+              <h3 className="modal-section">De la CLI, dentro de la terminal</h3>
+              <p className="modal-hint">
+                Estas las maneja la CLI. La aplicación no las intercepta: le llegan tal cual. En la
+                terminal, el salto de línea sigue siendo <kbd>Ctrl + J</kbd> y la imagen se pega
+                con <kbd>Alt + V</kbd>; el cuadro de escritura es el que tiene las teclas de arriba.
+              </p>
+              <ShortcutList shortcuts={AGENT_UI[agent.id].shortcuts} />
+            </>
+          )}
 
           <p className="modal-hint">
             <strong>Ctrl+T</strong>, <strong>Ctrl+W</strong> y <strong>Ctrl+Tab</strong> no se

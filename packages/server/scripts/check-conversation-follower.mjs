@@ -13,8 +13,8 @@
 
 import { appendFile, mkdir, rm, writeFile, open } from 'node:fs/promises';
 import path from 'node:path';
-import { ConversationFollower } from '../src/conversation-follower.ts';
-import { ModelVariantRegistry } from '../src/model-variants.ts';
+import { ConversationFollower } from '../src/agents/claude-code/conversation-follower.ts';
+import { ModelVariantRegistry } from '../src/agents/claude-code/model-variants.ts';
 
 const dir = process.argv[2] ?? path.join(process.cwd(), '.check-follower');
 await mkdir(dir, { recursive: true });
@@ -205,7 +205,7 @@ check('un desnudo posterior sigue ganando',
 // 275.960 tokens — que no entra en 200k. El id desnudo no significa "volvi a
 // 200k", significa "esta linea no declara la variante"; si contara, una pestana
 // recien abierta anunciaria 200k en una instalacion que corre en 1M.
-const { readAgentDefaults } = await import('../src/agent-defaults.ts');
+const { readAgentDefaults } = await import('../src/agents/claude-code/agent-defaults.ts');
 const projectDir = path.join(dir, 'proyecto');
 const settingsFile = path.join(projectDir, '.claude', 'settings.json');
 await mkdir(path.dirname(settingsFile), { recursive: true });
@@ -489,7 +489,7 @@ check('y sin un solo byte del contenido',
   !JSON.stringify(imageResult.added).includes(bytes.slice(0, 200)));
 
 // 11f. El contenido se busca aparte, por eventId e indice.
-const { loadConversationImage } = await import('../src/conversation-image.ts');
+const { loadConversationImage } = await import('../src/agents/claude-code/conversation-image.ts');
 const loaded = await loadConversationImage(imageFile, 'i-1', 1);
 check('la imagen se puede traer por (eventId, indice)',
   loaded?.data === bytes && loaded?.mediaType === 'image/png');

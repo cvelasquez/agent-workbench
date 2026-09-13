@@ -1,7 +1,7 @@
 /**
  * Protocolo WebSocket entre el navegador y el servidor local.
  *
- * Version 5 — consola del sistema en la columna derecha.
+ * Version 6 — las CLIs se anuncian por adaptador.
  *
  * Cambio de la v1 a la v2: el WebSocket dejo de ser duenio de la pty. Las
  * terminales viven en el servidor y el socket solo se engancha a ellas. Por eso
@@ -23,6 +23,13 @@
  * `resize`, `terminal.attach` no cambian— porque del lado del servidor las dos
  * cosas son una pty y nada mas; lo unico que cambia es que se lanza.
  *
+ * Lo que cambia en la v6: `hello` deja de describir **una** CLI con campos
+ * sueltos y trae la lista `agents`, cada una con sus capacidades, mas
+ * `defaultAgent`. `terminal.open` puede pedir una CLI con `agent`, y una accion
+ * que la CLI de la pestana no declara se rechaza con `agent-unsupported` en vez
+ * de fallar a ciegas. `terminal.activity` suma `unknown`, para la CLI que no
+ * publica su estado.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -31,6 +38,7 @@
  */
 
 import type { AgentDefaults } from './agent-controls.js';
+import { AGENT_IDS, parseAgentInfo, type AgentId, type AgentInfo } from './agents.js';
 import { isPermissionMode, type PermissionMode } from './permission-modes.js';
 import {
   parseContextUsage,
@@ -85,6 +93,7 @@ import {
   type TerminalKind,
 } from './models.js';
 import {
+  asArrayFiltered,
   asArrayOf,
   asFiniteNumber,
   asLiteral,
@@ -97,7 +106,7 @@ import {
 } from './validation.js';
 
 /** Se incrementa cuando el contrato cambia de forma incompatible. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** Ruta del WebSocket. El resto del servidor sirve la UI. */
 export const WS_PATH = '/ws';
@@ -266,6 +275,21 @@ export interface ClientOpenTerminalMessage {
    * sin conversacion y sin persistirse entre arranques.
    */
   kind?: TerminalKind;
+  /**
+   * Que CLI lanzar. Ausente, decide el servidor: reanudando, la de esa sesion;
+   * si no, la de la ultima pestana del mismo proyecto, o la CLI por defecto.
+   * Solo cuenta para `kind: 'agent'`.
+   */
+  agent?: AgentId;
+  /**
+   * Lo pone el **parser**, nunca un cliente: el mensaje pidio una CLI que este
+   * lado no conoce, con el valor tal cual llego.
+   *
+   * Va aparte de `agent` para que ese campo sea siempre un id valido. Ignorarlo
+   * abriria la CLI por defecto en lugar de la pedida, que es peor que no abrir
+   * nada: el servidor responde `agent-unsupported` y no abre la pestana.
+   */
+  unsupportedAgent?: string;
 }
 
 /** Cierra la pestana y termina el proceso. */
@@ -691,24 +715,27 @@ export type ClientMessageType = ClientMessage['type'];
 export interface ServerHelloMessage {
   type: 'hello';
   protocolVersion: number;
-  /** false cuando la CLI no esta en el PATH: la UI lo explica y no abre pestanas. */
-  cliAvailable: boolean;
-  cliVersion: string | null;
-  /** Mensaje listo para mostrar cuando `cliAvailable` es false. */
-  cliMissingMessage: string | null;
+  /**
+   * Las CLIs que este servidor sabe lanzar, instaladas o no, en orden de
+   * preferencia.
+   *
+   * Cada una trae si esta disponible, su version, el texto para cuando falta,
+   * sus capacidades —lo que la interfaz dibuja o esconde para sus pestanas— y
+   * el aviso de entorno que haya levantado. El caso que motivo ese aviso: si el
+   * servidor arranco con `CLAUDE_CODE_CHILD_SESSION` heredado, el adaptador lo
+   * quita del entorno de las pestanas —esa variable apaga el guardado del
+   * JSONL— y lo anuncia con `child-session-marker`, para que la app no toque el
+   * entorno de la CLI sin que se note.
+   *
+   * Una CLI que este cliente no conoce se descarta sola: no se lleva el resto
+   * del mensaje.
+   */
+  agents: AgentInfo[];
+  /** La primera disponible, o null si no hay ninguna: la UI no abre pestanas. */
+  defaultAgent: AgentId | null;
   platform: string;
   /** Sugerencia de cwd para la primera pestana. */
   defaultCwd: string;
-  /**
-   * true si el servidor arranco con `CLAUDE_CODE_CHILD_SESSION` heredado y lo
-   * quito del entorno de las pestanas.
-   *
-   * Esa variable apaga el guardado del JSONL, y sin JSONL no hay historial, ni
-   * vista de conversacion, ni medidor. Se filtra para que la app funcione igual
-   * desde donde sea que se la arranque, pero se avisa: no queremos que la app
-   * toque el entorno de la CLI sin que se note.
-   */
-  transcriptMarkerStripped: boolean;
   /**
    * Nombre de la consola del sistema que se puede abrir en el panel derecho
    * ("PowerShell", "bash"), o null si no se encontro ninguna.
@@ -1084,6 +1111,12 @@ export type ServerErrorCode =
   | 'notes-failed'
   | 'picker-failed'
   | 'memory-failed'
+  /**
+   * La CLI de la pestana no tiene esa accion —o se pidio una CLI que el
+   * servidor no conoce—. Va aparte de `mode-failed` y compania porque no es un
+   * fallo: es algo que no existe, y no se escribio nada en la pty.
+   */
+  | 'agent-unsupported'
   | 'internal';
 
 export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
@@ -1104,6 +1137,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'notes-failed',
   'picker-failed',
   'memory-failed',
+  'agent-unsupported',
   'internal',
 ];
 
@@ -1286,6 +1320,17 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       if (label !== null) message.label = label;
       const kind = asLiteral(record['kind'], TERMINAL_KINDS);
       if (kind !== null) message.kind = kind;
+      // Ausente o null es "que decida el servidor"; cualquier otra cosa que no
+      // sea un id conocido se conserva para rechazarla, no para ignorarla.
+      const rawAgent = record['agent'];
+      if (rawAgent !== undefined && rawAgent !== null) {
+        const agent = asLiteral(rawAgent, AGENT_IDS);
+        if (agent !== null) {
+          message.agent = agent;
+        } else {
+          message.unsupportedAgent = (typeof rawAgent === 'string' ? rawAgent : JSON.stringify(rawAgent)).slice(0, 80);
+        }
+      }
       return message;
     }
     case 'terminal.close': {
@@ -1545,17 +1590,19 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return {
         type: 'hello',
         protocolVersion,
-        cliAvailable: record['cliAvailable'] === true,
-        cliVersion: asString(record['cliVersion']),
-        cliMissingMessage: asString(record['cliMissingMessage']),
+        // Filtrada y no estricta: una CLI que este lado no conoce no puede
+        // llevarse el `hello` entero, y con el la plataforma y el cwd.
+        agents: asArrayFiltered(record['agents'], parseAgentInfo) ?? [],
+        defaultAgent: asLiteral(record['defaultAgent'], AGENT_IDS),
         platform,
         defaultCwd,
-        transcriptMarkerStripped: record['transcriptMarkerStripped'] === true,
         shellName: asNonEmptyString(record['shellName']),
       };
     }
     case 'terminal.list': {
-      const terminals = asArrayOf(record['terminals'], parseTerminalDescriptor);
+      // Un descriptor que este lado no entiende —una CLI que no conoce— se
+      // descarta solo: no puede dejar la barra de pestanas vacia.
+      const terminals = asArrayFiltered(record['terminals'], parseTerminalDescriptor);
       const order = asStringArray(record['order']);
       return terminals === null || order === null
         ? null
@@ -1610,7 +1657,8 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return status === null ? null : { type: 'index.status', status };
     }
     case 'index.projects': {
-      const projects = asArrayOf(record['projects'], parseProjectSummary);
+      // Un proyecto que este lado no entiende no vacia la barra lateral entera.
+      const projects = asArrayFiltered(record['projects'], parseProjectSummary);
       return projects === null
         ? null
         : { type: 'index.projects', projects, replace: record['replace'] === true };

@@ -17,7 +17,13 @@
  */
 
 import { useMemo, useState } from 'react';
-import type { IndexStatus, ProjectSummary, SessionSummary } from '@agent-workbench/shared';
+import {
+  resumeCwdFor,
+  type AgentId,
+  type IndexStatus,
+  type ProjectSummary,
+  type SessionSummary,
+} from '@agent-workbench/shared';
 import { formatWhen } from './format-when.js';
 import { NotesPanel } from './NotesPanel.js';
 import { projectColor } from './project-color.js';
@@ -30,7 +36,15 @@ interface SidebarProps {
   /** Sesiones con una pestana abierta. No se archivan: ver `canArchive`. */
   openSessionIds: Set<string>;
   onOpenProject: (cwd: string) => void;
-  onOpenSession: (cwd: string, sessionId: string, label: string) => void;
+  /** Retoma una sesion del historial, con su CLI: la sesion sabe de cual es. */
+  onOpenSession: (cwd: string, session: SessionSummary) => void;
+  /**
+   * true si la CLI de esa sesion esta instalada y sabe reanudar. Si no, la
+   * fila se ve pero no se abre: reanudarla con otra CLI no encontraria nada.
+   */
+  canResume: (agent: AgentId) => boolean;
+  /** `process.platform` del servidor: decide si las mayusculas de un `cwd` cuentan. */
+  platform: string;
   onRefresh: () => void;
   /** Esconde o restaura. Un solo camino para las dos direcciones. */
   onArchive: (sessionIds: string[], archived: boolean) => void;
@@ -47,7 +61,10 @@ interface SidebarProps {
   notes: NotesApi;
   /** Abre el selector de carpetas para empezar un proyecto nuevo. */
   onNewProject: () => void;
-  /** Manda una nota al agente en una conversacion nueva. null sin pestana. */
+  /**
+   * Manda una nota al agente en una conversacion nueva. null sin pestana, o si
+   * su CLI no avisa cuando esta lista para recibirla.
+   */
   onSendNote: ((noteId: string) => void) | null;
   /** El `cwd` donde se abriria esa conversacion. */
   sendNoteCwd: string | null;
@@ -55,7 +72,7 @@ interface SidebarProps {
 
 /** Nombre corto para el encabezado del proyecto. */
 function projectName(project: ProjectSummary): string {
-  if (project.cwd.length === 0) return project.slug;
+  if (project.cwd.length === 0) return project.fallbackName;
   const parts = project.cwd.split(/[\\/]/).filter((part) => part.length > 0);
   return parts[parts.length - 1] ?? project.cwd;
 }
@@ -97,6 +114,8 @@ export function Sidebar({
   openSessionIds,
   onOpenProject,
   onOpenSession,
+  canResume,
+  platform,
   onRefresh,
   onArchive,
   onHide,
@@ -185,11 +204,11 @@ export function Sidebar({
     setSelected(new Set());
   };
 
-  const toggle = (slug: string): void => {
+  const toggle = (projectKey: string): void => {
     setExpanded((current) => {
       const next = new Set(current);
-      if (next.has(slug)) next.delete(slug);
-      else next.add(slug);
+      if (next.has(projectKey)) next.delete(projectKey);
+      else next.add(projectKey);
       return next;
     });
   };
@@ -266,16 +285,16 @@ export function Sidebar({
         )}
 
         {visibleProjects.map((project) => {
-          const isOpen = expanded.has(project.slug) || filter.trim().length > 0;
+          const isOpen = expanded.has(project.key) || filter.trim().length > 0;
           const canOpen = !disabled && project.cwdExists;
 
           return (
-            <div className="project" key={project.slug}>
+            <div className="project" key={project.key}>
               <div className="project-row">
                 <button
                   className="project-toggle"
-                  onClick={() => toggle(project.slug)}
-                  title={project.cwd.length > 0 ? project.cwd : project.slug}
+                  onClick={() => toggle(project.key)}
+                  title={project.cwd.length > 0 ? project.cwd : project.fallbackName}
                 >
                   <span className={`chevron${isOpen ? ' chevron-open' : ''}`}>›</span>
                   {/*
@@ -320,7 +339,7 @@ export function Sidebar({
 
                     return (
                       <li
-                        key={session.sessionId}
+                        key={`${session.agent}:${session.sessionId}`}
                         className={`session-row${session.archived ? ' session-archived' : ''}${
                           isSelected ? ' session-selected' : ''
                         }`}
@@ -339,9 +358,11 @@ export function Sidebar({
                             // trabajar en algo escondido y que siga escondido
                             // es peor que no haberla escondido nunca.
                             if (session.archived) onArchive([session.sessionId], false);
-                            onOpenSession(project.cwd, session.sessionId, session.title);
+                            // Con el `cwd` que escribio la CLI, salvo que solo
+                            // cambien las mayusculas (ver `resumeCwdFor`).
+                            onOpenSession(resumeCwdFor(session.cwd, project.cwd, platform), session);
                           }}
-                          disabled={!canOpen}
+                          disabled={!canOpen || !canResume(session.agent)}
                           title={session.title}
                         >
                           <span className="session-title">{session.title}</span>

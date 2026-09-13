@@ -1,5 +1,8 @@
 /**
- * Localiza el binario de la CLI en el PATH.
+ * Localiza el binario de una CLI en el PATH.
+ *
+ * Es lo mismo para todas: que comando buscar y donde se instala lo pone cada
+ * adaptador (`agents/claude-code/constants.ts`), no este archivo.
  *
  * Reglas que respeta este archivo:
  *  - El binario NO se incluye en el repo ni se descarga. Solo se busca.
@@ -16,11 +19,6 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-
-/** Nombre del comando en el PATH. Es configuracion, no parte de la marca. */
-const CLI_COMMAND = 'claude';
-
-export const CLI_INSTALL_URL = 'https://docs.claude.com/en/docs/claude-code/setup';
 
 export interface CliLocation {
   /** Ruta absoluta de lo que encontramos en el PATH. */
@@ -112,8 +110,8 @@ async function readVersion(file: string, prefixArgs: readonly string[]): Promise
 }
 
 /** Devuelve null si la CLI no esta instalada o no es accesible. */
-export async function locateCli(): Promise<CliLocation | null> {
-  const resolvedPath = await findInPath(CLI_COMMAND);
+export async function locateCommand(command: string): Promise<CliLocation | null> {
+  const resolvedPath = await findInPath(command);
   if (resolvedPath === null) return null;
 
   const useInterpreter = needsCommandInterpreter(resolvedPath);
@@ -131,10 +129,10 @@ export async function locateCli(): Promise<CliLocation | null> {
 }
 
 /** Mensaje que ve el usuario cuando la CLI no esta. */
-export function cliNotFoundMessage(): string {
+export function commandNotFoundMessage(command: string, installUrl: string): string {
   return (
-    `No se encontro el comando "${CLI_COMMAND}" en el PATH. ` +
+    `No se encontro el comando "${command}" en el PATH. ` +
     `Agent Workbench usa la CLI que ya tengas instalada: no la incluye ni la descarga. ` +
-    `Instalala desde ${CLI_INSTALL_URL} y volve a arrancar.`
+    `Instalala desde ${installUrl} y volve a arrancar.`
   );
 }

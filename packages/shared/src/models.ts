@@ -6,8 +6,9 @@
  * son milisegundos epoch.
  */
 
+import { AGENT_IDS, type AgentId } from './agents.js';
 import {
-  asArrayOf,
+  asArrayFiltered,
   asBoolean,
   asFiniteNumber,
   asLiteral,
@@ -37,7 +38,18 @@ export const SESSION_TITLE_SOURCES: readonly SessionTitleSource[] = [
 
 /** Una conversacion del historial, tal como la resume el indexador. */
 export interface SessionSummary {
+  /** Que CLI la escribio. Decide con que CLI se reanuda. */
+  agent: AgentId;
   sessionId: SessionId;
+  /**
+   * El `cwd` que trae el propio archivo, o `''` si no trae ninguno.
+   *
+   * No siempre es el del proyecto: el proyecto agrupa por clave normalizada, y
+   * dos formas de la misma carpeta (`D:\x` y `d:\x\`) caen juntas. Reanudar
+   * tiene que usar la forma que la CLI escribio, porque de ella sale donde
+   * busca el archivo.
+   */
+  cwd: string;
   title: string;
   titleSource: SessionTitleSource;
   /** mtime del archivo. Lo usamos para ordenar y para invalidar la cache. */
@@ -54,14 +66,26 @@ export interface SessionSummary {
 }
 
 /**
- * Un directorio de `~/.claude/projects/`.
+ * Un proyecto de la barra lateral: las sesiones de todas las CLIs que
+ * trabajaron en la misma carpeta.
  *
- * `slug` es el nombre de la carpeta y NO se puede revertir a una ruta: `cwd`
- * viene leido del JSONL. Ver CLAUDE.md 4.1.
+ * Se agrupa por el `cwd` que traen los archivos, normalizado, y no por la
+ * carpeta donde la CLI los guarda: esa carpeta NO se puede revertir a una ruta
+ * (CLAUDE.md 4.1), y cada CLI la nombra a su manera.
  */
 export interface ProjectSummary {
-  slug: string;
-  /** Ruta real, leida del campo `cwd` del JSONL. */
+  /**
+   * Identidad del proyecto. `normalizeCwdKey(cwd)` calculada en el servidor, o
+   * `unknown:<agent>:<grupo>` cuando ningun archivo del grupo trae `cwd`.
+   * El cliente la usa como clave y nunca la interpreta.
+   */
+  key: string;
+  /**
+   * Nombre para mostrar cuando `cwd` esta vacio: el agrupador nativo de la CLI
+   * (con Claude Code, el nombre de la carpeta del historial). `''` si hay `cwd`.
+   */
+  fallbackName: string;
+  /** Ruta real, leida del campo `cwd` del historial. La primera vista. */
   cwd: string;
   /** false si el directorio ya no esta en disco. Se marca, no se oculta. */
   cwdExists: boolean;
@@ -104,10 +128,18 @@ export interface TerminalDescriptor {
   /** Directorio de trabajo del proceso. */
   cwd: string;
   /**
-   * UUID pasado con --session-id, o el que se reanudo con --resume.
+   * Que CLI corre en la pestana. **null en las consolas**: no tienen agente, y
+   * inventarles uno haria que algo las tratara como conversacion.
+   */
+  agent: AgentId | null;
+  /**
+   * Id de la conversacion que da el adaptador. Con Claude Code, el UUID pasado
+   * con --session-id, o el que se reanudo con --resume.
    *
    * **Vacio en las consolas**: no hay conversacion que identificar. Es la senal
-   * que mira el hub para no seguir un JSONL inexistente.
+   * que mira el hub para no seguir un JSONL inexistente. En una pestana de
+   * agente puede quedar vacio mientras se descubre, con una CLI que pone el id
+   * ella misma (hito 25 en adelante); con Claude Code no pasa nunca.
    */
   sessionId: SessionId;
   /** Etiqueta editable de la pestana. */
@@ -145,14 +177,19 @@ export interface TerminalDescriptor {
  * `offline` es no tener proceso: una pestana dormida, una que murio, o una que
  * la CLI todavia no registro. Son estados distintos para la aplicacion, pero
  * para "que esta haciendo" son el mismo: nada.
+ *
+ * `unknown` es una CLI que no publica su estado: la pestana tiene proceso, pero
+ * no hay de donde saber si trabaja o espera. Se dice asi y no con `idle`, que
+ * seria afirmar algo que nadie midio. Con Claude Code no se emite nunca.
  */
-export type TerminalActivity = 'busy' | 'idle' | 'waiting' | 'offline';
+export type TerminalActivity = 'busy' | 'idle' | 'waiting' | 'offline' | 'unknown';
 
 export const TERMINAL_ACTIVITIES: readonly TerminalActivity[] = [
   'busy',
   'idle',
   'waiting',
   'offline',
+  'unknown',
 ];
 
 // ---------------------------------------------------------------------------
@@ -178,31 +215,70 @@ export function parseSessionSummary(value: unknown): SessionSummary | null {
   ) {
     return null;
   }
+  /*
+    Sin `agent` es de un servidor anterior, donde la unica CLI era Claude Code.
+    Con un id que este lado no conoce, la sesion se descarta —reanudarla con
+    otra CLI no la encontraria— y el proyecto sigue con las demas.
+  */
+  const agent = record['agent'] === undefined ? 'claude-code' : asLiteral(record['agent'], AGENT_IDS);
+  if (agent === null) return null;
+  // Ausente = `''`, y al reanudar el cliente cae al `cwd` del proyecto, que es
+  // lo que se usaba antes de que el campo existiera.
+  const cwd = asString(record['cwd']) ?? '';
   // Ausente = no archivada. Un cliente viejo, o una cache escrita antes de que
   // esto existiera, no tiene por que dejar de leerse.
-  return { sessionId, title, titleSource, updatedAt, sizeBytes, archived: record['archived'] === true };
+  return {
+    agent,
+    sessionId,
+    cwd,
+    title,
+    titleSource,
+    updatedAt,
+    sizeBytes,
+    archived: record['archived'] === true,
+  };
 }
 
 export function parseProjectSummary(value: unknown): ProjectSummary | null {
   const record = asRecord(value);
   if (record === null) return null;
 
-  const slug = asNonEmptyString(record['slug']);
   const cwd = asString(record['cwd']);
   const cwdExists = asBoolean(record['cwdExists']);
-  const sessions = asArrayOf(record['sessions'], parseSessionSummary);
+  // Una sesion que este lado no entiende no se lleva al proyecto entero.
+  const sessions = asArrayFiltered(record['sessions'], parseSessionSummary);
   const lastActivityAt = asFiniteNumber(record['lastActivityAt']);
 
-  if (
-    slug === null ||
-    cwd === null ||
-    cwdExists === null ||
-    sessions === null ||
-    lastActivityAt === null
-  ) {
+  if (cwd === null || cwdExists === null || sessions === null || lastActivityAt === null) {
     return null;
   }
-  return { slug, cwd, cwdExists, sessions, lastActivityAt };
+
+  /*
+    Un servidor anterior manda `slug` en vez de `key` (con HMR, cliente y
+    servidor pueden quedar desfasados). El slug identificaba al proyecto y era
+    lo que se mostraba sin `cwd`, asi que cubre las dos cosas.
+  */
+  const key = asNonEmptyString(record['key']);
+  if (key !== null) {
+    return {
+      key,
+      fallbackName: asString(record['fallbackName']) ?? '',
+      cwd,
+      cwdExists,
+      sessions,
+      lastActivityAt,
+    };
+  }
+  const slug = asNonEmptyString(record['slug']);
+  if (slug === null) return null;
+  return {
+    key: slug,
+    fallbackName: cwd.length === 0 ? slug : '',
+    cwd,
+    cwdExists,
+    sessions,
+    lastActivityAt,
+  };
 }
 
 export function parseIndexStatus(value: unknown): IndexStatus | null {
@@ -225,6 +301,17 @@ export function parseTerminalDescriptor(value: unknown): TerminalDescriptor | nu
   // Un descriptor sin `kind` es de una version anterior del protocolo: era una
   // pestana de la CLI y nada mas.
   const kind = asLiteral(record['kind'], TERMINAL_KINDS) ?? 'agent';
+  /*
+    Una consola no tiene agente, diga lo que diga el campo. Una pestana sin el
+    campo es de un servidor anterior, donde la unica CLI era Claude Code; con el
+    campo y un id que este lado no conoce, el descriptor se descarta — abrirla
+    como si fuera de otra CLI mandaria teclas a la equivocada.
+  */
+  let agent: AgentId | null = null;
+  if (kind === 'agent') {
+    agent = record['agent'] === undefined ? 'claude-code' : asLiteral(record['agent'], AGENT_IDS);
+    if (agent === null) return null;
+  }
   const cwd = asString(record['cwd']);
   // Vacio es valido: las consolas no tienen conversacion.
   const sessionId = asString(record['sessionId']);
@@ -249,6 +336,7 @@ export function parseTerminalDescriptor(value: unknown): TerminalDescriptor | nu
   return {
     terminalId,
     kind,
+    agent,
     cwd,
     sessionId,
     label,

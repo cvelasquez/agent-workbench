@@ -26,15 +26,23 @@
  */
 
 import {
-  EFFORT_OPTIONS,
-  MODEL_OPTIONS,
   effortCommand,
   modelCommand,
-  modelOptionFor,
   modelOptionLabel,
+  type EffortOption,
+  type ModelOption,
 } from '@agent-workbench/shared';
+import { modelOptionIn } from './agent-ui.js';
 
 interface AgentControlsProps {
+  /**
+   * Modelos que acepta el comando de la CLI de la pestana, o null si no lo
+   * tiene: ahi el combo no se dibuja. Salen de sus capacidades y no de una
+   * tabla fija, porque otra CLI acepta el mismo comando con otros nombres.
+   */
+  models: readonly ModelOption[] | null;
+  /** Niveles de esfuerzo, con el mismo criterio. */
+  efforts: readonly EffortOption[] | null;
   /** Modelo a mostrar: observado en el archivo, o el de la configuracion. */
   model: string | null;
   /** Esfuerzo a mostrar, con el mismo criterio. */
@@ -48,6 +56,8 @@ interface AgentControlsProps {
 }
 
 export function AgentControls({
+  models,
+  efforts,
   model,
   effort,
   modelProvisional = false,
@@ -55,65 +65,69 @@ export function AgentControls({
   disabled,
   onCommand,
 }: AgentControlsProps): JSX.Element {
-  const option = modelOptionFor(model);
+  const option = models === null ? null : modelOptionIn(models, model);
   // Un modelo que no esta en la tabla igual se muestra, con su nombre crudo:
   // se vio un `gpt-5.6-terra` en una sesion importada.
   const unknown = option === null && model !== null;
 
   return (
     <>
-      <select
-        className="agent-select"
-        value={option?.value ?? ''}
-        disabled={disabled}
-        onChange={(event) => {
-          if (event.target.value.length > 0) onCommand(modelCommand(event.target.value));
-        }}
-        title={
-          model === null
-            ? 'Modelo: todavia no hubo ninguna respuesta en esta sesion'
-            : modelProvisional
-              ? `Modelo segun tu configuracion: ${model}. Todavia no hubo ninguna respuesta que lo confirme`
-              : `Modelo en uso: ${model}. Cambiarlo manda /model a la pestaña CLI`
-        }
-        /*
-          Cada familia aparece dos veces porque son dos ventanas de contexto del
-          mismo modelo, no dos modelos. Es la misma eleccion que ofrece la CLI
-          con `/model opus[1m]`.
-        */
-      >
-        {option === null && (
-          <option value="">{unknown ? (model ?? '') : 'modelo — sin datos'}</option>
-        )}
-        {MODEL_OPTIONS.map((entry) => (
-          <option key={entry.value} value={entry.value}>
-            {modelOptionLabel(entry)}
-          </option>
-        ))}
-      </select>
+      {models !== null && (
+        <select
+          className="agent-select"
+          value={option?.value ?? ''}
+          disabled={disabled}
+          onChange={(event) => {
+            if (event.target.value.length > 0) onCommand(modelCommand(event.target.value));
+          }}
+          title={
+            model === null
+              ? 'Modelo: todavia no hubo ninguna respuesta en esta sesion'
+              : modelProvisional
+                ? `Modelo segun tu configuracion: ${model}. Todavia no hubo ninguna respuesta que lo confirme`
+                : `Modelo en uso: ${model}. Cambiarlo manda /model a la pestaña CLI`
+          }
+          /*
+            Cada familia aparece dos veces porque son dos ventanas de contexto del
+            mismo modelo, no dos modelos. Es la misma eleccion que ofrece la CLI
+            con `/model opus[1m]`.
+          */
+        >
+          {option === null && (
+            <option value="">{unknown ? (model ?? '') : 'modelo — sin datos'}</option>
+          )}
+          {models.map((entry) => (
+            <option key={entry.value} value={entry.value}>
+              {modelOptionLabel(entry)}
+            </option>
+          ))}
+        </select>
+      )}
 
-      <select
-        className="agent-select"
-        value={effort ?? ''}
-        disabled={disabled}
-        onChange={(event) => {
-          if (event.target.value.length > 0) onCommand(effortCommand(event.target.value));
-        }}
-        title={
-          effort === null
-            ? 'Esfuerzo: sin datos. No todos los modelos tienen niveles — con haiku, /effort no deja rastro'
-            : effortProvisional
-              ? `Esfuerzo segun tu configuracion: ${effort}. Todavia no hubo ninguna respuesta que lo confirme`
-              : `Esfuerzo en uso: ${effort}. Cambiarlo manda /effort a la pestaña CLI`
-        }
-      >
-        {effort === null && <option value="">esfuerzo — sin datos</option>}
-        {EFFORT_OPTIONS.map((entry) => (
-          <option key={entry.value} value={entry.value}>
-            {entry.label}
-          </option>
-        ))}
-      </select>
+      {efforts !== null && (
+        <select
+          className="agent-select"
+          value={effort ?? ''}
+          disabled={disabled}
+          onChange={(event) => {
+            if (event.target.value.length > 0) onCommand(effortCommand(event.target.value));
+          }}
+          title={
+            effort === null
+              ? 'Esfuerzo: sin datos. No todos los modelos tienen niveles — con haiku, /effort no deja rastro'
+              : effortProvisional
+                ? `Esfuerzo segun tu configuracion: ${effort}. Todavia no hubo ninguna respuesta que lo confirme`
+                : `Esfuerzo en uso: ${effort}. Cambiarlo manda /effort a la pestaña CLI`
+          }
+        >
+          {effort === null && <option value="">esfuerzo — sin datos</option>}
+          {efforts.map((entry) => (
+            <option key={entry.value} value={entry.value}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+      )}
     </>
   );
 }

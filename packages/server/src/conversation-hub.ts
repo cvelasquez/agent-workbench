@@ -1,16 +1,17 @@
 /**
  * Sigue las conversaciones de las pestanas que alguien esta mirando.
  *
- * Que archivo seguir no se adivina: el UUID de la sesion lo generamos nosotros
- * y se lo pasamos a la CLI con `--session-id`, asi que la ruta sale de una
- * cuenta (CLAUDE.md 4.8). El brief proponia observar el directorio y quedarse
- * con el `.jsonl` que apareciera despues del arranque: eso tiene una carrera en
- * cuanto hay dos pestanas del mismo proyecto.
+ * Que sesion seguir no se adivina: cada pestana de agente sabe su `sessionId`
+ * desde que se lanza, y el adaptador de su CLI sabe donde la escribe (con
+ * Claude Code, el UUID de `--session-id` da la ruta del archivo; CLAUDE.md
+ * 4.8). El brief proponia observar el directorio y quedarse con el `.jsonl`
+ * que apareciera despues del arranque: eso tiene una carrera en cuanto hay dos
+ * pestanas del mismo proyecto.
  *
- * Igual queda un respaldo. Si la ruta calculada no aparece nunca y el watcher
- * ve nacer un archivo que se llama `<sessionId>.jsonl` en otra carpeta, el
- * seguimiento se muda ahi. Es barato y cubre que la CLI normalice el `cwd` de
- * una forma que no previmos.
+ * Como se lee, que configuracion se aplica antes y el re-apuntado de respaldo
+ * son de cada CLI y viven en su seguidor (`history.follow` del adaptador). Aca
+ * queda lo comun: la cuenta de suscriptores, el modo de permiso que llevamos
+ * nosotros y a quien avisar.
  *
  * El seguimiento se prende y se apaga por demanda: solo la pestana que se esta
  * mirando tiene un follower vivo.
@@ -20,7 +21,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import {
   EMPTY_CONTEXT_USAGE,
-  LAUNCH_PERMISSION_MODE,
+  type AgentId,
   type ContextUsage,
   type ConversationEvent,
   type ConversationQuestionPart,
@@ -32,18 +33,15 @@ import {
   type SessionPlan,
   type TerminalId,
 } from '@agent-workbench/shared';
-import { readAgentDefaults } from './agent-defaults.js';
-import { describePlans, readPlan } from './plans-store.js';
-import type { CliStatusWatcher } from './cli-status.js';
-import {
-  ConversationFollower,
-  type PartsUpdate,
-  type TurnUpdate,
-} from './conversation-follower.js';
-import { loadConversationImage, type LoadedImage } from './conversation-image.js';
+import type {
+  AgentAdapter,
+  LoadedImage,
+  PartsUpdate,
+  SessionFollower,
+  TurnUpdate,
+} from './agents/adapter.js';
+import type { AgentRegistry } from './agents/registry.js';
 import { debugLog } from './debug.js';
-import type { ModelVariantRegistry } from './model-variants.js';
-import { sessionFilePath } from './paths.js';
 import type { TerminalRegistry } from './terminal-registry.js';
 
 /** Cuantos eventos manda el primer envio. El resto se pide con loadMore. */
@@ -82,18 +80,24 @@ export interface ConversationSnapshot {
 
 interface Entry {
   sessionId: SessionId;
-  follower: ConversationFollower;
+  /** De que CLI es la pestana. Filtra los avisos del watcher. */
+  agent: AgentId;
+  adapter: AgentAdapter;
+  follower: SessionFollower;
   /** Ultimo modo avisado, para no repetir el aviso en cada pasada. */
   announcedMode: PermissionMode | null;
   /**
    * El modo al que nosotros llevamos la pestana, o el de arranque.
    *
-   * La aplicacion lanza cada pty con `--permission-mode auto` (§4.8.1), asi
-   * que el punto de partida no es una suposicion. A partir de ahi, lo unico
-   * que lo mueve es un `shift+tab`: el del combo, que se anota aca, o el que
-   * el usuario teclee en la solapa CLI, que llega por el archivo.
+   * La aplicacion lanza cada pty con el modo que declara la capacidad
+   * `permissionCycle` de su CLI (con Claude Code, `--permission-mode auto`;
+   * §4.8.1), asi que el punto de partida no es una suposicion. A partir de ahi,
+   * lo unico que lo mueve es la tecla que cicla: la del combo, que se anota
+   * aca, o la que el usuario teclee en la solapa CLI, que llega por el archivo.
+   *
+   * null si la CLI no declara ciclo: no hay modo que llevar.
    */
-  assumedMode: PermissionMode;
+  assumedMode: PermissionMode | null;
   /**
    * El modo que dijo el archivo **mientras mirabamos**.
    *
@@ -116,8 +120,8 @@ interface Entry {
   /**
    * Que espera la CLI ahora mismo, o null si no espera nada.
    *
-   * No sale del JSONL —ahi no esta— sino de `~/.claude/sessions/<pid>.json`.
-   * Ver `cli-status.ts`.
+   * No sale del historial —ahi no esta— sino del estado que la CLI publica por
+   * proceso (`adapter.status`; con Claude Code, `~/.claude/sessions/<pid>.json`).
    */
   waitingFor: string | null;
   /** Corta la suscripcion al vigilante de estado al soltar la pestana. */
@@ -173,13 +177,12 @@ export class ConversationHub extends EventEmitter {
   constructor(
     private readonly registry: TerminalRegistry,
     /**
-     * Estado que la CLI publica por proceso. Es compartido con el registro de
-     * terminales —uno solo para toda la app— porque el costo del sondeo esta en
-     * listar el directorio y eso no crece con la cantidad de suscriptores.
+     * Las CLIs registradas. De cada adaptador salen el seguidor de la sesion y
+     * el estado del proceso, que es el mismo que usa el registro de terminales
+     * —uno solo por CLI— porque el costo del sondeo no crece con la cantidad
+     * de suscriptores.
      */
-    private readonly cliStatus: CliStatusWatcher,
-    /** Se le pasa a cada follower para resolver la variante del modelo. */
-    private readonly modelVariants?: ModelVariantRegistry,
+    private readonly agents: AgentRegistry,
   ) {
     super();
   }
@@ -192,10 +195,17 @@ export class ConversationHub extends EventEmitter {
     const descriptor = this.registry.get(terminalId);
     if (descriptor === null) return null;
 
-    // Sin cwd no hay ruta que calcular, y una consola directamente no escribe
-    // JSONL. Se dice, y no se crea un seguidor apuntando a una ruta inventada
-    // que despues diria "esperando" para siempre.
-    if (descriptor.cwd.length === 0 || descriptor.sessionId.length === 0) {
+    // Sin cwd o sin sesion no hay nada que seguir, y una consola directamente
+    // no escribe historial. Se dice, y no se crea un seguidor apuntando a una
+    // ruta inventada que despues diria "esperando" para siempre.
+    const adapter =
+      descriptor.agent === null ? null : (this.agents.get(descriptor.agent)?.adapter ?? null);
+    if (
+      descriptor.cwd.length === 0 ||
+      descriptor.sessionId.length === 0 ||
+      descriptor.agent === null ||
+      adapter === null
+    ) {
       return {
         sessionId: descriptor.sessionId,
         state: 'unavailable',
@@ -210,12 +220,17 @@ export class ConversationHub extends EventEmitter {
 
     let entry = this.entries.get(terminalId);
     if (entry === undefined) {
-      const filePath = sessionFilePath(descriptor.cwd, descriptor.sessionId);
+      const follower = adapter.history.follow({
+        cwd: descriptor.cwd,
+        sessionId: descriptor.sessionId,
+      });
       entry = {
         sessionId: descriptor.sessionId,
-        follower: new ConversationFollower(filePath, this.modelVariants),
+        agent: descriptor.agent,
+        adapter,
+        follower,
         announcedMode: null,
-        assumedMode: LAUNCH_PERMISSION_MODE,
+        assumedMode: adapter.capabilities.permissionCycle?.launchMode ?? null,
         observedMode: null,
         refs: 0,
         timer: null,
@@ -225,10 +240,14 @@ export class ConversationHub extends EventEmitter {
       };
       this.entries.set(terminalId, entry);
       this.watchStatus(terminalId, entry, descriptor.sessionId);
-      // La variante que el archivo nunca dice. Se lee antes del primer poll
-      // para que el medidor no muestre 200k un instante y 1M despues.
-      await this.refreshConfigured(terminalId, entry);
-      debugLog('conversacion', `sigo ${path.basename(filePath)} de ${terminalId.slice(0, 8)}`);
+      // Lo que el seguidor necesita antes de leer. Con Claude Code, la variante
+      // que el archivo nunca dice: sin esto el medidor mostraria 200k un
+      // instante y 1M despues.
+      await entry.follower.start();
+      debugLog(
+        'conversacion',
+        `sigo ${path.basename(follower.label)} de ${terminalId.slice(0, 8)}`,
+      );
     }
 
     entry.refs += 1;
@@ -237,6 +256,7 @@ export class ConversationHub extends EventEmitter {
     await this.runPoll(terminalId, entry, { silent: true });
 
     const tail = entry.follower.getTail(INITIAL_EVENT_LIMIT);
+    const plans = entry.adapter.history.plans;
     return {
       sessionId: entry.sessionId,
       state: entry.follower.getState(),
@@ -245,7 +265,7 @@ export class ConversationHub extends EventEmitter {
       usage: entry.follower.getUsage(),
       permissionMode: entry.observedMode ?? entry.assumedMode,
       waitingFor: entry.waitingFor,
-      plans: await describePlans(entry.follower.getPlanFiles()),
+      plans: plans === null ? [] : await plans.describe(entry.follower.getPlanFiles()),
     };
   }
 
@@ -254,13 +274,18 @@ export class ConversationHub extends EventEmitter {
    *
    * `waiting` solo se avisa cuando de verdad esta esperando: `busy` e `idle`
    * son estados normales y la conversacion ya los cuenta con lo que dibuja.
+   * Una CLI que no publica su estado no avisa nunca.
    */
   private watchStatus(terminalId: TerminalId, entry: Entry, sessionId: SessionId): void {
-    entry.stopWatchingStatus = this.cliStatus.subscribe(sessionId, (status) => {
-      const waitingFor = status !== null && status.status === 'waiting' ? status.waitingFor : null;
+    const status = entry.adapter.status;
+    if (status === null) return;
+    entry.stopWatchingStatus = status.subscribe(sessionId, (current) => {
       // Sin etiqueta no se puede decir de que clase es, pero que espera si:
       // se avisa igual, con la copia generica.
-      const next = status !== null && status.status === 'waiting' ? (waitingFor ?? 'unknown') : null;
+      const next =
+        current !== null && current.activity === 'waiting'
+          ? (current.waitingFor ?? 'unknown')
+          : null;
       if (next === entry.waitingFor) return;
       entry.waitingFor = next;
       this.emit('waiting', terminalId, next);
@@ -318,7 +343,7 @@ export class ConversationHub extends EventEmitter {
   ): Promise<LoadedImage | null> {
     const entry = this.entries.get(terminalId);
     if (entry === undefined) return null;
-    return loadConversationImage(entry.follower.filePath, eventId, index, source);
+    return entry.follower.readImage(eventId, index, source);
   }
 
   getSnapshot(terminalId: TerminalId): ConversationSnapshot | null {
@@ -350,27 +375,32 @@ export class ConversationHub extends EventEmitter {
   async readPlan(terminalId: TerminalId, fileName: string): Promise<PlanContent | null> {
     const entry = this.entries.get(terminalId);
     if (entry === undefined) return null;
+    const plans = entry.adapter.history.plans;
+    if (plans === null) return null;
     if (!entry.follower.getPlanFiles().includes(fileName)) return null;
-    return readPlan(fileName);
+    return plans.read(fileName);
   }
 
   /**
    * El modo de permiso en el que esta la pestana, para poder cambiarlo.
    *
-   * A diferencia de lo que viaja al cliente, esto **no** devuelve null: es la
-   * cuenta desde la que se calculan los `shift+tab`, y sin un punto de partida
-   * no hay forma de llegar a ninguna parte. Mientras el archivo no diga otra
-   * cosa vale con que se lanzo la pestana, que lo pone la propia aplicacion en
-   * la linea de comandos (`--permission-mode auto`).
+   * Es la cuenta desde la que se calculan las pulsaciones. Mientras el archivo
+   * no diga otra cosa vale con que se lanzo la pestana, que lo pone la propia
+   * aplicacion en la linea de comandos (con Claude Code,
+   * `--permission-mode auto`).
+   *
+   * null si nadie sigue la pestana todavia, o si su CLI no declara ciclo.
+   * Quien cambia el modo completa con `permissionCycle.launchMode` de la CLI:
+   * sin suscripcion, la pestana esta donde se lanzo.
    *
    * Lo que esto no puede saber: si el usuario ciclo con `shift+tab` en la
    * solapa CLI y la CLI todavia no escribio la linea que lo dice. Ahi el
    * calculo apunta a otro modo — se ve en la CLI, y el combo se corrige solo
    * en cuanto el archivo hable.
    */
-  getPermissionMode(terminalId: TerminalId): PermissionMode {
+  getPermissionMode(terminalId: TerminalId): PermissionMode | null {
     const entry = this.entries.get(terminalId);
-    if (entry === undefined) return LAUNCH_PERMISSION_MODE;
+    if (entry === undefined) return null;
     return entry.observedMode ?? entry.assumedMode;
   }
 
@@ -428,28 +458,16 @@ export class ConversationHub extends EventEmitter {
   }
 
   /**
-   * Aviso del watcher. Solo mira las sesiones que alguien esta siguiendo.
+   * Aviso del watcher del historial de una CLI. Solo mira las sesiones de esa
+   * CLI que alguien esta siguiendo.
    *
-   * El respaldo de re-apuntado vive aca: si todavia esperamos un archivo que no
-   * aparece y nace uno con el nombre de nuestra sesion en otra carpeta, ese es.
+   * Que ruta es de que sesion lo decide el seguidor, y ahi vive tambien el
+   * respaldo de re-apuntado: si todavia espera un archivo que no aparece y nace
+   * uno con el nombre de su sesion en otra carpeta, ese es.
    */
-  onFileChanged(filePath: string): void {
-    const fileName = path.basename(filePath);
-
+  onHistoryChanged(agent: AgentId, filePath: string): void {
     for (const [terminalId, entry] of this.entries) {
-      if (entry.follower.filePath === filePath) {
-        this.schedulePoll(terminalId, entry);
-        continue;
-      }
-
-      if (
-        entry.follower.getState() === 'waiting' &&
-        fileName.toLowerCase() === `${entry.sessionId.toLowerCase()}.jsonl`
-      ) {
-        console.warn(
-          `[conversacion] la sesion ${entry.sessionId.slice(0, 8)} escribio en ${filePath}, no en la ruta calculada; me mudo ahi.`,
-        );
-        entry.follower = new ConversationFollower(filePath);
+      if (entry.agent === agent && entry.follower.noticeChange(filePath)) {
         this.schedulePoll(terminalId, entry);
       }
     }
@@ -479,24 +497,6 @@ export class ConversationHub extends EventEmitter {
    * `silent` es para la lectura inicial: ahi el resultado se devuelve en el
    * snapshot y avisar por evento seria mandar todo dos veces.
    */
-  /**
-   * Relee el modelo que declara la configuracion de la pestana.
-   *
-   * Son tres archivos chicos y solo se leen al abrir la conversacion o cuando
-   * paso un `/model`, no en cada poll: la configuracion cambia cuando el
-   * usuario la cambia, no cada 300 ms.
-   */
-  private async refreshConfigured(terminalId: TerminalId, entry: Entry): Promise<void> {
-    const descriptor = this.registry.get(terminalId);
-    if (descriptor === null || descriptor.cwd.length === 0) return;
-    try {
-      const defaults = await readAgentDefaults(descriptor.cwd);
-      entry.follower.setConfiguredAlias(defaults.model);
-    } catch {
-      // Sin configuracion legible se sigue igual: es un dato de conveniencia.
-    }
-  }
-
   private runPoll(
     terminalId: TerminalId,
     entry: Entry,
@@ -510,19 +510,14 @@ export class ConversationHub extends EventEmitter {
 
       let result;
       try {
+        // Lo que la CLI tenga que rehacer antes de que se emita —con Claude
+        // Code, releer la configuracion tras un `/model`— pasa adentro del
+        // poll, para que el cliente no reciba primero el numero viejo.
         result = await entry.follower.poll();
       } catch (error) {
         // Un archivo ilegible no puede tumbar el seguimiento del resto.
-        console.warn(`[conversacion] no se pudo leer ${entry.follower.filePath}:`, error);
+        console.warn(`[conversacion] no se pudo leer ${entry.follower.label}:`, error);
         return;
-      }
-
-      // Un `/model` en el archivo significa que la configuracion pudo cambiar.
-      // Se relee y se rehace la cuenta antes de emitir, para que el cliente no
-      // reciba primero el numero viejo.
-      if (entry.follower.takeConfiguredStale()) {
-        await this.refreshConfigured(terminalId, entry);
-        entry.follower.recomputeModel();
       }
 
       if (options.silent) return;
@@ -546,14 +541,16 @@ export class ConversationHub extends EventEmitter {
       }
       if (result.turns.length > 0) this.emit('turns', terminalId, result.turns);
       // Un plan nuevo: la solapa lo muestra sin que nadie tenga que recargar.
-      if (result.plans.length > 0) {
-        this.emit('plans', terminalId, await describePlans(entry.follower.getPlanFiles()));
+      const plans = entry.adapter.history.plans;
+      if (result.plans.length > 0 && plans !== null) {
+        this.emit('plans', terminalId, await plans.describe(entry.follower.getPlanFiles()));
       }
       if (result.parts.length > 0) this.emit('parts', terminalId, result.parts);
 
       // Y el aviso suelto, para el caso que no trae mensajes: uno cambia el
-      // modo y quiere ver que cambio, sin escribirle nada al agente.
-      if (mode !== entry.announcedMode) {
+      // modo y quiere ver que cambio, sin escribirle nada al agente. Una CLI
+      // sin ciclo no tiene modo que avisar.
+      if (mode !== null && mode !== entry.announcedMode) {
         entry.announcedMode = mode;
         this.emit('mode', terminalId, mode);
       }

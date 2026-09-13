@@ -11,18 +11,34 @@
  *
  * Los procesos no sobreviven al cierre: lo que se restaura es la lista de
  * pestanas, que se vuelven a abrir con `--resume`.
+ *
+ * **La version sigue en 1 aunque cada pestana ahora diga su CLI**, y es a
+ * proposito. El parser de la version 1 lee `cwd`, `sessionId` y `label` e
+ * ignora lo demas, asi que un `agent` de mas no le molesta a una build
+ * anterior; subir la version, en cambio, haria que esa build no lo leyera, que
+ * arrancara sin pestanas y que el primer cambio reescribiera el archivo vacio.
+ * Pasa con cualquier build que comparta el directorio de configuracion: la rama
+ * principal o el paquete de npm ya publicado.
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { AGENT_IDS, asLiteral, type AgentId, type TerminalDescriptor } from '@agent-workbench/shared';
 import { appConfigDir, workspaceStatePath } from './paths.js';
 
 const STATE_VERSION = 1;
 /** Espera antes de escribir, para no tocar el disco en cada tecla de un rename. */
 const WRITE_DEBOUNCE_MS = 400;
 
+/**
+ * La CLI de una pestana guardada sin el campo: la unica que habia cuando se
+ * escribio.
+ */
+const LEGACY_TAB_AGENT: AgentId = 'claude-code';
+
 /** Una pestana tal como se guarda entre arranques. */
 export interface PersistedTab {
+  agent: AgentId;
   cwd: string;
   sessionId: string;
   label: string;
@@ -50,12 +66,52 @@ function parseState(raw: string): WorkspaceState | null {
       const sessionId = tab['sessionId'];
       const label = tab['label'];
       if (typeof cwd !== 'string' || typeof sessionId !== 'string') continue;
-      tabs.push({ cwd, sessionId, label: typeof label === 'string' ? label : '' });
+      /*
+        Sin `agent` es de antes de que hubiera mas de una CLI. Con un `agent` que
+        esta build no conoce —lo escribio una mas nueva— la pestana se salta y
+        las demas siguen: reanudarla con otra CLI no encontraria la sesion.
+      */
+      let agent: AgentId = LEGACY_TAB_AGENT;
+      if (tab['agent'] !== undefined) {
+        const known = asLiteral(tab['agent'], AGENT_IDS);
+        if (known === null) {
+          console.warn(
+            `[workspace] no se restaura la pestana de ${cwd}: CLI desconocida ${JSON.stringify(tab['agent'])}`,
+          );
+          continue;
+        }
+        agent = known;
+      }
+      tabs.push({ agent, cwd, sessionId, label: typeof label === 'string' ? label : '' });
     }
     return { tabs };
   } catch {
     return null;
   }
+}
+
+/**
+ * Que pestanas se guardan: las de una CLI, y **solo** esas.
+ *
+ * Una consola no se restaura: no tiene conversacion que reanudar, y volver a
+ * abrirla al arrancar seria dejar un proceso corriendo que el usuario no pidio.
+ * Reabrirla cuesta un clic. Tampoco una pestana cuyo id de sesion todavia no se
+ * conoce: no habria que reanudar. Con Claude Code el id se fija al lanzar y
+ * nunca esta vacio.
+ */
+export function persistableTabs(descriptors: readonly TerminalDescriptor[]): PersistedTab[] {
+  const tabs: PersistedTab[] = [];
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== 'agent' || descriptor.agent === null) continue;
+    if (descriptor.sessionId.length === 0) continue;
+    tabs.push({
+      agent: descriptor.agent,
+      cwd: descriptor.cwd,
+      sessionId: descriptor.sessionId,
+      label: descriptor.label,
+    });
+  }
+  return tabs;
 }
 
 export class WorkspaceStore {

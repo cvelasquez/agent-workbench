@@ -26,7 +26,7 @@
  * mandando tres lineas y un Enter en la misma llamada.
  */
 
-import { cycleDistance } from '@agent-workbench/shared';
+import { cycleDistance, type ImageReferenceStyle } from '@agent-workbench/shared';
 
 /** DECSET 2004. La CLI lo activa sola al arrancar. */
 const PASTE_START = '\x1b[200~';
@@ -82,10 +82,26 @@ export function sanitizeForPaste(text: string): string {
  * Las comillas no son opcionales: sin ellas, una ruta con espacios
  * —`C:\Users\Jane Doe\...`, que es de lo mas comun en Windows— se corta en el
  * primer espacio. Verificado que `@"<ruta con espacios>"` adjunta bien.
+ *
+ * La forma la declara cada CLI (`imagesByPath`). Hoy hay una sola, y por eso el
+ * estilo tiene valor por omision.
  */
-export function fileReference(absolutePath: string): string {
-  return `@"${absolutePath}"`;
+export function fileReference(
+  absolutePath: string,
+  style: ImageReferenceStyle = 'at-quoted',
+): string {
+  /*
+    El respaldo no es decorativo: `rutas.map(fileReference)` le pasa el indice
+    como segundo argumento, y sin esto cada ruta saldria como `undefined`.
+  */
+  const build = IMAGE_REFERENCE_BUILDERS[style] ?? IMAGE_REFERENCE_BUILDERS['at-quoted'];
+  return build(absolutePath);
 }
+
+/** Una entrada por estilo: agregar uno a `ImageReferenceStyle` sin su forma no compila. */
+const IMAGE_REFERENCE_BUILDERS: Record<ImageReferenceStyle, (absolutePath: string) => string> = {
+  'at-quoted': (absolutePath) => `@"${absolutePath}"`,
+};
 
 // ---------------------------------------------------------------------------
 // Respuestas a una pregunta de eleccion

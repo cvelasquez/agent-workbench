@@ -37,6 +37,14 @@ funcione.
    El README puede decir en texto plano que funciona con la CLI de Claude Code:
    es compatibilidad, no respaldo.
 
+   Con la misma lógica, el nombre de una CLI puede aparecer en el código en dos
+   sitios, como dato de compatibilidad: el id de su adaptador (`AGENT_IDS` en
+   `packages/shared/src/agents.ts`) y la carpeta de ese adaptador,
+   `packages/server/src/agents/claude-code/`, donde los identificadores sí la
+   nombran (`createClaudeCodeAdapter`). Fuera de esa carpeta sólo la nombra el
+   registro de adaptadores; el resto del servidor habla con la interfaz y no
+   sabe qué CLI tiene delante (`CLAUDE.md` §2.3 y §3.2).
+
 Cualquier cambio que roce estos puntos se revisa mirando esos cuatro criterios
 antes que nada.
 

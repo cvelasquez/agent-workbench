@@ -12,8 +12,10 @@
  *
  *  - **Solo nombres de directorio.** Ni archivos, ni tamanios, ni contenido, ni
  *    fechas. Para elegir una carpeta no hace falta nada mas.
- *  - **`~/.claude` no se lista.** No hay razon para abrir un proyecto ahi y es
- *    la carpeta que la regla 2.1 protege.
+ *  - **Las carpetas de las CLIs no se listan.** Con Claude Code, `~/.claude`: no
+ *    hay razon para abrir un proyecto ahi y es la carpeta que la regla 2.1
+ *    protege. La lista la declara cada adaptador (`protectedDirs`) y el
+ *    selector la recibe hecha: no nombra ninguna CLI.
  *  - **El cliente nunca compone una ruta.** El selector guarda la ruta actual y
  *    el cliente solo nombra *un segmento de lo que el servidor le acaba de
  *    mostrar*, sube un nivel, o salta a una raiz. Un `pickerId` que no existe
@@ -48,16 +50,16 @@ const SKIPPED = new Set(['node_modules', '.git', 'dist', 'bin', 'obj', '$RECYCLE
 
 export class DirectoryPickerError extends Error {}
 
-/** La carpeta de la CLI. No se lista ni se entra: regla 2.1. */
-function claudeHome(): string {
-  return path.join(homedir(), '.claude');
-}
-
-function isInsideClaudeHome(target: string): boolean {
-  const home = path.resolve(claudeHome());
+/**
+ * true si `target` es una de las carpetas protegidas o esta adentro. No se
+ * listan ni se entran: regla 2.1.
+ */
+export function isInsideProtected(target: string, dirs: readonly string[]): boolean {
   const resolved = path.resolve(target);
-  if (resolved === home) return true;
-  return resolved.startsWith(home + path.sep);
+  return dirs.some((dir) => {
+    const protectedDir = path.resolve(dir);
+    return resolved === protectedDir || resolved.startsWith(protectedDir + path.sep);
+  });
 }
 
 /**
@@ -103,6 +105,9 @@ interface Picker {
 export class DirectoryPickers {
   private readonly pickers = new Map<string, Picker>();
   private roots: string[] | null = null;
+
+  /** `protectedDirs`: las carpetas de las CLIs registradas, instaladas o no. */
+  constructor(private readonly protectedDirs: readonly string[]) {}
 
   /** Abre un selector en el directorio del usuario. */
   async open(): Promise<DirectoryPickerListing> {
@@ -150,7 +155,7 @@ export class DirectoryPickers {
     }
 
     const target = path.join(picker.current, name);
-    if (isInsideClaudeHome(target)) {
+    if (isInsideProtected(target, this.protectedDirs)) {
       throw new DirectoryPickerError('Esa carpeta es de la CLI y no se abre desde aca.');
     }
     picker.current = target;
@@ -196,7 +201,7 @@ export class DirectoryPickers {
     }
 
     const target = path.join(picker.current, clean);
-    if (isInsideClaudeHome(target)) {
+    if (isInsideProtected(target, this.protectedDirs)) {
       throw new DirectoryPickerError('Ahi no se crean proyectos: es la carpeta de la CLI.');
     }
 
@@ -246,7 +251,7 @@ export class DirectoryPickers {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .filter((name) => !SKIPPED.has(name))
-        .filter((name) => !isInsideClaudeHome(path.join(picker.current, name)))
+        .filter((name) => !isInsideProtected(path.join(picker.current, name), this.protectedDirs))
         .sort((a, b) => a.localeCompare(b));
       truncated = dirs.length > MAX_ENTRIES;
       names = dirs.slice(0, MAX_ENTRIES);

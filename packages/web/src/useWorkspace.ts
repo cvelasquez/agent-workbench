@@ -7,14 +7,22 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  IndexStatus,
-  ProjectSummary,
-  ServerMessage,
-  TerminalActivity,
-  TerminalDescriptor,
-  TerminalId,
+import {
+  NO_CAPABILITIES,
+  PROTOCOL_VERSION,
+  shouldOfferAgentChoice,
+  type AgentCapabilities,
+  type AgentId,
+  type AgentInfo,
+  type EnvironmentNoticeId,
+  type IndexStatus,
+  type ProjectSummary,
+  type ServerMessage,
+  type TerminalActivity,
+  type TerminalDescriptor,
+  type TerminalId,
 } from '@agent-workbench/shared';
+import { summarizeAgents } from './agent-summary.js';
 import { AgentConnection, type ConnectionStatus } from './connection.js';
 import { isMemoryPanelRequest } from './useMemory.js';
 
@@ -23,17 +31,43 @@ export interface WorkspaceError {
   at: number;
 }
 
+export interface OpenTerminalRequest {
+  cwd: string;
+  resumeSessionId?: string;
+  label?: string;
+  /** Que CLI lanzar. Sin el campo decide el servidor. */
+  agent?: AgentId;
+  /** Se llama cuando el servidor confirma la pestana, con su descriptor. */
+  onOpened?: (terminal: TerminalDescriptor) => void;
+}
+
 export interface Workspace {
   connection: AgentConnection;
   status: ConnectionStatus;
+  /** Las CLIs que anuncio el servidor, instaladas o no. `[]` hasta el `hello`. */
+  agents: AgentInfo[];
+  /** La que usa una pestana nueva si nadie elige otra. */
+  defaultAgent: AgentId | null;
+  /** Lo que puede hacer la CLI de una pestana. Sin CLI conocida, nada. */
+  capabilitiesFor: (agent: AgentId | null) => AgentCapabilities;
+  /** true con mas de una CLI disponible: ahi tiene sentido elegir. */
+  offerAgentChoice: boolean;
+  /*
+    Los tres que siguen salen de `agents` (ver `agent-summary.ts`). Se
+    conservan con estos nombres porque con una sola CLI dicen lo mismo que
+    decian cuando el servidor los mandaba sueltos.
+  */
   cliAvailable: boolean;
   cliVersion: string | null;
   cliMissingMessage: string | null;
   /** `process.platform` del servidor. Decide el separador de las rutas. */
   platform: string;
   defaultCwd: string;
-  /** true si el servidor tuvo que quitar CLAUDE_CODE_CHILD_SESSION del entorno. */
-  transcriptMarkerStripped: boolean;
+  /**
+   * Aviso de entorno de alguna CLI. `child-session-marker`: el servidor tuvo
+   * que quitar CLAUDE_CODE_CHILD_SESSION del entorno de las pestanas.
+   */
+  environmentNotice: EnvironmentNoticeId | null;
   /** "PowerShell", "bash"... o null si el servidor no encontro ninguna consola. */
   shellName: string | null;
   /** Pestanas de la CLI. Son las unicas que aparecen en la barra de pestanas. */
@@ -46,13 +80,7 @@ export interface Workspace {
   error: WorkspaceError | null;
   dismissError: () => void;
   setActiveTerminal: (terminalId: TerminalId) => void;
-  openTerminal: (options: {
-    cwd: string;
-    resumeSessionId?: string;
-    label?: string;
-    /** Se llama cuando el servidor confirma la pestana, con su descriptor. */
-    onOpened?: (terminal: TerminalDescriptor) => void;
-  }) => void;
+  openTerminal: (options: OpenTerminalRequest) => void;
   /** Abre una consola del sistema en ese directorio. */
   openShell: (cwd: string) => void;
   closeTerminal: (terminalId: TerminalId) => void;
@@ -82,21 +110,24 @@ function mergeProjects(
   incoming: ProjectSummary[],
   replace: boolean,
 ): ProjectSummary[] {
-  const bySlug = new Map(replace ? [] : previous.map((project) => [project.slug, project]));
-  for (const project of incoming) bySlug.set(project.slug, project);
-  return [...bySlug.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  // Por `key`, que calcula el servidor: el cliente no sabe si en su plataforma
+  // las mayusculas de una ruta importan.
+  const byKey = new Map(replace ? [] : previous.map((project) => [project.key, project]));
+  for (const project of incoming) byKey.set(project.key, project);
+  return [...byKey.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 }
 
 export function useWorkspace(): Workspace {
   const connection = useMemo(() => new AgentConnection(), []);
 
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
-  const [cliAvailable, setCliAvailable] = useState(true);
-  const [cliVersion, setCliVersion] = useState<string | null>(null);
-  const [cliMissingMessage, setCliMissingMessage] = useState<string | null>(null);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [defaultAgent, setDefaultAgent] = useState<AgentId | null>(null);
+  const [helloReceived, setHelloReceived] = useState(false);
+  /** Del `hello`: uno anterior al de esta pagina es un servidor sin reiniciar. */
+  const [serverProtocolVersion, setServerProtocolVersion] = useState(PROTOCOL_VERSION);
   const [platform, setPlatform] = useState('');
   const [defaultCwd, setDefaultCwd] = useState('');
-  const [transcriptMarkerStripped, setTranscriptMarkerStripped] = useState(false);
   const [shellName, setShellName] = useState<string | null>(null);
   const [allTerminals, setAllTerminals] = useState<TerminalDescriptor[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -142,12 +173,12 @@ export function useWorkspace(): Workspace {
     const offMessage = connection.onMessage((message: ServerMessage) => {
       switch (message.type) {
         case 'hello':
-          setCliAvailable(message.cliAvailable);
-          setCliVersion(message.cliVersion);
-          setCliMissingMessage(message.cliMissingMessage);
+          setAgents(message.agents);
+          setDefaultAgent(message.defaultAgent);
+          setHelloReceived(true);
+          setServerProtocolVersion(message.protocolVersion);
           setPlatform(message.platform);
           setDefaultCwd(message.defaultCwd);
-          setTranscriptMarkerStripped(message.transcriptMarkerStripped);
           setShellName(message.shellName);
           break;
 
@@ -167,10 +198,10 @@ export function useWorkspace(): Workspace {
           // La pestana activa se elige solo entre las de la CLI: una consola
           // vive en el panel derecho y no tiene por que robar el foco de la
           // barra de pestanas.
-          const agents = message.terminals.filter((t) => t.kind === 'agent');
+          const agentTabs = message.terminals.filter((t) => t.kind === 'agent');
           setActiveTerminalId((current) => {
-            if (current !== null && agents.some((t) => t.terminalId === current)) return current;
-            return agents[0]?.terminalId ?? null;
+            if (current !== null && agentTabs.some((t) => t.terminalId === current)) return current;
+            return agentTabs[0]?.terminalId ?? null;
           });
           break;
         }
@@ -258,13 +289,7 @@ export function useWorkspace(): Workspace {
   }, [connection]);
 
   const openTerminal = useCallback(
-    (options: {
-      cwd: string;
-      resumeSessionId?: string;
-      label?: string;
-      /** Se llama cuando el servidor confirma la pestana, con su descriptor. */
-      onOpened?: (terminal: TerminalDescriptor) => void;
-    }) => {
+    (options: OpenTerminalRequest) => {
       const requestId = crypto.randomUUID();
       ownRequests.current.add(requestId);
       if (options.onOpened !== undefined) {
@@ -278,6 +303,7 @@ export function useWorkspace(): Workspace {
           ? { resumeSessionId: options.resumeSessionId }
           : {}),
         ...(options.label !== undefined ? { label: options.label } : {}),
+        ...(options.agent !== undefined ? { agent: options.agent } : {}),
       });
     },
     [connection],
@@ -342,15 +368,31 @@ export function useWorkspace(): Workspace {
     [allTerminals],
   );
 
+  const summary = useMemo(
+    () => summarizeAgents(agents, helloReceived, serverProtocolVersion),
+    [agents, helloReceived, serverProtocolVersion],
+  );
+  const capabilitiesFor = useCallback(
+    (agent: AgentId | null): AgentCapabilities =>
+      (agent === null ? undefined : agents.find((info) => info.id === agent)?.capabilities) ??
+      NO_CAPABILITIES,
+    [agents],
+  );
+  const offerAgentChoice = useMemo(() => shouldOfferAgentChoice(agents), [agents]);
+
   return {
     connection,
     status,
-    cliAvailable,
-    cliVersion,
-    cliMissingMessage,
+    agents,
+    defaultAgent,
+    capabilitiesFor,
+    offerAgentChoice,
+    cliAvailable: summary.cliAvailable,
+    cliVersion: summary.cliVersion,
+    cliMissingMessage: summary.cliMissingMessage,
     platform,
     defaultCwd,
-    transcriptMarkerStripped,
+    environmentNotice: summary.environmentNotice,
     shellName,
     terminals,
     shells,

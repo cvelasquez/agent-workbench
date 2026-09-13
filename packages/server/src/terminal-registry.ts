@@ -15,37 +15,25 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
 import type {
+  AgentId,
   TerminalActivity,
   TerminalDescriptor,
   TerminalId,
   TerminalKind,
 } from '@agent-workbench/shared';
-import type { CliLocation } from './cli-locator.js';
-import type { CliStatusWatcher } from './cli-status.js';
+import type { AgentAdapter, CliLocation } from './agents/adapter.js';
+import {
+  resolveAgentForOpen,
+  type AgentRegistry,
+  type RegisteredAgent,
+} from './agents/registry.js';
 import { debugLog } from './debug.js';
 import { OutputBuffer } from './output-buffer.js';
-import { sessionFilePath } from './paths.js';
 import { PtySession, type LaunchSpec } from './pty-session.js';
-import { autoAnswerResumeDialog } from './resume-dialog.js';
 import type { ShellLocation } from './shell-locator.js';
-import { WorkspaceStore, type PersistedTab } from './workspace-store.js';
+import { WorkspaceStore, persistableTabs, type PersistedTab } from './workspace-store.js';
 
 /** Tope defensivo: cada pestana es un proceso real. */
-/**
- * Con que modo de permisos arranca cada pestana de agente.
- *
- * `auto` es una opcion de primera clase de la CLI (`--permission-mode`, junto a
- * `acceptEdits`, `manual`, `plan` y las demas) y es la que el usuario quiere en
- * toda conversacion nueva: sin ella, un pedido que ya nombra la herramienta
- * —"buscá esto en Jira"— se corta igual para preguntar si puede usar el MCP de
- * Atlassian.
- *
- * No choca con la regla 2.2: no se parchea ni se restringe nada. Se elige, al
- * lanzar, uno de los modos que la propia CLI expone; el usuario lo sigue
- * cambiando con `shift+tab` dentro de la sesion, y ese cambio manda sobre esto.
- */
-const PERMISSION_MODE_ARGS: readonly string[] = ['--permission-mode', 'auto'];
-
 const MAX_TERMINALS = 24;
 
 const DEFAULT_COLS = 80;
@@ -54,34 +42,12 @@ const DEFAULT_ROWS = 24;
 export type OutputListener = (terminalId: TerminalId, chunk: string) => void;
 
 /**
- * El estado que publica la CLI, traducido a lo que dibuja la barra de pestanas.
+ * De que CLI es una sesion del historial, o null si no se sabe.
  *
- * Los tres conocidos salen tal cual; cualquier otro se trata como trabajando.
- * Es la eleccion conservadora: un estado que no conocemos significa que la CLI
- * esta en algo, y mostrarlo como parado invitaria a escribirle justo cuando no
- * corresponde. Sin archivo no hay proceso: `offline`.
+ * Lo contesta el indice. Es lo que decide con que CLI se reanuda una sesion
+ * cuando el cliente no lo dice.
  */
-function toActivity(status: string | null): TerminalActivity {
-  if (status === null) return 'offline';
-  if (status === 'idle' || status === 'busy' || status === 'waiting') return status;
-  return 'busy';
-}
-
-/**
- * true si esa sesion ya tiene archivo en el historial de la CLI.
- *
- * Decide entre `--resume` y `--session-id` al despertar una pestana: reanudar
- * una sesion que nunca escribio nada deja a la CLI mostrando un error, y la
- * pestana en pantalla queda sin explicacion.
- */
-async function sessionFileExists(cwd: string, sessionId: string): Promise<boolean> {
-  try {
-    await stat(sessionFilePath(cwd, sessionId));
-    return true;
-  } catch {
-    return false;
-  }
-}
+export type SessionAgentLookup = (sessionId: string) => AgentId | null;
 
 interface TerminalEntry {
   descriptor: TerminalDescriptor;
@@ -113,20 +79,25 @@ interface TerminalEntry {
   /** Corta la suscripcion al estado que la CLI publica por proceso. */
   stopWatchingActivity: (() => void) | null;
   /**
-   * Corta la espera del dialogo de reanudar, si esta pestana la tenia.
+   * Corta lo que el adaptador dejo corriendo despues de lanzar, si dejo algo.
    *
-   * Se llama en cuanto el usuario escribe algo el mismo o la pestana se
-   * cierra: a partir de ahi el menu ya no esta como lo dejamos y un `2` cae en
-   * cualquier lado. Ver `resume-dialog.ts`.
+   * Con Claude Code es la espera del dialogo de reanudar. Se llama en cuanto el
+   * usuario escribe algo el mismo o la pestana se cierra: a partir de ahi el
+   * menu ya no esta como lo dejamos y un `2` cae en cualquier lado. Ver
+   * `agents/claude-code/resume-dialog.ts`.
    */
-  cancelResumeAnswer: (() => void) | null;
+  cancelLaunchHook: (() => void) | null;
 }
 
 export interface OpenTerminalOptions {
   cwd: string;
   /** `agent` (la CLI) por omision. `shell` abre la consola del sistema. */
   kind?: TerminalKind;
-  /** Si viene, se reanuda esa conversacion con `--resume`. Solo para `agent`. */
+  /**
+   * Que CLI. Sin el campo decide `resolveAgentForOpen`. Solo para `agent`.
+   */
+  agent?: AgentId;
+  /** Si viene, se reanuda esa conversacion. Solo para `agent`. */
   resumeSessionId?: string;
   label?: string;
   cols?: number;
@@ -140,7 +111,8 @@ export class TerminalOpenError extends Error {
       | 'shell-not-found'
       | 'invalid-cwd'
       | 'too-many-terminals'
-      | 'spawn-failed',
+      | 'spawn-failed'
+      | 'agent-unsupported',
     message: string,
     readonly detail?: string,
   ) {
@@ -178,15 +150,14 @@ export class TerminalRegistry extends EventEmitter {
   private order: TerminalId[] = [];
 
   constructor(
-    private readonly cli: CliLocation | null,
+    private readonly agents: AgentRegistry,
     private readonly shell: ShellLocation | null,
     private readonly store: WorkspaceStore,
     /**
-     * Estado que la CLI publica por proceso. Lo usa el contestador del dialogo
-     * de reanudar; sin el, esa espera no arranca y el dialogo queda para el
-     * usuario, que es el comportamiento de antes.
+     * De que CLI es una sesion que se reanuda. Sin indice que conteste, nadie
+     * lo sabe y decide la CLI por defecto (ver `resolveAgentForOpen`).
      */
-    private readonly cliStatus: CliStatusWatcher | null = null,
+    private readonly sessionAgentOf: SessionAgentLookup = () => null,
   ) {
     super();
   }
@@ -219,15 +190,22 @@ export class TerminalRegistry extends EventEmitter {
    */
   private launcherFor(
     kind: TerminalKind,
-  ): { kind: 'agent'; cli: CliLocation } | { kind: 'shell'; shell: ShellLocation } {
+    agent: AgentId | null,
+  ):
+    | { kind: 'agent'; agent: RegisteredAgent & { location: CliLocation } }
+    | { kind: 'shell'; shell: ShellLocation } {
     if (kind === 'agent') {
-      if (this.cli === null) {
+      const registered = agent === null ? null : this.agents.get(agent);
+      if (registered === null || registered.location === null) {
         throw new TerminalOpenError(
           'cli-not-found',
           'La CLI no esta instalada o no se encontro en el PATH.',
         );
       }
-      return { kind: 'agent', cli: this.cli };
+      return {
+        kind: 'agent',
+        agent: { adapter: registered.adapter, location: registered.location },
+      };
     }
     if (this.shell === null) {
       throw new TerminalOpenError(
@@ -241,18 +219,47 @@ export class TerminalRegistry extends EventEmitter {
   /**
    * Abre una pestana o una consola.
    *
-   * Sin `resumeSessionId` generamos el UUID nosotros y lo pasamos con
-   * `--session-id`: asi sabemos de antemano que archivo JSONL va a escribir la
-   * CLI, y el Hito 3 no tiene que adivinarlo mirando el directorio.
+   * Sin `resumeSessionId` generamos el UUID nosotros y se lo proponemos al
+   * adaptador; con Claude Code va con `--session-id`: asi sabemos de antemano
+   * que archivo JSONL va a escribir la CLI, y el Hito 3 no tiene que adivinarlo
+   * mirando el directorio.
    *
-   * Una consola (`kind: 'shell'`) no lleva nada de eso: no escribe historial,
-   * su `sessionId` queda vacio y no se guarda entre arranques.
+   * Una consola (`kind: 'shell'`) no lleva nada de eso: no tiene CLI, no
+   * escribe historial, su `sessionId` queda vacio y no se guarda entre
+   * arranques.
    */
   async open(options: OpenTerminalOptions): Promise<TerminalDescriptor> {
     const kind: TerminalKind = options.kind ?? 'agent';
+    /*
+      Una CLI pedida que no tiene adaptador aca no cae a la de por defecto:
+      abrir otra que la pedida es peor que no abrir nada. Distinto de una CLI
+      registrada que no esta instalada, que sigue siendo `cli-not-found`.
+    */
+    if (kind === 'agent' && options.agent !== undefined && this.agents.get(options.agent) === null) {
+      throw new TerminalOpenError(
+        'agent-unsupported',
+        'Este servidor no sabe lanzar esa CLI.',
+        options.agent,
+      );
+    }
+    const agent =
+      kind === 'agent'
+        ? resolveAgentForOpen({
+            requested: options.agent,
+            cwd: options.cwd,
+            resumeSessionId: options.resumeSessionId,
+            sessionAgent:
+              options.resumeSessionId === undefined
+                ? null
+                : this.sessionAgentOf(options.resumeSessionId),
+            tabs: this.list(),
+            defaultAgent: this.agents.defaultAgent(),
+            platform: process.platform,
+          })
+        : null;
     // Se resuelve que se va a lanzar antes que nada: asi el error que ve el
     // usuario es "falta la CLI" o "falta la consola" y no uno de mas adelante.
-    this.launcherFor(kind);
+    this.launcherFor(kind, agent);
 
     if (this.terminals.size >= MAX_TERMINALS) {
       throw new TerminalOpenError(
@@ -268,7 +275,9 @@ export class TerminalRegistry extends EventEmitter {
     const descriptor: TerminalDescriptor = {
       terminalId,
       kind,
+      agent,
       cwd: options.cwd,
+      // Provisional: `spawn` lo confirma con lo que diga el adaptador.
       sessionId: kind === 'agent' ? (options.resumeSessionId ?? randomUUID()) : '',
       label: options.label ?? '',
       resumed,
@@ -286,7 +295,7 @@ export class TerminalRegistry extends EventEmitter {
       buffer: new OutputBuffer(),
       listeners: new Set(),
       size: { cols: options.cols ?? DEFAULT_COLS, rows: options.rows ?? DEFAULT_ROWS },
-      cancelResumeAnswer: null,
+      cancelLaunchHook: null,
       stopWatchingActivity: null,
     };
     this.terminals.set(terminalId, entry);
@@ -326,10 +335,13 @@ export class TerminalRegistry extends EventEmitter {
       CLI mostrando un error en vez de una conversacion; con `--session-id`
       arranca limpia y sigue escribiendo el archivo que ya esperabamos.
     */
+    const { kind, agent, cwd, sessionId } = entry.descriptor;
+    const history = agent === null ? null : (this.agents.get(agent)?.adapter.history ?? null);
     const resume =
-      entry.descriptor.kind === 'agent' &&
-      entry.descriptor.sessionId.length > 0 &&
-      (await sessionFileExists(entry.descriptor.cwd, entry.descriptor.sessionId));
+      kind === 'agent' &&
+      history !== null &&
+      sessionId.length > 0 &&
+      (await history.exists(cwd, sessionId));
 
     this.spawn(entry, { resume });
     this.persist();
@@ -355,32 +367,49 @@ export class TerminalRegistry extends EventEmitter {
    *
    * Lo usan `open()` y `wake()`, y por eso esta aca afuera: eran el mismo
    * codigo, y dos copias de esto es como una de las dos termina sin el
-   * contestador del dialogo de reanudar.
+   * gancho posterior al lanzamiento (el contestador del dialogo de reanudar).
    */
   private spawn(entry: TerminalEntry, options: { resume: boolean }): void {
-    const { terminalId, kind, cwd, sessionId } = entry.descriptor;
-    const launcher = this.launcherFor(kind);
+    const { terminalId, kind, cwd, sessionId, agent } = entry.descriptor;
+    const launcher = this.launcherFor(kind, agent);
     const { buffer } = entry;
 
-    // Sin --fork-session: al reanudar queremos seguir escribiendo el mismo
-    // archivo, para que el seguimiento incremental del Hito 3 no se corte.
-    const launch: LaunchSpec =
-      launcher.kind === 'agent'
-        ? {
-            file: launcher.cli.file,
-            args: [
-              ...launcher.cli.prefixArgs,
-              ...PERMISSION_MODE_ARGS,
-              ...(options.resume ? ['--resume', sessionId] : ['--session-id', sessionId]),
-            ],
-          }
-        : { file: launcher.shell.file, args: [...launcher.shell.args] };
+    /*
+      Que se lanza, con que entorno y con que id de sesion lo decide el
+      adaptador de la CLI; aca solo se ejecuta. La consola no es de ninguna CLI
+      y recibe el entorno filtrado por todas: desde ella se puede lanzar
+      cualquiera a mano, y tiene que arrancar igual que desde una pestana.
+    */
+    let launch: LaunchSpec;
+    let env: Record<string, string>;
+    let adapter: AgentAdapter | null = null;
+    let launchedSessionId = sessionId;
+    if (launcher.kind === 'agent') {
+      adapter = launcher.agent.adapter;
+      const plan = adapter.launch({
+        location: launcher.agent.location,
+        cwd,
+        resumeSessionId: options.resume ? sessionId : null,
+        proposedSessionId: sessionId,
+      });
+      launch = { file: plan.file, args: plan.args };
+      env = adapter.environment(process.env).env;
+      // Una CLI que pone el id ella misma deja la pestana sin id hasta que el
+      // gancho lo descubra y lo avise (`reportSessionId`). Con Claude Code el
+      // id es siempre el que ya tenia la pestana.
+      launchedSessionId = plan.session.kind === 'known' ? plan.session.sessionId : '';
+    } else {
+      launch = { file: launcher.shell.file, args: [...launcher.shell.args] };
+      env = this.agents.consoleEnvironment(process.env);
+    }
 
+    const launchedAt = Date.now();
     let session: PtySession;
     try {
       session = new PtySession({
         launch,
         cwd,
+        env,
         cols: entry.size.cols,
         rows: entry.size.rows,
         onData: (chunk) => {
@@ -426,19 +455,32 @@ export class TerminalRegistry extends EventEmitter {
     }
 
     entry.session = session;
-    entry.descriptor = { ...entry.descriptor, alive: true, exitCode: null, sleeping: false };
+    entry.descriptor = {
+      ...entry.descriptor,
+      sessionId: launchedSessionId,
+      alive: true,
+      exitCode: null,
+      sleeping: false,
+    };
     this.watchActivity(entry);
 
     /*
-      Reanudar una sesion vieja y grande abre un dialogo que el usuario contesta
-      siempre igual. Se contesta solo, con dos condiciones que se comprueban en
-      `resume-dialog.ts`; si el dialogo no aparece —que es lo normal— no se
-      escribe nada.
+      Lo que el adaptador tenga que hacer con el proceso ya andando. Con Claude
+      Code: reanudar una sesion vieja y grande abre un dialogo que el usuario
+      contesta siempre igual, y se contesta solo si se cumplen las dos
+      condiciones de `resume-dialog.ts`; en una sesion nueva no hay gancho.
+
+      Solo se pisa la referencia cuando hay gancho nuevo, igual que antes: sin
+      eso, despertar sin reanudar soltaria la cancelacion de uno anterior que
+      todavia estuviera esperando.
     */
-    if (options.resume && this.cliStatus !== null) {
-      entry.cancelResumeAnswer = autoAnswerResumeDialog({
-        watcher: this.cliStatus,
-        sessionId,
+    if (adapter !== null) {
+      const cancel = adapter.onSpawned({
+        terminalId,
+        sessionId: launchedSessionId,
+        resumed: options.resume,
+        pid: session.pid,
+        launchedAt,
         readOutput: () => buffer.read(),
         write: (data) => {
           const target = this.terminals.get(terminalId);
@@ -448,30 +490,59 @@ export class TerminalRegistry extends EventEmitter {
         },
         onDone: (outcome) => {
           const target = this.terminals.get(terminalId);
-          if (target !== undefined) target.cancelResumeAnswer = null;
+          if (target !== undefined) target.cancelLaunchHook = null;
           debugLog('registro', `dialogo de reanudar en ${terminalId.slice(0, 8)}: ${outcome}`);
         },
+        reportSessionId: (discovered) => this.reportSessionId(terminalId, discovered),
       });
+      if (cancel !== null) entry.cancelLaunchHook = cancel;
     }
+  }
+
+  /**
+   * El id de sesion que descubrio el adaptador despues de lanzar.
+   *
+   * Es para las CLIs que ponen el id ellas mismas: la pestana nace sin id y lo
+   * gana aca. Actualiza el descriptor, lo guarda —recien ahora hay algo que
+   * reanudar—, avisa y vuelve a seguir el estado del proceso con el id nuevo.
+   * Con Claude Code nadie lo llama: el id se fija al lanzar.
+   */
+  private reportSessionId(terminalId: TerminalId, sessionId: string): void {
+    const entry = this.terminals.get(terminalId);
+    if (entry === undefined || entry.descriptor.kind !== 'agent') return;
+    if (sessionId.length === 0 || entry.descriptor.sessionId === sessionId) return;
+
+    entry.descriptor = { ...entry.descriptor, sessionId };
+    if (entry.session !== null) this.watchActivity(entry);
+    this.persist();
+    this.emit('changed');
   }
 
   /**
    * Sigue el estado que la CLI publica por proceso, para esta pestana.
    *
    * Es lo que hace que la barra de pestanas pueda decir si el agente esta
-   * trabajando, parado o esperando una respuesta. El sondeo es **uno solo** y
-   * compartido con todo lo que mira ese directorio (`cli-status.ts`), asi que
-   * seguir seis pestanas no cuesta seis lecturas.
+   * trabajando, parado o esperando una respuesta. El sondeo es **uno solo** por
+   * CLI y compartido con todo lo que mira ese estado, asi que seguir seis
+   * pestanas no cuesta seis lecturas.
    */
   private watchActivity(entry: TerminalEntry): void {
     entry.stopWatchingActivity?.();
     entry.stopWatchingActivity = null;
 
-    const { terminalId, kind, sessionId } = entry.descriptor;
-    if (this.cliStatus === null || kind !== 'agent' || sessionId.length === 0) return;
+    const { terminalId, kind, agent, sessionId } = entry.descriptor;
+    if (kind !== 'agent' || agent === null || sessionId.length === 0) return;
 
-    entry.stopWatchingActivity = this.cliStatus.subscribe(sessionId, (status) => {
-      this.emit('activity', terminalId, toActivity(status?.status ?? null));
+    // Una CLI que no publica su estado no tiene nada que seguir: se dice una
+    // vez que no se sabe, en vez de dejar la pestana como si estuviera libre.
+    const status = this.agents.get(agent)?.adapter.status ?? null;
+    if (status === null) {
+      this.emit('activity', terminalId, 'unknown');
+      return;
+    }
+
+    entry.stopWatchingActivity = status.subscribe(sessionId, (current) => {
+      this.emit('activity', terminalId, current === null ? 'offline' : current.activity);
     });
   }
 
@@ -490,11 +561,18 @@ export class TerminalRegistry extends EventEmitter {
    *
    * Se comprueba que el directorio siga existiendo: una pestana dormida
    * apuntando a una carpeta borrada no sirve para nada y se veria como una
-   * conversacion vacia sin explicacion.
+   * conversacion vacia sin explicacion. Y que su CLI siga instalada: sin ella
+   * no hay con que despertarla.
    */
   async restore(tabs: readonly PersistedTab[]): Promise<void> {
     for (const tab of tabs) {
       if (this.terminals.size >= MAX_TERMINALS) break;
+      if ((this.agents.get(tab.agent)?.location ?? null) === null) {
+        console.warn(
+          `[workspace] no se restauro la pestana de ${tab.cwd}: su CLI no esta disponible.`,
+        );
+        continue;
+      }
       try {
         await this.assertDirectory(tab.cwd);
       } catch (error) {
@@ -508,6 +586,7 @@ export class TerminalRegistry extends EventEmitter {
       const descriptor: TerminalDescriptor = {
         terminalId,
         kind: 'agent',
+        agent: tab.agent,
         cwd: tab.cwd,
         sessionId: tab.sessionId,
         label: tab.label,
@@ -526,7 +605,7 @@ export class TerminalRegistry extends EventEmitter {
         buffer: new OutputBuffer(),
         listeners: new Set(),
         size: { cols: DEFAULT_COLS, rows: DEFAULT_ROWS },
-        cancelResumeAnswer: null,
+        cancelLaunchHook: null,
         stopWatchingActivity: null,
       });
       this.insertInOrder(terminalId, descriptor);
@@ -570,7 +649,7 @@ export class TerminalRegistry extends EventEmitter {
     if (entry === undefined) return false;
 
     entry.listeners.clear();
-    entry.cancelResumeAnswer?.();
+    entry.cancelLaunchHook?.();
     entry.stopWatchingActivity?.();
     // Una pestana dormida no tiene nada que terminar: se saca y listo.
     entry.session?.dispose();
@@ -626,7 +705,7 @@ export class TerminalRegistry extends EventEmitter {
       caeria en cualquier lado. Vale tanto si lo escribio el usuario como si
       son las propias teclas del contestador, que ya se marco terminado.
     */
-    entry.cancelResumeAnswer?.();
+    entry.cancelLaunchHook?.();
     entry.session.write(data);
     return true;
   }
@@ -669,7 +748,7 @@ export class TerminalRegistry extends EventEmitter {
   disposeAll(): void {
     for (const entry of this.terminals.values()) {
       entry.listeners.clear();
-      entry.cancelResumeAnswer?.();
+      entry.cancelLaunchHook?.();
       entry.stopWatchingActivity?.();
       entry.session?.dispose();
     }
@@ -677,21 +756,8 @@ export class TerminalRegistry extends EventEmitter {
     this.order = [];
   }
 
-  /**
-   * Guarda las pestanas de la CLI y **solo** esas.
-   *
-   * Una consola no se restaura: no tiene conversacion que reanudar, y volver a
-   * abrirla al arrancar seria dejar un proceso corriendo que el usuario no
-   * pidio. Reabrirla cuesta un clic.
-   */
+  /** Guarda las pestanas de una CLI y **solo** esas (ver `persistableTabs`). */
   private persist(): void {
-    const tabs: PersistedTab[] = this.list()
-      .filter((descriptor) => descriptor.kind === 'agent')
-      .map((descriptor) => ({
-        cwd: descriptor.cwd,
-        sessionId: descriptor.sessionId,
-        label: descriptor.label,
-      }));
-    this.store.save({ tabs });
+    this.store.save({ tabs: persistableTabs(this.list()) });
   }
 }

@@ -39,7 +39,7 @@ import {
 } from '../src/memory-bridge.ts';
 import { MemoryHub, UnknownTerminalError, isRelevantPath } from '../src/memory-hub.ts';
 import { InvalidPathError } from '../src/path-guard.ts';
-import { projectSlugFor } from '../src/paths.ts';
+import { projectSlugFor } from '../src/agents/claude-code/paths.ts';
 
 let failures = 0;
 const check = (label, ok, extra = '') => {

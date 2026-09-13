@@ -24,7 +24,8 @@
  *     presentarla como tal es la misma mentira de la regla 2 con otra ropa.
  */
 
-import type { ContextUsage } from '@agent-workbench/shared';
+import type { ContextUsage, ContextWindowSource } from '@agent-workbench/shared';
+import { meterIdleDetail } from './agent-ui.js';
 
 /** Umbrales de color. Son de presentacion: la CLI no publica ninguno. */
 const WARN_RATIO = 0.75;
@@ -41,6 +42,17 @@ function formatTokens(value: number): string {
 
 interface ContextMeterProps {
   usage: ContextUsage;
+  /**
+   * De donde saca la CLI de la pestana los tokens y la ventana, o null si no
+   * los publica. Con null se dibuja el hueco de la barra y se dice por que: un
+   * medidor que desaparece parece roto, y uno en cero miente (regla 3).
+   */
+  source: ContextWindowSource | null;
+  /**
+   * El archivo de instrucciones de esa CLI, para el titulo del estado vacio.
+   * null si no se sabe: se nombra en generico.
+   */
+  instructionsFile: string | null;
   /**
    * Ventana que anuncia la configuracion, para el rato en que la sesion todavia
    * no midio nada. Solo se usa en ese estado: en cuanto hay una respuesta manda
@@ -60,10 +72,25 @@ interface ContextMeterProps {
 
 export function ContextMeter({
   usage,
+  source,
+  instructionsFile,
   fallbackWindow = null,
   compact = false,
 }: ContextMeterProps): JSX.Element {
   const { lastRequestTokens, contextWindow } = usage;
+
+  if (source === null) {
+    return (
+      <div
+        className={`meter meter-idle${compact ? ' meter-compact' : ''}`}
+        title="Esta CLI no publica cuantos tokens usa cada respuesta, asi que no hay nada que medir."
+      >
+        <span className="meter-label">Contexto</span>
+        <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
+        <span className="meter-value">esta CLI no publica tokens</span>
+      </div>
+    );
+  }
 
   if (usage.assistantMessages === 0) {
     /*
@@ -75,10 +102,7 @@ export function ContextMeter({
       `agent-defaults.ts`), y anunciar 200k en una sesion de 1M seria la misma
       mentira de la regla 2 con otra ropa.
     */
-    const detail =
-      'La sesion todavia no midio ninguna respuesta. No arranca en cero: el prompt de' +
-      ' sistema, las herramientas y el CLAUDE.md ya ocupan contexto, y el numero real' +
-      ' aparece con la primera respuesta.';
+    const detail = meterIdleDetail(instructionsFile);
 
     return (
       <div className={`meter meter-idle${compact ? ' meter-compact' : ''}`} title={detail}>

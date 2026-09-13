@@ -37,6 +37,7 @@ import type {
   ConversationPart,
   ConversationQuestionPart,
   ConversationToolResultPart,
+  ContextWindowSource,
 } from '@agent-workbench/shared';
 import { ContextMeter } from './ContextMeter.js';
 import { ImageViewer } from './ImageViewer.js';
@@ -287,8 +288,22 @@ export type CliPresence = 'live' | 'sleeping' | 'exited';
 
 interface ConversationViewProps {
   view: ConversationFeed;
-  /** Manda `Esc Esc` a la pty para abrir el menu de rewind de la CLI. */
-  onRewind: () => void;
+  /**
+   * Manda `Esc Esc` a la pty para abrir el menu de rewind de la CLI. Sin el,
+   * los mensajes propios no ofrecen "volver aqui": la CLI de la pestana no
+   * tiene ese menu.
+   */
+  onRewind?: () => void;
+  /**
+   * false si la CLI de la pestana no deja contestar sus preguntas desde la
+   * tarjeta. La pregunta se sigue leyendo; las opciones quedan apagadas y la
+   * tarjeta dice donde responder.
+   */
+  questionsAnswerable: boolean;
+  /** Para el medidor: de donde saca la CLI los tokens, o null si no los publica. */
+  contextWindowSource: ContextWindowSource | null;
+  /** Para el medidor: el archivo de instrucciones de la CLI. */
+  instructionsFile: string | null;
   /** Abre la solapa CLI: es donde se contesta lo que la CLI este esperando. */
   onGoToCli: () => void;
   /**
@@ -311,6 +326,9 @@ interface ConversationViewProps {
 export function ConversationView({
   view,
   onRewind,
+  questionsAnswerable,
+  contextWindowSource,
+  instructionsFile,
   onGoToCli,
   cliPresence,
   exitCode,
@@ -483,7 +501,13 @@ export function ConversationView({
           </>
         )}
         <span className="conversation-spacer" />
-        <ContextMeter usage={usage} fallbackWindow={defaults.contextWindow} compact />
+        <ContextMeter
+          usage={usage}
+          source={contextWindowSource}
+          instructionsFile={instructionsFile}
+          fallbackWindow={defaults.contextWindow}
+          compact
+        />
       </div>
 
       <div className="conversation-scroll" ref={scrollRef} onScroll={onScroll}>
@@ -520,6 +544,7 @@ export function ConversationView({
                 register={registerCard}
                 answered={answered}
                 answerFailed={answerFailed}
+                answerable={questionsAnswerable}
                 onAnswer={answer}
               />
             );
@@ -546,6 +571,7 @@ export function ConversationView({
                   register={registerCard}
                   answered={answered}
                   answerFailed={answerFailed}
+                  answerable={questionsAnswerable}
                   onAnswer={answer}
                 />
               ))}
@@ -653,12 +679,15 @@ interface MessageBlockProps {
   images: Record<string, string | null>;
   onRequestImage: (eventId: string, index: number, source: ConversationImageSource) => void;
   onCopy: () => void;
-  onRewind: () => void;
+  /** Sin el no hay "volver aqui". */
+  onRewind?: () => void;
   register: (eventId: string, element: HTMLElement | null) => void;
   /** Respuestas mandadas desde aca y todavia sin confirmar por el archivo. */
   answered: Record<string, AnswerSelection[]>;
   /** Respuestas que se dieron por perdidas, con el motivo. */
   answerFailed: Record<string, string>;
+  /** false: las preguntas se leen pero no se contestan desde aca. */
+  answerable: boolean;
   onAnswer: (toolUseId: string, selections: AnswerSelection[]) => void;
 }
 
@@ -675,6 +704,7 @@ function MessageBlock({
   register,
   answered,
   answerFailed,
+  answerable,
   onAnswer,
 }: MessageBlockProps): JSX.Element {
   const { event } = card;
@@ -709,7 +739,7 @@ function MessageBlock({
         <button className="icon-button" onClick={onCopy} title="Copiar el texto de este mensaje">
           {copied ? '✓' : '⧉'}
         </button>
-        {mine && (
+        {mine && onRewind !== undefined && (
           <button
             className="icon-button"
             onClick={onRewind}
@@ -732,6 +762,7 @@ function MessageBlock({
           onRequestImage={onRequestImage}
           answeredAt={part.kind === 'question' ? answeredFor(part) : null}
           failure={part.kind === 'question' ? (answerFailed[part.toolUseId] ?? null) : null}
+          answerable={answerable}
           onAnswer={onAnswer}
         />
       ))}
@@ -824,6 +855,7 @@ interface PartViewProps {
   answeredAt: AnswerSelection[] | null;
   /** Motivo por el que la respuesta no llego, si no llego. */
   failure: string | null;
+  answerable: boolean;
   onAnswer: (toolUseId: string, selections: AnswerSelection[]) => void;
 }
 
@@ -837,6 +869,7 @@ function PartView({
   onRequestImage,
   answeredAt,
   failure,
+  answerable,
   onAnswer,
 }: PartViewProps): JSX.Element | null {
   switch (part.kind) {
@@ -872,6 +905,7 @@ function PartView({
           part={part}
           answeredAt={answeredAt}
           failure={failure}
+          answerable={answerable}
           onAnswer={onAnswer}
           needle={needle}
         />
@@ -966,12 +1000,19 @@ function QuestionCard({
   part,
   answeredAt,
   failure,
+  answerable,
   onAnswer,
   needle,
 }: {
   part: ConversationQuestionPart;
   answeredAt: AnswerSelection[] | null;
   failure: string | null;
+  /**
+   * false si la CLI de la pestana no deja contestar desde aca. La pregunta se
+   * sigue leyendo entera; lo que se apaga es mandar teclas a un menu cuya
+   * forma no esta medida.
+   */
+  answerable: boolean;
   onAnswer: (toolUseId: string, selections: AnswerSelection[]) => void;
   needle: string;
 }): JSX.Element {
@@ -981,6 +1022,8 @@ function QuestionCard({
   const [text, setText] = useState('');
 
   const done = answeredAt !== null;
+  /** Ni respondida ni contestable: se lee y nada mas. */
+  const locked = done || !answerable;
   const chosen = answeredAt ?? draft;
   const oneShot = part.questions.length === 1 && part.questions[0]?.multiSelect === false;
   const complete = chosen.every((selection) =>
@@ -992,7 +1035,7 @@ function QuestionCard({
     selection === undefined || isFree(selection) ? [] : selection;
 
   const toggle = (questionIndex: number, optionIndex: number): void => {
-    if (done) return;
+    if (locked) return;
     const question = part.questions[questionIndex];
     if (question === undefined) return;
 
@@ -1022,7 +1065,7 @@ function QuestionCard({
    */
   const commitText = (questionIndex: number): void => {
     const clean = text.trim();
-    if (clean.length === 0) return;
+    if (clean.length === 0 || locked) return;
     const free: AnswerSelection = { kind: 'free', text: clean };
 
     if (oneShot) {
@@ -1037,7 +1080,7 @@ function QuestionCard({
   };
 
   const openWriting = (questionIndex: number): void => {
-    if (done) return;
+    if (locked) return;
     const current = chosen[questionIndex];
     setText(current !== undefined && isFree(current) ? current.text : '');
     setWriting(questionIndex);
@@ -1067,7 +1110,7 @@ function QuestionCard({
                     key={optionIndex}
                     type="button"
                     className={`question-option${picked ? ' question-option-picked' : ''}`}
-                    disabled={done}
+                    disabled={locked}
                     onClick={() => toggle(questionIndex, optionIndex)}
                   >
                     <span className="question-option-label">{option.label}</span>
@@ -1083,7 +1126,7 @@ function QuestionCard({
                 demas: para la CLI es una opcion mas del menu, la que sigue a
                 las reales.
               */}
-              {writing === questionIndex && !done ? (
+              {writing === questionIndex && !locked ? (
                 <div className="question-write">
                   <textarea
                     className="question-write-input"
@@ -1127,7 +1170,7 @@ function QuestionCard({
                   className={`question-option question-option-write${
                     written !== null ? ' question-option-picked' : ''
                   }`}
-                  disabled={done}
+                  disabled={locked}
                   onClick={() => openWriting(questionIndex)}
                 >
                   <span className="question-option-label">
@@ -1149,6 +1192,8 @@ function QuestionCard({
         {failure !== null && <span className="question-failed">{failure}</span>}
         {done ? (
           <span className="question-sent">Respondida</span>
+        ) : !answerable ? (
+          <span className="question-note">Respondé en la solapa CLI</span>
         ) : (
           <>
             {!oneShot && (

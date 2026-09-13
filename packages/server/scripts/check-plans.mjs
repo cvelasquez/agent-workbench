@@ -17,8 +17,8 @@
  * mano, y el guardia sobre nombres.
  */
 
-import { toPlanFileName } from '../src/jsonl-events.ts';
-import { describePlans, readPlan } from '../src/plans-store.ts';
+import { toPlanFileName } from '../src/agents/claude-code/jsonl-events.ts';
+import { describePlans, readPlan } from '../src/agents/claude-code/plans-store.ts';
 
 let failures = 0;
 const check = (label, ok, extra = '') => {

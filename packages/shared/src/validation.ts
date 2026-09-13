@@ -63,6 +63,29 @@ export function asArrayOf<T>(
   return result;
 }
 
+/**
+ * Mapea un array descartando los elementos que no pasan, en vez de fallar todo.
+ *
+ * Es para las listas donde un elemento que este lado no entiende no invalida a
+ * los demas: un servidor mas nuevo que nombra una CLI que este cliente no
+ * conoce no puede dejarlo sin la lista entera. `asArrayOf` sigue siendo la
+ * regla por defecto; esta se elige a proposito, lista por lista.
+ *
+ * Devuelve null solo si `value` no es un array.
+ */
+export function asArrayFiltered<T>(
+  value: unknown,
+  parseItem: (item: unknown) => T | null,
+): T[] | null {
+  if (!Array.isArray(value)) return null;
+  const result: T[] = [];
+  for (const item of value) {
+    const parsed = parseItem(item);
+    if (parsed !== null) result.push(parsed);
+  }
+  return result;
+}
+
 /** Estrecha a uno de los valores permitidos, o null. */
 export function asLiteral<T extends string>(
   value: unknown,

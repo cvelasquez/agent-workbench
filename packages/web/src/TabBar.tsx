@@ -21,6 +21,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { TerminalActivity, TerminalDescriptor, TerminalId } from '@agent-workbench/shared';
+import { restingDotTitle } from './agent-ui.js';
 import { projectColor } from './project-color.js';
 
 interface TabBarProps {
@@ -39,7 +40,7 @@ interface TabBarProps {
 /**
  * El punto de estado de una pestana.
  *
- * Cinco estados y ninguno es decorativo:
+ * Seis estados y ninguno es decorativo:
  *
  * | Estado | Que se ve |
  * |---|---|
@@ -48,6 +49,7 @@ interface TabBarProps {
  * | esperando una respuesta | `!` |
  * | dormida | punto hueco |
  * | terminada | punto apagado |
+ * | la CLI no publica su estado | punto lleno, y el titulo lo dice |
  *
  * Se dibuja a codigo y no con un gif: sigue el tema claro y oscuro, se ve
  * nitido en cualquier pantalla y no mete un binario en el repositorio. Con
@@ -89,12 +91,9 @@ function TabStatus({
     );
   }
 
-  return (
-    <span
-      className="tab-dot"
-      title={activity === 'idle' ? 'Lista, sin nada en curso' : 'CLI abierta'}
-    />
-  );
+  // Tambien el de una CLI que no publica su estado (`unknown`): un punto liso,
+  // que no afirma ni que trabaja ni que esta libre, y el titulo dice por que.
+  return <span className="tab-dot" title={restingDotTitle(activity)} />;
 }
 
 function defaultLabel(terminal: TerminalDescriptor): string {

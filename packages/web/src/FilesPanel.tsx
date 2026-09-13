@@ -187,8 +187,11 @@ interface FilesPanelProps {
   cwd: string;
   /** `process.platform` del servidor: decide el separador de la ruta absoluta. */
   platform: string;
-  /** Escribe texto en la terminal de la pestana, sin enviarlo. */
-  onInsert: (text: string) => void;
+  /**
+   * Escribe texto en la terminal de la pestana, sin enviarlo. Sin el no se
+   * ofrece "Insertar como @ruta".
+   */
+  onInsert?: (text: string) => void;
   /** Pide al servidor que abra la ruta con la aplicacion del sistema. */
   onReveal: (path: string) => void;
 }
@@ -252,12 +255,16 @@ export function FilesPanel({
         items: [
           { label: 'Copiar ruta absoluta', onSelect: () => copy(absolutePathOf(relativePath)) },
           { label: 'Copiar ruta relativa', onSelect: () => copy(relativePath) },
-          {
-            // Se escribe en la terminal pero no se envia: la CLI expande la
-            // referencia y el usuario decide que pedir con ella.
-            label: 'Insertar como @ruta',
-            onSelect: () => onInsert(`@${relativePath}`),
-          },
+          ...(onInsert === undefined
+            ? []
+            : [
+                {
+                  // Se escribe en la terminal pero no se envia: la CLI expande
+                  // la referencia y el usuario decide que pedir con ella.
+                  label: 'Insertar como @ruta',
+                  onSelect: () => onInsert(`@${relativePath}`),
+                },
+              ]),
           {
             // "Abrir con la app del sistema" y no "abrir en el editor": lo que
             // se abre lo decide la asociacion de archivos de Windows, no

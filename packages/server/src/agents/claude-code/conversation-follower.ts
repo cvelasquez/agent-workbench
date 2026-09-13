@@ -38,7 +38,8 @@ import {
   toUserImageAttachment,
   type UserImageAttachment,
 } from './jsonl-events.js';
-import { parseJsonlLine } from './jsonl-reader.js';
+import { parseJsonlLine } from '../../jsonl-reader.js';
+import type { PartsUpdate, PollResult, TurnUpdate } from '../adapter.js';
 import { ModelVariantRegistry } from './model-variants.js';
 
 /** Bloque de lectura. Las lineas largas (hasta 290 KB) igual se arman a mano. */
@@ -62,51 +63,6 @@ const MAX_EVENTS = 4_000;
 const MAX_ATTACHMENT_LINKS = 100;
 
 const NEWLINE = 0x0a;
-
-/** Cuanto tardo un turno que ya se habia entregado. */
-export interface TurnUpdate {
-  eventId: string;
-  durationMs: number;
-}
-
-/**
- * Las partes de un evento que ya se habia entregado, rehechas.
- *
- * Mismo caso que `TurnUpdate` y por el mismo motivo: la linea `attachment` con
- * la imagen llega **despues** del mensaje que la lleva. Casi siempre en la
- * linea inmediatamente siguiente —medido: 17 de 17— y por lo tanto en la misma
- * lectura, pero un poll puede caer justo en el medio.
- */
-export interface PartsUpdate {
-  eventId: string;
-  parts: ConversationPart[];
-}
-
-export interface PollResult {
-  /** true si el archivo se reemplazo: el cliente tiene que rehacer su vista. */
-  reset: boolean;
-  added: ConversationEvent[];
-  /**
-   * Duraciones de turnos ya entregados.
-   *
-   * Van aparte de `added` porque llegan **despues** del mensaje al que
-   * pertenecen: la CLI escribe la duracion en la linea siguiente, que casi
-   * siempre cae en la misma lectura, pero no siempre. Reenviar el evento entero
-   * obligaria al cliente a deduplicar; una actualizacion suelta se aplica y
-   * ya.
-   */
-  turns: TurnUpdate[];
-  /**
-   * Planes que esta conversacion nombro y no estaban antes.
-   *
-   * Van aparte de los eventos porque no son una tarjeta del hilo: el plan se ve
-   * en su propia solapa, y lo que lo anuncia en el JSONL —una linea `plan_mode`
-   * o un `Write` a la carpeta de planes— ya se dibuja como lo que es.
-   */
-  plans: string[];
-  /** Eventos ya entregados a los que se les agrego una imagen adjunta. */
-  parts: PartsUpdate[];
-}
 
 export class ConversationFollower {
   private offset = 0;

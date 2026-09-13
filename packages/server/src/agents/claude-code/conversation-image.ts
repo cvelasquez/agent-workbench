@@ -14,7 +14,8 @@
 
 import { MAX_SUBMIT_IMAGE_BYTES, type ConversationImageSource } from '@agent-workbench/shared';
 import { open } from 'node:fs/promises';
-import { parseJsonlLine } from './jsonl-reader.js';
+import { parseJsonlLine } from '../../jsonl-reader.js';
+import type { LoadedImage } from '../adapter.js';
 
 const CHUNK_SIZE = 256 * 1024;
 const NEWLINE = 0x0a;
@@ -27,12 +28,6 @@ const NEWLINE = 0x0a;
  * hilo donde se mando.
  */
 export const MAX_IMAGE_BYTES = MAX_SUBMIT_IMAGE_BYTES;
-
-export interface LoadedImage {
-  mediaType: string;
-  /** base64, tal como estaba en el archivo. */
-  data: string;
-}
 
 /**
  * Busca la imagen `index` del mensaje `eventId`.

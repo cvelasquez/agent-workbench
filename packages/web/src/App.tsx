@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  controlsFor,
+  effectivePanelTab,
+  instructionsFileFor,
+  sessionResumable,
+  shortcutsAgent,
+} from './agent-ui.js';
 import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
 import { Composer } from './Composer.js';
@@ -87,12 +94,15 @@ export function App(): JSX.Element {
   const {
     connection,
     status,
+    agents,
+    defaultAgent,
+    capabilitiesFor,
     cliAvailable,
     cliVersion,
     cliMissingMessage,
     platform,
     defaultCwd,
-    transcriptMarkerStripped,
+    environmentNotice,
     shellName,
     terminals,
     archiveSessions,
@@ -116,6 +126,20 @@ export function App(): JSX.Element {
 
   const theme = useTheme();
   const activeTerminal = terminals.find((t) => t.terminalId === activeTerminalId) ?? null;
+
+  /*
+    Lo que puede hacer la CLI de la pestana activa.
+
+    La pantalla no pregunta de que CLI se trata: pregunta si tiene ciclo de
+    modos, si recibe imagenes, si tiene planes. Cada control de abajo se
+    dibuja o se esconde por esto, y la traduccion vive en `agent-ui.ts`, que es
+    donde la prueba el chequeo. Con la CLI de hoy todo esta encendido.
+  */
+  const activeAgent = activeTerminal?.agent ?? null;
+  const activeControls = useMemo(
+    () => controlsFor(capabilitiesFor(activeAgent)),
+    [capabilitiesFor, activeAgent],
+  );
 
   /*
     Las notas viven aca y no en la barra lateral: la barra se desmonta al
@@ -194,6 +218,12 @@ export function App(): JSX.Element {
   const panelOpen = panelVisible && activeTerminal !== null;
 
   /*
+    La solapa que se ve. La guardada no se pisa: una pestana cuya CLI no tiene
+    planes muestra la CLI, y al volver a una que si, se vuelve a Planes.
+  */
+  const shownPanelTab = effectivePanelTab(panelTab, activeControls.plansAvailable);
+
+  /*
     La columna derecha se dibuja si hay algo que poner en ella: el panel de
     solapas, la consola, o los dos. Son dos interruptores independientes a
     proposito — mirar `git status` en la consola mientras el panel de cambios
@@ -236,7 +266,10 @@ export function App(): JSX.Element {
   */
   const conversation = useConversation(connection, activeTerminalId);
   const git = useGit(connection, panelOpen ? activeTerminalId : null);
-  const files = useFiles(connection, panelOpen && panelTab === 'files' ? activeTerminalId : null);
+  const files = useFiles(
+    connection,
+    panelOpen && shownPanelTab === 'files' ? activeTerminalId : null,
+  );
   /*
     Los planes se escuchan siempre, no solo con la solapa delante: la lista
     llega con la conversacion —no se pide— y es lo que alimenta el contador de
@@ -257,7 +290,7 @@ export function App(): JSX.Element {
     La CLI esta a la vista si su solapa esta delante y el panel abierto. Si no,
     lo que escriba se cuenta como no visto y la solapa lo avisa con un punto.
   */
-  const cliVisible = panelOpen && panelTab === 'cli';
+  const cliVisible = panelOpen && shownPanelTab === 'cli';
 
   /*
     Modelo y esfuerzo en uso, leidos del archivo de sesion.
@@ -695,7 +728,7 @@ export function App(): JSX.Element {
         Se quito una variable del entorno de la CLI: eso se avisa, no se hace
         callado. Es descartable porque en uso normal ni aparece.
       */}
-      {transcriptMarkerStripped && markerNoticeVisible && (
+      {environmentNotice === 'child-session-marker' && markerNoticeVisible && (
         <div className="banner banner-notice">
           <span>
             Este servidor se lanzo desde dentro de una sesion de la CLI. Se quito la variable{' '}
@@ -744,9 +777,18 @@ export function App(): JSX.Element {
             indexStatus={indexStatus}
             disabled={!cliAvailable}
             onOpenProject={(cwd) => openTerminal({ cwd })}
-            onOpenSession={(cwd, sessionId, label) =>
-              openTerminal({ cwd, resumeSessionId: sessionId, label })
+            onOpenSession={(cwd, session) =>
+              openTerminal({
+                cwd,
+                resumeSessionId: session.sessionId,
+                // La CLI de la sesion, no la de la ultima pestana del proyecto:
+                // reanudar un id con otra CLI no encontraria nada.
+                agent: session.agent,
+                label: session.title,
+              })
             }
+            canResume={(agent) => sessionResumable(agents, agent)}
+            platform={platform}
             onRefresh={refreshIndex}
             openSessionIds={openSessionIds}
             onArchive={archiveSessions}
@@ -759,14 +801,20 @@ export function App(): JSX.Element {
               se esta mirando, y le pasa la nota entera. El id de la pestana lo
               asigna el servidor, asi que el envio espera al `terminal.opened`
               en vez de adivinarlo.
+
+              Con la CLI de la pestana activa, dicha explicitamente, y solo si
+              esa CLI avisa cuando esta lista: el servidor espera esa senal
+              antes de pegar, y sin ella rechaza la nota con la pestana nueva
+              ya abierta y sin que nadie la haya pedido.
             */
             onSendNote={
-              activeTerminal === null
+              activeTerminal === null || !activeControls.noteSendable
                 ? null
                 : (noteId) => {
                     const cwd = activeTerminal.cwd;
                     openTerminal({
                       cwd,
+                      ...(activeTerminal.agent !== null ? { agent: activeTerminal.agent } : {}),
                       onOpened: (terminal) =>
                         connection.send({
                           type: 'notes.send',
@@ -819,7 +867,10 @@ export function App(): JSX.Element {
             ) : (
               <ConversationView
                 view={conversation}
-                onRewind={rewind}
+                onRewind={activeControls.rewind ? rewind : undefined}
+                questionsAnswerable={activeControls.questionsAnswerable}
+                contextWindowSource={activeControls.contextWindowSource}
+                instructionsFile={instructionsFileFor(activeAgent)}
                 onGoToCli={() => {
                   // Escondida, la solapa no alcanza: hay que traer la columna.
                   if (!panelOpen) togglePanel();
@@ -853,22 +904,30 @@ export function App(): JSX.Element {
               terminalId={activeTerminalId}
               alive={activeTerminal.alive}
               sleeping={activeTerminal.sleeping}
+              imagesAllowed={activeControls.imagesAllowed}
               leading={
-                <ModeControl
-                  mode={conversation.permissionMode}
-                  disabled={!activeTerminal.alive}
-                  onChange={conversation.setPermissionMode}
-                />
+                activeControls.modeCycle === null ? undefined : (
+                  <ModeControl
+                    mode={conversation.permissionMode}
+                    cycle={activeControls.modeCycle}
+                    disabled={!activeTerminal.alive}
+                    onChange={conversation.setPermissionMode}
+                  />
+                )
               }
               controls={
-                <AgentControls
-                  model={currentModel}
-                  effort={currentEffort}
-                  modelProvisional={modelProvisional}
-                  effortProvisional={effortProvisional}
-                  disabled={!activeTerminal.alive}
-                  onCommand={sendCommand}
-                />
+                activeControls.models === null && activeControls.efforts === null ? undefined : (
+                  <AgentControls
+                    models={activeControls.models}
+                    efforts={activeControls.efforts}
+                    model={currentModel}
+                    effort={currentEffort}
+                    modelProvisional={modelProvisional}
+                    effortProvisional={effortProvisional}
+                    disabled={!activeTerminal.alive}
+                    onCommand={sendCommand}
+                  />
+                )
               }
             />
           )}
@@ -921,7 +980,8 @@ export function App(): JSX.Element {
               style={rightColumnOpen && !panelExpanded ? { width: `${panelWidth}px` } : undefined}
             >
               <SidePanel
-                tab={panelTab}
+                tab={shownPanelTab}
+                plansAvailable={activeControls.plansAvailable}
                 hidden={!panelVisible}
                 onTabChange={changePanelTab}
                 title={panelTitle}
@@ -963,7 +1023,7 @@ export function App(): JSX.Element {
                 files={files}
                 plans={plans}
                 memory={memory}
-                onInsert={insertIntoTerminal}
+                onInsert={activeControls.fileMentions ? insertIntoTerminal : undefined}
                 onReveal={revealPath}
                 onHide={togglePanel}
               />
@@ -1026,7 +1086,12 @@ export function App(): JSX.Element {
         )}
       </div>
 
-      {shortcutsVisible && <ShortcutsDialog onClose={() => setShortcutsVisible(false)} />}
+      {shortcutsVisible && (
+        <ShortcutsDialog
+          agent={shortcutsAgent(activeAgent, agents, defaultAgent)}
+          onClose={() => setShortcutsVisible(false)}
+        />
+      )}
 
       {/*
         Proyecto nuevo. Abre una pestana en la carpeta elegida y se cierra: a

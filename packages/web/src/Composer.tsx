@@ -76,6 +76,11 @@ interface ComposerProps {
    * vez y se olvida.
    */
   leading?: JSX.Element;
+  /**
+   * false si la CLI de la pestana no recibe imagenes por ruta: pegar o soltar
+   * una lo avisa en vez de dejar una miniatura que no se va a poder mandar.
+   */
+  imagesAllowed?: boolean;
 }
 
 export function Composer({
@@ -85,10 +90,11 @@ export function Composer({
   sleeping = false,
   controls,
   leading,
+  imagesAllowed = true,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
-  const attachments = useComposerAttachments();
+  const attachments = useComposerAttachments(imagesAllowed);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // ---- alto del cuadro ----

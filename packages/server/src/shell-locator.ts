@@ -18,14 +18,15 @@
  * En macOS y Linux se usa `$SHELL`, que es lo que el usuario ya eligio, y
  * `/bin/bash` como respaldo.
  *
- * No se le agrega ni se le quita nada al entorno: eso lo decide
- * `buildEnvironment()` en `pty-session.ts`, igual que para la CLI.
+ * No se le agrega ni se le quita nada al entorno aca: eso lo decide
+ * `AgentRegistry.consoleEnvironment()` en `agents/registry.ts`, con los mismos
+ * filtros que usan las pestanas de cada CLI.
  */
 
 import { access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
-import { findInPath } from './cli-locator.js';
+import { findInPath } from './agents/locate.js';
 
 export interface ShellLocation {
   /** Ejecutable a lanzar. */

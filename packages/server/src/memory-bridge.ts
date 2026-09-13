@@ -65,7 +65,7 @@ import {
   type MemoryStatus,
 } from '@agent-workbench/shared';
 import { InvalidPathError, resolveInside } from './path-guard.js';
-import { projectSlugFor } from './paths.js';
+import { projectSlugFor } from './agents/claude-code/paths.js';
 
 /** Un fallo que se le explica al usuario tal cual. */
 export class MemoryBridgeError extends Error {

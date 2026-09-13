@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { noteTitle, type Note, type NoteImage } from '@agent-workbench/shared';
+import { noteSendTitle } from './agent-ui.js';
 import { formatWhen } from './format-when.js';
 import type { NotesApi } from './useNotes.js';
 
@@ -53,10 +54,14 @@ interface NotesPanelProps {
   notes: NotesApi;
   /**
    * Abre una conversacion nueva con la nota adentro, en el proyecto de la
-   * pestana activa. null cuando no hay ninguna: sin `cwd` no hay donde abrirla.
+   * pestana activa. null cuando no hay ninguna —sin `cwd` no hay donde
+   * abrirla— o cuando su CLI no avisa que esta lista para recibirla.
    */
   onSendNote: ((noteId: string) => void) | null;
-  /** El `cwd` de esa pestana, para el titulo del boton. */
+  /**
+   * El `cwd` de esa pestana, para el titulo del boton. Con `onSendNote` null,
+   * es lo que distingue "no hay pestana" de "esta CLI no puede".
+   */
   sendTargetCwd: string | null;
 }
 
@@ -472,13 +477,7 @@ function NoteEditor({
           className="icon-button"
           onClick={() => onSend?.()}
           disabled={onSend === null || empty}
-          title={
-            onSend === null
-              ? 'Abri una pestana primero: la conversacion se abre en su proyecto'
-              : empty
-                ? 'La nota esta vacia'
-                : `Mandar la nota al agente en una conversacion nueva de ${sendTargetCwd ?? ''}`
-          }
+          title={noteSendTitle(onSend !== null, sendTargetCwd, empty)}
         >
           <SendIcon />
         </button>
