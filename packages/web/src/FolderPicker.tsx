@@ -13,6 +13,12 @@
  *
  * Es un dialogo modal y no un panel: se abre, se elige y se cierra. Un panel
  * mas peleando por el ancho es justo lo que la seccion 6 evita.
+ *
+ * Desde el hito 28 tiene un segundo uso: elegir la carpeta de la copia propia.
+ * Ahi quien lo usa no recibe una ruta para mandar de vuelta —eso seria el
+ * cliente nombrando una ruta—, sino el `pickerId`: manda `vault.setDir` con el
+ * y el servidor lee la carpeta de su propio selector. Por eso `onChoose` corre
+ * **antes** de cerrar, que es cuando el selector todavia existe.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -21,12 +27,29 @@ import type { AgentConnection } from './connection.js';
 
 interface FolderPickerProps {
   connection: AgentConnection;
-  /** Abre una pestana del agente en esa carpeta y cierra el dialogo. */
-  onOpen: (cwd: string) => void;
+  /** El titulo del dialogo. */
+  title: string;
+  /** El texto del boton que elige la carpeta donde se esta parado. */
+  confirmLabel: string;
+  /** El titulo de ese boton, con la carpeta. */
+  confirmTitle: (path: string) => string;
+  /**
+   * Eligio la carpeta donde esta parado el selector. `path` es para mostrar o
+   * para abrir una pestana (que el servidor valida); `pickerId` es lo que se
+   * manda cuando la carpeta la tiene que leer el servidor. Quien llama cierra.
+   */
+  onChoose: (pickerId: string, path: string) => void;
   onClose: () => void;
 }
 
-export function FolderPicker({ connection, onOpen, onClose }: FolderPickerProps): JSX.Element {
+export function FolderPicker({
+  connection,
+  title,
+  confirmLabel,
+  confirmTitle,
+  onChoose,
+  onClose,
+}: FolderPickerProps): JSX.Element {
   const [listing, setListing] = useState<DirectoryPickerListing | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -107,11 +130,11 @@ export function FolderPicker({ connection, onOpen, onClose }: FolderPickerProps)
       <div
         className="modal picker-modal"
         role="dialog"
-        aria-label="Elegir la carpeta del proyecto"
+        aria-label={title}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="modal-header">
-          <span className="modal-title">Proyecto nuevo</span>
+          <span className="modal-title">{title}</span>
           <button className="icon-button" onClick={onClose} title="Cerrar">
             ×
           </button>
@@ -202,10 +225,10 @@ export function FolderPicker({ connection, onOpen, onClose }: FolderPickerProps)
 
               <button
                 className="picker-open"
-                onClick={() => onOpen(listing.path)}
-                title={`Abrir una pestana del agente en ${listing.path}`}
+                onClick={() => onChoose(listing.pickerId, listing.path)}
+                title={confirmTitle(listing.path)}
               >
-                Abrir aca
+                {confirmLabel}
               </button>
             </footer>
           </>

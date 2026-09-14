@@ -29,8 +29,10 @@
  * proxima respuesta de `changedRefs`, que ya la habia dado por vista.
  */
 
+import { stat } from 'node:fs/promises';
 import type { SessionTitleSource } from '@agent-workbench/shared';
 import type {
+  FollowOptions,
   HistoryItem,
   HistoryRoot,
   HistorySource,
@@ -281,9 +283,34 @@ export function createOpenCodeHistory(deps: OpenCodeHistoryDeps): HistorySource 
       }
     },
 
-    follow(target: { cwd: string; sessionId: string }): SessionFollower {
-      return new OpenCodeSessionFollower({ db, catalog: deps.catalog, sessionId: target.sessionId, dbFile });
+    /**
+     * true si el archivo de la base esta. Es lo que separa las dos razones por
+     * las que `list` da null: sin base (no hay historial) o con la base ocupada
+     * o ilegible (lo hay, pero ahora no se lee). Solo `stat`: no abre la base.
+     */
+    async rootExists(): Promise<boolean> {
+      if (dbFile === null) return false;
+      try {
+        await stat(dbFile);
+        return true;
+      } catch {
+        return false;
+      }
     },
+
+    follow(target: { cwd: string; sessionId: string }, options?: FollowOptions): SessionFollower {
+      return new OpenCodeSessionFollower({
+        db,
+        catalog: deps.catalog,
+        sessionId: target.sessionId,
+        dbFile,
+        limits: options?.limits,
+        maxEvents: options?.maxEvents,
+      });
+    },
+
+    // `follow` respeta `FollowOptions`, tambien en los cortes de SQL (hito 28).
+    wholeRead: true,
 
     plans: null,
 

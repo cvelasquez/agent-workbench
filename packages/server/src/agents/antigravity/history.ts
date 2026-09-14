@@ -37,6 +37,7 @@ import path from 'node:path';
 import type { SessionTitleSource } from '@agent-workbench/shared';
 import { parseJsonlLine, readHeadLines } from '../../jsonl-reader.js';
 import type {
+  FollowOptions,
   HistoryItem,
   HistoryRoot,
   HistorySource,
@@ -383,9 +384,24 @@ export function createAntigravityHistory(deps: AntigravityHistoryDeps = {}): His
       return (catalog.get(sessionId).summary?.stepCount ?? 0) > 0;
     },
 
-    follow(target: { cwd: string; sessionId: string }): SessionFollower {
-      return new AntigravitySessionFollower(target.sessionId, { statusLine: deps.statusLine ?? null, platform });
+    /**
+     * true si `brain/` es una carpeta. Separa las dos razones por las que `list`
+     * da null: sin carpeta (no hay historial) o con la carpeta ilegible (lo hay,
+     * pero ahora no se lee).
+     */
+    rootExists: () => isDirectory(brainRoot()),
+
+    follow(target: { cwd: string; sessionId: string }, options?: FollowOptions): SessionFollower {
+      return new AntigravitySessionFollower(target.sessionId, {
+        statusLine: deps.statusLine ?? null,
+        platform,
+        limits: options?.limits,
+        maxEvents: options?.maxEvents,
+      });
     },
+
+    // `follow` respeta `FollowOptions`: la copia propia puede leer de aca (hito 28).
+    wholeRead: true,
 
     plans: null,
 

@@ -24,7 +24,7 @@ import {
   type ConversationState,
   type PermissionMode,
 } from '@agent-workbench/shared';
-import type { EventPage, LoadedImage, PollResult, SessionFollower } from '../adapter.js';
+import type { EventPage, FollowOptions, LoadedImage, PollResult, SessionFollower } from '../adapter.js';
 import { readAgentDefaults } from './agent-defaults.js';
 import { ConversationFollower } from './conversation-follower.js';
 import { loadConversationImage } from './conversation-image.js';
@@ -50,12 +50,14 @@ export function isSameFilePath(a: string, b: string, platform: string): boolean 
 export class ClaudeCodeSessionFollower implements SessionFollower {
   private inner: ConversationFollower;
 
+  /** `options`: ver `FollowOptions`. Vale tambien para el seguidor del re-apuntado. */
   constructor(
     private readonly cwd: string,
     private readonly sessionId: string,
     variants: ModelVariantRegistry,
+    private readonly options: FollowOptions = {},
   ) {
-    this.inner = new ConversationFollower(sessionFilePath(cwd, sessionId), variants);
+    this.inner = new ConversationFollower(sessionFilePath(cwd, sessionId), variants, options);
   }
 
   get label(): string {
@@ -106,8 +108,8 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
       console.warn(
         `[conversacion] la sesion ${this.sessionId.slice(0, 8)} escribio en ${filePath}, no en la ruta calculada; me mudo ahi.`,
       );
-      // Sin registro de variantes, igual que antes de mudarse aca (D11).
-      this.inner = new ConversationFollower(filePath);
+      // Sin registro de variantes, igual que antes de mudarse aca (D11); con los topes que se pidieron.
+      this.inner = new ConversationFollower(filePath, undefined, this.options);
       return true;
     }
     return false;

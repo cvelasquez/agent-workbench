@@ -282,7 +282,8 @@ check(
 
 {
   const { PROTOCOL_VERSION, parseServerMessage, parseClientMessage } = shared;
-  check('el protocolo es la version 6', PROTOCOL_VERSION === 6, String(PROTOCOL_VERSION));
+  // La 7 es la de la copia propia (hito 28); el `hello` de abajo es el de la 6, que no cambio.
+  check('el protocolo es la version 7', PROTOCOL_VERSION === 7, String(PROTOCOL_VERSION));
 
   const agentInfo = (overrides = {}) => ({
     id: 'claude-code', label: 'Claude Code', command: 'claude', available: true, version: '2.1.263',

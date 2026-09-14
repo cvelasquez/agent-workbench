@@ -182,6 +182,28 @@ export interface ConversationNoticePart {
   detail: string;
 }
 
+/**
+ * Lo que dice un aviso de la conversacion: en el hilo, al copiarlo, al buscarlo
+ * y en el Markdown de la copia propia.
+ *
+ * Vivia en la web (hito 26) y paso aca en el hito 28: el servidor lo necesita
+ * para exportar, y no puede importar la web. Es una frase y no un componente
+ * porque todos esos sitios tienen que decir lo mismo.
+ */
+export function noticeText(part: Pick<ConversationNoticePart, 'notice' | 'detail'>): string {
+  switch (part.notice) {
+    case 'compacted':
+      return part.detail === 'auto' ? 'Contexto compactado automáticamente' : 'Contexto compactado';
+    case 'interrupted':
+      return 'Interrumpido';
+    case 'error':
+      // Sin detalle no se deja el "dos puntos" colgando: el error igual paso.
+      return part.detail.length > 0
+        ? `La CLI devolvió un error: ${part.detail}`
+        : 'La CLI devolvió un error';
+  }
+}
+
 export type ConversationPart =
   | ConversationTextPart
   | ConversationToolCallPart

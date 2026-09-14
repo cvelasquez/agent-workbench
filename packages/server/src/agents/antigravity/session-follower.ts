@@ -40,6 +40,7 @@ import type { EventPage, LoadedImage, PollResult, SessionFollower } from '../ada
 import { JsonlFollower } from '../jsonl-follower.js';
 import { conversationFiles, transcriptPaths, type TranscriptPaths } from './paths.js';
 import { TranscriptMapper } from './transcript-mapper.js';
+import type { EventLimits } from '../transport-limits.js';
 
 /** Cuantos bytes del principio del transcript forman la huella. */
 export const TRANSCRIPT_FINGERPRINT_BYTES = 256;
@@ -73,6 +74,10 @@ export interface FollowerStatusLine {
 export interface AntigravityFollowerDeps {
   statusLine?: FollowerStatusLine | null;
   platform?: string;
+  /** Hito 28, `FollowOptions`: los topes de cada parte. Ausente: `TRANSPORT_LIMITS`. */
+  limits?: EventLimits;
+  /** Hito 28, `FollowOptions`. Ausente: el tope de `JsonlFollower`. */
+  maxEvents?: number;
 }
 
 const EMPTY_PAGE: EventPage = { events: [], hasMore: false };
@@ -100,6 +105,8 @@ export class AntigravitySessionFollower implements SessionFollower {
   private readonly paths: TranscriptPaths | null;
   private readonly statusLine: FollowerStatusLine | null;
   private readonly platform: string;
+  private readonly limits: EventLimits | undefined;
+  private readonly maxEvents: number | undefined;
   private jsonl: JsonlFollower | null = null;
   private mapper: TranscriptMapper | null = null;
   /** true si la conversacion tiene historial en `.pb`, visto en la ultima lectura sin datos. */
@@ -114,6 +121,8 @@ export class AntigravitySessionFollower implements SessionFollower {
     this.paths = transcriptPaths(sessionId);
     this.statusLine = deps.statusLine ?? null;
     this.platform = deps.platform ?? process.platform;
+    this.limits = deps.limits;
+    this.maxEvents = deps.maxEvents;
   }
 
   get label(): string {
@@ -178,8 +187,11 @@ export class AntigravitySessionFollower implements SessionFollower {
       compact = true;
     }
     if (file === null) return;
-    this.mapper = new TranscriptMapper({ compact });
-    this.jsonl = new JsonlFollower(file, this.mapper, { fingerprintBytes: TRANSCRIPT_FINGERPRINT_BYTES });
+    this.mapper = new TranscriptMapper({ compact, limits: this.limits });
+    this.jsonl = new JsonlFollower(file, this.mapper, {
+      fingerprintBytes: TRANSCRIPT_FINGERPRINT_BYTES,
+      maxEvents: this.maxEvents,
+    });
   }
 
   getState(): ConversationState {

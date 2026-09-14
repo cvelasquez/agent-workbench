@@ -6,7 +6,7 @@
  * son milisegundos epoch.
  */
 
-import { AGENT_IDS, type AgentId } from './agents.js';
+import { AGENT_IDS, SESSION_AGENT_IDS, type AgentId, type SessionAgentId } from './agents.js';
 import {
   asArrayFiltered,
   asBoolean,
@@ -36,10 +36,26 @@ export const SESSION_TITLE_SOURCES: readonly SessionTitleSource[] = [
   'none',
 ];
 
+/**
+ * Hito 28. De donde se lee una sesion de la barra.
+ *
+ *  - `native`: del historial de su CLI, como siempre.
+ *  - `vault`: el historial nativo ya no la tiene (o nunca la tuvo: una
+ *    importada) y solo queda en la copia propia.
+ */
+export type SessionStorage = 'native' | 'vault';
+
+export const SESSION_STORAGES: readonly SessionStorage[] = ['native', 'vault'];
+
 /** Una conversacion del historial, tal como la resume el indexador. */
 export interface SessionSummary {
-  /** Que CLI la escribio. Decide con que CLI se reanuda. */
-  agent: AgentId;
+  /**
+   * Que CLI la escribio. Decide con que CLI se reanuda.
+   *
+   * Desde el hito 28 puede ser un id importado (`IMPORTED_AGENT_IDS`), que no
+   * se reanuda con nada: quien lanza o reanuda estrecha antes con `isAgentId`.
+   */
+  agent: SessionAgentId;
   sessionId: SessionId;
   /**
    * El `cwd` que trae el propio archivo, o `''` si no trae ninguno.
@@ -63,6 +79,10 @@ export interface SessionSummary {
    * "ver archivadas" sea un interruptor de la vista y no otra peticion.
    */
   archived: boolean;
+  /** Hito 28. `vault`: el historial nativo ya no la tiene; se lee de la copia. */
+  storage: SessionStorage;
+  /** Hito 28. true si la copia es parcial (un rescate). Siempre false en `native`. */
+  partial: boolean;
 }
 
 /**
@@ -218,9 +238,11 @@ export function parseSessionSummary(value: unknown): SessionSummary | null {
   /*
     Sin `agent` es de un servidor anterior, donde la unica CLI era Claude Code.
     Con un id que este lado no conoce, la sesion se descarta —reanudarla con
-    otra CLI no la encontraria— y el proyecto sigue con las demas.
+    otra CLI no la encontraria— y el proyecto sigue con las demas. Un id
+    importado (hito 28) si se conoce: se lista y no se reanuda.
   */
-  const agent = record['agent'] === undefined ? 'claude-code' : asLiteral(record['agent'], AGENT_IDS);
+  const agent =
+    record['agent'] === undefined ? 'claude-code' : asLiteral(record['agent'], SESSION_AGENT_IDS);
   if (agent === null) return null;
   // Ausente = `''`, y al reanudar el cliente cae al `cwd` del proyecto, que es
   // lo que se usaba antes de que el campo existiera.
@@ -236,6 +258,10 @@ export function parseSessionSummary(value: unknown): SessionSummary | null {
     updatedAt,
     sizeBytes,
     archived: record['archived'] === true,
+    // Ausente o desconocido = nativa: todo servidor anterior al hito 28, y toda
+    // cache escrita antes, hablaba solo de historial nativo.
+    storage: asLiteral(record['storage'], SESSION_STORAGES) ?? 'native',
+    partial: record['partial'] === true,
   };
 }
 

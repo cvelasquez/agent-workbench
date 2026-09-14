@@ -32,8 +32,9 @@ import {
   toUserImageAttachment,
   type UserImageAttachment,
 } from './jsonl-events.js';
-import type { EventPage, PartsUpdate, PollResult, TurnUpdate } from '../adapter.js';
+import type { EventPage, FollowOptions, PartsUpdate, PollResult, TurnUpdate } from '../adapter.js';
 import { JsonlFollower, type EventLookup, type JsonlLineSink } from '../jsonl-follower.js';
+import { TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import { ModelVariantRegistry } from './model-variants.js';
 
 /**
@@ -111,15 +112,24 @@ export class ConversationFollower implements JsonlLineSink {
    */
   private permissionMode: PermissionMode | null = null;
 
+  /** Los topes de cada parte. Los de transporte salvo que se lea para la copia propia. */
+  private readonly limits: EventLimits;
+
   /**
-   * Lo que sabemos de la instalacion, para las sesiones que todavia no
-   * escribieron ningun `cost-state` — que son casi todas mientras se trabaja.
+   * `installVariants`: lo que sabemos de la instalacion, para las sesiones que
+   * todavia no escribieron ningun `cost-state` — que son casi todas mientras se
+   * trabaja.
+   *
+   * `options` (hito 28): sin nada, como siempre. Con `limits` y `maxEvents`, la
+   * sesion entera con esos topes, que es como la lee la copia propia.
    */
   constructor(
     filePath: string,
     private readonly installVariants?: ModelVariantRegistry,
+    options: FollowOptions = {},
   ) {
-    this.jsonl = new JsonlFollower(filePath, this);
+    this.limits = options.limits ?? TRANSPORT_LIMITS;
+    this.jsonl = new JsonlFollower(filePath, this, { maxEvents: options.maxEvents });
   }
 
   /** La ruta que se sigue. Siempre fija: esta CLI la conoce al lanzar. */
@@ -338,7 +348,7 @@ export class ConversationFollower implements JsonlLineSink {
       return null;
     }
 
-    const event = toConversationEvent(record, lineNumber);
+    const event = toConversationEvent(record, lineNumber, this.limits);
     if (event === null) return null;
 
     // Antes de que `JsonlFollower` lo guarde, en el mismo orden que siempre.

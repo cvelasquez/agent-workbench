@@ -9,22 +9,24 @@
  * encoge hasta 44 px, que es lo que necesitan el punto de estado y la ×; una
  * insignia afuera subiria ese minimo, y adentro se recorta con la etiqueta.
  * El nombre entero va en el titulo.
+ *
+ * Desde el hito 28 tambien nombra una fuente importada a la copia propia, que
+ * solo aparece en filas de la barra.
  */
 
-import type { AgentId, AgentInfo } from '@agent-workbench/shared';
-import { AGENT_UI } from './agent-ui.js';
+import type { AgentInfo, SessionAgentId } from '@agent-workbench/shared';
+import { agentShortLabel, sessionAgentLabel } from './agent-ui.js';
 
 interface AgentBadgeProps {
-  agent: AgentId;
+  agent: SessionAgentId;
   /** Para el titulo: el nombre de la CLI tal como lo anuncia el servidor. */
   agents: readonly AgentInfo[];
 }
 
 export function AgentBadge({ agent, agents }: AgentBadgeProps): JSX.Element {
-  const label = agents.find((info) => info.id === agent)?.label ?? agent;
   return (
-    <span className="agent-badge" title={label}>
-      {AGENT_UI[agent].shortLabel}
+    <span className="agent-badge" title={sessionAgentLabel(agent, agents)}>
+      {agentShortLabel(agent)}
     </span>
   );
 }

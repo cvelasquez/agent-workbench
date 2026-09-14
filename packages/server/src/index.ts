@@ -31,12 +31,16 @@ import { RepoHub } from './repo-hub.js';
 import { MemoryHub } from './memory-hub.js';
 import { PasteStore } from './paste-store.js';
 import { SessionIndex } from './session-index.js';
+import { SettingsStore } from './settings-store.js';
 import { startupAgentLines } from './startup-summary.js';
 import { NotesStore } from './notes-store.js';
 import { locateShell, type ShellLocation } from './shell-locator.js';
 import { watchSessions } from './session-watcher.js';
 import { TerminalRegistry } from './terminal-registry.js';
 import { attachTerminalSocket } from './terminal-socket.js';
+import { VaultCatalog } from './vault/catalog.js';
+import { defaultVaultDir } from './vault/paths.js';
+import { VaultService } from './vault/service.js';
 import { WorkspaceStore } from './workspace-store.js';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
@@ -235,12 +239,25 @@ async function main(): Promise<void> {
   const archived = new ArchivedSessions();
   await archived.load();
   /*
+    La copia propia (hito 28), en este orden y todo antes de `index.start()`
+    (C4): los ajustes dicen la carpeta, el catalogo lee sus cabeceras —con la
+    copia apagada y sin carpeta, un `readdir` que falla y nada mas; no escribe—,
+    el indice mezcla esas sesiones con las nativas al emitir, y el servicio
+    decide cuando corre cada pasada.
+  */
+  const settings = new SettingsStore();
+  await settings.load();
+  const catalog = new VaultCatalog();
+  await catalog.load(settings.get().vault.dir ?? defaultVaultDir());
+  /*
     El indice lee el historial de cada CLI a traves de su adaptador, y al leer
     le ensena al adaptador lo que haga falta —con Claude Code, que variante de
     modelo usa la instalacion—. Va antes que el registro de terminales porque
     le dice de que CLI es una sesion que se reanuda.
   */
-  const index = new SessionIndex(agents, archived);
+  const index = new SessionIndex(agents, archived, catalog);
+  const vault = new VaultService({ agents, index, archived, settings, catalog, platform: process.platform });
+  vault.start();
   const registry = new TerminalRegistry(agents, shell, store, (sessionId) =>
     index.agentOf(sessionId),
   );
@@ -297,6 +314,7 @@ async function main(): Promise<void> {
     memory,
     agents,
     defaultCwd,
+    vault,
   });
 
   // El indice arranca en segundo plano: 3,2 s en frio no pueden demorar la URL.
@@ -343,6 +361,8 @@ async function main(): Promise<void> {
 
     stopWatching();
     detachSocket();
+    // Cancela los temporizadores de la copia; lo pendiente se copia en el proximo arranque.
+    vault.dispose();
     conversations.disposeAll();
     agents.disposeAll();
     repos.disposeAll();

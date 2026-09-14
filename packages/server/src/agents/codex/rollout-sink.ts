@@ -31,7 +31,7 @@ import {
 } from '@agent-workbench/shared';
 import type { TurnUpdate } from '../adapter.js';
 import type { EventLookup, JsonlLineSink } from '../jsonl-follower.js';
-import { cut, TEXT_MAX_CHARS, TOOL_INPUT_MAX_CHARS } from '../transport-limits.js';
+import { cut, TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import {
   readSessionMeta,
   readTokenInfo,
@@ -73,8 +73,14 @@ export class CodexRolloutSink implements JsonlLineSink {
   private readonly openCalls = new Map<string, number>();
   private warnedForeignMeta = false;
 
-  /** `''` si todavia no se sabe que sesion es. */
-  constructor(private readonly sessionId: string) {}
+  /**
+   * `sessionId`: `''` si todavia no se sabe que sesion es. `limits`: los topes
+   * de cada parte, los de transporte salvo para la copia propia (hito 28).
+   */
+  constructor(
+    private readonly sessionId: string,
+    private readonly limits: EventLimits = TRANSPORT_LIMITS,
+  ) {}
 
   getUsage(): ContextUsage {
     return this.usage;
@@ -172,7 +178,7 @@ export class CodexRolloutSink implements JsonlLineSink {
       const callId = payload['call_id'];
       if (typeof callId !== 'string' || callId.length === 0) return null;
       this.openCalls.delete(callId);
-      const output = readToolOutput(payload['output']);
+      const output = readToolOutput(payload['output'], this.limits.toolResultMaxChars);
       return this.event('user', lineNumber, at, [
         {
           kind: 'tool-result',
@@ -269,7 +275,7 @@ export class CodexRolloutSink implements JsonlLineSink {
       mediaType,
       source: 'content',
     }));
-    if (text.length > 0) parts.push({ kind: 'text', ...cut(text, TEXT_MAX_CHARS) });
+    if (text.length > 0) parts.push({ kind: 'text', ...cut(text, this.limits.textMaxChars) });
     if (parts.length === 0) return null;
 
     const event = this.event('user', lineNumber, at, parts);
@@ -290,7 +296,7 @@ export class CodexRolloutSink implements JsonlLineSink {
       if (block === null || block['type'] !== 'output_text') continue;
       const text = block['text'];
       if (typeof text === 'string' && text.length > 0) {
-        parts.push({ kind: 'text', ...cut(text, TEXT_MAX_CHARS) });
+        parts.push({ kind: 'text', ...cut(text, this.limits.textMaxChars) });
       }
     }
     if (parts.length === 0) return null;
@@ -317,7 +323,7 @@ export class CodexRolloutSink implements JsonlLineSink {
     }
 
     this.openCalls.set(callId, at);
-    const limited = cut(input, TOOL_INPUT_MAX_CHARS);
+    const limited = cut(input, this.limits.toolInputMaxChars);
     return this.event('assistant', lineNumber, at, [
       { kind: 'tool-call', toolUseId: callId, name, input: limited.text, truncated: limited.truncated },
     ]);

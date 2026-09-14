@@ -37,6 +37,7 @@ import type {
   StatusLineSetupInfo,
 } from '@agent-workbench/shared';
 import type { CliLocation } from './locate.js';
+import type { EventLimits } from './transport-limits.js';
 
 // ---- Localizacion -----------------------------------------------------------
 
@@ -210,7 +211,7 @@ export interface HistoryItem {
 export type HistoryExtra = Record<string, unknown>;
 
 /** Lo que el indice guarda de cada sesion y completa al emitir. */
-export type ScannedSummary = Omit<SessionSummary, 'agent' | 'cwd' | 'archived'>;
+export type ScannedSummary = Omit<SessionSummary, 'agent' | 'cwd' | 'archived' | 'storage' | 'partial'>;
 
 export interface ScannedSession {
   /**
@@ -227,7 +228,7 @@ export interface ScannedSession {
    * viajan separados.
    */
   resumeCwd?: string | null;
-  /** Sin `agent`, `cwd` ni `archived`: los pone el indice. */
+  /** Sin `agent`, `cwd`, `archived`, `storage` ni `partial`: los pone el indice. */
   summary: ScannedSummary;
   extra: HistoryExtra;
 }
@@ -354,10 +355,42 @@ export interface SessionFollower {
   hasOpenToolCall(launchedAt: number): boolean;
 }
 
+/**
+ * Hito 28. Como se lee una sesion fuera del hilo (la copia propia).
+ *
+ * Sin opciones —que es como la sigue el hub— todo sale como siempre: los topes
+ * de transporte y el tope de eventos del seguidor.
+ */
+export interface FollowOptions {
+  /** Ausente: `TRANSPORT_LIMITS`. */
+  limits?: EventLimits;
+  /** Tope de eventos en memoria. Ausente: el del seguidor (4 000). `Infinity`: sin tope. */
+  maxEvents?: number;
+}
+
 export interface HistorySource {
   roots(): readonly HistoryRoot[];
   /** Todo lo que hay, en orden estable. null si la raiz no existe. */
   list(): Promise<HistoryItem[] | null>;
+  /**
+   * Hito 28. false si la raiz del historial no existe en disco. Ausente: vale lo
+   * que dice `list()`, que devuelve null solo cuando la raiz falta.
+   *
+   * Existe por la fuente cuyo `list()` tambien da null cuando no pudo leer (una
+   * base ocupada, una carpeta ilegible): sin esto, todas sus sesiones
+   * aparecerian como "copia" mientras dura el problema.
+   */
+  rootExists?(): Promise<boolean>;
+  /**
+   * Hito 28. true si `follow` respeta `FollowOptions`: con `limits` y
+   * `maxEvents` entrega la sesion con esos topes y sin paginar.
+   *
+   * Es una declaracion y no se deduce: un seguidor que ignora las opciones
+   * entrega textos recortados a los topes de transporte sin que nada lo delate,
+   * y la copia guardaria eso como si fuera la sesion entera. La copia solo lee
+   * las fuentes que lo declaran.
+   */
+  readonly wholeRead?: true;
   /**
    * Que sesiones pudo cambiar un aviso del watcher. null si la ruta no es de
    * esta fuente.
@@ -381,7 +414,8 @@ export interface HistorySource {
   restored(item: HistoryItem, extra: HistoryExtra): void;
   /** ¿Hay algo que reanudar? Decide entre reanudar y sesion nueva al despertar. */
   exists(cwd: string, sessionId: string): Promise<boolean>;
-  follow(target: { cwd: string; sessionId: string }): SessionFollower;
+  /** `options` ausente: como la sigue el hub. Ver `FollowOptions` y `wholeRead`. */
+  follow(target: { cwd: string; sessionId: string }, options?: FollowOptions): SessionFollower;
   readonly plans: PlanSource | null;
   /**
    * Cada cuantos ms el hub relee una sesion que alguien sigue, ademas de los

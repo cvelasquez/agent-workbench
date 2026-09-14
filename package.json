@@ -16,6 +16,7 @@
     "package": "node scripts/package.mjs",
     "build:npm": "node scripts/build-npm.mjs",
     "typecheck": "pnpm -r typecheck",
+    "vault:import": "pnpm --filter @agent-workbench/server vault:import",
     "check": "pnpm --filter @agent-workbench/server check",
     "demo": "node scripts/demo/run.mjs",
     "demo:shots": "node scripts/demo/shots.mjs"

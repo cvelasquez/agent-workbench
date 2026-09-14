@@ -35,11 +35,14 @@ import {
   asRecord,
   asString,
   asStringArray,
+  isAgentId,
+  isImportedAgentId,
   normalizeCwdKey,
   parseSessionSummary,
   type AgentId,
   type IndexStatus,
   type ProjectSummary,
+  type SessionAgentId,
   type SessionSummary,
 } from '@agent-workbench/shared';
 import type {
@@ -51,6 +54,7 @@ import type {
 import type { AgentRegistry } from './agents/registry.js';
 import type { ArchivedSessions } from './archived-sessions.js';
 import { appConfigDir, sessionIndexCachePath } from './paths.js';
+import type { VaultSummary } from './vault/catalog.js';
 
 /**
  * Sube cuando cambia la forma de la cache. La v3 agrego `modelIds`; la v4 la
@@ -98,10 +102,126 @@ export interface IndexedSession {
   /** El `cwd` del archivo, o null si no trae. Es la clave del proyecto. */
   cwd: string | null;
   /**
-   * Completo: con `agent`, `cwd` y `archived` en false (lo marca `withArchived`).
-   * Su `cwd` es el de reanudar, que puede no ser el de arriba.
+   * Completo: con `agent`, `cwd`, `archived` en false (lo marca `withArchived`),
+   * `storage` `native` y `partial` false. Su `cwd` es el de reanudar, que puede
+   * no ser el de arriba.
    */
   summary: SessionSummary;
+}
+
+/**
+ * Una sesion que entra a un proyecto: nativa (`IndexedSession`) o de la copia
+ * propia. `buildProjects` no distingue: agrupa por `cwd` y, sin `cwd`, por
+ * `agent` + `group`.
+ */
+export interface ProjectInput {
+  agent: SessionAgentId;
+  group: string;
+  cwd: string | null;
+  summary: SessionSummary;
+}
+
+/**
+ * Lo que el indice necesita de la copia propia (`vault/catalog.ts`). Una vista
+ * y no la clase: el indice no escribe ni lee la copia, solo mezcla lo que ya
+ * esta listado.
+ */
+export interface VaultCatalogView {
+  summaries(): readonly VaultSummary[];
+  onChange(listener: () => void): () => void;
+}
+
+/**
+ * Como quedo el `list()` de la fuente de una CLI en el ultimo escaneo.
+ *
+ *  - `listed`: dio la lista. Lo que no esta ahi, no esta en el historial.
+ *  - `missing`: la raiz del historial no existe. Tampoco esta.
+ *  - `unreadable`: la raiz existe y no se pudo leer (una base ocupada, una
+ *    carpeta sin permiso, un `list()` que lanzo). **No se sabe** que hay: una
+ *    copia de esa CLI no se muestra como "copia", porque probablemente la
+ *    sesion sigue ahi (D7, R4).
+ */
+export type NativeListState = 'listed' | 'missing' | 'unreadable';
+
+const vaultPairKey = (agent: string, sessionId: string): string => `${agent}/${sessionId}`;
+
+/**
+ * Las sesiones de la copia que el historial nativo ya no tiene, listas para
+ * `buildProjects`. Pura: la prueba el chequeo.
+ *
+ *  - Con el indice sin terminar (`ready` false), ninguna: durante un escaneo
+ *    en frio todas las sesiones de Claude Code aparecerian como "copia" los
+ *    3 s que tarda (D7).
+ *  - Una copia entra si su par `(agent, sessionId)` no esta entre las nativas
+ *    **y** es de una fuente importada (no tiene historial nativo) o el
+ *    historial de su CLI se leyo (`listed`) o no existe (`missing`). Una CLI sin
+ *    estado —no esta registrada en este indice— cuenta como `missing`: no hay
+ *    historial nativo que la pueda tener.
+ *  - Sale con `storage 'vault'`, el `partial` y el `group` de la cabecera, y
+ *    `archived` en false (lo marca `withArchived`, como a las demas). Una copia
+ *    con `cwd` agrupa por su propio `vault:<agent>:<sessionId>` aunque la
+ *    cabecera diga otro: si no, le prestaria su `cwd` a otra copia sin `cwd`
+ *    del mismo grupo y la metería en un proyecto que no es el suyo.
+ */
+export function vaultOnlySessions(
+  natives: Iterable<Pick<IndexedSession, 'agent' | 'summary'>>,
+  vault: readonly VaultSummary[],
+  listState: ReadonlyMap<AgentId, NativeListState>,
+  ready: boolean,
+): ProjectInput[] {
+  if (!ready || vault.length === 0) return [];
+
+  const native = new Set<string>();
+  for (const session of natives) native.add(vaultPairKey(session.agent, session.summary.sessionId));
+
+  const result: ProjectInput[] = [];
+  const seen = new Set<string>();
+  for (const copy of vault) {
+    const pair = vaultPairKey(copy.agent, copy.sessionId);
+    if (native.has(pair) || seen.has(pair)) continue;
+    if (!isImportedAgentId(copy.agent) && (listState.get(copy.agent) ?? 'missing') === 'unreadable') continue;
+    seen.add(pair);
+    const hasCwd = copy.cwd.length > 0;
+    result.push({
+      agent: copy.agent,
+      group: hasCwd ? `vault:${copy.agent}:${copy.sessionId}` : copy.group,
+      cwd: hasCwd ? copy.cwd : null,
+      summary: {
+        agent: copy.agent,
+        sessionId: copy.sessionId,
+        cwd: copy.cwd,
+        title: copy.title,
+        titleSource: copy.titleSource,
+        updatedAt: copy.updatedAt,
+        sizeBytes: copy.sizeBytes,
+        archived: false,
+        storage: 'vault',
+        partial: copy.partial,
+      },
+    });
+  }
+  return result;
+}
+
+/**
+ * El estado de una fuente despues de su `list()`. Pura: la prueba el chequeo.
+ *
+ * `listed` si dio una lista. Si dio null o lanzo: sin `rootExists`, `missing`
+ * cuando dio null (su contrato dice que null es "la raiz falta") y `unreadable`
+ * cuando lanzo; con `rootExists`, lo que diga —true es que la raiz esta y no se
+ * pudo leer—. Un `rootExists` que lanza tampoco sabe: `unreadable`.
+ */
+export async function nativeListState(
+  history: Pick<HistorySource, 'rootExists'>,
+  outcome: { items: readonly HistoryItem[] | null; threw: boolean },
+): Promise<NativeListState> {
+  if (outcome.items !== null) return 'listed';
+  if (history.rootExists === undefined) return outcome.threw ? 'unreadable' : 'missing';
+  try {
+    return (await history.rootExists()) ? 'unreadable' : 'missing';
+  } catch {
+    return 'unreadable';
+  }
 }
 
 export interface SessionIndexEvents {
@@ -128,7 +248,9 @@ async function pathExists(candidate: string): Promise<boolean> {
  */
 function parseScannedSummary(value: unknown): ScannedSummary | null {
   const parsed = parseSessionSummary(value);
-  if (parsed === null) return null;
+  // Una entrada de la cache es siempre de una CLI con adaptador: un id
+  // importado ahi se descarta, igual que antes de que existieran.
+  if (parsed === null || !isAgentId(parsed.agent)) return null;
   const { sessionId, title, titleSource, updatedAt, sizeBytes } = parsed;
   return { sessionId, title, titleSource, updatedAt, sizeBytes };
 }
@@ -239,7 +361,7 @@ export function migrateIndexCache(parsed: unknown): CacheFileV4 | null {
  *     proyectos, en el orden en que aparecieron.
  */
 export function buildProjects(
-  sessions: Iterable<IndexedSession>,
+  sessions: Iterable<ProjectInput>,
   platform: string,
 ): Array<Omit<ProjectSummary, 'cwdExists'>> {
   const all = [...sessions];
@@ -319,8 +441,18 @@ export class SessionIndex extends EventEmitter {
    */
   private readonly cwdExists = new Map<string, boolean>();
 
+  /**
+   * Como quedo el `list()` de cada CLI en el ultimo escaneo. Decide si una
+   * copia de esa CLI se muestra (`vaultOnlySessions`). `refreshPath` no lo
+   * toca: un aviso del watcher dice que un archivo cambio, no que la raiz se
+   * pudo leer.
+   */
+  private listState: ReadonlyMap<AgentId, NativeListState> = new Map();
+
+  private readonly stopCatalog: (() => void) | null;
+
   constructor(
-    private readonly agents: AgentRegistry,
+    private readonly agents: Pick<AgentRegistry, 'all' | 'adapter'>,
     /**
      * Que sesiones estan escondidas de la barra lateral.
      *
@@ -329,20 +461,107 @@ export class SessionIndex extends EventEmitter {
      * archivo, que no cambia al archivar. Mezclarlas haria que archivar
      * sobreviviera o se perdiera segun cuando se toco el archivo.
      */
-    private readonly archived?: ArchivedSessions,
+    private readonly archived?: Pick<ArchivedSessions, 'has'>,
+    /**
+     * La copia propia (hito 28). Sus sesiones se mezclan con las nativas **al
+     * emitir** y solo con el indice listo; nunca entran a la cache. Ausente: el
+     * indice de siempre.
+     */
+    private readonly catalog?: VaultCatalogView,
   ) {
     super();
+    this.stopCatalog =
+      catalog === undefined
+        ? null
+        : catalog.onChange(() => {
+            void this.onCatalogChange();
+          });
   }
 
   private status: IndexStatus = { state: 'idle', scannedFiles: 0, totalFiles: 0 };
   private scanning = false;
   private rescanQueued = false;
   private cacheDirty = false;
+  /**
+   * Lo que aportaron las copias a la ultima barra completa que salio
+   * (`vaultSignature`). Se anota en cada emision completa, sea cual sea el
+   * motivo: si solo la anotara el aviso del catalogo, una emision por un cambio
+   * nativo en el medio dejaria comparando contra una barra que ya no es la del
+   * cliente.
+   */
+  private emittedVaultSignature: string | null = null;
 
   getProjects(): ProjectSummary[] {
-    return buildProjects(this.sessions.values(), process.platform)
+    return this.projectsWith(this.vaultCopies());
+  }
+
+  /** Las copias que entran a la barra ahora (`vaultOnlySessions`). */
+  private vaultCopies(): ProjectInput[] {
+    return vaultOnlySessions(
+      this.sessions.values(),
+      this.catalog?.summaries() ?? [],
+      this.listState,
+      this.status.state === 'ready',
+    );
+  }
+
+  private projectsWith(copies: readonly ProjectInput[]): ProjectSummary[] {
+    return buildProjects([...this.sessions.values(), ...copies], process.platform)
       .map((project) => this.finish(project))
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  }
+
+  /** Todo lo que una copia pone en la barra: su fila, su proyecto y si existe su carpeta. */
+  private vaultSignature(copies: readonly ProjectInput[]): string {
+    return JSON.stringify(
+      copies.map((copy) => [
+        copy.agent,
+        copy.group,
+        copy.cwd,
+        copy.summary,
+        copy.cwd === null ? null : (this.cwdExists.get(copy.cwd) ?? false),
+      ]),
+    );
+  }
+
+  /** La barra entera a los clientes. Toda emision completa pasa por aca. */
+  private emitProjects(): void {
+    const copies = this.vaultCopies();
+    this.emittedVaultSignature = this.vaultSignature(copies);
+    this.emit('projects', this.projectsWith(copies), true);
+  }
+
+  /** Suelta el catalogo. El indice de la app vive lo que el proceso; esto es para las pruebas. */
+  dispose(): void {
+    this.stopCatalog?.();
+  }
+
+  /**
+   * Si existe la carpeta de cada copia. Las que ya se conocen no se vuelven a
+   * mirar: el mapa se rehace entero en cada escaneo, igual que el de las
+   * nativas.
+   */
+  private async learnVaultCwds(): Promise<void> {
+    for (const copy of this.catalog?.summaries() ?? []) {
+      if (copy.cwd.length > 0 && !this.cwdExists.has(copy.cwd)) {
+        this.cwdExists.set(copy.cwd, await pathExists(copy.cwd));
+      }
+    }
+  }
+
+  /**
+   * La copia cambio (una carga, una sesion escrita). Con el indice listo se
+   * reemite todo, **pero solo si cambio lo que las copias ponen en la barra**:
+   * en la primera pasada el catalogo avisa una vez por sesion escrita, casi
+   * todas tienen su nativa —que gana— y cada aviso era la barra entera a cada
+   * ventana. Durante un escaneo no hace falta, porque la emision final ya las
+   * lleva y las de cada grupo no llevan copias.
+   */
+  private async onCatalogChange(): Promise<void> {
+    await this.learnVaultCwds();
+    if (this.status.state !== 'ready') return;
+    if (this.vaultSignature(this.vaultCopies()) === this.emittedVaultSignature) return;
+    this.emitProjects();
   }
 
   /**
@@ -356,6 +575,15 @@ export class SessionIndex extends EventEmitter {
       if (session.summary.sessionId === sessionId) return session.agent;
     }
     return null;
+  }
+
+  /**
+   * Las sesiones de las CLIs registradas tal como las leyo el indice, en su
+   * orden y sin marcar archivadas. Las usa el escritor de la copia propia
+   * (hito 28), que decide aparte que se copia.
+   */
+  nativeSessions(): readonly IndexedSession[] {
+    return [...this.sessions.values()];
   }
 
   /** Completa un proyecto armado para salir: si su carpeta existe, y que esta archivado. */
@@ -387,7 +615,7 @@ export class SessionIndex extends EventEmitter {
 
   /** Reemite todo. Lo llama el socket cuando cambia que esta archivado. */
   refresh(): void {
-    this.emit('projects', this.getProjects(), true);
+    this.emitProjects();
   }
 
   getStatus(): IndexStatus {
@@ -447,14 +675,42 @@ export class SessionIndex extends EventEmitter {
         agent: adapter.id,
         history: adapter.history,
       }));
-      // Conteo previo para poder mostrar progreso real.
-      const lists = await Promise.all(sources.map((source) => source.history.list()));
+      /*
+        Conteo previo para poder mostrar progreso real.
+
+        Una fuente cuyo `list()` lanza no se lleva al resto: antes el escaneo
+        entero fallaba y la barra se quedaba sin llegar a `ready`. Queda
+        `unreadable`, que es justo lo que impide mostrar sus copias.
+      */
+      const outcomes = await Promise.all(
+        sources.map(async (source) => {
+          try {
+            return { items: await source.history.list(), threw: false };
+          } catch (error) {
+            console.warn(`[indice] no se pudo listar el historial de ${source.agent}:`, error);
+            return { items: null, threw: true };
+          }
+        }),
+      );
+      const lists = outcomes.map((outcome) => outcome.items);
+      const states = new Map<AgentId, NativeListState>();
+      for (const [position, source] of sources.entries()) {
+        const outcome = outcomes[position] ?? { items: null, threw: true };
+        states.set(source.agent, await nativeListState(source.history, outcome));
+      }
+      this.listState = states;
 
       if (lists.every((items) => items === null)) {
+        /*
+          Ningun historial nativo (C3). Es el caso de "cambie de maquina": la
+          copia es lo unico que hay, y tiene que salir por el mismo camino que
+          siempre en vez de un `[]` literal.
+        */
         this.sessions.clear();
         this.cwdExists.clear();
+        await this.learnVaultCwds();
         this.setStatus({ state: 'ready', scannedFiles: 0, totalFiles: 0 });
-        this.emit('projects', [], true);
+        this.emitProjects();
         return;
       }
 
@@ -514,8 +770,11 @@ export class SessionIndex extends EventEmitter {
         }
       }
 
+      // Antes de pasar a `ready`: la emision final ya lleva las copias, y una
+      // sin su `cwdExists` se veria tachada.
+      await this.learnVaultCwds();
       this.setStatus({ state: 'ready', scannedFiles: scanned, totalFiles });
-      this.emit('projects', this.getProjects(), true);
+      this.emitProjects();
       await this.saveCache();
     } finally {
       this.scanning = false;
@@ -607,7 +866,16 @@ export class SessionIndex extends EventEmitter {
       ref: item.ref,
       group: item.group,
       cwd,
-      summary: { ...summary, agent, cwd: resumeCwd ?? cwd ?? '', archived: false },
+      // Todo lo que sale de una fuente de historial es nativo y completo: la
+      // copia propia se mezcla despues, al emitir (hito 28).
+      summary: {
+        ...summary,
+        agent,
+        cwd: resumeCwd ?? cwd ?? '',
+        archived: false,
+        storage: 'native',
+        partial: false,
+      },
     };
   }
 
@@ -673,7 +941,7 @@ export class SessionIndex extends EventEmitter {
       changed = true;
     }
 
-    if (changed) this.emit('projects', this.getProjects(), true);
+    if (changed) this.emitProjects();
     await this.saveCache();
   }
 }

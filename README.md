@@ -27,6 +27,7 @@ que la aplicación lo toque.
 | **Cambios** | Rama, adelanto y atraso contra la rama de seguimiento, worktrees, y los archivos tocados con su diff. **Solo lectura.** |
 | **Archivos** | El árbol del directorio de la pestaña, con carga perezosa, buscador por nombre y previsualización con resaltado de sintaxis. Un ojo muestra lo que esconden `.gitignore` y las carpetas de artefactos. Menú contextual para copiar rutas, insertarlas como `@ruta` o abrir el archivo con la app del sistema. |
 | **Planes** | Los planes que escribió esa conversación en modo plan, renderizados. |
+| **Copia propia** | Opcional. Guarda el historial de las cuatro CLIs en una carpeta tuya y en un formato de la aplicación, para no perderlo si una CLI cambia de formato, lo borra o la desinstalás. Lo que la CLI ya no tiene sigue en la barra y se abre en Markdown, y cada proyecto se exporta a Markdown ([abajo](#copia-propia-opcional)). |
 | **Memoria** | Lo que los agentes aprenden de un proyecto, en `.agents/memory/` y compartido: lo leen y lo escriben Claude Code, Codex, Antigravity y OpenCode —desde acá o desde su propia terminal— a través de `AGENTS.md` y `CLAUDE.md`. La app instala ese puente mostrando antes cada cambio, importa la memoria que ya tenía Claude Code y te da, para copiar, el fragmento de la memoria global de cada CLI. |
 | **Tema** | Claro, oscuro, o el del sistema. |
 
@@ -109,6 +110,37 @@ aplicación, y necesita `node` en el `PATH`. En Windows la línea entra a la
 carpeta del script en vez de nombrarlo entre comillas: la CLI la ejecuta con
 `cmd /c`, y ninguna comilla le llega viva a `node`.
 
+### Copia propia (opcional)
+
+El historial de cada conversación es de su CLI, en su formato, y una CLI puede
+cambiarlo, podarlo o dejar de existir. La copia propia guarda lo mismo que ese
+historial —mensajes, entradas y resultados de herramientas, imágenes y la memoria
+de cada proyecto— en una carpeta tuya, en archivos que se leen sin la
+aplicación. **Arranca apagada.** El botón de la copia, en la cabecera de la barra
+de proyectos, abre un diálogo: primero **Medir** te dice cuánto ocuparía por CLI,
+sin escribir nada, y después **Activar** la enciende. Encendida, copia todo lo
+que la barra lista y no está archivado, y cada sesión que cambia la vuelve a
+copiar un minuto después de que quede quieta. Las archivadas no se copian, y
+archivar no borra lo ya copiado: la aplicación nunca borra nada de esa carpeta.
+
+Por defecto va dentro de la carpeta de configuración de la aplicación
+(`%APPDATA%\agent-workbench\vault` en Windows). **Cambiar carpeta…** la copia
+entera a otra —una sincronizada, otra unidad— sin pisar nada, y la anterior queda
+como estaba. Si la ponés en una carpeta sincronizada o en un repositorio, lo que
+guarda viaja con ella.
+
+Dos importadores de un solo uso traen historial de herramientas que la
+aplicación no lee. Se corren desde el código ([abajo](#desde-el-código)) y **no
+escriben nada sin `--write`**: sin él, dicen qué importarían.
+
+- `pnpm vault:import gemini-cli [--cwd <carpeta>]` — los chats que quedaron de
+  Gemini CLI; `--cwd` nombra la carpeta donde lo usabas, para ubicarlos en su
+  proyecto.
+- `pnpm vault:import antigravity-ide --workspace <carpeta>` — lo legible de las
+  conversaciones del IDE de Antigravity en esa carpeta: la ficha de cada una y
+  sus documentos `.md`. El contenido de la conversación está cifrado y queda
+  marcada como historial parcial.
+
 ---
 
 ## Desde el código
@@ -186,9 +218,12 @@ red saliente.
   y sin guardar ninguna línea; y de
   `~/.gemini/config/projects/`, la carpeta de cada proyecto. Su índice de
   conversaciones lo lee de una **copia** temporal, para no dejar archivos al lado
-  del original. Nada de `~/.gemini/antigravity/`, que es su IDE.
+  del original. Nada de `~/.gemini/antigravity/`, que es su IDE, salvo lo que lee
+  el importador del IDE cuando lo corrés vos: de las conversaciones de esa
+  carpeta, sus documentos `.md`, y de nuevo una copia temporal del índice.
   Lo que la aplicación guarda (pestañas abiertas, caché del índice, el script de
-  la status line) va a su propio directorio de configuración, nunca dentro de la
+  la status line, la copia propia si la encendés) va a su propio directorio de
+  configuración o a la carpeta que elijas para la copia, nunca dentro de la
   carpeta de una CLI. El log de cada pestaña de Antigravity, que trae tus
   mensajes, queda en la carpeta temporal con permisos sólo tuyos y se borra en el
   primer arranque de la aplicación pasadas 24 horas.

@@ -18,14 +18,18 @@
  */
 
 import {
+  IMPORTED_AGENT_LABELS,
   PERMISSION_MODE_HINT,
   PERMISSION_MODE_LABEL,
   blindToApprovals,
+  isAgentId,
   modelOptionFor,
   normalizeCwdKey,
   type AgentCapabilities,
   type AgentId,
   type AgentInfo,
+  type ImportedAgentId,
+  type SessionAgentId,
   type ContextUsage,
   type ContextWindowSource,
   type EffortOption,
@@ -189,6 +193,48 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     savesModelChoice: true,
   },
 };
+
+/**
+ * Las dos letras de las fuentes importadas a la copia propia (hito 28).
+ *
+ * Aparte de `AGENT_UI` porque no son CLIs de la app: no tienen atajos, ni
+ * archivo de instrucciones, ni pestanas. Solo filas en la barra.
+ */
+export const IMPORTED_AGENT_SHORT_LABELS: Record<ImportedAgentId, string> = {
+  'gemini-cli': 'GC',
+  'antigravity-ide': 'AI',
+};
+
+/** Las dos letras de la insignia, de una CLI o de una fuente importada. */
+export function agentShortLabel(agent: SessionAgentId): string {
+  return isAgentId(agent) ? AGENT_UI[agent].shortLabel : IMPORTED_AGENT_SHORT_LABELS[agent];
+}
+
+/**
+ * El nombre para mostrar de quien escribio una sesion.
+ *
+ * De una CLI, el que anuncia el servidor (y el id si todavia no lo anuncio);
+ * de una fuente importada, el de `IMPORTED_AGENT_LABELS`, que no viaja en
+ * `hello` porque no hay adaptador que la anuncie.
+ */
+export function sessionAgentLabel(agent: SessionAgentId, agents: readonly AgentInfo[]): string {
+  if (!isAgentId(agent)) return IMPORTED_AGENT_LABELS[agent];
+  return agents.find((info) => info.id === agent)?.label ?? agent;
+}
+
+/**
+ * true si una fila de la barra se retoma como pestana: es del historial nativo
+ * y de una CLI con adaptador.
+ *
+ * Una importada no tiene CLI con que reanudarse, y una que solo esta en la
+ * copia propia (`storage 'vault'`) ya no existe para su CLI: reanudarla abriria
+ * una pestana con un error. Estrecha el tipo para quien lanza.
+ */
+export function resumableSession<T extends Pick<SessionSummary, 'agent' | 'storage'>>(
+  session: T,
+): session is T & { agent: AgentId } {
+  return session.storage === 'native' && isAgentId(session.agent);
+}
 
 /** Lo que agregan los titulos de los combos de modelo y esfuerzo, o '' si nada. */
 export function modelChoiceNote(agent: AgentId | null): string {
@@ -595,13 +641,21 @@ export function firstAvailableAgent(
   return available[0]?.id ?? null;
 }
 
-/** La CLI de la sesion mas reciente, o null sin sesiones. */
+/**
+ * La CLI de la sesion mas reciente, o null sin sesiones.
+ *
+ * Las de una fuente importada no cuentan: no hay CLI con que abrir el `+` por
+ * ellas, y un proyecto donde lo ultimo es un rescate sigue abriendo con la CLI
+ * de la sesion nativa anterior.
+ */
 export function latestSessionAgent(
   sessions: readonly Pick<SessionSummary, 'agent' | 'updatedAt'>[],
 ): AgentId | null {
-  let latest: Pick<SessionSummary, 'agent' | 'updatedAt'> | null = null;
+  let latest: { agent: AgentId; updatedAt: number } | null = null;
   for (const session of sessions) {
-    if (latest === null || session.updatedAt > latest.updatedAt) latest = session;
+    const agent = session.agent;
+    if (!isAgentId(agent)) continue;
+    if (latest === null || session.updatedAt > latest.updatedAt) latest = { agent, updatedAt: session.updatedAt };
   }
   return latest?.agent ?? null;
 }
@@ -704,12 +758,17 @@ export interface SessionAgentView {
  * sabe por que. Sin **ninguna** instalada no se marca nada fila por fila: la
  * barra entera esta apagada y el cartel de arriba ya lo explica, que es lo que
  * se veia antes de que hubiera dos.
+ *
+ * Una fila de una fuente importada (hito 28) lleva insignia siempre, tambien
+ * con una sola CLI: sin ella se confundiria con una sesion de esa CLI. Y
+ * nunca el aviso de "no esta instalada": no hay nada que instalar.
  */
 export function sessionAgentView(
-  agent: AgentId,
+  agent: SessionAgentId,
   agents: readonly AgentInfo[],
   offerAgentChoice: boolean,
 ): SessionAgentView {
+  if (!isAgentId(agent)) return { badge: true, unavailableTitle: null };
   const info = agents.find((entry) => entry.id === agent);
   const anyAvailable = agents.some((entry) => entry.available);
   const missing = info !== undefined && !info.available && anyAvailable;

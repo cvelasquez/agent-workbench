@@ -13,6 +13,7 @@
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type {
+  FollowOptions,
   HistoryItem,
   HistoryRoot,
   HistorySource,
@@ -118,9 +119,15 @@ export function createCodexHistory(): HistorySource {
      */
     exists: async (_cwd, sessionId) => (await findRollout(sessionId)) !== null,
 
-    follow(target: { cwd: string; sessionId: string }): SessionFollower {
-      return new CodexSessionFollower(target.cwd, target.sessionId);
+    follow(target: { cwd: string; sessionId: string }, options?: FollowOptions): SessionFollower {
+      return new CodexSessionFollower(target.cwd, target.sessionId, {
+        limits: options?.limits,
+        maxEvents: options?.maxEvents,
+      });
     },
+
+    // `follow` respeta `FollowOptions`: la copia propia puede leer de aca (hito 28).
+    wholeRead: true,
 
     plans: null,
 

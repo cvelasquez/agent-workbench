@@ -23,11 +23,13 @@ import {
   type AgentInfo,
   type IndexStatus,
   type ProjectSummary,
+  type SessionAgentId,
   type SessionSummary,
+  type VaultStatus,
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
-import { sessionAgentView } from './agent-ui.js';
+import { resumableSession, sessionAgentLabel, sessionAgentView } from './agent-ui.js';
 import {
   archiveCandidatesByAgent,
   sessionsToArchiveBefore,
@@ -38,6 +40,21 @@ import { formatWhen } from './format-when.js';
 import { NotesPanel } from './NotesPanel.js';
 import { projectColor } from './project-color.js';
 import type { NotesApi } from './useNotes.js';
+import type { VaultExported } from './useVault.js';
+import {
+  PARTIAL_MARK_TEXT,
+  PARTIAL_MARK_TITLE,
+  VAULT_MARK_TEXT,
+  VAULT_MARK_TITLE,
+  exportButtonTitle,
+  sessionVaultView,
+  vaultButtonTitle,
+  vaultLineText,
+  type ExportButtonState,
+} from './vault-ui.js';
+
+/** Cuanto dura el tilde de "exportado". Como el de copiar una ruta. */
+const EXPORTED_ACK_MS = 1_000;
 
 interface SidebarProps {
   projects: ProjectSummary[];
@@ -53,8 +70,13 @@ interface SidebarProps {
   offerAgentChoice: boolean;
   /** Con que CLI abre el `+` de un proyecto (`projectAgent`). */
   agentForProject: (project: ProjectSummary) => AgentId | null;
-  /** Retoma una sesion del historial, con su CLI: la sesion sabe de cual es. */
-  onOpenSession: (cwd: string, session: SessionSummary) => void;
+  /**
+   * Retoma una sesion del historial, con su CLI: la sesion sabe de cual es.
+   *
+   * Solo recibe filas nativas de una CLI con adaptador (`resumableSession`):
+   * una importada o una que solo esta en la copia propia no se reanuda.
+   */
+  onOpenSession: (cwd: string, session: SessionSummary & { agent: AgentId }) => void;
   /**
    * true si la CLI de esa sesion esta instalada y sabe reanudar. Si no, la
    * fila se ve pero no se abre: reanudarla con otra CLI no encontraria nada.
@@ -85,6 +107,24 @@ interface SidebarProps {
   onSendNote: ((noteId: string) => void) | null;
   /** El `cwd` donde se abriria esa conversacion. */
   sendNoteCwd: string | null;
+  /**
+   * La copia propia (hito 28). null hasta el primer `vault.status`. Apagada, lo
+   * unico que se ve de ella es el boton de la cabecera (C9).
+   */
+  vault: VaultStatus | null;
+  /** Abre el dialogo de la copia. */
+  onOpenVault: () => void;
+  /**
+   * Abre una fila que solo esta en la copia, en Markdown. No depende de la CLI
+   * ni de la carpeta: la sesion ya no es de la CLI, y la lee el servidor.
+   */
+  onOpenVaultSession: (session: SessionSummary) => void;
+  /** Exporta a Markdown las sesiones de un proyecto, por su `key`. */
+  onExportProject: (projectKey: string) => void;
+  /** Proyectos cuya exportacion esta en viaje. */
+  exporting: ReadonlySet<string>;
+  /** La ultima exportacion que llego: el boton de ese proyecto acusa recibo. */
+  lastExported: VaultExported | null;
 }
 
 /** Nombre corto para el encabezado del proyecto. */
@@ -124,6 +164,54 @@ function ArchiveIcon({ out }: { out: boolean }): JSX.Element {
   );
 }
 
+/**
+ * La copia propia: dos hojas apiladas, la de atras corrida. Dibujada a mano por
+ * lo mismo que la caja de archivo.
+ */
+function VaultIcon(): JSX.Element {
+  return (
+    <svg
+      className="archive-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 6.5V4.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 20 4.5v11a1.5 1.5 0 0 1-1.5 1.5H17" />
+      <rect x="4" y="7" width="12" height="14" rx="1.5" />
+      <path d="M7.5 12h5M7.5 15.5h5" />
+    </svg>
+  );
+}
+
+/** Exportar a Markdown: una hoja con una flecha que baja; el tilde al acusar recibo. */
+function ExportIcon({ done }: { done: boolean }): JSX.Element {
+  return (
+    <svg
+      className="archive-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {done ? (
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      ) : (
+        <>
+          <path d="M14 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V7.5z" />
+          <path d="M12 10.5v6.5M9.2 14.2 12 17l2.8-2.8" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /** "1 sesion" o "N sesiones". */
 function sessionsText(count: number): string {
   return `${count} ${count === 1 ? 'sesión' : 'sesiones'}`;
@@ -132,7 +220,7 @@ function sessionsText(count: number): string {
 interface ArchiveHistoryPanelProps {
   candidates: readonly ArchiveCandidates[];
   agents: readonly AgentInfo[];
-  onArchiveAgent: (agent: AgentId) => void;
+  onArchiveAgent: (agent: SessionAgentId) => void;
   onClose: () => void;
   /** El boton que lo abre: un clic ahi es suyo, no un clic afuera. */
   anchorRef: RefObject<HTMLElement>;
@@ -153,7 +241,7 @@ function ArchiveHistoryPanel({
   onClose,
   anchorRef,
 }: ArchiveHistoryPanelProps): JSX.Element {
-  const [confirming, setConfirming] = useState<AgentId | null>(null);
+  const [confirming, setConfirming] = useState<SessionAgentId | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   /*
@@ -198,7 +286,7 @@ function ArchiveHistoryPanel({
       </div>
 
       {candidates.map(({ agent, count }) => {
-        const label = agents.find((info) => info.id === agent)?.label ?? agent;
+        const label = sessionAgentLabel(agent, agents);
 
         if (confirming === agent) {
           return (
@@ -255,8 +343,35 @@ export function Sidebar({
   onNewProject,
   onSendNote,
   sendNoteCwd,
+  vault,
+  onOpenVault,
+  onOpenVaultSession,
+  onExportProject,
+  exporting,
+  lastExported,
 }: SidebarProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  /*
+    El tilde de "exportado", un segundo, en el proyecto de la ultima
+    exportacion que llego. Exportar no cambia nada en la barra —abre una
+    carpeta en otra ventana—, y sin senal no se sabe si el clic hizo algo.
+  */
+  const [exportAckKey, setExportAckKey] = useState<string | null>(null);
+  useEffect(() => {
+    // Con lo que queda del segundo: la barra se desmonta al esconderla, y al
+    // volver no tiene que acusar recibo de una exportacion de hace un rato.
+    const left = lastExported === null ? 0 : lastExported.at + EXPORTED_ACK_MS - Date.now();
+    if (lastExported === null || left <= 0) return;
+    setExportAckKey(lastExported.projectKey);
+    const timer = window.setTimeout(() => setExportAckKey(null), left);
+    return () => window.clearTimeout(timer);
+  }, [lastExported]);
+
+  const exportState = (projectKey: string): ExportButtonState =>
+    exporting.has(projectKey) ? 'exporting' : exportAckKey === projectKey ? 'done' : 'idle';
+
+  const vaultLine = vaultLineText(vault);
   const [filter, setFilter] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -333,7 +448,7 @@ export function Sidebar({
     archivadas no entraron—. Queda hasta cerrarlo o hasta el siguiente.
   */
   const [lastHistoryArchive, setLastHistoryArchive] = useState<{
-    agent: AgentId;
+    agent: SessionAgentId;
     sessionIds: string[];
   } | null>(null);
 
@@ -346,7 +461,7 @@ export function Sidebar({
   const closeHistory = useCallback(() => setHistoryOpen(false), []);
 
   /** Con la lista de ahora y no con la del render del panel: es la que se ve. */
-  const archiveHistory = (agent: AgentId): void => {
+  const archiveHistory = (agent: SessionAgentId): void => {
     const ids = sessionsToArchiveBefore(projects, agent, historyCutoff, openSessionIds);
     if (ids.length > 0) {
       onArchive(ids, true);
@@ -431,6 +546,19 @@ export function Sidebar({
         >
           ⟳
         </button>
+        {/*
+          La copia propia (hito 28). Un icono y nada mas: con la copia apagada,
+          que es como arranca, es todo lo que cambia en la barra (C9).
+          Encendida se tine y aparece su linea de estado abajo.
+        */}
+        <button
+          className={`icon-button${vault?.enabled === true ? ' icon-button-on' : ''}`}
+          onClick={onOpenVault}
+          title={vaultButtonTitle(vault)}
+          aria-label="Copia propia"
+        >
+          <VaultIcon />
+        </button>
         <button className="icon-button" onClick={onHide} title="Ocultar los proyectos">
           «
         </button>
@@ -492,8 +620,7 @@ export function Sidebar({
           <span className="archive-history-text">
             {lastHistoryArchive.sessionIds.length === 1 ? 'Se archivó' : 'Se archivaron'}{' '}
             {sessionsText(lastHistoryArchive.sessionIds.length)} de{' '}
-            {agents.find((info) => info.id === lastHistoryArchive.agent)?.label ??
-              lastHistoryArchive.agent}
+            {sessionAgentLabel(lastHistoryArchive.agent, agents)}
           </span>
           <button className="link-button" onClick={undoHistoryArchive}>
             Deshacer
@@ -506,6 +633,21 @@ export function Sidebar({
             ×
           </button>
         </div>
+      )}
+
+      {/* Solo encendida: ver `vaultLineText`. */}
+      {vaultLine !== null && (
+        <button
+          className={`sidebar-vault-line${vault?.lastError != null ? ' is-problem' : ''}`}
+          onClick={onOpenVault}
+          title={
+            vault?.lastError != null
+              ? `Último error: ${vault.lastError}`
+              : 'Ver el estado y la carpeta de la copia propia'
+          }
+        >
+          {vaultLine}
+        </button>
       )}
 
       <div className="sidebar-scroll">
@@ -544,6 +686,23 @@ export function Sidebar({
                   <span className="project-name">{projectName(project)}</span>
                   <span className="project-count">{project.sessions.length}</span>
                 </button>
+                {/*
+                  Exportar a Markdown (hito 28). Al pasar el mouse, como archivar
+                  una fila: no es de todos los dias. Funciona con la copia
+                  apagada y con la carpeta del proyecto borrada: lee del
+                  historial o de la copia, y escribe en la carpeta de la copia.
+                */}
+                <button
+                  className={`icon-button project-action${
+                    exportState(project.key) !== 'idle' ? ' project-action-busy' : ''
+                  }`}
+                  onClick={() => onExportProject(project.key)}
+                  disabled={exportState(project.key) === 'exporting'}
+                  title={exportButtonTitle(exportState(project.key))}
+                  aria-label="Exportar a Markdown"
+                >
+                  <ExportIcon done={exportState(project.key) === 'done'} />
+                </button>
                 <AgentSplitButton
                   className="icon-button"
                   text="+"
@@ -572,6 +731,12 @@ export function Sidebar({
                     const isSelected = selected.has(session.sessionId);
                     const blocked = !canArchive(session);
                     const agentView = sessionAgentView(session.agent, agents, offerAgentChoice);
+                    // Una importada, o una que solo queda en la copia propia, no
+                    // se reanuda: su CLI no la tiene. Se abre en Markdown, y eso
+                    // no depende de la CLI ni de la carpeta (hito 28, D8).
+                    const vaultView = sessionVaultView(session);
+                    const resumable = resumableSession(session) && canResume(session.agent);
+                    const openable = vaultView.copy || (canOpen && resumable);
 
                     return (
                       <li
@@ -590,19 +755,40 @@ export function Sidebar({
                               toggleSelected(session.sessionId);
                               return;
                             }
+                            // Una fila "copia" se lee, no se retoma: se abre su
+                            // Markdown y la fila queda como estaba.
+                            if (vaultView.copy) {
+                              onOpenVaultSession(session);
+                              return;
+                            }
                             // Abrir una archivada la devuelve a la lista:
                             // trabajar en algo escondido y que siga escondido
                             // es peor que no haberla escondido nunca.
+                            if (!resumableSession(session)) return;
                             if (session.archived) onArchive([session.sessionId], false);
                             // Con el `cwd` que escribio la CLI, salvo que solo
                             // cambien las mayusculas (ver `resumeCwdFor`).
                             onOpenSession(resumeCwdFor(session.cwd, project.cwd, platform), session);
                           }}
-                          disabled={!canOpen || !canResume(session.agent)}
-                          title={agentView.unavailableTitle ?? session.title}
+                          disabled={!openable}
+                          title={
+                            vaultView.copy
+                              ? `${session.title}\n${VAULT_MARK_TITLE}`
+                              : (agentView.unavailableTitle ?? session.title)
+                          }
                         >
                           <span className="session-title">
                             {agentView.badge && <AgentBadge agent={session.agent} agents={agents} />}
+                            {vaultView.copy && (
+                              <span className="session-vault-mark" title={VAULT_MARK_TITLE}>
+                                {VAULT_MARK_TEXT}
+                              </span>
+                            )}
+                            {vaultView.partial && (
+                              <span className="session-partial-mark" title={PARTIAL_MARK_TITLE}>
+                                {PARTIAL_MARK_TEXT}
+                              </span>
+                            )}
                             {session.title}
                           </span>
                           <span className="session-meta">{formatWhen(session.updatedAt)}</span>

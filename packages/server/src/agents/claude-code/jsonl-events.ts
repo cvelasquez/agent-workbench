@@ -22,12 +22,7 @@ import type {
   ConversationRole,
   MessageUsage,
 } from '@agent-workbench/shared';
-import {
-  TEXT_MAX_CHARS,
-  TOOL_INPUT_MAX_CHARS,
-  TOOL_RESULT_MAX_CHARS,
-  cut,
-} from '../transport-limits.js';
+import { TRANSPORT_LIMITS, cut, type EventLimits } from '../transport-limits.js';
 
 /**
  * Envoltorios que escribe la CLI cuando el usuario le da una orden **a ella**.
@@ -201,6 +196,7 @@ function toPart(
   block: unknown,
   role: ConversationRole,
   index: number,
+  limits: EventLimits,
 ): ConversationPart | null {
   if (typeof block !== 'object' || block === null) return null;
   const record = block as Record<string, unknown>;
@@ -211,7 +207,7 @@ function toPart(
       if (typeof raw !== 'string') return null;
       const cleaned = role === 'user' ? cleanUserText(raw) : raw;
       if (cleaned.length === 0) return null;
-      const { text, truncated } = cut(cleaned, TEXT_MAX_CHARS);
+      const { text, truncated } = cut(cleaned, limits.textMaxChars);
       return { kind: 'text', text, truncated };
     }
 
@@ -243,7 +239,7 @@ function toPart(
         // tarjeta sin entrada es mejor que un evento perdido.
         serialized = '';
       }
-      const { text, truncated } = cut(serialized, TOOL_INPUT_MAX_CHARS);
+      const { text, truncated } = cut(serialized, limits.toolInputMaxChars);
       return { kind: 'tool-call', toolUseId, name, input: text, truncated };
     }
 
@@ -272,7 +268,7 @@ function toPart(
       const toolUseId = record['tool_use_id'];
       if (typeof toolUseId !== 'string') return null;
       const flat = flattenToolResultContent(record['content']);
-      const { text, truncated } = cut(flat.text, TOOL_RESULT_MAX_CHARS);
+      const { text, truncated } = cut(flat.text, limits.toolResultMaxChars);
       return {
         kind: 'tool-result',
         toolUseId,
@@ -328,6 +324,7 @@ function readTimestamp(value: unknown): number {
 function toQueuedUserEvent(
   record: Record<string, unknown>,
   lineNumber: number,
+  limits: EventLimits,
 ): ConversationEvent | null {
   const attachment = record['attachment'];
   if (typeof attachment !== 'object' || attachment === null) return null;
@@ -345,7 +342,7 @@ function toQueuedUserEvent(
   const cleaned = cleanUserText(prompt);
   if (cleaned.length === 0) return null;
 
-  const { text, truncated } = cut(cleaned, TEXT_MAX_CHARS);
+  const { text, truncated } = cut(cleaned, limits.textMaxChars);
   const uuid = record['uuid'];
 
   return {
@@ -524,10 +521,13 @@ export function stripFileReference(text: string, filename: string): string {
  * Una linea ya parseada a objeto -> evento, o null si no corresponde mostrarla.
  *
  * `lineNumber` solo se usa para fabricar un id cuando la linea no trae `uuid`.
+ * `limits`: los topes de cada parte; los de transporte salvo que se lea para la
+ * copia propia (hito 28).
  */
 export function toConversationEvent(
   record: Record<string, unknown>,
   lineNumber: number,
+  limits: EventLimits = TRANSPORT_LIMITS,
 ): ConversationEvent | null {
   const type = record['type'];
 
@@ -539,7 +539,7 @@ export function toConversationEvent(
 
   // El unico `attachment` que es un mensaje de alguien. El resto son avisos
   // del arnes y siguen ignorandose en silencio (§4.4).
-  if (type === 'attachment') return toQueuedUserEvent(record, lineNumber);
+  if (type === 'attachment') return toQueuedUserEvent(record, lineNumber, limits);
 
   if (type !== 'user' && type !== 'assistant') return null;
 
@@ -554,12 +554,12 @@ export function toConversationEvent(
   if (typeof content === 'string') {
     const cleaned = role === 'user' ? cleanUserText(content) : content;
     if (cleaned.length > 0) {
-      const { text, truncated } = cut(cleaned, TEXT_MAX_CHARS);
+      const { text, truncated } = cut(cleaned, limits.textMaxChars);
       parts.push({ kind: 'text', text, truncated });
     }
   } else if (Array.isArray(content)) {
     content.forEach((block, index) => {
-      const part = toPart(block, role, index);
+      const part = toPart(block, role, index, limits);
       if (part !== null) parts.push(part);
     });
   }

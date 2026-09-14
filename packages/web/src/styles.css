@@ -3768,6 +3768,229 @@ kbd {
   display: block;
 }
 
+/* ---------- copia propia (hito 28) ---------- */
+
+/*
+  La linea de estado de la barra. Solo encendida: apagada, lo unico que se ve
+  de la copia es el boton de la cabecera (C9).
+*/
+.sidebar-vault-line {
+  flex: none;
+  display: block;
+  width: 100%;
+  padding: 4px 10px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-vault-line:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.sidebar-vault-line.is-problem {
+  color: var(--warning);
+}
+
+/*
+  Las marcas de una fila que solo esta en la copia. Van dentro del titulo, como
+  la insignia de la CLI, y se recortan con el: la fila no crece por esto.
+*/
+.session-vault-mark,
+.session-partial-mark {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  line-height: 13px;
+  vertical-align: 1px;
+}
+
+.session-vault-mark {
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.session-partial-mark {
+  color: var(--warning);
+  border: 1px dashed color-mix(in srgb, var(--warning) 60%, transparent);
+}
+
+/*
+  "Exportar a Markdown" de un proyecto: aparece al pasar el mouse, como el
+  archivar de una fila. Mientras exporta y durante el tilde queda visible: si
+  se escondiera con el mouse afuera, el acuse no lo veria nadie.
+
+  **No ocupa lugar en la fila** (C9): el margen negativo descuenta su ancho y el
+  hueco de `.project-row`, y se dibuja encima del final del nombre, donde esta el
+  contador. Con la opacidad sola el hueco quedaba reservado y cada nombre se
+  cortaba unos 30 px antes, tambien con la copia apagada y sin tocar nada. Lo
+  que se paga: con el mouse sobre la fila, el contador queda tapado. Escondido no
+  recibe clics, que son del contador y del nombre.
+*/
+.project-action {
+  opacity: 0;
+  pointer-events: none;
+  width: 26px;
+  min-width: 26px;
+  padding: 0;
+  margin-left: -30px;
+  background: var(--chrome-alt);
+}
+
+.project-row:hover .project-action,
+.project-action:focus-visible,
+.project-action-busy {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.project-action-busy {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.vault-modal {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.vault-state {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.vault-state-on {
+  color: var(--accent);
+}
+
+.vault-lead {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.vault-summary {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.vault-progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin: 8px 0;
+  accent-color: var(--accent);
+}
+
+.vault-actions {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.vault-actions .link-button {
+  font-size: 12px;
+}
+
+.vault-actions .modal-hint {
+  margin: 4px 0;
+}
+
+.vault-switch {
+  margin-top: 10px;
+}
+
+.vault-switch .primary-button {
+  margin-top: 0;
+}
+
+.vault-table-wrap {
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.vault-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.vault-table th {
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+  text-align: right;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.vault-table td {
+  padding: 4px 6px;
+  text-align: right;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--border);
+}
+
+.vault-table th:first-child,
+.vault-table td:first-child {
+  text-align: left;
+}
+
+.vault-table tfoot td {
+  font-weight: 600;
+  border-bottom: none;
+}
+
+.vault-table-note {
+  display: block;
+  font-size: 10.5px;
+  color: var(--warning);
+}
+
+.vault-dir {
+  margin: 4px 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.vault-error {
+  margin: 4px 0;
+  font-size: 11.5px;
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+
+.vault-problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.vault-problem span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- notas sueltas, al pie de la barra lateral ---------- */
 
 .notes {

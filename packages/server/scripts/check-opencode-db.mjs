@@ -268,7 +268,8 @@ const errorOf = (run) => {
   }
 };
 
-const { OPENCODE_SQL, OPENCODE_REQUIRED_COLUMNS } = await import('../src/agents/opencode/sql.ts');
+const { OPENCODE_SQL, OPENCODE_REQUIRED_COLUMNS, partCutParams } = await import('../src/agents/opencode/sql.ts');
+const { TRANSPORT_LIMITS } = await import('../src/agents/transport-limits.ts');
 const { resolveOpenCodePaths } = await import('../src/agents/opencode/paths.ts');
 const sqliteModule = await import('../src/agents/sqlite.ts');
 const fixture = await import('./fixtures/opencode-db.mjs');
@@ -544,7 +545,10 @@ const base = await createOpenCodeFixture(path.join(fixturesDir, 'base'), openCod
   const params = {
     listRoots: [], rootStamps: [], sessionById: ['ses_c_rica'], sessionExists: ['ses_c_rica'], sessionHasMessages: ['ses_c_rica'],
     firstUserText: ['ses_c_rica'], sessionSignature: [{ $s: 'ses_c_rica' }], messagesSince: ['ses_c_rica', 0],
-    partCountsByMessage: ['ses_c_rica'], partsForMessages: [JSON.stringify(richIds)], partsSince: ['ses_c_rica', 0],
+    partCountsByMessage: ['ses_c_rica'],
+    // Hito 28: las dos sentencias de partes van enteras con nombre, con los cortes del hilo.
+    partsForMessages: [{ $ids: JSON.stringify(richIds), ...partCutParams(TRANSPORT_LIMITS) }],
+    partsSince: [{ $s: 'ses_c_rica', $since: 0, ...partCutParams(TRANSPORT_LIMITS) }],
     imageParts: ['msg_c01'], imageUrlById: [{ $id: 'prt_c02g', $max: 100_000_000 }], discoveryRows: [0],
   };
   check('2 cada sentencia tiene sus parametros en este chequeo', same(Object.keys(params).sort(), Object.keys(OPENCODE_SQL).sort()));
@@ -716,7 +720,7 @@ const { buildEvents, buildUsage, applyRevert, parseRevert, toolParts } = events;
 const rowsOf = (db, sessionId) => {
   const messages = db.all(OPENCODE_SQL.messagesSince, sessionId, 0);
   const partsByMessage = new Map();
-  for (const part of db.all(OPENCODE_SQL.partsSince, sessionId, 0)) {
+  for (const part of db.all(OPENCODE_SQL.partsSince, { $s: sessionId, $since: 0, ...partCutParams(TRANSPORT_LIMITS) })) {
     const list = partsByMessage.get(part.message_id) ?? [];
     list.push(part);
     partsByMessage.set(part.message_id, list);

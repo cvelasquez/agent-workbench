@@ -10,3 +10,4 @@ export * from './notes.js';
 export * from './memory.js';
 export * from './agents.js';
 export * from './project-key.js';
+export * from './vault.js';

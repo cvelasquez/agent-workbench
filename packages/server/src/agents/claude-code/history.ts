@@ -14,6 +14,7 @@ import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { asStringArray } from '@agent-workbench/shared';
 import type {
+  FollowOptions,
   HistoryExtra,
   HistoryItem,
   HistoryRoot,
@@ -152,9 +153,12 @@ export function createClaudeCodeHistory(variants: ModelVariantRegistry): History
       return pathExists(sessionFilePath(cwd, sessionId));
     },
 
-    follow(target: { cwd: string; sessionId: string }): SessionFollower {
-      return new ClaudeCodeSessionFollower(target.cwd, target.sessionId, variants);
+    follow(target: { cwd: string; sessionId: string }, options?: FollowOptions): SessionFollower {
+      return new ClaudeCodeSessionFollower(target.cwd, target.sessionId, variants, options);
     },
+
+    // `follow` respeta `FollowOptions`: la copia propia puede leer de aca (hito 28).
+    wholeRead: true,
 
     plans: { describe: describePlans, read: readPlan },
 

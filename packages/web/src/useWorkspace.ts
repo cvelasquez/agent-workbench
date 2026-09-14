@@ -260,6 +260,9 @@ export function useWorkspace(): Workspace {
             if (message.detail !== undefined) console.error('[servidor]', message.detail);
             break;
           }
+          // Lo mismo con la copia propia (hito 28): lo dice su dialogo, o su
+          // propio aviso si el dialogo esta cerrado. Ver `useVault`.
+          if (message.code === 'vault-failed') break;
           setError({ message: message.message, at: Date.now() });
           // Un fallo al abrir la CLI no puede dejar el boton diciendo
           // "Abriendo…" para siempre.

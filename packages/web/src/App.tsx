@@ -34,7 +34,9 @@ import { useGit } from './useGit.js';
 import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
 import { THEME_ICON, THEME_LABEL, useTheme } from './useTheme.js';
+import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
+import { VaultDialog } from './VaultDialog.js';
 import type { ConnectionStatus } from './connection.js';
 import { blindToApprovals, type TerminalId } from '@agent-workbench/shared';
 
@@ -176,6 +178,13 @@ export function App(): JSX.Element {
   const notes = useNotes(connection);
 
   /*
+    La copia propia (hito 28), aca por lo mismo que las notas: el estado llega
+    del servidor en cualquier momento y la barra que lo muestra se desmonta.
+  */
+  const vault = useVault(connection);
+  const [vaultDialogVisible, setVaultDialogVisible] = useState(false);
+
+  /*
     Que sesiones tienen una pestana abierta. La barra lateral las necesita para
     no ofrecer archivar lo que se esta usando: esconder de la lista la fila que
     explica la pestana que uno tiene delante no resuelve nada.
@@ -245,8 +254,11 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (activeStatusLine === null) setStatusLineDialogVisible(false);
   }, [activeStatusLine]);
-  /** El selector de carpetas para empezar un proyecto nuevo. */
-  const [pickerVisible, setPickerVisible] = useState(false);
+  /**
+   * El selector de carpetas: para empezar un proyecto nuevo, o para elegir la
+   * carpeta de la copia propia (hito 28). Uno solo a la vez.
+   */
+  const [pickerFor, setPickerFor] = useState<'project' | 'vault' | null>(null);
 
   const panelOpen = panelVisible && activeTerminal !== null;
 
@@ -820,6 +832,20 @@ export function App(): JSX.Element {
         </div>
       )}
 
+      {/*
+        Un pedido de la copia propia que fallo con el dialogo cerrado: abrir una
+        fila "copia" o exportar un proyecto, que se piden desde la barra. Con el
+        dialogo abierto lo dice el dialogo, y no los dos.
+      */}
+      {vault.problem !== null && !vaultDialogVisible && (
+        <div className="banner banner-error">
+          <span>{vault.problem}</span>
+          <button className="banner-close" onClick={vault.dismissProblem} title="Cerrar">
+            ×
+          </button>
+        </div>
+      )}
+
       <div className="app-body">
         {/*
           Escondida la barra, queda su pestañita.
@@ -871,7 +897,7 @@ export function App(): JSX.Element {
             onHide={toggleSidebar}
             width={sidebarWidth}
             notes={notes}
-            onNewProject={() => setPickerVisible(true)}
+            onNewProject={() => setPickerFor('project')}
             /*
               Mandar una nota abre una conversacion **nueva** en el proyecto que
               se esta mirando, y le pasa la nota entera. El id de la pestana lo
@@ -901,6 +927,12 @@ export function App(): JSX.Element {
                   }
             }
             sendNoteCwd={activeTerminal?.cwd ?? null}
+            vault={vault.status}
+            onOpenVault={() => setVaultDialogVisible(true)}
+            onOpenVaultSession={(session) => vault.openSession(session.agent, session.sessionId)}
+            onExportProject={vault.exportProject}
+            exporting={vault.exporting}
+            lastExported={vault.lastExported}
           />
         )}
 
@@ -1205,14 +1237,56 @@ export function App(): JSX.Element {
         Proyecto nuevo. Abre una pestana en la carpeta elegida y se cierra: a
         partir de ahi el proyecto aparece solo en la barra, como cualquier otro.
       */}
-      {pickerVisible && (
+      {pickerFor === 'project' && (
         <FolderPicker
           connection={connection}
-          onOpen={(cwd) => {
-            setPickerVisible(false);
+          title="Proyecto nuevo"
+          confirmLabel="Abrir aca"
+          confirmTitle={(path) => `Abrir una pestana del agente en ${path}`}
+          onChoose={(_pickerId, cwd) => {
+            setPickerFor(null);
             openTerminal({ cwd });
           }}
-          onClose={() => setPickerVisible(false)}
+          onClose={() => setPickerFor(null)}
+        />
+      )}
+
+      {/*
+        La copia propia (hito 28). El selector se abre encima del dialogo, que
+        sigue montado debajo: al elegir, el dialogo muestra la mudanza y dice
+        donde quedo la carpeta vieja.
+      */}
+      {vaultDialogVisible && (
+        <VaultDialog
+          status={vault.status}
+          agents={agents}
+          indexReady={indexStatus.state === 'ready'}
+          problem={vault.problem}
+          covered={pickerFor === 'vault'}
+          onMeasure={vault.measure}
+          onSetEnabled={vault.setEnabled}
+          onChangeDir={() => setPickerFor('vault')}
+          onReveal={vault.reveal}
+          onDismissProblem={vault.dismissProblem}
+          onClose={() => setVaultDialogVisible(false)}
+        />
+      )}
+
+      {pickerFor === 'vault' && (
+        <FolderPicker
+          connection={connection}
+          title="Carpeta de la copia propia"
+          confirmLabel="Usar esta carpeta"
+          confirmTitle={(path) =>
+            `Mudar la copia propia a ${path}. La carpeta de ahora queda intacta`
+          }
+          onChoose={(pickerId) => {
+            // Antes de cerrar: el servidor lee la carpeta de este selector, que
+            // se cierra al desmontarse.
+            vault.chooseDir(pickerId);
+            setPickerFor(null);
+          }}
+          onClose={() => setPickerFor(null)}
         />
       )}
     </div>

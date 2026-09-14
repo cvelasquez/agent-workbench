@@ -1,7 +1,7 @@
 /**
  * Protocolo WebSocket entre el navegador y el servidor local.
  *
- * Version 6 — las CLIs se anuncian por adaptador.
+ * Version 7 — la copia propia.
  *
  * Cambio de la v1 a la v2: el WebSocket dejo de ser duenio de la pty. Las
  * terminales viven en el servidor y el socket solo se engancha a ellas. Por eso
@@ -30,6 +30,12 @@
  * de fallar a ciegas. `terminal.activity` suma `unknown`, para la CLI que no
  * publica su estado.
  *
+ * Lo que cambia en la v7: la familia `vault.*` (la copia propia, hito 28), y
+ * `SessionSummary` suma `storage` y `partial` y puede traer un `agent`
+ * importado. Ningun `vault.*` nombra una ruta: la carpeta nueva es donde esta
+ * parado un selector del servidor, una sesion se pide por `(agent, sessionId)`
+ * y un proyecto por su `key`.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -38,7 +44,14 @@
  */
 
 import type { AgentDefaults } from './agent-controls.js';
-import { AGENT_IDS, parseAgentInfo, type AgentId, type AgentInfo } from './agents.js';
+import {
+  AGENT_IDS,
+  SESSION_AGENT_IDS,
+  parseAgentInfo,
+  type AgentId,
+  type AgentInfo,
+  type SessionAgentId,
+} from './agents.js';
 import { isPermissionMode, type PermissionMode } from './permission-modes.js';
 import {
   parseContextUsage,
@@ -105,9 +118,10 @@ import {
   asStringArray,
   parseJson,
 } from './validation.js';
+import { isVaultSessionId, parseVaultStatus, type VaultStatus } from './vault.js';
 
 /** Se incrementa cuando el contrato cambia de forma incompatible. */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /** Ruta del WebSocket. El resto del servidor sirve la UI. */
 export const WS_PATH = '/ws';
@@ -667,6 +681,55 @@ export interface ClientMemoryReadMessage {
   requestId?: string;
 }
 
+/**
+ * La copia propia (`vault.*`, hito 28).
+ *
+ * El servidor contesta con `vault.status` a todos los sockets en cada cambio;
+ * los pedidos no llevan `requestId` porque el estado es uno solo y el dialogo
+ * dibuja el ultimo que llego. Un fallo es un `error` con `vault-failed`.
+ */
+
+/** Pasada en seco: cuanto ocuparia, sin escribir nada. */
+export interface ClientVaultMeasureMessage {
+  type: 'vault.measure';
+}
+
+/** Enciende o apaga la copia. Apagarla no borra nada. */
+export interface ClientVaultEnableMessage {
+  type: 'vault.enable';
+  enabled: boolean;
+}
+
+/**
+ * Mueve la copia a otra carpeta.
+ *
+ * **No lleva la carpeta**: la carpeta es donde esta parado ese selector del
+ * servidor (`picker.*`). Es el mismo criterio que abrir un proyecto nuevo.
+ */
+export interface ClientVaultSetDirMessage {
+  type: 'vault.setDir';
+  pickerId: string;
+}
+
+/** Exporta a Markdown las sesiones de un proyecto de la barra, por su `key`. */
+export interface ClientVaultExportProjectMessage {
+  type: 'vault.exportProject';
+  projectKey: string;
+}
+
+/** Abre una fila "copia" en Markdown. Por id, nunca por ruta. */
+export interface ClientVaultOpenSessionMessage {
+  type: 'vault.openSession';
+  agent: SessionAgentId;
+  /** Con la forma de `VAULT_SESSION_ID_PATTERN`: el parser rechaza otra. */
+  sessionId: SessionId;
+}
+
+/** Abre la carpeta de la copia con el explorador del sistema. */
+export interface ClientVaultRevealMessage {
+  type: 'vault.reveal';
+}
+
 export type ClientMessage =
   | ClientInputMessage
   | ClientSubmitMessage
@@ -714,7 +777,13 @@ export type ClientMessage =
   | ClientMemoryPlanMessage
   | ClientMemoryInstallMessage
   | ClientMemoryImportMessage
-  | ClientMemoryReadMessage;
+  | ClientMemoryReadMessage
+  | ClientVaultMeasureMessage
+  | ClientVaultEnableMessage
+  | ClientVaultSetDirMessage
+  | ClientVaultExportProjectMessage
+  | ClientVaultOpenSessionMessage
+  | ClientVaultRevealMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -1148,6 +1217,22 @@ export interface ServerMemoryContentMessage {
   requestId?: string;
 }
 
+/**
+ * Estado de la copia propia. Al conectar, junto con `notes.list`, y a todos en
+ * cada cambio (durante una pasada, no mas de uno cada 500 ms).
+ */
+export interface ServerVaultStatusMessage {
+  type: 'vault.status';
+  status: VaultStatus;
+}
+
+/** Un proyecto quedo exportado a Markdown. Acusa recibo del boton. */
+export interface ServerVaultExportedMessage {
+  type: 'vault.exported';
+  projectKey: string;
+  sessions: number;
+}
+
 export type ServerErrorCode =
   | 'cli-not-found'
   | 'shell-not-found'
@@ -1167,6 +1252,8 @@ export type ServerErrorCode =
   | 'notes-failed'
   | 'picker-failed'
   | 'memory-failed'
+  /** Un pedido `vault.*` que no se pudo cumplir. El texto dice por que. */
+  | 'vault-failed'
   /**
    * La CLI de la pestana no tiene esa accion —o se pidio una CLI que el
    * servidor no conoce—. Va aparte de `mode-failed` y compania porque no es un
@@ -1193,6 +1280,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'notes-failed',
   'picker-failed',
   'memory-failed',
+  'vault-failed',
   'agent-unsupported',
   'internal',
 ];
@@ -1245,6 +1333,8 @@ export type ServerMessage =
   | ServerMemoryInstalledMessage
   | ServerMemoryImportedMessage
   | ServerMemoryContentMessage
+  | ServerVaultStatusMessage
+  | ServerVaultExportedMessage
   | ServerErrorMessage;
 
 export type ServerMessageType = ServerMessage['type'];
@@ -1619,6 +1709,31 @@ export function parseClientMessage(raw: string): ClientMessage | null {
         ? null
         : withMemoryRequestId<ClientMemoryReadMessage>({ type: 'memory.read', terminalId, name }, record);
     }
+    case 'vault.measure':
+      return { type: 'vault.measure' };
+    case 'vault.enable': {
+      const enabled = asBoolean(record['enabled']);
+      return enabled === null ? null : { type: 'vault.enable', enabled };
+    }
+    case 'vault.setDir': {
+      const pickerId = asNonEmptyString(record['pickerId']);
+      return pickerId === null ? null : { type: 'vault.setDir', pickerId };
+    }
+    case 'vault.exportProject': {
+      const projectKey = asNonEmptyString(record['projectKey']);
+      return projectKey === null ? null : { type: 'vault.exportProject', projectKey };
+    }
+    case 'vault.openSession': {
+      // El id se valida aca con la forma de la copia: el servidor lo junta con
+      // una carpeta, y un `../x` no puede llegar hasta ahi.
+      const agent = asLiteral(record['agent'], SESSION_AGENT_IDS);
+      const sessionId = asNonEmptyString(record['sessionId']);
+      return agent === null || sessionId === null || !isVaultSessionId(sessionId)
+        ? null
+        : { type: 'vault.openSession', agent, sessionId };
+    }
+    case 'vault.reveal':
+      return { type: 'vault.reveal' };
     default:
       return null;
   }
@@ -1975,6 +2090,17 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || note === null
         ? null
         : withMemoryRequestId<ServerMemoryContentMessage>({ type: 'memory.content', terminalId, note }, record);
+    }
+    case 'vault.status': {
+      const status = parseVaultStatus(record['status']);
+      return status === null ? null : { type: 'vault.status', status };
+    }
+    case 'vault.exported': {
+      const projectKey = asNonEmptyString(record['projectKey']);
+      const sessions = asFiniteNumber(record['sessions']);
+      return projectKey === null || sessions === null
+        ? null
+        : { type: 'vault.exported', projectKey, sessions };
     }
     case 'error': {
       const message = asString(record['message']);

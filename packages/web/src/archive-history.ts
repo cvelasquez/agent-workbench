@@ -10,7 +10,7 @@
  * Sin JSX, para que lo pruebe el chequeo.
  */
 
-import type { AgentId, ProjectSummary } from '@agent-workbench/shared';
+import type { AgentId, ProjectSummary, SessionAgentId } from '@agent-workbench/shared';
 
 /**
  * La medianoche local del dia de `nowMs`.
@@ -38,10 +38,13 @@ export function startOfLocalDay(nowMs: number): number {
  *   que no se cumple.
  * - Sin repetidos. El archivo guarda ids a secas (CLAUDE.md 6.5), y un id que
  *   apareciera en dos proyectos contaria dos veces una sola sesion.
+ *
+ * `agentId` puede ser una fuente importada a la copia propia (hito 28): sus
+ * filas se archivan igual que las de una CLI.
  */
 export function sessionsToArchiveBefore(
   projects: readonly ProjectSummary[],
-  agentId: AgentId,
+  agentId: SessionAgentId,
   cutoffMs: number,
   openSessionIds: ReadonlySet<string>,
 ): string[] {
@@ -59,7 +62,7 @@ export function sessionsToArchiveBefore(
 }
 
 export interface ArchiveCandidates {
-  agent: AgentId;
+  agent: SessionAgentId;
   count: number;
 }
 
@@ -70,7 +73,8 @@ export interface ArchiveCandidates {
  * aparecen en el historial: los proyectos se ordenan por actividad, y con eso
  * las filas se reacomodarian solas cada vez que otro proyecto tiene la ultima
  * palabra. Una CLI que no esta en la lista (el historial de una que ya no se
- * anuncia) va al final, en orden de aparicion.
+ * anuncia, o una fuente importada, que no se anuncia nunca) va al final, en
+ * orden de aparicion.
  *
  * Cuenta con `sessionsToArchiveBefore` y no por su lado: el numero que se
  * muestra tiene que ser exactamente el que se archiva al confirmar.
@@ -81,14 +85,15 @@ export function archiveCandidatesByAgent(
   openSessionIds: ReadonlySet<string>,
   agentOrder: readonly AgentId[],
 ): ArchiveCandidates[] {
-  const agents: AgentId[] = [];
+  const agents: SessionAgentId[] = [];
   for (const project of projects) {
     for (const session of project.sessions) {
       if (!agents.includes(session.agent)) agents.push(session.agent);
     }
   }
-  const rank = (agent: AgentId): number => {
-    const index = agentOrder.indexOf(agent);
+  const order: readonly SessionAgentId[] = agentOrder;
+  const rank = (agent: SessionAgentId): number => {
+    const index = order.indexOf(agent);
     return index === -1 ? agentOrder.length : index;
   };
   // `sort` es estable: las que empatan al final conservan el orden de aparicion.

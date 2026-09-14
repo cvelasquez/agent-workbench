@@ -26,6 +26,7 @@ import { findRollout } from './find-rollout.js';
 import { parseRolloutFileName } from './paths.js';
 import { loadRolloutImage } from './rollout-image.js';
 import { CodexRolloutSink } from './rollout-sink.js';
+import type { EventLimits } from '../transport-limits.js';
 
 /** Cada cuanto se vuelve a buscar un rollout que no aparecio. Son `readdir`, no lecturas. */
 const LOOKUP_INTERVAL_MS = 2_000;
@@ -33,6 +34,10 @@ const LOOKUP_INTERVAL_MS = 2_000;
 export interface CodexFollowerOptions {
   /** Reloj del reintento de busqueda. Solo para el chequeo. */
   now?: () => number;
+  /** Hito 28, `FollowOptions`. Ausente: `TRANSPORT_LIMITS`. */
+  limits?: EventLimits;
+  /** Hito 28, `FollowOptions`. Ausente: el tope de `JsonlFollower`. */
+  maxEvents?: number;
 }
 
 export class CodexSessionFollower implements SessionFollower {
@@ -47,8 +52,8 @@ export class CodexSessionFollower implements SessionFollower {
     private readonly sessionId: string,
     options: CodexFollowerOptions = {},
   ) {
-    this.sink = new CodexRolloutSink(sessionId);
-    this.jsonl = new JsonlFollower(null, this.sink);
+    this.sink = new CodexRolloutSink(sessionId, options.limits);
+    this.jsonl = new JsonlFollower(null, this.sink, { maxEvents: options.maxEvents });
     this.now = options.now ?? Date.now;
   }
 

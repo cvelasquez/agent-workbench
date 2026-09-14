@@ -39,9 +39,11 @@ import {
 import { debugLog } from '../../debug.js';
 import type { EventPage, LoadedImage, PartsUpdate, PollResult, SessionFollower, TurnUpdate } from '../adapter.js';
 import type { ReadOnlyDatabase } from '../sqlite.js';
+import { TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import { applyRevert, buildEvents, buildUsage, lastRequestMessage, parseRevert, sortRows } from './events.js';
 import {
   OPENCODE_SQL,
+  partCutParams,
   type ImagePartRow,
   type ImageUrlRow,
   type MessageRow,
@@ -87,8 +89,10 @@ export interface OpenCodeFollowerOptions {
   sessionId: string;
   /** Solo para el `label` y para reconocer los avisos. null: base en memoria. */
   dbFile: string | null;
-  /** Para el chequeo. */
+  /** Tope de eventos que se paginan. Ausente: 4 000. `FollowOptions` (hito 28) y el chequeo. */
   maxEvents?: number;
+  /** Hito 28, `FollowOptions`: los topes de cada parte, en SQL y al armar. Ausente: `TRANSPORT_LIMITS`. */
+  limits?: EventLimits;
   partsPerBatch?: number;
   imageUrlMaxChars?: number;
   /** Lo que se espera entre tanda y tanda de la carga inicial. */
@@ -140,6 +144,7 @@ export class OpenCodeSessionFollower implements SessionFollower {
   private readonly sessionId: string;
   private readonly dbFile: string | null;
   private readonly maxEvents: number;
+  private readonly limits: EventLimits;
   private readonly partsPerBatch: number;
   private readonly imageUrlMaxChars: number;
   private readonly yieldBetweenBatches: () => Promise<void>;
@@ -166,6 +171,7 @@ export class OpenCodeSessionFollower implements SessionFollower {
     this.sessionId = options.sessionId;
     this.dbFile = options.dbFile;
     this.maxEvents = options.maxEvents ?? MAX_EVENTS;
+    this.limits = options.limits ?? TRANSPORT_LIMITS;
     this.partsPerBatch = options.partsPerBatch ?? PARTS_PER_BATCH;
     this.imageUrlMaxChars = options.imageUrlMaxChars ?? IMAGE_URL_MAX_CHARS;
     this.yieldBetweenBatches = options.yieldBetweenBatches ?? yieldToLoop;
@@ -251,10 +257,11 @@ export class OpenCodeSessionFollower implements SessionFollower {
     const ordered = sortRows(messages);
     const batches = messageBatches(ordered.map((message) => message.id), counts, this.partsPerBatch);
 
+    const cuts = partCutParams(this.limits);
     const nextParts = new Map<string, Map<string, PartRow>>();
     for (const [position, batch] of batches.entries()) {
       if (position > 0) await this.yieldBetweenBatches();
-      for (const part of this.db.all<PartRow>(OPENCODE_SQL.partsForMessages, JSON.stringify(batch))) {
+      for (const part of this.db.all<PartRow>(OPENCODE_SQL.partsForMessages, { $ids: JSON.stringify(batch), ...cuts })) {
         addPart(nextParts, part);
       }
     }
@@ -273,7 +280,11 @@ export class OpenCodeSessionFollower implements SessionFollower {
       this.sessionId,
       this.cursorMessages - CURSOR_OVERLAP_MS,
     );
-    const parts = this.db.all<PartRow>(OPENCODE_SQL.partsSince, this.sessionId, this.cursorParts - CURSOR_OVERLAP_MS);
+    const parts = this.db.all<PartRow>(OPENCODE_SQL.partsSince, {
+      $s: this.sessionId,
+      $since: this.cursorParts - CURSOR_OVERLAP_MS,
+      ...partCutParams(this.limits),
+    });
     for (const message of messages) this.messages.set(message.id, message);
     for (const part of parts) addPart(this.parts, part);
     this.cursorMessages = Math.max(this.cursorMessages, maxUpdated(messages));
@@ -289,7 +300,7 @@ export class OpenCodeSessionFollower implements SessionFollower {
     const visible = applyRevert({ messages, partsByMessage, revert });
     this.visibleMessages = visible.messages;
     this.visibleParts = visible.partsByMessage;
-    const next = buildEvents({ messages, partsByMessage, revert }).events;
+    const next = buildEvents({ messages, partsByMessage, revert, limits: this.limits }).events;
 
     const last = lastRequestMessage(visible.messages);
     let window: number | null = null;

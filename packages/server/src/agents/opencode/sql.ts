@@ -34,22 +34,48 @@
  *
  * Parametros con nombre (`$s`, `$id`, `$max`): se pasan como objeto con la
  * clave tal cual, `{ $s: sessionId }`.
+ *
+ * **Las dos sentencias de partes van enteras con nombre** (hito 28): sus cortes
+ * son parametros (`$textCut`, `$inputCut`, `$outputCut`), porque la copia
+ * propia lee la misma sesion con topes mas altos. Se ligan con
+ * `partCutParams(limits)`. No se mezclan con `?`: un parametro de corte sin
+ * ligar vale NULL, `substr(x, 1, NULL)` da NULL, y la parte llega vacia sin que
+ * nada falle.
  */
 
-/** Columnas de una parte. Las de herramienta y texto van cortadas. */
+import { sqlCutLength, type EventLimits } from '../transport-limits.js';
+import { toolInputParseMaxChars } from './events.js';
+
+/**
+ * Los tres cortes de `PART_COLUMNS` para unos topes, con la clave tal como la
+ * nombra la sentencia.
+ *
+ * La entrada de una herramienta se corta en el tope **de parseo**, no en el de
+ * la entrada: se trae entera hasta ahi para poder indentarla, y el recorte a lo
+ * que se muestra lo hace `events.ts` sobre el texto ya indentado.
+ */
+export function partCutParams(limits: EventLimits): { $textCut: number; $inputCut: number; $outputCut: number } {
+  return {
+    $textCut: sqlCutLength(limits.textMaxChars),
+    $inputCut: sqlCutLength(toolInputParseMaxChars(limits)),
+    $outputCut: sqlCutLength(limits.toolResultMaxChars),
+  };
+}
+
+/** Columnas de una parte. Las de herramienta y texto van cortadas (`partCutParams`). */
 const PART_COLUMNS = `id, message_id, time_created, time_updated,
   json_extract(data, '$.type') AS type,
-  CASE json_extract(data, '$.type') WHEN 'text' THEN substr(json_extract(data, '$.text'), 1, 8001) END AS text,
+  CASE json_extract(data, '$.type') WHEN 'text' THEN substr(json_extract(data, '$.text'), 1, $textCut) END AS text,
   CASE json_extract(data, '$.type') WHEN 'text' THEN length(json_extract(data, '$.text')) END AS text_length,
   json_extract(data, '$.synthetic') AS synthetic,
   json_extract(data, '$.ignored') AS ignored,
   json_extract(data, '$.tool') AS tool,
   json_extract(data, '$.state.status') AS status,
-  CASE json_extract(data, '$.type') WHEN 'tool' THEN substr(json_extract(data, '$.state.input'), 1, 16001) END AS input_json,
+  CASE json_extract(data, '$.type') WHEN 'tool' THEN substr(json_extract(data, '$.state.input'), 1, $inputCut) END AS input_json,
   CASE json_extract(data, '$.type') WHEN 'tool' THEN length(json_extract(data, '$.state.input')) END AS input_length,
-  CASE json_extract(data, '$.type') WHEN 'tool' THEN substr(json_extract(data, '$.state.output'), 1, 4001) END AS output,
+  CASE json_extract(data, '$.type') WHEN 'tool' THEN substr(json_extract(data, '$.state.output'), 1, $outputCut) END AS output,
   CASE json_extract(data, '$.type') WHEN 'tool' THEN length(json_extract(data, '$.state.output')) END AS output_length,
-  CASE json_extract(data, '$.type') WHEN 'tool' THEN substr(json_extract(data, '$.state.error'), 1, 4001) END AS error,
+  CASE json_extract(data, '$.type') WHEN 'tool' THEN substr(json_extract(data, '$.state.error'), 1, $outputCut) END AS error,
   CASE json_extract(data, '$.type') WHEN 'tool' THEN length(json_extract(data, '$.state.error')) END AS error_length,
   CASE WHEN json_type(data, '$.state.attachments') = 'array' THEN json_array_length(data, '$.state.attachments') END AS attachment_count,
   CASE WHEN json_extract(data, '$.tool') = 'question' THEN json_extract(data, '$.state.metadata.answers') END AS answers_json,
@@ -115,14 +141,14 @@ ORDER BY time_created, id`,
   partCountsByMessage: `SELECT message_id, count(*) AS part_count
 FROM part WHERE session_id = ? GROUP BY message_id`,
 
-  /** Las partes de una tanda de mensajes. El parametro es un arreglo JSON de ids. */
+  /** Las partes de una tanda de mensajes. `$ids`: un arreglo JSON de ids; mas `partCutParams`. */
   partsForMessages: `SELECT ${PART_COLUMNS}
-FROM part WHERE message_id IN (SELECT value FROM json_each(?))
+FROM part WHERE message_id IN (SELECT value FROM json_each($ids))
 ORDER BY time_created, id`,
 
-  /** Lo que cambio desde un momento, para las lecturas incrementales. */
+  /** Lo que cambio desde un momento, para las lecturas incrementales. `$s`, `$since` y `partCutParams`. */
   partsSince: `SELECT ${PART_COLUMNS}
-FROM part WHERE session_id = ? AND time_updated >= ?
+FROM part WHERE session_id = $s AND time_updated >= $since
 ORDER BY time_created, id`,
 
   imageParts: `SELECT id, json_extract(data, '$.mime') AS mime
@@ -228,14 +254,14 @@ export interface PartRow {
   time_created: number;
   time_updated: number;
   type: string | null;
-  /** Cortado a 8001: si `text_length` pasa de 8000, hubo recorte. */
+  /** Cortado a `$textCut` (8001 en el hilo): si `text_length` pasa del tope, hubo recorte. */
   text: string | null;
   text_length: number | null;
   synthetic: number | null;
   ignored: number | null;
   tool: string | null;
   status: string | null;
-  /** JSON, cortado a 16 001. */
+  /** JSON, cortado a `$inputCut` (16 001 en el hilo). */
   input_json: string | null;
   input_length: number | null;
   output: string | null;

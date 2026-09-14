@@ -37,7 +37,7 @@ import {
 } from '@agent-workbench/shared';
 import type { PartsUpdate } from '../adapter.js';
 import type { EventLookup, JsonlLineSink } from '../jsonl-follower.js';
-import { cut, TEXT_MAX_CHARS, TOOL_INPUT_MAX_CHARS, TOOL_RESULT_MAX_CHARS } from '../transport-limits.js';
+import { cut, TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import { parseSettingsChange, splitModelLabel } from './model-label.js';
 
 // ---------------------------------------------------------------------------
@@ -191,10 +191,13 @@ interface PendingCall {
 export interface TranscriptMapperOptions {
   /** true si se lee `transcript.jsonl` (argumentos doble-codificados). */
   compact?: boolean;
+  /** Hito 28, `FollowOptions`: los topes de cada parte. Ausente: `TRANSPORT_LIMITS`. */
+  limits?: EventLimits;
 }
 
 export class TranscriptMapper implements JsonlLineSink {
   private readonly compact: boolean;
+  private readonly limits: EventLimits;
   private readonly steps = new Map<number, StepMemo>();
   /** El ultimo paso de planificacion visto, y sus llamadas sin resultado. */
   private plannerStep: number | null = null;
@@ -210,6 +213,7 @@ export class TranscriptMapper implements JsonlLineSink {
 
   constructor(options: TranscriptMapperOptions = {}) {
     this.compact = options.compact === true;
+    this.limits = options.limits ?? TRANSPORT_LIMITS;
   }
 
   /**
@@ -313,7 +317,7 @@ export class TranscriptMapper implements JsonlLineSink {
     }
 
     if (text.length === 0) return null;
-    return this.emit(stepIndex, 'user', at, [{ kind: 'text', ...cut(text, TEXT_MAX_CHARS) }], events);
+    return this.emit(stepIndex, 'user', at, [{ kind: 'text', ...cut(text, this.limits.textMaxChars) }], events);
   }
 
   private plannerResponse(
@@ -325,7 +329,7 @@ export class TranscriptMapper implements JsonlLineSink {
   ): ConversationEvent | null {
     const parts: ConversationPart[] = [];
     const content = typeof record['content'] === 'string' ? record['content'].trim() : '';
-    if (content.length > 0) parts.push({ kind: 'text', ...cut(content, TEXT_MAX_CHARS) });
+    if (content.length > 0) parts.push({ kind: 'text', ...cut(content, this.limits.textMaxChars) });
 
     const calls: PendingCall[] = [];
     const rawCalls = record['tool_calls'];
@@ -338,7 +342,7 @@ export class TranscriptMapper implements JsonlLineSink {
         calls.push({ toolUseId, at, visible });
         if (!visible) return;
         const args = asRecord(call?.['args']);
-        const input = cut(args === null ? '{}' : JSON.stringify(args, null, 2), TOOL_INPUT_MAX_CHARS);
+        const input = cut(args === null ? '{}' : JSON.stringify(args, null, 2), this.limits.toolInputMaxChars);
         parts.push({ kind: 'tool-call', toolUseId, name, input: input.text, truncated: input.truncated });
       });
     }
@@ -387,7 +391,7 @@ export class TranscriptMapper implements JsonlLineSink {
 
     const status = typeof record['status'] === 'string' ? record['status'] : '';
     const text = stripStepHeader(typeof record['content'] === 'string' ? record['content'] : '');
-    const limited = cut(text, TOOL_RESULT_MAX_CHARS);
+    const limited = cut(text, this.limits.toolResultMaxChars);
     return this.emit(
       stepIndex,
       'user',

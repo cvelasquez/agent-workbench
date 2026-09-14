@@ -47,6 +47,47 @@ export const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'antigravity'] as 
 export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
+ * Hito 28. De donde vienen las sesiones que existen **solo** en la copia
+ * propia: historial huerfano de una herramienta sin adaptador, importado una
+ * vez por un script.
+ *
+ * No son `AgentId`, y no por prolijidad: `AGENT_IDS` es "las CLIs con
+ * adaptador", las que se lanzan, se ofrecen en el menu de pestana nueva y
+ * reanudan una sesion. Un id de aca no hace nada de eso. Meterlo bajo uno
+ * existente haria que "reanudar" buscara una sesion que esa CLI no tiene.
+ *
+ * Viven en este archivo y no en `vault.ts` porque `models.ts` los necesita en
+ * tiempo de ejecucion para parsear `SessionSummary`, y `vault.ts` importa de
+ * `models.ts`: al reves seria un ciclo de modulos.
+ */
+export const IMPORTED_AGENT_IDS = ['gemini-cli', 'antigravity-ide'] as const;
+export type ImportedAgentId = (typeof IMPORTED_AGENT_IDS)[number];
+
+/** De quien es una sesion de la barra. Un id importado no se lanza ni se reanuda. */
+export type SessionAgentId = AgentId | ImportedAgentId;
+export const SESSION_AGENT_IDS: readonly SessionAgentId[] = [...AGENT_IDS, ...IMPORTED_AGENT_IDS];
+
+/**
+ * Nombres para mostrar de las fuentes importadas. Son dato de compatibilidad
+ * (regla 2.3), como las etiquetas que anuncia cada adaptador: ninguna funcion
+ * ni pantalla del producto se llama asi.
+ */
+export const IMPORTED_AGENT_LABELS: Readonly<Record<ImportedAgentId, string>> = {
+  'gemini-cli': 'Gemini CLI',
+  'antigravity-ide': 'Antigravity IDE',
+};
+
+/** true si el id es de una CLI con adaptador: se puede lanzar y reanudar. */
+export function isAgentId(value: string): value is AgentId {
+  return (AGENT_IDS as readonly string[]).includes(value);
+}
+
+/** true si el id es de una fuente que solo existe en la copia propia. */
+export function isImportedAgentId(value: string): value is ImportedAgentId {
+  return (IMPORTED_AGENT_IDS as readonly string[]).includes(value);
+}
+
+/**
  * Como nombra la CLI una imagen adjunta por ruta.
  *
  *  - `at-quoted`: `@"ruta"` dentro del mismo pegado que el texto.

@@ -57,6 +57,7 @@ import type { SessionIndex } from './session-index.js';
 import type { ShellLocation } from './shell-locator.js';
 import { TerminalOpenError, type OutputListener, type TerminalRegistry } from './terminal-registry.js';
 import { TerminalWriteQueue, type PieceWriter } from './terminal-write-queue.js';
+import { VaultError, type VaultService } from './vault/service.js';
 import { rejectRequest } from './security.js';
 
 /**
@@ -107,6 +108,8 @@ export interface TerminalSocketOptions {
   defaultCwd: string;
   /** Donde aterrizan las imagenes pegadas. Inyectable para las pruebas. */
   pasteStore?: PasteStore;
+  /** La copia propia (`vault.*`, hito 28). */
+  vault: VaultService;
 }
 
 export function attachTerminalSocket(options: TerminalSocketOptions): () => void {
@@ -124,6 +127,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     memory,
     agents,
     defaultCwd,
+    vault,
   } = options;
 
   const pasteStore = options.pasteStore ?? new PasteStore();
@@ -405,6 +409,24 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   */
   const stopAgentChanges = agents.subscribeChanges(() => broadcast(agentsMessage()));
 
+  // La copia propia avisa a todas las ventanas, y el servicio ya espacia los avisos.
+  const stopVaultStatus = vault.onStatus((status) => broadcast({ type: 'vault.status', status }));
+
+  /**
+   * Un pedido `vault.*` que fallo. Un `VaultError` trae el texto para el
+   * usuario; cualquier otra cosa es un error de disco o de lectura, que va en
+   * el detalle.
+   */
+  const sendVaultError = (socket: WebSocket, error: unknown): void => {
+    if (error instanceof VaultError) {
+      sendError(socket, 'vault-failed', error.message);
+      return;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn('[copia] un pedido fallo:', detail);
+    sendError(socket, 'vault-failed', 'No se pudo completar la operación de la copia propia.', detail);
+  };
+
   // ---- upgrade ----
 
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
@@ -541,6 +563,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     send(socket, { type: 'index.status', status: index.getStatus() });
     send(socket, { type: 'index.projects', projects: index.getProjects(), replace: true });
     send(socket, { type: 'notes.list', notes: notes.list() });
+    send(socket, { type: 'vault.status', status: vault.status() });
 
     socket.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
       const text = Array.isArray(raw)
@@ -1036,6 +1059,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
         case 'index.refresh':
           void index.scan();
+          // ⟳ tambien relee la copia: lo que escribio un importador aparece sin reiniciar.
+          void vault.reload().catch((error: unknown) => sendVaultError(socket, error));
           break;
 
         /*
@@ -1520,6 +1545,43 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           pickers.close(message.pickerId);
           break;
 
+        /*
+          La copia propia (hito 28). Ningun pedido nombra una ruta: medir y
+          encender no llevan nada, mudar lleva el selector de **este** socket,
+          una sesion va por `(agent, sessionId)` —el parser ya valido la forma
+          del id— y un proyecto por su clave. El estado nuevo sale a todos por
+          `vault.onStatus`; aca solo se contesta lo que falla.
+        */
+        case 'vault.measure':
+          void vault.measure().catch((error: unknown) => sendVaultError(socket, error));
+          break;
+
+        case 'vault.enable':
+          void vault.setEnabled(message.enabled).catch((error: unknown) => sendVaultError(socket, error));
+          break;
+
+        case 'vault.setDir':
+          // El selector se cierra despues, desde el cliente, como con un proyecto nuevo.
+          void vault.setDirFromPicker(pickers, message.pickerId).catch((error: unknown) => sendVaultError(socket, error));
+          break;
+
+        case 'vault.exportProject':
+          void vault
+            .exportProject(message.projectKey)
+            .then((result) => {
+              send(socket, { type: 'vault.exported', projectKey: message.projectKey, sessions: result.sessions });
+            })
+            .catch((error: unknown) => sendVaultError(socket, error));
+          break;
+
+        case 'vault.openSession':
+          void vault.openSession(message.agent, message.sessionId).catch((error: unknown) => sendVaultError(socket, error));
+          break;
+
+        case 'vault.reveal':
+          void vault.reveal().catch((error: unknown) => sendVaultError(socket, error));
+          break;
+
         case 'notes.send':
           void (async () => {
             const descriptor = registry.get(message.terminalId);
@@ -1657,6 +1719,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);
     stopAgentChanges();
+    stopVaultStatus();
     for (const client of wss.clients) client.terminate();
     wss.close();
   };

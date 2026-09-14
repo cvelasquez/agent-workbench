@@ -250,8 +250,10 @@ function readOutputItems(items: readonly unknown[]): { text: string; imageCount:
  * con `Exit code: N`; `apply_patch` trae un JSON como texto con `output` y
  * `metadata.exit_code`. Las formas de array y de objeto con `content` son las
  * que la 0.154 declara para salidas con imagenes; no hay ninguna en disco.
+ *
+ * `maxChars`: el tope del texto. El de transporte salvo para la copia propia.
  */
-export function readToolOutput(output: unknown): ToolOutput {
+export function readToolOutput(output: unknown, maxChars: number = TOOL_RESULT_MAX_CHARS): ToolOutput {
   let text = '';
   let isError = false;
   let imageCount = 0;
@@ -278,7 +280,7 @@ export function readToolOutput(output: unknown): ToolOutput {
     }
   }
 
-  const limited = cut(text, TOOL_RESULT_MAX_CHARS);
+  const limited = cut(text, maxChars);
   return { text: limited.text, truncated: limited.truncated, isError, imageCount };
 }
 

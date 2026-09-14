@@ -36,11 +36,21 @@ import {
   type ConversationQuestionItem,
   type MessageUsage,
 } from '@agent-workbench/shared';
-import { cut, TEXT_MAX_CHARS, TOOL_INPUT_MAX_CHARS, TOOL_RESULT_MAX_CHARS } from '../transport-limits.js';
+import { cut, TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import type { MessageRow, PartRow } from './sql.js';
 
-/** Hasta cuantos caracteres de entrada se intenta parsear. `sql.ts` la corta en 16 001. */
+/** Hasta cuantos caracteres de entrada se intenta parsear en el hilo. `sql.ts` la corta en 16 001. */
 export const TOOL_INPUT_PARSE_MAX_CHARS = 16_000;
+
+/**
+ * Hasta cuantos caracteres de entrada se intenta parsear con unos topes: el de
+ * siempre, o el de la entrada si es mayor (la copia propia, hito 28). Solo
+ * decide si la entrada se indenta; lo que se muestra lo corta
+ * `toolInputMaxChars`. `sql.ts` corta la columna en este mismo numero.
+ */
+export function toolInputParseMaxChars(limits: EventLimits): number {
+  return Math.max(TOOL_INPUT_PARSE_MAX_CHARS, limits.toolInputMaxChars);
+}
 
 /** Tope de cada texto de una pregunta. El mismo de Claude Code (`QUESTION_MAX_CHARS`). */
 const QUESTION_MAX_CHARS = 400;
@@ -62,6 +72,12 @@ export interface BuildEventsInput {
   messages: readonly MessageRow[];
   partsByMessage: ReadonlyMap<string, readonly PartRow[]>;
   revert: RevertMark | null;
+  /**
+   * Hito 28. Los topes de cada parte; ausente, los de transporte. Tienen que ser
+   * los mismos con los que se leyeron las filas (`partCutParams`): si no, un
+   * texto cortado en SQL se tomaria por entero.
+   */
+  limits?: EventLimits;
 }
 
 export interface BuiltEvents {
@@ -188,30 +204,34 @@ export function stripImageLabels(text: string, imageCount: number): string {
     .trim();
 }
 
-function textPartOf(part: PartRow, imageCount = 0): ConversationPart | null {
+function textPartOf(part: PartRow, limits: EventLimits, imageCount = 0): ConversationPart | null {
   const raw = part.text ?? '';
   const text = imageCount > 0 ? stripImageLabels(raw, imageCount) : raw;
   if (text.trim().length === 0) return null;
-  const limited = cut(text, TEXT_MAX_CHARS);
-  return { kind: 'text', text: limited.text, truncated: limited.truncated || (part.text_length ?? 0) > TEXT_MAX_CHARS };
+  const limited = cut(text, limits.textMaxChars);
+  return { kind: 'text', text: limited.text, truncated: limited.truncated || (part.text_length ?? 0) > limits.textMaxChars };
 }
 
 /** La entrada de una herramienta, legible, y lo que se pudo parsear de ella. */
-function toolInputOf(part: PartRow): { input: string; truncated: boolean; parsed: unknown } {
+function toolInputOf(part: PartRow, limits: EventLimits): { input: string; truncated: boolean; parsed: unknown } {
   const raw = part.input_json;
   if (raw === null) return { input: '', truncated: false, parsed: undefined };
   const length = part.input_length ?? raw.length;
-  if (length <= TOOL_INPUT_PARSE_MAX_CHARS) {
+  if (length <= toolInputParseMaxChars(limits)) {
     try {
       const parsed: unknown = JSON.parse(raw);
       const pretty = JSON.stringify(parsed, null, 2) ?? raw;
-      const limited = cut(pretty, TOOL_INPUT_MAX_CHARS);
+      const limited = cut(pretty, limits.toolInputMaxChars);
       return { input: limited.text, truncated: limited.truncated, parsed };
     } catch {
       // Una entrada que no es JSON (un texto suelto) se muestra tal cual.
     }
   }
-  return { input: raw.slice(0, TOOL_INPUT_MAX_CHARS), truncated: length > TOOL_INPUT_MAX_CHARS, parsed: undefined };
+  return {
+    input: raw.slice(0, limits.toolInputMaxChars),
+    truncated: length > limits.toolInputMaxChars,
+    parsed: undefined,
+  };
 }
 
 const shortText = (value: string): string => cut(value, QUESTION_MAX_CHARS).text;
@@ -278,10 +298,12 @@ function answersText(items: readonly ConversationQuestionItem[], answersJson: st
  * `pending`, `running` o un estado desconocido: sin resultado. Una pregunta
  * `running` es una pregunta abierta; la tarjeta la dibuja sin botones, porque
  * esta CLI no declara `questionCards`.
+ *
+ * `limits`: los mismos con los que se leyo la fila (ver `BuildEventsInput`).
  */
-export function toolParts(part: PartRow): ConversationPart[] {
+export function toolParts(part: PartRow, limits: EventLimits = TRANSPORT_LIMITS): ConversationPart[] {
   const toolUseId = part.id;
-  const { input, truncated, parsed } = toolInputOf(part);
+  const { input, truncated, parsed } = toolInputOf(part, limits);
   const questions = part.tool === 'question' ? questionItemsOf(parsed) : null;
 
   const parts: ConversationPart[] = [
@@ -294,27 +316,27 @@ export function toolParts(part: PartRow): ConversationPart[] {
   if (part.status === 'completed') {
     const answered = questions === null ? null : answersText(questions, part.answers_json);
     if (answered !== null) {
-      const limited = cut(answered, TOOL_RESULT_MAX_CHARS);
+      const limited = cut(answered, limits.toolResultMaxChars);
       parts.push({ kind: 'tool-result', toolUseId, text: limited.text, isError: false, truncated: limited.truncated, imageCount });
     } else {
-      const limited = cut(part.output ?? '', TOOL_RESULT_MAX_CHARS);
+      const limited = cut(part.output ?? '', limits.toolResultMaxChars);
       parts.push({
         kind: 'tool-result',
         toolUseId,
         text: limited.text,
         isError: false,
-        truncated: limited.truncated || (part.output_length ?? 0) > TOOL_RESULT_MAX_CHARS,
+        truncated: limited.truncated || (part.output_length ?? 0) > limits.toolResultMaxChars,
         imageCount,
       });
     }
   } else if (part.status === 'error') {
-    const limited = cut(part.error ?? '', TOOL_RESULT_MAX_CHARS);
+    const limited = cut(part.error ?? '', limits.toolResultMaxChars);
     parts.push({
       kind: 'tool-result',
       toolUseId,
       text: limited.text,
       isError: true,
-      truncated: limited.truncated || (part.error_length ?? 0) > TOOL_RESULT_MAX_CHARS,
+      truncated: limited.truncated || (part.error_length ?? 0) > limits.toolResultMaxChars,
       imageCount,
     });
   }
@@ -364,6 +386,7 @@ function noticeOf(message: MessageRow): ConversationNoticePart | null {
  * (`summary`) no dibuja nada. `usage` va en el ultimo evento visible del mensaje.
  */
 export function buildEvents(input: BuildEventsInput): BuiltEvents {
+  const limits = input.limits ?? TRANSPORT_LIMITS;
   const visible = applyRevert(input);
   const events: ConversationEvent[] = [];
   /** mensaje -> su ultimo evento visible. */
@@ -395,7 +418,7 @@ export function buildEvents(input: BuildEventsInput): BuiltEvents {
         let visiblePart: ConversationPart | null = null;
         if (part.type === 'text') {
           if (isTrue(part.synthetic) || isTrue(part.ignored)) continue;
-          visiblePart = textPartOf(part, allImages.length);
+          visiblePart = textPartOf(part, limits, allImages.length);
           if (visiblePart !== null) texts.push(visiblePart);
         } else if (part.type === 'file' && part.mime !== null && part.mime.startsWith('image/')) {
           visiblePart = {
@@ -431,10 +454,10 @@ export function buildEvents(input: BuildEventsInput): BuiltEvents {
     for (const part of parts) {
       let eventParts: ConversationPart[] | null = null;
       if (part.type === 'text') {
-        const text = textPartOf(part);
+        const text = textPartOf(part, limits);
         eventParts = text === null ? null : [text];
       } else if (part.type === 'tool') {
-        eventParts = toolParts(part);
+        eventParts = toolParts(part, limits);
       }
       // `reasoning`, `step-*`, `patch`, `snapshot`, `agent`, `subtask`, `retry`, `file` y lo desconocido: nada.
       if (eventParts === null) continue;

@@ -27,7 +27,7 @@ const TAIL_MAX_BYTES = 64 * 1024;
 export interface ScanResult {
   cwd: string | null;
   /** Sin `agent` ni `cwd`: los pone el indice, que sabe de que CLI es. */
-  summary: Omit<SessionSummary, 'agent' | 'cwd'>;
+  summary: Omit<SessionSummary, 'agent' | 'cwd' | 'storage' | 'partial'>;
   /** Ids completos de modelo vistos en `cost-state`. Casi siempre vacio. */
   modelIds: string[];
 }

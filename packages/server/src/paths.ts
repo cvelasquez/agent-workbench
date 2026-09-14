@@ -68,6 +68,15 @@ export function archivedSessionsPath(): string {
 }
 
 /**
+ * Ajustes de la app (hito 28: la copia propia). Archivo propio y no dentro de
+ * `workspace.json`, por lo mismo que las archivadas: ese se reescribe entero con
+ * cada cambio de pestanas.
+ */
+export function appSettingsPath(): string {
+  return path.join(appConfigDir(), 'settings.json');
+}
+
+/**
  * Notas sueltas del usuario: el texto en un JSON, las imagenes en una carpeta
  * al lado. Archivo propio por el mismo motivo que las archivadas: que
  * `workspace.json` se reescriba con cada pestana no tiene por que tocar esto.
