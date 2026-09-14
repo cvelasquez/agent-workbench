@@ -428,6 +428,8 @@ export class TerminalRegistry extends EventEmitter {
     let launch: LaunchSpec;
     let adapter: AgentAdapter | null = null;
     let launchedSessionId = sessionId;
+    // Uno por proceso: con el, el adaptador casa lo que preparo al lanzar con su gancho.
+    const launchToken = randomUUID();
     if (launcher.kind === 'agent') {
       adapter = launcher.agent.adapter;
       const plan = adapter.launch({
@@ -435,6 +437,7 @@ export class TerminalRegistry extends EventEmitter {
         cwd,
         resumeSessionId: options.resume ? sessionId : null,
         proposedSessionId: sessionId,
+        launchToken,
       });
       launch = { file: plan.file, args: plan.args };
       // Una CLI que pone el id ella misma deja la pestana sin id hasta que el
@@ -535,6 +538,7 @@ export class TerminalRegistry extends EventEmitter {
         resumed: options.resume,
         pid: session.pid,
         launchedAt,
+        launchToken,
         readOutput: () => buffer.read(),
         write: (data) => {
           const target = this.terminals.get(terminalId);
@@ -637,7 +641,16 @@ export class TerminalRegistry extends EventEmitter {
       if (entry.session !== null) this.setActivity(terminalId, 'unknown');
       return;
     }
-    if (sessionId.length === 0) return;
+    /*
+      Una CLI que si publica su estado, pero cuya sesion todavia no se descubrio
+      (hito 27: Antigravity CLI la crea con el primer mensaje): tampoco se sabe
+      nada, y se dice igual. Con Claude Code el id existe desde el lanzamiento y
+      esto no pasa nunca.
+    */
+    if (sessionId.length === 0) {
+      if (entry.session !== null) this.setActivity(terminalId, 'unknown');
+      return;
+    }
 
     entry.stopWatchingActivity = status.subscribe(sessionId, (current) => {
       this.setActivity(terminalId, current === null ? 'offline' : current.activity);

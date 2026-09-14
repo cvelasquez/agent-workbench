@@ -34,6 +34,7 @@ import type {
   PlanContent,
   SessionPlan,
   SessionSummary,
+  StatusLineSetupInfo,
 } from '@agent-workbench/shared';
 import type { CliLocation } from './locate.js';
 
@@ -54,6 +55,12 @@ export interface LaunchInput {
    * archivo es el id que la pestana ya tenia.
    */
   proposedSessionId: string;
+  /**
+   * Un uuid por lanzamiento, que pone el registro de terminales. El adaptador lo
+   * usa para nombrar lo suyo de ese proceso y reconocerlo en `onSpawned`:
+   * Antigravity CLI escribe su log en un archivo por lanzamiento (hito 27).
+   */
+  launchToken: string;
 }
 
 export type LaunchSession =
@@ -92,6 +99,8 @@ export interface SpawnedContext {
   pid: number;
   /** Epoch ms del lanzamiento. Punto de partida para descubrir una sesion. */
   launchedAt: number;
+  /** El mismo `launchToken` que recibio `launch` para este proceso. */
+  launchToken: string;
   readOutput(): string;
   /** false si la terminal ya no esta. */
   write(data: string): boolean;
@@ -158,6 +167,20 @@ export interface HistoryRoot {
   depth: number;
   /** Filtro de eventos del watcher. */
   accepts(filePath: string): boolean;
+  /**
+   * Filtro del **recorrido**: true si el watcher no tiene que entrar ni mirar
+   * esa ruta. Ausente: se recorre todo hasta `depth`, como siempre.
+   *
+   * `accepts` decide que avisos llegan, pero no por donde camina chokidar para
+   * encontrarlos: con profundidad 3 entra en cada subcarpeta, les hace `stat` y
+   * deja un `fs.watch` en cada una. Existe por la CLI que guarda, al lado del
+   * historial que se lee, carpetas que la app no abre nunca (hito 27, M2).
+   *
+   * Recibe la ruta tal como la arma chokidar —con `/` tambien en Windows— y a
+   * veces sin saber todavia si es carpeta: tiene que decidir por la forma de la
+   * ruta sola.
+   */
+  ignore?: (filePath: string) => boolean;
   awaitWriteFinish: { stabilityThreshold: number; pollInterval: number } | false;
   /**
    * Como enterarse de los cambios de esta raiz sin chokidar. Si esta, el
@@ -324,7 +347,9 @@ export interface SessionFollower {
    * pueden estar mostrando un menu de aprobacion, y un mensaje del cuadro de
    * escritura llegaria como teclas a ese menu —el Enter final aprueba—. Una
    * llamada de un proceso anterior quedo huerfana al relanzar y no bloquea.
-   * Una CLI que si publica su estado devuelve false: ahi manda el estado.
+   * Una CLI que si publica su estado devuelve false: ahi manda el estado. La
+   * que lo publica solo con algo configurado devuelve false solo si esta
+   * pestana ya publico algo (hito 27, R27-1).
    */
   hasOpenToolCall(launchedAt: number): boolean;
 }
@@ -375,8 +400,14 @@ export interface HistorySource {
 // ---- Estado del proceso -------------------------------------------------------
 
 export interface AgentStatus {
-  /** Ya traducido. Un valor nativo desconocido es 'busy'. */
-  activity: 'busy' | 'idle' | 'waiting';
+  /**
+   * Ya traducido. Un valor nativo desconocido es 'busy'.
+   *
+   * 'unknown': la fuente existe pero no dice nada de esta sesion (todavia). Pasa
+   * con la CLI que publica su estado solo si el usuario configuro algo (hito
+   * 27): sin eso no esta parada ni trabajando, simplemente no se sabe.
+   */
+  activity: 'busy' | 'idle' | 'waiting' | 'unknown';
   /** Etiqueta cruda cuando `activity` es 'waiting'; null si no la trae. */
   waitingFor: string | null;
 }
@@ -386,6 +417,13 @@ export interface StatusSource {
   subscribe(sessionId: string, listener: (status: AgentStatus | null) => void): () => void;
   /** true si llego a "lista para recibir" dentro del plazo. */
   waitUntilReady(sessionId: string, timeoutMs: number): Promise<boolean>;
+  /**
+   * Relee ya lo que la CLI publica de esa sesion y avisa a sus suscriptores lo
+   * que cambio. Ausente: solo el sondeo (Claude Code). Existe por la guarda de
+   * un envio a una CLI cuya confirmacion abierta aprueba un Enter (hito 27,
+   * R27-2): tiene que preguntar al archivo, no a la ultima vuelta del sondeo.
+   */
+  refresh?(sessionId: string): Promise<void>;
   dispose(): void;
 }
 
@@ -491,5 +529,36 @@ export interface AgentAdapter {
   defaults(cwd: string): Promise<AgentDefaults | null>;
   /** Carpetas que el selector de directorios no lista ni deja entrar. */
   protectedDirs(): readonly string[];
+
+  /*
+    Lo que sigue es opcional y existe por la CLI que publica su estado solo si
+    el usuario configura una integracion propia (hito 27, la status line de
+    Antigravity CLI). Ninguna de las otras lo declara.
+  */
+
+  /**
+   * Lo que el adaptador prepara en la carpeta de la app y en la temporal: el
+   * script de la integracion, y limpiar lo que dejaron arranques anteriores.
+   *
+   * Lo llama `AgentRegistry.prepareAll()` **despues** de mover la carpeta de
+   * configuracion del nombre viejo (A1: crear `integrations/` antes haria que
+   * la migracion se saltara) y **solo** si la CLI se encontro: quien no la usa
+   * no tiene por que ver ni un archivo nuevo. Nunca lanza.
+   */
+  prepare?(): Promise<void>;
+  /** Como esta configurada la integracion, para el dialogo. null si no hay. */
+  statusLine?(): StatusLineSetupInfo | null;
+  /**
+   * Vuelve a leer la configuracion de la integracion (y reinstala su script si
+   * alguien lo cambio). true si cambio lo que se anuncia: capacidades o
+   * `statusLine`. Nunca lanza.
+   */
+  refreshSetup?(): Promise<boolean>;
+  /**
+   * Avisa cuando cambia lo que se anuncia sin que nadie lo pida (el usuario
+   * edito la configuracion de la CLI). Devuelve la desuscripcion. Solo corre
+   * mientras haya alguien suscrito.
+   */
+  subscribeChanges?(listener: () => void): () => void;
   dispose(): void;
 }

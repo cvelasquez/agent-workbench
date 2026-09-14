@@ -1,10 +1,10 @@
 # Agent Workbench
 
 Una interfaz visual local para las CLIs de agentes de código. Funciona con la
-CLI de Claude Code, con la de Codex y con la de OpenCode.
+CLI de Claude Code, con la de Codex, con la de OpenCode y con Antigravity CLI.
 
 No habla con ninguna API. Lanza la CLI que ya tenés instalada y logueada
-—`claude`, `codex` u `opencode`— dentro de una pseudo-terminal, y le agrega alrededor lo que
+—`claude`, `codex`, `opencode` o `agy`— dentro de una pseudo-terminal, y le agrega alrededor lo que
 una terminal sola no da: pestañas, historial navegable, la conversación como
 tarjetas, un medidor de contexto, el estado de git y un árbol de archivos.
 
@@ -21,7 +21,7 @@ que la aplicación lo toque.
 |---|---|
 | **Pestañas** | Varias sesiones vivas a la vez, cada una en su directorio. Sobreviven a un `F5`: los procesos viven en el servidor, no en la pestaña del navegador. El punto de cada una dice si el agente está trabajando, parado o esperando una respuesta. |
 | **Arranque sin gastar nada** | Al abrir la app las pestañas vuelven **dormidas**: se leen enteras y no lanzan ninguna CLI. La abrís con un botón cuando quieras escribirle al agente. |
-| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, las de Claude Code, Codex y OpenCode juntas bajo cada proyecto. Abrir una la retoma con su CLI, en la misma sesión. De OpenCode lee su historial y abre pestañas de su CLI, pero sin su estado ni preguntas contestables desde el chat: esas se contestan en su terminal. |
+| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, las de Claude Code, Codex, OpenCode y Antigravity juntas bajo cada proyecto. Abrir una la retoma con su CLI, en la misma sesión. De OpenCode lee su historial y abre pestañas de su CLI, pero sin su estado ni preguntas contestables desde el chat: esas se contestan en su terminal. Antigravity publica su estado y sus tokens sólo si configurás su status line ([abajo](#antigravity-cli-estado-y-medidor-opcional)). |
 | **Conversación** | Los mensajes de la sesión activa, en vivo, con las herramientas plegadas y su resultado adentro. Búsqueda, salto entre resultados y copiado por mensaje. |
 | **Medidor de contexto** | Tokens de la última petición contra la ventana del modelo. Tokens, nunca dinero. |
 | **Cambios** | Rama, adelanto y atraso contra la rama de seguimiento, worktrees, y los archivos tocados con su diff. **Solo lectura.** |
@@ -46,8 +46,9 @@ que la aplicación lo toque.
 | **La CLI de Claude Code** | instalada y con sesión iniciada — [guía de instalación](https://docs.claude.com/en/docs/claude-code/setup) |
 | **La CLI de Codex** (opcional) | instalada y con sesión iniciada — [guía](https://learn.chatgpt.com/docs/codex/cli) |
 | **La CLI de OpenCode** (opcional) | instalada y con sesión iniciada — [documentación](https://opencode.ai/docs/) |
+| **Antigravity CLI** (opcional) | instalada y con sesión iniciada — [guía](https://antigravity.google/docs/cli/getting-started). Para su estado y su medidor, además, `node` en el `PATH` de la CLI ([abajo](#antigravity-cli-estado-y-medidor-opcional)) |
 
-Hace falta una de las tres. Agent Workbench **no** incluye ninguna CLI ni la
+Hace falta una de las cuatro. Agent Workbench **no** incluye ninguna CLI ni la
 descarga: usa las que ya tenés en el `PATH`. Si no encuentra ninguna, te lo dice
 y no abre sesiones. Con más de una instalada, el `+` de nueva pestaña abre con la
 que usaste en ese proyecto, y su flecha te deja elegir otra.
@@ -83,6 +84,30 @@ El servidor imprime una URL con un token y la abre en el navegador:
 
 Esa URL es la única forma de entrar. El token es distinto en cada arranque, y el
 servidor escucha solo en `127.0.0.1`.
+
+### Antigravity CLI: estado y medidor (opcional)
+
+Antigravity CLI no deja en ningún archivo si está trabajando, esperando que
+autorices una herramienta o libre, ni cuántos tokens lleva: eso lo publica sólo
+por su *status line*. Sin configurarla, sus pestañas funcionan igual —historial,
+conversación, modo, modelo— pero el punto de la pestaña dice que no se sabe y el
+medidor queda sin medir. Para activarlo:
+
+1. Abrí una pestaña de Antigravity y tocá **Configurar**, al lado del medidor.
+2. Copiá la línea que muestra el diálogo y fusionala con lo que ya tenga
+   `~/.gemini/antigravity-cli/settings.json`. La aplicación no toca ese archivo:
+   lo editás vos.
+3. El diálogo pasa a **Configurada** solo en un par de segundos, o con
+   **Comprobar**.
+
+La línea corre un script que la aplicación deja en su propia carpeta. Guarda sólo
+el estado, el modo, el modelo y los tokens de cada conversación, en esa misma
+carpeta; no guarda tu email, tu cuota, tu plan ni el costo, que la CLI también le
+pasa, y no imprime nada, así que la línea propia de la CLI queda como está. Una
+vez puesta, la corre **toda** sesión de `agy`, también las que abras fuera de la
+aplicación, y necesita `node` en el `PATH`. En Windows la línea entra a la
+carpeta del script en vez de nombrarlo entre comillas: la CLI la ejecuta con
+`cmd /c`, y ninguna comilla le llega viva a `node`.
 
 ---
 
@@ -138,7 +163,8 @@ red saliente.
 
 - **Nunca toca tus credenciales.** No lee, copia ni reenvía
   `~/.claude/.credentials.json`, ni `auth.json` ni `config.toml` de Codex, ni
-  `auth.json` ni `opencode.json` de OpenCode, ni ningún token. No hay login en la
+  `auth.json` ni `opencode.json` de OpenCode, ni la configuración de MCP de
+  Antigravity ni su entrada en el llavero del sistema, ni ningún token. No hay login en la
   interfaz: si no iniciaste sesión, lo hacés dentro de la terminal de la CLI y la
   aplicación ni se entera.
 - **No agrega variables de autenticación** al entorno de los procesos que lanza.
@@ -152,9 +178,20 @@ red saliente.
   permisos y sesiones compartidas no se consultan. Lo único que deja leer esa
   base es lo que SQLite hace con cualquier lector: crea sus archivos `-wal` y
   `-shm` si faltan y le cambia la fecha a `-shm`. Nunca corre un comando de
-  OpenCode sobre ella.
-  Lo que la aplicación guarda (pestañas abiertas, caché del índice) va a su
-  propio directorio de configuración, nunca dentro de la carpeta de una CLI.
+  OpenCode sobre ella. **De Antigravity, de `~/.gemini/antigravity-cli/`**: los
+  transcripts de cada conversación, `history.jsonl`, la última conversación de
+  cada carpeta, y de `settings.json` sólo el modelo y la status line; si el log
+  propio de una pestaña no aparece, los `log/cli-*.log` de la CLI, que traen tus
+  mensajes y el email de la cuenta, sólo para encontrar el id de la conversación
+  y sin guardar ninguna línea; y de
+  `~/.gemini/config/projects/`, la carpeta de cada proyecto. Su índice de
+  conversaciones lo lee de una **copia** temporal, para no dejar archivos al lado
+  del original. Nada de `~/.gemini/antigravity/`, que es su IDE.
+  Lo que la aplicación guarda (pestañas abiertas, caché del índice, el script de
+  la status line) va a su propio directorio de configuración, nunca dentro de la
+  carpeta de una CLI. El log de cada pestaña de Antigravity, que trae tus
+  mensajes, queda en la carpeta temporal con permisos sólo tuyos y se borra en el
+  primer arranque de la aplicación pasadas 24 horas.
 - **En tus proyectos escribe una sola cosa, y sólo si confirmás:** la memoria
   compartida. Antes muestra archivo por archivo qué va a cambiar, y se limita a
   `.agents/memory/`, a lo que está entre sus marcas en `AGENTS.md` y
@@ -182,6 +219,14 @@ Si dice que esa versión de Node no trae `node:sqlite`, actualizá Node a la 22.
 o posterior. Si no hay línea, no encontró la base: está en
 `~/.local/share/opencode/opencode.db`, o donde diga `OPENCODE_DB` o
 `XDG_DATA_HOME`.
+
+**Una pestaña de Antigravity no muestra su estado ni el medidor.** Mirá la línea
+`Status line` del arranque, debajo de la CLI: si dice que no está configurada, o
+que hay otra, seguí los pasos de
+[arriba](#antigravity-cli-estado-y-medidor-opcional). Si la configuraste y la
+terminal de la CLI muestra `Statusline Error`, lo más probable es que `node` no
+esté en el `PATH` de esa sesión. Mientras la línea no publique nada, la pestaña
+se trata como si no la hubieras configurado.
 
 **`node-pty` no compila al instalar.** Es un módulo nativo. Normalmente baja un
 binario precompilado y no hace falta nada; si tu combinación de Node y
@@ -242,5 +287,5 @@ la CLI —que difiere de lo que uno esperaría— y las trampas ya pisadas.
 MIT. Ver [`LICENSE`](LICENSE).
 
 Agent Workbench es un proyecto independiente. Funciona con las CLIs de Claude
-Code, de Codex y de OpenCode, pero no está afiliado a Anthropic, a OpenAI ni a
-los autores de OpenCode, ni respaldado por ellos.
+Code, de Codex, de OpenCode y de Antigravity, pero no está afiliado a Anthropic,
+a OpenAI, a los autores de OpenCode ni a Google, ni respaldado por ellos.

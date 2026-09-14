@@ -133,6 +133,8 @@ export function watchSessions(
         depth: root.depth,
         ignoreInitial: !announceExisting,
         awaitWriteFinish: root.awaitWriteFinish,
+        // Solo si la raiz lo declara: las que no, se recorren igual que antes.
+        ...(root.ignore !== undefined ? { ignored: root.ignore } : {}),
       });
     } catch (error) {
       // Una raiz que no se puede observar no le quita el aviso a las demas.

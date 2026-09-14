@@ -16,6 +16,7 @@ import {
   type TerminalKind,
 } from '@agent-workbench/shared';
 import type { AgentAdapter, CliLocation } from './adapter.js';
+import { createAntigravityAdapter } from './antigravity/index.js';
 import { createClaudeCodeAdapter } from './claude-code/index.js';
 import { createCodexAdapter } from './codex/index.js';
 import { createOpenCodeAdapter } from './opencode/index.js';
@@ -27,6 +28,8 @@ export interface RegisteredAgent {
 
 export class AgentRegistry {
   private readonly agents = new Map<AgentId, RegisteredAgent>();
+  /** Las suscripciones a cambios de configuracion que siguen abiertas, para soltarlas al apagar. */
+  private readonly changeSubscriptions = new Set<() => void>();
 
   /** El orden del array es el orden de preferencia para `defaultAgent`. */
   constructor(adapters: readonly AgentAdapter[]) {
@@ -50,6 +53,70 @@ export class AgentRegistry {
         entry.location = await entry.adapter.locate();
       }),
     );
+  }
+
+  /**
+   * Lo que cada CLI encontrada prepara en las carpetas de la app
+   * (`AgentAdapter.prepare`). Se llama una vez al arrancar, despues de
+   * `locateAll()` y **despues** de mover la carpeta de configuracion del nombre
+   * viejo: si un adaptador creara algo en la nueva antes, la migracion se
+   * saltaria y el usuario perderia de vista notas, archivadas y pestanas (A1).
+   *
+   * Solo las encontradas: quien no usa una CLI no tiene por que ver archivos
+   * nuevos por ella. Un adaptador que falla no frena a los demas.
+   */
+  async prepareAll(): Promise<void> {
+    await Promise.all(
+      [...this.agents.values()]
+        .filter((entry) => entry.location !== null && entry.adapter.prepare !== undefined)
+        .map(async ({ adapter }) => {
+          try {
+            await adapter.prepare?.();
+          } catch (error) {
+            console.warn(`[agentes] ${adapter.label} no pudo preparar lo suyo: ${String(error)}`);
+          }
+        }),
+    );
+  }
+
+  /**
+   * Relee lo que cada CLI encontrada anuncia de su configuracion (el boton
+   * "Comprobar" del dialogo de la status line). true si algo cambio.
+   */
+  async refreshSetups(): Promise<boolean> {
+    const results = await Promise.all(
+      [...this.agents.values()]
+        .filter((entry) => entry.location !== null && entry.adapter.refreshSetup !== undefined)
+        .map(async ({ adapter }) => {
+          try {
+            return (await adapter.refreshSetup?.()) === true;
+          } catch {
+            return false;
+          }
+        }),
+    );
+    return results.some(Boolean);
+  }
+
+  /**
+   * Avisa cuando cambia lo que anuncia alguna CLI encontrada, sin que nadie lo
+   * pida: el usuario configuro su status line. Quien escucha reenvia la lista
+   * de CLIs (`agents`). Devuelve la desuscripcion; `disposeAll` suelta las que
+   * queden.
+   */
+  subscribeChanges(listener: () => void): () => void {
+    const stops = [...this.agents.values()]
+      .filter((entry) => entry.location !== null && entry.adapter.subscribeChanges !== undefined)
+      .map(({ adapter }) => adapter.subscribeChanges?.(listener) ?? (() => undefined));
+    let stopped = false;
+    const stop = (): void => {
+      if (stopped) return;
+      stopped = true;
+      this.changeSubscriptions.delete(stop);
+      for (const each of stops) each();
+    };
+    this.changeSubscriptions.add(stop);
+    return stop;
   }
 
   get(id: AgentId): RegisteredAgent | null {
@@ -79,6 +146,10 @@ export class AgentRegistry {
       missingMessage: location === null ? adapter.missingMessage() : null,
       capabilities: adapter.capabilities,
       environmentNotice: adapter.environment(process.env).notice,
+      // Solo la CLI con status line opcional la declara (hito 27); las demas, null.
+      // Y solo encontrada: sin ella `prepareAll` no instalo el script ni se vigila
+      // su configuracion, y el dialogo ofreceria una linea que apunta a la nada.
+      statusLine: location === null ? null : (adapter.statusLine?.() ?? null),
     }));
   }
 
@@ -123,6 +194,7 @@ export class AgentRegistry {
   }
 
   disposeAll(): void {
+    for (const stop of [...this.changeSubscriptions]) stop();
     for (const { adapter } of this.agents.values()) adapter.dispose();
   }
 }
@@ -178,8 +250,14 @@ export function resolveAgentForOpen(input: ResolveAgentInput): AgentId | null {
  * y `Alt+T` en un proyecto sin pestanas abre lo mismo que abria antes de que
  * existiera la segunda. OpenCode ultima (hito 26): el orden tambien decide que
  * `cwd` muestra un proyecto que comparten, y con las tres instaladas nada de lo
- * que ya habia cambia de lugar.
+ * que ya habia cambia de lugar. Antigravity CLI detras de todas (hito 27), por
+ * lo mismo.
  */
 export function createAgentRegistry(): AgentRegistry {
-  return new AgentRegistry([createClaudeCodeAdapter(), createCodexAdapter(), createOpenCodeAdapter()]);
+  return new AgentRegistry([
+    createClaudeCodeAdapter(),
+    createCodexAdapter(),
+    createOpenCodeAdapter(),
+    createAntigravityAdapter(),
+  ]);
 }

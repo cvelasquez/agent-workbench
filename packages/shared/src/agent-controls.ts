@@ -125,12 +125,18 @@ export const EFFORT_OPTIONS: readonly { value: string; label: string }[] = [
  * Devuelve null si no se reconoce, y entonces el combo muestra el identificador
  * crudo. Se ha visto un `gpt-5.6-terra` en una sesion importada: la aplicacion
  * no puede depender de conocer todos los nombres.
+ *
+ * `options` es la lista de la CLI de la pestana (`capabilities.models`). Sin
+ * ella, la de Claude Code, y el resultado es el de siempre.
  */
-export function modelOptionFor(observed: string | null): ModelOption | null {
-  const family = modelFamilyOf(observed);
+export function modelOptionFor(
+  observed: string | null,
+  options: readonly ModelOption[] = MODEL_OPTIONS,
+): ModelOption | null {
+  const family = modelFamilyOf(observed, options);
   if (family === null || observed === null) return null;
   const long = observed.includes('[1m]');
-  return MODEL_OPTIONS.find((option) => option.family === family && option.long === long) ?? null;
+  return options.find((option) => option.family === family && option.long === long) ?? null;
 }
 
 /**
@@ -150,13 +156,22 @@ export function familyHasLongVariant(family: string): boolean {
  * Casa igual un alias de la configuracion (`opus`, `opus[1m]`) que un id del
  * archivo de sesion (`claude-opus-5`). La familia es lo unico estable entre
  * versiones; los sufijos de fecha cambian solos.
+ *
+ * **Gana la familia mas larga contenida en el valor.** Con otra CLI una familia
+ * puede ser parte de otra (`Gemini 3.1 Flash` y `Gemini 3.1 Flash Lite`), y en
+ * el orden de la lista la corta se quedaria con la larga. Con las de Claude
+ * Code ninguna contiene a otra, asi que el orden no cambia nada.
  */
-export function modelFamilyOf(value: string | null): string | null {
+export function modelFamilyOf(
+  value: string | null,
+  options: readonly ModelOption[] = MODEL_OPTIONS,
+): string | null {
   if (value === null || value.length === 0) return null;
-  return (
-    MODEL_OPTIONS.find((option) => option.family.length > 0 && value.includes(option.family))
-      ?.family ?? null
-  );
+  // `sort` es estable: a igual largo manda el orden de la lista, como antes.
+  const candidates = options
+    .filter((option) => option.family.length > 0)
+    .sort((a, b) => b.family.length - a.family.length);
+  return candidates.find((option) => value.includes(option.family))?.family ?? null;
 }
 
 /** El comando que cambia el modelo. Se manda por el mismo camino que un mensaje. */

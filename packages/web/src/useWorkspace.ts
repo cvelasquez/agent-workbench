@@ -99,6 +99,11 @@ export interface Workspace {
   renameTerminal: (terminalId: TerminalId, label: string) => void;
   reorderTabs: (terminalIds: TerminalId[]) => void;
   refreshIndex: () => void;
+  /**
+   * Pide que el servidor relea lo que cada CLI anuncia de su configuracion (la
+   * status line) y mande la lista de nuevo. El boton "Comprobar".
+   */
+  refreshAgents: () => void;
   /** Esconde de la barra lateral, o restaura. No borra ningun archivo. */
   archiveSessions: (sessionIds: string[], archived: boolean) => void;
 }
@@ -172,6 +177,16 @@ export function useWorkspace(): Workspace {
     });
     const offMessage = connection.onMessage((message: ServerMessage) => {
       switch (message.type) {
+        /*
+          La lista de CLIs otra vez: cambio lo que anuncia alguna —el usuario
+          configuro su status line (hito 27)—, o es la respuesta a "Comprobar".
+          Reemplaza a la del `hello`; el resto de lo que trae el `hello` no cambia.
+        */
+        case 'agents':
+          setAgents(message.agents);
+          setDefaultAgent(message.defaultAgent);
+          break;
+
         case 'hello':
           setAgents(message.agents);
           setDefaultAgent(message.defaultAgent);
@@ -355,6 +370,11 @@ export function useWorkspace(): Workspace {
     [connection],
   );
 
+  const refreshAgents = useCallback(
+    () => connection.send({ type: 'agents.refresh' }),
+    [connection],
+  );
+
   const dismissError = useCallback(() => setError(null), []);
 
   // Una sola lista del servidor, dos vistas. Repartirla aca y no en cada
@@ -412,6 +432,7 @@ export function useWorkspace(): Workspace {
     renameTerminal,
     reorderTabs,
     refreshIndex,
+    refreshAgents,
     archiveSessions,
   };
 }

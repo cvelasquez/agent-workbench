@@ -3315,6 +3315,49 @@ kbd {
   line-height: 1.6;
 }
 
+/*
+  Dialogo de la status line (hito 27). El estado va arriba y en una linea: es
+  lo que uno viene a mirar despues de pegar el fragmento.
+*/
+.status-line-state {
+  margin: 0 0 8px;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.status-line-state-active {
+  color: var(--accent);
+}
+
+.status-line-fragment {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.status-line-fragment .tool-pre {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.status-line-path {
+  margin: 4px 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.status-line-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.status-line-actions .primary-button {
+  margin-top: 0;
+}
+
 .shortcut-list {
   margin: 0;
 }

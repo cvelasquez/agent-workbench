@@ -21,6 +21,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import {
   EMPTY_CONTEXT_USAGE,
+  blindToApprovals,
   type AgentId,
   type ContextUsage,
   type ConversationEvent,
@@ -35,6 +36,7 @@ import {
 } from '@agent-workbench/shared';
 import type {
   AgentAdapter,
+  AgentStatus,
   LoadedImage,
   PartsUpdate,
   SessionFollower,
@@ -114,6 +116,19 @@ interface Entry {
    * silenciosa es la que carga el historial al suscribirse.
    */
   observedMode: PermissionMode | null;
+  /**
+   * El lanzamiento de la pty (`launchedAt`) del que hablan los dos modos de
+   * arriba, o null si no habia pty.
+   *
+   * Lo usa `rebind`: una CLI que pone el id ella misma cambia de sesion **en la
+   * misma pty** —al descubrirla, con `/clear`—, y ahi el modo sigue siendo el
+   * del proceso. Empezar la entrada nueva en `launchMode` dejaba el combo
+   * diciendo "Aceptar ediciones" con Antigravity en manual, y el cambio
+   * siguiente contaba las pulsaciones desde el modo equivocado (§5.4.2).
+   * Medido en la verificacion de cierre del hito 27. Con otra pty, en cambio,
+   * el modo vuelve a ser el de lanzamiento.
+   */
+  modeLaunchedAt: number | null;
   /** Cuantos clientes la estan mirando. Cero = se apaga. */
   refs: number;
   timer: NodeJS.Timeout | null;
@@ -127,8 +142,16 @@ interface Entry {
    */
   waitingFor: string | null;
   /**
-   * true si la CLI no publica su estado y la conversacion tiene una llamada a
-   * herramienta del proceso vivo sin resultado (`hasOpenToolCall`).
+   * La ultima actividad que publico la CLI para esta sesion, o null si no dijo
+   * nada (o no hay fuente). `unknown` es la pestana que la app no ve: la de una
+   * CLI que publica su estado solo con algo configurado, y todavia no publico
+   * nada (R27-1). Con Claude Code no vale `unknown` nunca.
+   */
+  statusActivity: AgentStatus['activity'] | null;
+  /**
+   * true si la app no ve el estado de la pestana (`blindToApprovals`) y la
+   * conversacion tiene una llamada a herramienta del proceso vivo sin
+   * resultado (`hasOpenToolCall`).
    *
    * Es la misma pregunta que hace el socket antes de mandar un mensaje, llevada
    * al cliente para que el cuadro de escritura no deje apretar Enviar (A1 del
@@ -163,7 +186,7 @@ export interface ConversationHubEvents {
    * linea en el JSONL mientras espera.
    */
   waiting: (terminalId: TerminalId, waitingFor: string | null) => void;
-  /** Cambio `openToolCall` de la pestana. Solo CLIs que no publican su estado. */
+  /** Cambio `openToolCall` de la pestana. Solo pestanas cuyo estado no se ve. */
   toolCall: (terminalId: TerminalId, open: boolean) => void;
   append: (
     terminalId: TerminalId,
@@ -264,7 +287,13 @@ export class ConversationHub extends EventEmitter {
 
     let entry = this.entries.get(terminalId);
     if (entry === undefined) {
-      entry = this.createEntry(descriptor.agent, descriptor.cwd, descriptor.sessionId, adapter);
+      entry = this.createEntry(
+        terminalId,
+        descriptor.agent,
+        descriptor.cwd,
+        descriptor.sessionId,
+        adapter,
+      );
       this.entries.set(terminalId, entry);
       this.watchStatus(terminalId, entry, descriptor.sessionId);
       this.startFollowTicker(terminalId, entry);
@@ -313,6 +342,16 @@ export class ConversationHub extends EventEmitter {
     // Sin sesion no hay proceso que buscar por su id.
     if (status === null || sessionId.length === 0) return;
     entry.stopWatchingStatus = status.subscribe(sessionId, (current) => {
+      /*
+        Que la pestana pase a verse —o deje de verse— cambia si una llamada
+        abierta bloquea el cuadro (R27-1). Con Claude Code nunca vale `unknown`,
+        y el recalculo sale sin avisar nada.
+      */
+      const activity = current?.activity ?? null;
+      if (activity !== entry.statusActivity) {
+        entry.statusActivity = activity;
+        this.refreshOpenToolCall(terminalId, entry);
+      }
       // Sin etiqueta no se puede decir de que clase es, pero que espera si:
       // se avisa igual, con la copia generica.
       const next =
@@ -330,6 +369,7 @@ export class ConversationHub extends EventEmitter {
    * dos construcciones a mano son como una de las dos se queda sin algo.
    */
   private createEntry(
+    terminalId: TerminalId,
     agent: AgentId,
     cwd: string,
     sessionId: SessionId,
@@ -343,10 +383,12 @@ export class ConversationHub extends EventEmitter {
       announcedMode: null,
       assumedMode: adapter.capabilities.permissionCycle?.launchMode ?? null,
       observedMode: null,
+      modeLaunchedAt: this.registry.launchedAtOf(terminalId),
       refs: 0,
       timer: null,
       polling: Promise.resolve(),
       waitingFor: null,
+      statusActivity: null,
       openToolCall: false,
       primed: false,
       stopWatchingStatus: null,
@@ -380,13 +422,14 @@ export class ConversationHub extends EventEmitter {
   /**
    * Recalcula `openToolCall` y avisa si cambio.
    *
-   * Una CLI que publica su estado no entra nunca: ahi manda el estado, y su
-   * seguidor contesta false de todos modos. Sin pty viva tampoco hay a quien
-   * mandarle nada, asi que no hay nada que bloquear.
+   * Una pestana cuyo estado se ve queda siempre en false: ahi manda el estado.
+   * Es toda pestana de Claude Code, y la de una CLI que publica su estado solo
+   * con algo configurado **cuando ya publico algo** (R27-1); antes de eso vale
+   * lo mismo que sin fuente. Sin pty viva tampoco hay a quien mandarle nada,
+   * asi que no hay nada que bloquear.
    */
   private refreshOpenToolCall(terminalId: TerminalId, entry: Entry): void {
-    if (entry.adapter.capabilities.statusSource) return;
-    const launchedAt = this.registry.launchedAtOf(terminalId);
+    const launchedAt = this.isBlind(entry) ? this.registry.launchedAtOf(terminalId) : null;
     const open = launchedAt !== null && entry.follower.hasOpenToolCall(launchedAt);
     if (open === entry.openToolCall) return;
     entry.openToolCall = open;
@@ -419,10 +462,16 @@ export class ConversationHub extends EventEmitter {
     entry.stopWatchingStatus = null;
     this.stopFollowTicker(entry);
 
+    // La misma pty sigue en el modo en que estaba (ver `modeLaunchedAt`).
+    const launchedAt = this.registry.launchedAtOf(terminalId);
+    const sameProcess = launchedAt !== null && entry.modeLaunchedAt === launchedAt;
     const next: Entry = {
-      ...this.createEntry(descriptor.agent, descriptor.cwd, descriptor.sessionId, adapter),
+      ...this.createEntry(terminalId, descriptor.agent, descriptor.cwd, descriptor.sessionId, adapter),
       // Los que miraban siguen mirando.
       refs: entry.refs,
+      ...(sameProcess
+        ? { assumedMode: entry.observedMode ?? entry.assumedMode, announcedMode: entry.announcedMode }
+        : {}),
     };
     // Desde aca, una lectura de la entrada vieja que estaba en la cadena sale por su guardia.
     this.entries.set(terminalId, next);
@@ -444,8 +493,8 @@ export class ConversationHub extends EventEmitter {
    * true si la conversacion de una pestana tiene una llamada a herramienta sin
    * resultado, hecha por el proceso lanzado en `launchedAt` o despues.
    *
-   * Lo pregunta el socket antes de mandar un mensaje a una CLI que no publica
-   * su estado (A1 del hito 25). false si nadie sigue la pestana: sin seguidor no
+   * Lo pregunta el socket antes de mandar un mensaje a una pestana cuyo estado
+   * no se ve (A1 del hito 25, R27-1 del 27). false si nadie sigue la pestana: sin seguidor no
    * hay nada leido, y quien escribe desde el cuadro de escritura la esta mirando.
    */
   hasOpenToolCall(terminalId: TerminalId, launchedAt: number): boolean {
@@ -484,6 +533,37 @@ export class ConversationHub extends EventEmitter {
    */
   isToolCallOpen(terminalId: TerminalId): boolean {
     return this.entries.get(terminalId)?.openToolCall ?? false;
+  }
+
+  /**
+   * true si la app no ve el estado de esta pestana (`blindToApprovals`): su
+   * CLI no lo publica, o lo publica solo con algo configurado y para esta
+   * sesion no publico nada (R27-1). Sin suscripcion cuenta solo la capacidad
+   * de `adapter`, que es lo que el socket miraba antes.
+   */
+  isBlindToApprovals(terminalId: TerminalId, adapter: AgentAdapter): boolean {
+    const entry = this.entries.get(terminalId);
+    return entry === undefined ? blindToApprovals(adapter.capabilities) : this.isBlind(entry);
+  }
+
+  private isBlind(entry: Entry): boolean {
+    return blindToApprovals(entry.adapter.capabilities, entry.statusActivity);
+  }
+
+  /**
+   * Lo mismo que `getWaitingFor`, pero releyendo antes lo que la CLI publica,
+   * si su fuente de estado lo permite (`StatusSource.refresh`).
+   *
+   * Lo usa la guarda de un envio a una CLI cuya confirmacion abierta aprueba un
+   * Enter (R27-2), antes de cada pieza: el sondeo del estado va cada 700 ms y
+   * entre pieza y pieza pasan 400. null si nadie sigue la pestana.
+   */
+  async checkWaitingFor(terminalId: TerminalId): Promise<string | null> {
+    const entry = this.entries.get(terminalId);
+    if (entry === undefined) return null;
+    if (entry.sessionId.length > 0) await entry.adapter.status?.refresh?.(entry.sessionId);
+    // El aviso de la relectura ya paso por el oyente de `watchStatus`.
+    return this.getWaitingFor(terminalId);
   }
 
   private release(terminalId: TerminalId, entry: Entry): void {
@@ -541,6 +621,21 @@ export class ConversationHub extends EventEmitter {
     return entry.follower.readImage(eventId, index, source);
   }
 
+  /**
+   * El modo que viaja en un `conversation.reset`.
+   *
+   * Con Claude Code, lo de siempre: el que dice el seguidor. Con una CLI que
+   * pone el id ella misma, si el seguidor no dice nada —Antigravity sin status
+   * line, o antes de su primer registro— va el que lleva el hub. Sin eso, el
+   * reset del cambio de sesion (`rebind`) mandaba null y el combo volvia al modo
+   * de lanzamiento con la CLI en otro (verificacion de cierre del hito 27).
+   */
+  private resetMode(entry: Entry): PermissionMode | null {
+    const observed = entry.follower.getPermissionMode();
+    if (observed !== null || entry.adapter.capabilities.sessionIdAtLaunch) return observed;
+    return entry.observedMode ?? entry.assumedMode;
+  }
+
   getSnapshot(terminalId: TerminalId): ConversationSnapshot | null {
     const entry = this.entries.get(terminalId);
     if (entry === undefined) return null;
@@ -551,7 +646,7 @@ export class ConversationHub extends EventEmitter {
       events: tail.events,
       hasMore: tail.hasMore,
       usage: entry.follower.getUsage(),
-      permissionMode: entry.follower.getPermissionMode(),
+      permissionMode: this.resetMode(entry),
       waitingFor: entry.waitingFor,
       openToolCall: entry.openToolCall,
       // Este snapshot es sincronico y describir un plan pide el disco. Quien
@@ -601,6 +696,18 @@ export class ConversationHub extends EventEmitter {
   }
 
   /**
+   * Que esta esperando la CLI de una pestana, segun el estado que publica, o
+   * null si no espera nada, si nadie la sigue o si su CLI no publica estado.
+   *
+   * Lo pregunta el socket antes de cambiar el modo de una CLI cuya tecla de
+   * ciclo aprueba lo pendiente (hito 27, `approvesPendingOnCycle`). Es el mismo
+   * dato que la barra de "esperando" del cliente.
+   */
+  getWaitingFor(terminalId: TerminalId): string | null {
+    return this.entries.get(terminalId)?.waitingFor ?? null;
+  }
+
+  /**
    * Anota a donde acabamos de llevar la pestana con `shift+tab`.
    *
    * Lo llama el socket despues de escribir las pulsaciones. Sin esto, dos
@@ -612,6 +719,7 @@ export class ConversationHub extends EventEmitter {
     if (entry === undefined) return;
     entry.assumedMode = mode;
     entry.observedMode = null;
+    entry.modeLaunchedAt = this.registry.launchedAtOf(terminalId);
     if (entry.announcedMode !== mode) {
       entry.announcedMode = mode;
       this.emit('mode', terminalId, mode);
@@ -733,7 +841,10 @@ export class ConversationHub extends EventEmitter {
         (ver `observedMode`), y por eso esto vive debajo del `return` de arriba.
       */
       const observed = entry.follower.getPermissionMode();
-      if (observed !== null) entry.observedMode = observed;
+      if (observed !== null) {
+        entry.observedMode = observed;
+        entry.modeLaunchedAt = this.registry.launchedAtOf(terminalId);
+      }
       const mode = entry.observedMode ?? entry.assumedMode;
 
       if (result.reset) {

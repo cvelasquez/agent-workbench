@@ -391,15 +391,16 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
   check('B5 parseAgentInfo conserva id codex, bare-path-paste y token-count',
     info?.id === 'codex' && info.capabilities.imagesByPath === 'bare-path-paste' &&
     info.capabilities.contextWindowSource === 'token-count', show(info));
+  // Desde el hito 27 antigravity tiene adaptador: el ejemplo de CLI desconocida es otro.
   check('B5 un id que no es de ningun adaptador sigue siendo null',
-    parseAgentInfo({ id: 'antigravity', label: 'x', command: 'x', installUrl: 'x' }) === null);
+    parseAgentInfo({ id: 'gemini-cli', label: 'x', command: 'x', installUrl: 'x' }) === null);
 }
 
 // B6. Ids. OpenCode entra detras en el hito 26, sin mover a las dos de antes.
 {
   const { AGENT_IDS, MEMORY_AGENT_IDS } = shared;
-  check('B6 AGENT_IDS es claude-code, despues codex y despues opencode',
-    same([...AGENT_IDS], ['claude-code', 'codex', 'opencode']), AGENT_IDS.join(','));
+  check('B6 AGENT_IDS es claude-code, despues codex, opencode y antigravity (hito 27)',
+    same([...AGENT_IDS], ['claude-code', 'codex', 'opencode', 'antigravity']), AGENT_IDS.join(','));
   check('B6 AGENT_IDS contenido en MEMORY_AGENT_IDS', AGENT_IDS.every((id) => MEMORY_AGENT_IDS.includes(id)));
 }
 
@@ -1715,7 +1716,7 @@ const orderedIds = (state) => workspace.orderedTabs(state).map((e) => (e.kind ==
     { position: 5, tab: T('codex', 'x9') },
     { position: 0, tab: T('claude-code', 'c1') },
   ];
-  const foreign = [{ position: 2, raw: { agent: 'antigravity', cwd: '/p', sessionId: 'o1', futuro: { a: 1 } } }];
+  const foreign = [{ position: 2, raw: { agent: 'gemini-cli', cwd: '/p', sessionId: 'o1', futuro: { a: 1 } } }];
   const merged = workspace.mergePersistedTabs(live, unavailable, foreign);
   check('D3 las no disponibles y las ajenas vuelven a su lugar, sin repetir una viva',
     orderedIds(merged) === 'c1,x1,ajena:o1,c2,x9', orderedIds(merged));
@@ -1765,8 +1766,8 @@ const orderedIds = (state) => workspace.orderedTabs(state).map((e) => (e.kind ==
   }
 
   const store = new WorkspaceStore();
-  // Una CLI que esta build no conoce: desde el hito 26, OpenCode ya no sirve de ejemplo.
-  const ajena = { agent: 'antigravity', cwd: 'D:\\b', sessionId: 'sb', label: '', futuro: { x: 1 } };
+  // Una CLI que esta build no conoce: desde el hito 26 OpenCode, y desde el 27 Antigravity, ya no sirven de ejemplo.
+  const ajena = { agent: 'gemini-cli', cwd: 'D:\\b', sessionId: 'sb', label: '', futuro: { x: 1 } };
   await writeFile(statePath, JSON.stringify({ version: 1, tabs: [{ agent: 'claude-code', cwd: 'D:\\a', sessionId: 'sa' }, ajena] }));
   let loaded;
   const warnings = await captureWarnings(async () => { loaded = await store.load(); });
@@ -2269,8 +2270,8 @@ const throwsOn = (run) => {
 // E1. En el registro de la app.
 {
   const registry = createAgentRegistry();
-  check('E1 el registro de la app trae claude-code y despues codex (y opencode al final, desde el hito 26)',
-    same(registry.all().map(({ adapter }) => adapter.id), ['claude-code', 'codex', 'opencode']));
+  check('E1 el registro de la app trae claude-code y despues codex (y opencode desde el hito 26, antigravity al final desde el 27)',
+    same(registry.all().map(({ adapter }) => adapter.id), ['claude-code', 'codex', 'opencode', 'antigravity']));
   check('E1 sin ninguna instalada, ninguna por defecto', registry.defaultAgent() === null);
   const codexInfo = registry.list().find((info) => info.id === 'codex');
   check('E1 hello: codex ausente con su texto y sus capacidades',
@@ -2330,8 +2331,8 @@ const throwsOn = (run) => {
   const registry = createAgentRegistry();
   const claudeText = registry.adapter('claude-code').missingMessage();
   const none = summarizeAgents(registry.list(), true);
-  check('A6 cartel sin ninguna: el de claude-code de siempre y "tambien funciona con: Codex, OpenCode"',
-    none.cliAvailable === false && none.cliMissingMessage === `${claudeText}\nTambien funciona con: Codex, OpenCode`, show(none));
+  check('A6 cartel sin ninguna: el de claude-code de siempre y "tambien funciona con: Codex, OpenCode, Antigravity CLI"',
+    none.cliAvailable === false && none.cliMissingMessage === `${claudeText}\nTambien funciona con: Codex, OpenCode, Antigravity CLI`, show(none));
   registry.get('claude-code').location = { resolvedPath: '/bin/claude', file: '/bin/claude', prefixArgs: [], version: '2.1.270' };
   const onlyClaude = summarizeAgents(registry.list(), true);
   const alone = new AgentRegistry([createClaudeCodeAdapter()]);

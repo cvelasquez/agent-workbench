@@ -8,7 +8,7 @@
     "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts --prod",
     "typecheck": "tsc -p tsconfig.json",
-    "check": "tsx scripts/check-conversation-follower.mjs && tsx scripts/check-git-and-paths.mjs && tsx scripts/check-composer-input.mjs && tsx scripts/check-archived-sessions.mjs && tsx scripts/check-notes-store.mjs && tsx scripts/check-inline-markup.mjs && tsx scripts/check-plans.mjs && tsx scripts/check-memory-bridge.mjs && tsx scripts/check-agent-registry.mjs && tsx scripts/check-codex-adapter.mjs && tsx scripts/check-opencode-db.mjs && tsx scripts/check-archive-history.mjs"
+    "check": "tsx scripts/check-conversation-follower.mjs && tsx scripts/check-git-and-paths.mjs && tsx scripts/check-composer-input.mjs && tsx scripts/check-archived-sessions.mjs && tsx scripts/check-notes-store.mjs && tsx scripts/check-inline-markup.mjs && tsx scripts/check-plans.mjs && tsx scripts/check-memory-bridge.mjs && tsx scripts/check-agent-registry.mjs && tsx scripts/check-codex-adapter.mjs && tsx scripts/check-opencode-db.mjs && tsx scripts/check-archive-history.mjs && tsx scripts/check-antigravity-events.mjs"
   },
   "dependencies": {
     "@agent-workbench/shared": "workspace:*",

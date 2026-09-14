@@ -20,6 +20,7 @@
 import {
   PERMISSION_MODE_HINT,
   PERMISSION_MODE_LABEL,
+  blindToApprovals,
   modelOptionFor,
   normalizeCwdKey,
   type AgentCapabilities,
@@ -32,6 +33,8 @@ import {
   type PermissionCycleCapability,
   type PermissionMode,
   type SessionSummary,
+  type StatusLineSetupInfo,
+  type StatusLineState,
   type TerminalActivity,
   type TerminalDescriptor,
 } from '@agent-workbench/shared';
@@ -57,6 +60,12 @@ export interface AgentUi {
   shortcutsNote: string | null;
   /** El archivo de instrucciones del proyecto que la CLI carga al arrancar. */
   instructionsFile: string;
+  /**
+   * true si `/model` y `/effort` dejan lo elegido como predeterminado de la CLI,
+   * tambien para las pestanas siguientes. Lo dice el titulo de los combos:
+   * cambiar el modelo de una pestana no deberia sorprender en la proxima.
+   */
+  savesModelChoice: boolean;
 }
 
 /**
@@ -111,6 +120,24 @@ const OPENCODE_SHORTCUTS: readonly Shortcut[] = [
 ];
 
 /**
+ * Las teclas de Antigravity CLI dentro de su terminal.
+ *
+ * Solo las medidas en vivo con la 1.2.2 (hito 27, paso 0): un Esc interrumpe,
+ * `Shift + Tab` cicla los tres modos, y el menu de permiso es numerado —no
+ * `y`/`n` como decia la documentacion—. Lo que no se probo no se lista.
+ */
+const ANTIGRAVITY_SHORTCUTS: readonly Shortcut[] = [
+  { keys: 'Esc', description: 'Interrumpir el turno en curso, o cancelar un pedido de permiso' },
+  {
+    keys: 'Shift + Tab',
+    description: 'Cambiar el modo: accept-edits, plan y por defecto (con el foco en la terminal)',
+  },
+  { keys: '1 … 4', description: 'Contestar un pedido de permiso: 1 lo permite, 4 lo rechaza' },
+  { keys: '/', description: 'Comandos' },
+  { keys: '?', description: 'Ver los atajos de la CLI' },
+];
+
+/**
  * Una entrada por CLI con adaptador.
  *
  * Es un `Record` exhaustivo a proposito: agregar un id a `AGENT_IDS` sin su
@@ -135,6 +162,7 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     ],
     shortcutsNote: null,
     instructionsFile: 'CLAUDE.md',
+    savesModelChoice: false,
   },
   codex: {
     shortLabel: 'CX',
@@ -142,6 +170,7 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     shortcutsNote:
       'Alt + ← / → cambian de agente dentro de Codex, pero acá los usa la app para cambiar de pestaña.',
     instructionsFile: 'AGENTS.md',
+    savesModelChoice: false,
   },
   opencode: {
     shortLabel: 'OC',
@@ -149,8 +178,24 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     shortcutsNote:
       'Ctrl + T cambia la variante del modelo dentro de OpenCode, pero el navegador se la queda: está en Ctrl + P.',
     instructionsFile: 'AGENTS.md',
+    savesModelChoice: false,
+  },
+  antigravity: {
+    shortLabel: 'AG',
+    shortcuts: ANTIGRAVITY_SHORTCUTS,
+    shortcutsNote: null,
+    instructionsFile: 'AGENTS.md',
+    // Medido con la 1.2.2: los dos quedan escritos en su settings.json.
+    savesModelChoice: true,
   },
 };
+
+/** Lo que agregan los titulos de los combos de modelo y esfuerzo, o '' si nada. */
+export function modelChoiceNote(agent: AgentId | null): string {
+  return agent !== null && AGENT_UI[agent].savesModelChoice
+    ? ', y la CLI lo guarda como predeterminado para las pestañas siguientes'
+    : '';
+}
 
 /** El archivo de instrucciones de una CLI, o null si la pestana no tiene. */
 export function instructionsFileFor(agent: AgentId | null): string | null {
@@ -206,15 +251,16 @@ export function controlsFor(capabilities: AgentCapabilities): AgentControlsView 
 /**
  * La opcion del combo de modelo que corresponde a lo observado.
  *
- * Se casa igual que siempre (`modelOptionFor`), pero solo cuenta si la opcion
- * esta en la lista que declara la CLI: un valor que el combo no ofrece dejaria
- * el `select` apuntando a nada.
+ * Se casa igual que siempre (`modelOptionFor`), pero contra la lista que
+ * declara la CLI y solo si la opcion esta en ella: un valor que el combo no
+ * ofrece dejaria el `select` apuntando a nada. Con la lista de Claude Code es
+ * el resultado de siempre; con la de otra CLI (hito 27) casa por sus familias.
  */
 export function modelOptionIn(
   models: readonly ModelOption[],
   observed: string | null,
 ): ModelOption | null {
-  const option = modelOptionFor(observed);
+  const option = modelOptionFor(observed, models);
   if (option === null) return null;
   return models.find((entry) => entry.value === option.value) ?? null;
 }
@@ -228,6 +274,59 @@ export function shownMode(mode: PermissionMode | null, cycle: PermissionCycleCap
 export function modeTitle(mode: PermissionMode, cycle: PermissionCycleCapability): string {
   return `Modo ${PERMISSION_MODE_LABEL[mode]}: ${PERMISSION_MODE_HINT[mode]}. Cambiarlo manda ${cycle.keyLabel} a la pestaña CLI`;
 }
+
+/**
+ * true si el combo de modo no deja cambiar: la tecla de la CLI aprueba lo
+ * pendiente al ciclar (`approvesPendingOnCycle`) y la CLI dice que espera algo.
+ * El servidor lo rechaza igual (`planModeChange`); esto lo dice antes.
+ */
+export function modeChangeBlocked(cycle: PermissionCycleCapability, waitingFor: string | null): boolean {
+  return cycle.approvesPendingOnCycle && waitingFor !== null;
+}
+
+/**
+ * Titulo completo del combo de modo, con lo que agrega una CLI cuya tecla
+ * aprueba lo pendiente (hito 27). Con Claude Code es `modeTitle` tal cual.
+ *
+ * `statusKnown`: la app ve el estado de **esta pestana**
+ * (`!blindToApprovals(capabilities, actividad)`). No alcanza con que la CLI lo
+ * publique: con la status line configurada y sin publicar nada la pestana
+ * sigue `unknown` (R27-1). Sin eso la app no ve una confirmacion abierta, no
+ * puede frenar el cambio, y lo unico honesto es avisarlo.
+ */
+export function modeControlTitle(
+  mode: PermissionMode,
+  cycle: PermissionCycleCapability,
+  statusKnown: boolean,
+  waitingFor: string | null,
+): string {
+  if (modeChangeBlocked(cycle, waitingFor)) {
+    return 'Hay una confirmación pendiente en la CLI: cambiar de modo ahora la aprobaría. Contestala en la solapa CLI.';
+  }
+  const base = modeTitle(mode, cycle);
+  if (!cycle.approvesPendingOnCycle || statusKnown) return base;
+  return `${base}. Sin datos de la status line la app no sabe si hay una confirmación pendiente; cambiar el modo en ese momento la aprueba`;
+}
+
+/** Lo que dice el dialogo de la status line sobre su estado, en una linea. */
+export function statusLineStateText(state: StatusLineState): string {
+  switch (state) {
+    case 'active':
+      return 'Configurada';
+    case 'missing':
+      return 'No configurada';
+    case 'other-command':
+      return 'Tenés otra status line: pegar esta la reemplaza';
+    case 'disabled':
+      return 'Desactivada (enabled: false)';
+    case 'unreadable':
+      return 'No pude leer settings.json';
+  }
+}
+
+/** Por que el dialogo no ofrece fragmento (`StatusLineSetupInfo.fragment` null). */
+export const STATUS_LINE_NO_FRAGMENT =
+  'La carpeta de la app tiene caracteres que la consola interpreta (como & % ! o comillas), y con ellos no hay una línea que la CLI pueda correr: en Windows la corre con cmd /c y ninguna comilla le llega. Con la carpeta de configuración en una ruta sin esos caracteres se resuelve.';
 
 /**
  * Las solapas que se ofrecen.
@@ -298,15 +397,62 @@ export const IMAGES_REFUSED_MESSAGE = 'Esta CLI no recibe imagenes desde el cuad
  *
  * Primero lo que declara la configuracion. Si no declara nada, una CLI que
  * escribe la ventana exacta al empezar el turno ya la dijo antes de responder,
- * y ese numero no hay que adivinarlo. Con cualquier otra fuente, lo que traiga
- * el uso antes de medir no es un dato publicado y no se muestra.
+ * y ese numero no hay que adivinarlo. Lo mismo la que la publica por su status
+ * line (hito 27, B6): la ventana llega exacta antes que los tokens. Con
+ * cualquier otra fuente, lo que traiga el uso antes de medir no es un dato
+ * publicado y no se muestra.
  */
 export function meterIdleWindow(
   source: ContextWindowSource | null,
   usage: Pick<ContextUsage, 'contextWindow'>,
   fallbackWindow: number | null,
 ): number | null {
-  return fallbackWindow ?? (source === 'token-count' ? usage.contextWindow : null);
+  return (
+    fallbackWindow ??
+    (source === 'token-count' || source === 'status-line' ? usage.contextWindow : null)
+  );
+}
+
+/**
+ * true si el medidor ya tiene un numero que mostrar.
+ *
+ * Con las fuentes que leen el historial, desde la primera respuesta (regla 3
+ * del medidor). Con la status line no depende de las respuestas: el numero es
+ * lo que la CLI publico, y hasta que lo publica —una conversacion reanudada
+ * antes de que corra, o una recien limpiada— no hay nada que medir aunque el
+ * hilo tenga mensajes. Dibujar ahi un 0 afirmaria que la ventana esta libre.
+ */
+export function meterMeasured(
+  source: ContextWindowSource | null,
+  usage: Pick<ContextUsage, 'assistantMessages' | 'lastRequestTokens'>,
+): boolean {
+  if (source === 'status-line') return usage.lastRequestTokens > 0;
+  return usage.assistantMessages > 0;
+}
+
+/**
+ * true si el medidor de una CLI sin tokens ofrece configurar su status line:
+ * la CLI la tiene (`AgentInfo.statusLine`) y no esta activa. Con la status
+ * line activa la fuente ya no es null y el medidor mide.
+ */
+export function meterOffersSetup(
+  source: ContextWindowSource | null,
+  statusLine: Pick<StatusLineSetupInfo, 'state'> | null,
+): boolean {
+  return source === null && statusLine !== null && statusLine.state !== 'active';
+}
+
+/** Titulo del medidor que ofrece configurar la status line. */
+export function meterSetupTitle(state: StatusLineState): string {
+  const why =
+    state === 'other-command'
+      ? 'tenés otra status line configurada'
+      : state === 'disabled'
+        ? 'la status line de la app está desactivada'
+        : state === 'unreadable'
+          ? 'no se pudo leer su settings.json'
+          : 'todavía no está configurada';
+  return `Esta CLI publica sus tokens solo por su status line, y ${why}. Configurar explica cómo.`;
 }
 
 /**
@@ -328,8 +474,22 @@ export function meterWindowOrigin(
   return null;
 }
 
-/** Titulo del medidor antes de la primera respuesta. */
-export function meterIdleDetail(instructionsFile: string | null): string {
+/**
+ * Titulo del medidor antes de la primera respuesta.
+ *
+ * Con la status line (hito 27) el numero no espera una respuesta sino que la
+ * CLI la corra con esta conversacion, y se dice eso.
+ */
+export function meterIdleDetail(
+  instructionsFile: string | null,
+  source: ContextWindowSource | null = null,
+): string {
+  if (source === 'status-line') {
+    return (
+      'La status line todavia no publico tokens de esta conversacion. No arranca en cero: el' +
+      ' numero aparece cuando la CLI la corre, con el primer mensaje o al retomar la sesion.'
+    );
+  }
   const instructions = instructionsFile ?? 'archivo de instrucciones del proyecto';
   return (
     'La sesion todavia no midio ninguna respuesta. No arranca en cero: el prompt de' +
@@ -338,10 +498,24 @@ export function meterIdleDetail(instructionsFile: string | null): string {
   );
 }
 
-/** Titulo del punto de una pestana con proceso que no esta ni trabajando ni esperando. */
-export function restingDotTitle(activity: TerminalActivity | undefined): string {
+/**
+ * Titulo del punto de una pestana con proceso que no esta ni trabajando ni esperando.
+ *
+ * `statusLine`: la de la CLI de la pestana, si tiene una opcional (hito 27).
+ * Ahi `unknown` no es que la CLI no publique nada: publica solo con la status
+ * line, o todavia no publico nada de esta conversacion.
+ */
+export function restingDotTitle(
+  activity: TerminalActivity | undefined,
+  statusLine: Pick<StatusLineSetupInfo, 'state'> | null = null,
+): string {
   if (activity === 'idle') return 'Lista, sin nada en curso';
-  if (activity === 'unknown') return 'Esta CLI no publica su estado';
+  if (activity === 'unknown') {
+    if (statusLine === null) return 'Esta CLI no publica su estado';
+    return statusLine.state === 'active'
+      ? 'La status line todavía no publicó el estado de esta conversación'
+      : 'Esta CLI publica su estado sólo con la status line configurada';
+  }
   return 'CLI abierta';
 }
 
@@ -558,16 +732,27 @@ export function discoveringSession(
   return agent !== null && sessionId === '' && !capabilities.sessionIdAtLaunch;
 }
 
+/**
+ * Lo que dice el hilo de una conversacion que existe pero no dejo nada legible
+ * que seguir (`ConversationState 'no-transcript'`, hito 27): una version vieja
+ * de la CLI que guardaba el historial vacio. Se lista y se puede reanudar.
+ */
+export const NO_TRANSCRIPT_TEXT =
+  'Esta conversación es de una versión de la CLI que no dejaba el transcript legible. Se puede reanudar desde la barra lateral, pero acá no hay nada que mostrar.';
+
 /** La linea que la vista vacia agrega mientras la sesion no aparece. */
 export const DISCOVERING_HINT = 'La sesión aparece en el historial con el primer mensaje.';
 
 /**
  * Por que el cuadro de escritura no deja mandar, o null si deja.
  *
- * Una CLI que no publica su estado puede tener un menu de aprobacion abierto
+ * Una pestana cuyo estado no se ve puede tener un menu de aprobacion abierto
  * sin que la app lo sepa, y lo unico que se ve es una llamada a herramienta
  * sin resultado. Un mensaje mandado ahi llega como teclas al menu: el Enter
  * final aprueba. El servidor lo rechaza igual; esto lo dice antes (A1).
+ *
+ * "No se ve" es por pestana (`blindToApprovals`, R27-1): `activity` es la de
+ * la pestana; sin ella cuenta solo la capacidad, como antes.
  *
  * Solo con la CLI viva: sin proceso el cuadro ya esta apagado por otra razon.
  */
@@ -576,7 +761,36 @@ export function openToolCallNotice(
   openToolCall: boolean,
   label: string | null,
   alive: boolean,
+  activity: TerminalActivity | null = null,
 ): string | null {
-  if (!alive || capabilities.statusSource || !openToolCall) return null;
+  if (!alive || !blindToApprovals(capabilities, activity) || !openToolCall) return null;
   return `${label ?? 'La CLI'} tiene una herramienta sin resultado: puede estar pidiendo una aprobación. Contestala en la solapa CLI.`;
+}
+
+/**
+ * Lo que dice la barra de "esperando una respuesta": el permiso se nombra, el
+ * resto se agrupa. Una sola copia para la barra y para el cuadro que se apaga
+ * por ella (`pendingApprovalNotice`).
+ */
+export function waitingBarText(waitingFor: string): string {
+  return waitingFor === 'permission prompt'
+    ? 'La CLI esta esperando que autorices una herramienta.'
+    : 'La CLI esta esperando una respuesta tuya.';
+}
+
+/**
+ * Por que el cuadro no deja mandar mientras la CLI espera, o null si deja.
+ *
+ * Solo con una CLI cuya confirmacion abierta aprueba lo que llegue
+ * (`approvesPendingOnCycle`, R27-2): el Enter aparte del mensaje caeria sobre
+ * la opcion resaltada. Es el mismo texto de la barra, que ya esta a la vista.
+ * Con Claude Code la capacidad es false y el cuadro sigue como siempre.
+ */
+export function pendingApprovalNotice(
+  capabilities: AgentCapabilities,
+  waitingFor: string | null,
+  alive: boolean,
+): string | null {
+  if (!alive || waitingFor === null || capabilities.permissionCycle?.approvesPendingOnCycle !== true) return null;
+  return waitingBarText(waitingFor);
 }

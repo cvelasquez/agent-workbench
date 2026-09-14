@@ -47,8 +47,9 @@ import {
   ANSWER_KEY_INTERVAL_MS,
   buildAnswerKeys,
   buildInterruptKeys,
-  buildModeKeys,
   buildSubmissionWrites,
+  planModeChange,
+  submitRefusal,
 } from './pty-input.js';
 import type { RepoHub } from './repo-hub.js';
 import { revealPath } from './reveal.js';
@@ -215,6 +216,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     type: 'terminal.list',
     terminals: registry.list(),
     order: registry.getOrder(),
+  });
+
+  /** La lista de CLIs fuera del `hello`: lo que anuncia una puede cambiar con el servidor andando. */
+  const agentsMessage = (): ServerMessage => ({
+    type: 'agents',
+    agents: agents.list(),
+    defaultAgent: agents.defaultAgent(),
   });
 
   /**
@@ -388,6 +396,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('parts', onConversationParts);
   repos.on('status', onGitStatus);
   memory.on('status', onMemoryStatus);
+
+  /*
+    El usuario configuro —o quito— la status line de una CLI con la app abierta:
+    cambian sus capacidades, y todas las ventanas tienen que dibujar lo nuevo sin
+    recargar. Solo sondea la configuracion de las CLIs encontradas; con Claude
+    Code sola no corre nada (hito 27, M6).
+  */
+  const stopAgentChanges = agents.subscribeChanges(() => broadcast(agentsMessage()));
 
   // ---- upgrade ----
 
@@ -577,43 +593,63 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           }
 
           /*
-            Una CLI que no publica su estado puede estar mostrando un menu de
+            Una pestana cuyo estado no se ve puede estar mostrando un menu de
             aprobacion sin que la app lo sepa, y ahi el mensaje llegaria como
             teclas: el Enter final aprueba, y un texto que empieza con la letra
             de "aprobar siempre" aprueba para toda la sesion (A1 del hito 25).
             Lo unico que se ve desde aca es una llamada a herramienta de este
             proceso que todavia no tiene resultado, y con eso no se escribe nada.
             Antes de encolar: un rechazo no tiene por que esperar su turno.
+
+            "No se ve" es por pestana, no por CLI (R27-1 del hito 27): la que
+            publica su estado solo con algo configurado, y no publico nada, esta
+            igual de ciega que la que no lo publica nunca.
           */
           const submitting = adapterOf(terminalId);
-          const blindToApprovals = submitting !== null && !submitting.capabilities.statusSource;
-          const launchedAt = registry.launchedAtOf(terminalId);
-          if (
-            blindToApprovals &&
-            launchedAt !== null &&
-            conversations.hasOpenToolCall(terminalId, launchedAt)
-          ) {
-            sendError(
-              socket,
-              'submit-failed',
-              `${submitting.label} tiene una herramienta sin resultado: puede estar pidiendo una aprobacion. Contestala en la solapa CLI.`,
-            );
-            break;
+          const isBlind = (): boolean =>
+            submitting !== null && conversations.isBlindToApprovals(terminalId, submitting);
+          /*
+            Y una CLI cuya confirmacion abierta aprueba lo que llegue (hito 27,
+            R27-2): con el menu de permiso abierto, el Enter aparte del mensaje
+            cae sobre la opcion resaltada. Aca la app si sabe que hay un menu —lo
+            publica la CLI— y no escribe, por lo mismo que el combo de modo no
+            cicla (D16). Con Claude Code la capacidad es false y no cambia nada.
+          */
+          const guardsPending = submitting?.capabilities.permissionCycle?.approvesPendingOnCycle === true;
+          if (submitting !== null) {
+            const launchedAt = registry.launchedAtOf(terminalId);
+            const blind = isBlind();
+            const refusal = submitRefusal({
+              label: submitting.label,
+              approvesPendingOnCycle: guardsPending,
+              waitingFor: conversations.getWaitingFor(terminalId),
+              blind,
+              openToolCall: blind && launchedAt !== null && conversations.hasOpenToolCall(terminalId, launchedAt),
+            });
+            if (refusal !== null) {
+              sendError(socket, 'submit-failed', refusal);
+              break;
+            }
           }
           /*
             Y otra vez antes de cada pieza, leyendo el archivo en el momento.
             Entre este chequeo y el Enter pasan el guardado de las imagenes, lo
             que hubiera delante en la fila y 400 ms por pieza: con ocho imagenes,
             casi cuatro segundos en los que la CLI puede abrir un menu. Si abre
-            uno, lo que falta —el Enter sobre todo— no se escribe.
+            uno, lo que falta —el Enter sobre todo— no se escribe. La ceguera se
+            vuelve a preguntar en cada pieza: la status line puede empezar a
+            publicar a mitad del envio.
           */
-          const approvalGuard = blindToApprovals
-            ? async (): Promise<boolean> => {
-                const current = registry.launchedAtOf(terminalId);
-                // Sin proceso no hay menu: la escritura la rechaza la terminal.
-                return current === null || !(await conversations.checkOpenToolCall(terminalId, current));
-              }
-            : undefined;
+          const approvalGuard =
+            submitting !== null && (guardsPending || isBlind())
+              ? async (): Promise<boolean> => {
+                  const current = registry.launchedAtOf(terminalId);
+                  // Sin proceso no hay menu: la escritura la rechaza la terminal.
+                  if (current === null) return true;
+                  if (isBlind() && (await conversations.checkOpenToolCall(terminalId, current))) return false;
+                  return !guardsPending || (await conversations.checkWaitingFor(terminalId)) === null;
+                }
+              : undefined;
 
           const input = inputOf(terminalId);
           const interrupted = (): void =>
@@ -774,17 +810,23 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             la lanzo la aplicacion: el modo de arranque de su CLI.
           */
           const current = conversations.getPermissionMode(message.terminalId) ?? cycle.launchMode;
-          if (current === message.mode) break;
-
-          const keys = buildModeKeys(current, message.mode);
-          if (keys === null || keys.length === 0) {
-            sendError(
-              socket,
-              'mode-failed',
-              `No se puede llegar a ese modo desde el actual. Cambialo con ${cycle.keyLabel} en la solapa CLI.`,
-            );
+          /*
+            Las pulsaciones se cuentan sobre el ciclo de la CLI de la pestana,
+            y con una CLI cuya tecla aprueba lo pendiente no se escribe nada
+            mientras haya una confirmacion abierta (ver `planModeChange`).
+          */
+          const plan = planModeChange({
+            cycle,
+            current,
+            target: message.mode,
+            waitingFor: conversations.getWaitingFor(message.terminalId),
+          });
+          if (plan.kind === 'none') break;
+          if (plan.kind === 'refused') {
+            sendError(socket, 'mode-failed', plan.message);
             break;
           }
+          const { keys } = plan;
           /*
             Se anota a donde vamos **antes** de escribir, no despues: el
             archivo no lo va a decir hasta que la CLI procese un turno, y sin
@@ -994,6 +1036,19 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
         case 'index.refresh':
           void index.scan();
+          break;
+
+        /*
+          "Comprobar" del dialogo de la status line: relee la configuracion de
+          cada CLI y contesta con la lista. Si algo cambio va a todos, no solo
+          a quien pregunto: el aviso automatico ya no lo va a repetir, porque
+          esta lectura dejo el estado al dia.
+        */
+        case 'agents.refresh':
+          void agents.refreshSetups().then((changed) => {
+            if (changed) broadcast(agentsMessage());
+            else send(socket, agentsMessage());
+          });
           break;
 
         case 'conversation.subscribe':
@@ -1601,6 +1656,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('toolCall', onConversationToolCall);
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);
+    stopAgentChanges();
     for (const client of wss.clients) client.terminate();
     wss.close();
   };

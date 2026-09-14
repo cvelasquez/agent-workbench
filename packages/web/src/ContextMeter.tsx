@@ -24,8 +24,15 @@
  *     presentarla como tal es la misma mentira de la regla 2 con otra ropa.
  */
 
-import type { ContextUsage, ContextWindowSource } from '@agent-workbench/shared';
-import { meterIdleDetail, meterIdleWindow, meterWindowOrigin } from './agent-ui.js';
+import type { ContextUsage, ContextWindowSource, StatusLineState } from '@agent-workbench/shared';
+import {
+  meterIdleDetail,
+  meterIdleWindow,
+  meterMeasured,
+  meterOffersSetup,
+  meterSetupTitle,
+  meterWindowOrigin,
+} from './agent-ui.js';
 
 /** Umbrales de color. Son de presentacion: la CLI no publica ninguno. */
 const WARN_RATIO = 0.75;
@@ -68,6 +75,15 @@ interface ContextMeterProps {
    * empujaria la conversacion tres lineas hacia abajo.
    */
   compact?: boolean;
+  /**
+   * Como esta la status line opcional de la CLI de la pestana, o null si no
+   * tiene (hito 27). Con la fuente en null y la status line sin activar, el
+   * medidor no dice "no publica tokens" —si los publica, configurandola— sino
+   * "sin medir", con un boton que abre el dialogo.
+   */
+  statusLineState?: StatusLineState | null;
+  /** Abre el dialogo de configurar la status line. */
+  onConfigure?: () => void;
 }
 
 export function ContextMeter({
@@ -76,8 +92,30 @@ export function ContextMeter({
   instructionsFile,
   fallbackWindow = null,
   compact = false,
+  statusLineState = null,
+  onConfigure,
 }: ContextMeterProps): JSX.Element {
   const { lastRequestTokens, contextWindow } = usage;
+
+  if (
+    onConfigure !== undefined &&
+    statusLineState !== null &&
+    meterOffersSetup(source, { state: statusLineState })
+  ) {
+    return (
+      <div
+        className={`meter meter-idle${compact ? ' meter-compact' : ''}`}
+        title={meterSetupTitle(statusLineState)}
+      >
+        <span className="meter-label">Contexto</span>
+        <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
+        <span className="meter-value">sin medir</span>
+        <button className="link-button" onClick={onConfigure}>
+          Configurar
+        </button>
+      </div>
+    );
+  }
 
   if (source === null) {
     return (
@@ -92,7 +130,7 @@ export function ContextMeter({
     );
   }
 
-  if (usage.assistantMessages === 0) {
+  if (!meterMeasured(source, usage)) {
     /*
       El hueco de la barra se dibuja siempre, con ventana o sin ella: aca esta
       vacio por definicion y no hay nada que malinterpretar, y reservar el sitio
@@ -104,7 +142,7 @@ export function ContextMeter({
       la ventana exacta al empezar el turno: ahi ya es un dato (ver
       `meterIdleWindow`).
     */
-    const detail = meterIdleDetail(instructionsFile);
+    const detail = meterIdleDetail(instructionsFile, source);
     const idleWindow = meterIdleWindow(source, usage, fallbackWindow);
 
     return (
@@ -146,9 +184,15 @@ export function ContextMeter({
       origin,
       ratio === null ? 'modelo no reconocido: sin tamano de ventana' : `${Math.round(ratio * 100)}% de la ventana`,
       `salida ${formatTokens(usage.lastOutputTokens)}`,
-      `sesion ${formatTokens(usage.totalOutputTokens)} out · ${formatTokens(
-        usage.totalCacheReadTokens,
-      )} cache · ${usage.assistantMessages} resp.`,
+      /*
+        La status line no publica acumulados de la sesion (hito 27): un "0 out ·
+        0 cache" diria que no hubo nada. Solo las respuestas, que salen del hilo.
+      */
+      source === 'status-line'
+        ? `${usage.assistantMessages} resp.`
+        : `sesion ${formatTokens(usage.totalOutputTokens)} out · ${formatTokens(
+            usage.totalCacheReadTokens,
+          )} cache · ${usage.assistantMessages} resp.`,
     ]
       .filter((piece): piece is string => piece !== null)
       .join(' · ');

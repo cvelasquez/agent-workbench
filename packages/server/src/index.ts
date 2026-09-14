@@ -198,6 +198,8 @@ function describeStartup(
     resolvedPath: agents.get(info.id)?.location?.resolvedPath ?? null,
     missingMessage: info.missingMessage,
     historyNote: agents.get(info.id)?.adapter.startupHistoryNote?.(info.available) ?? null,
+    // Solo la CLI con status line opcional; se imprime debajo de ella si esta instalada.
+    statusLine: info.statusLine?.state ?? null,
   }));
   for (const agentLine of startupAgentLines(startupAgents)) console.log(agentLine);
   console.log(`  Consola      ${shell === null ? 'no encontrada' : shell.file}`);
@@ -223,6 +225,9 @@ async function main(): Promise<void> {
   // nombre viejo, se mueve al nuevo (ver `config-dir-migration.ts`).
   const movedFrom = await migrateLegacyConfigDir();
   if (movedFrom !== null) console.log(`Configuracion movida de ${movedFrom} a ${appConfigDir()}`);
+  // Lo que cada CLI encontrada instala en la carpeta de la app: recien ahora,
+  // con la carpeta ya en su lugar (A1 del hito 27).
+  await agents.prepareAll();
 
   const store = new WorkspaceStore();
   // Que sesiones escondio el usuario de la barra lateral. Se carga antes del

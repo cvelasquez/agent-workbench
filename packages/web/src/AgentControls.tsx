@@ -50,6 +50,11 @@ interface AgentControlsProps {
   /** true si el modelo sale de la configuracion y no de una respuesta real. */
   modelProvisional?: boolean;
   effortProvisional?: boolean;
+  /**
+   * Lo que se agrega a "Cambiarlo manda ... a la pestaña CLI" (`modelChoiceNote`):
+   * con la CLI que guarda lo elegido como predeterminado, lo dice. '' con las demas.
+   */
+  choiceNote?: string;
   disabled: boolean;
   /** Manda el comando por el mismo camino que un mensaje del cuadro. */
   onCommand: (command: string) => void;
@@ -62,6 +67,7 @@ export function AgentControls({
   effort,
   modelProvisional = false,
   effortProvisional = false,
+  choiceNote = '',
   disabled,
   onCommand,
 }: AgentControlsProps): JSX.Element {
@@ -85,7 +91,7 @@ export function AgentControls({
               ? 'Modelo: todavia no hubo ninguna respuesta en esta sesion'
               : modelProvisional
                 ? `Modelo segun tu configuracion: ${model}. Todavia no hubo ninguna respuesta que lo confirme`
-                : `Modelo en uso: ${model}. Cambiarlo manda /model a la pestaña CLI`
+                : `Modelo en uso: ${model}. Cambiarlo manda /model a la pestaña CLI${choiceNote}`
           }
           /*
             Cada familia aparece dos veces porque son dos ventanas de contexto del
@@ -117,7 +123,7 @@ export function AgentControls({
               ? 'Esfuerzo: sin datos. No todos los modelos tienen niveles — con haiku, /effort no deja rastro'
               : effortProvisional
                 ? `Esfuerzo segun tu configuracion: ${effort}. Todavia no hubo ninguna respuesta que lo confirme`
-                : `Esfuerzo en uso: ${effort}. Cambiarlo manda /effort a la pestaña CLI`
+                : `Esfuerzo en uso: ${effort}. Cambiarlo manda /effort a la pestaña CLI${choiceNote}`
           }
         >
           {effort === null && <option value="">esfuerzo — sin datos</option>}

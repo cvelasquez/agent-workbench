@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   AgentId,
   AgentInfo,
+  StatusLineSetupInfo,
   TerminalActivity,
   TerminalDescriptor,
   TerminalId,
@@ -74,9 +75,12 @@ interface TabBarProps {
 function TabStatus({
   terminal,
   activity,
+  statusLine,
 }: {
   terminal: TerminalDescriptor;
   activity: TerminalActivity | undefined;
+  /** La status line opcional de la CLI de la pestana, o null si no tiene (hito 27). */
+  statusLine: StatusLineSetupInfo | null;
 }): JSX.Element {
   if (!terminal.alive) {
     const dormida = terminal.sleeping;
@@ -108,7 +112,7 @@ function TabStatus({
 
   // Tambien el de una CLI que no publica su estado (`unknown`): un punto liso,
   // que no afirma ni que trabaja ni que esta libre, y el titulo dice por que.
-  return <span className="tab-dot" title={restingDotTitle(activity)} />;
+  return <span className="tab-dot" title={restingDotTitle(activity, statusLine)} />;
 }
 
 function defaultLabel(terminal: TerminalDescriptor): string {
@@ -198,7 +202,11 @@ export function TabBar({
               />
             ) : (
               <>
-                <TabStatus terminal={terminal} activity={activity.get(terminal.terminalId)} />
+                <TabStatus
+                  terminal={terminal}
+                  activity={activity.get(terminal.terminalId)}
+                  statusLine={agents.find((agent) => agent.id === terminal.agent)?.statusLine ?? null}
+                />
                 <span className="tab-label">
                   {/* Adentro de la etiqueta: se recorta con ella y no sube el minimo de 44 px. */}
                   {terminal.agent !== null && tabBadgeVisible(offerAgentChoice, terminal.agent) && (

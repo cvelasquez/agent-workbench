@@ -12,6 +12,7 @@
  */
 
 import type { ModelOption } from './agent-controls.js';
+import type { TerminalActivity } from './models.js';
 import { isPermissionMode, type PermissionMode } from './permission-modes.js';
 import {
   asArrayOf,
@@ -42,7 +43,7 @@ import {
  * igual que una CLI no instalada. El orden es el de preferencia: con varias
  * instaladas, la que se abre por defecto sigue siendo la primera.
  */
-export const AGENT_IDS = ['claude-code', 'codex', 'opencode'] as const;
+export const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'antigravity'] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
@@ -69,12 +70,20 @@ export const FILE_MENTION_STYLES: readonly FileMentionStyle[] = ['at'];
  *    anuncia al empezar cada turno. No hay nada que reconstruir.
  *  - `usage-with-catalog`: tokens por respuesta mas el limite que da el
  *    catalogo de modelos de la propia CLI, por proveedor y modelo.
+ *  - `status-line`: la CLI no escribe tokens en su historial y los publica
+ *    solo por su status line, con la ventana exacta. Hace falta que el usuario
+ *    la haya configurado; sin ella la CLI no declara ninguna fuente.
  */
-export type ContextWindowSource = 'usage-with-variants' | 'token-count' | 'usage-with-catalog';
+export type ContextWindowSource =
+  | 'usage-with-variants'
+  | 'token-count'
+  | 'usage-with-catalog'
+  | 'status-line';
 export const CONTEXT_WINDOW_SOURCES: readonly ContextWindowSource[] = [
   'usage-with-variants',
   'token-count',
   'usage-with-catalog',
+  'status-line',
 ];
 
 /** Avisos de entorno que un adaptador puede levantar al arrancar. */
@@ -88,6 +97,54 @@ export interface PermissionCycleCapability {
   launchMode: PermissionMode;
   /** Nombre de la tecla que cicla, para los textos ("shift+tab"). */
   keyLabel: string;
+  /**
+   * true si ciclar con una confirmacion pendiente **la aprueba**.
+   *
+   * Pasa con una CLI cuya documentacion dice que la tecla, con ediciones
+   * esperando permiso, cambia de modo y las aprueba de paso. Ahi un clic en el
+   * combo aprobaria algo que nadie leyo, y el cambio se rechaza mientras haya
+   * una confirmacion abierta. Ausente al parsear es false: no invalida el ciclo.
+   */
+  approvesPendingOnCycle: boolean;
+}
+
+/**
+ * Si la status line opcional de una CLI esta configurada, segun su
+ * `settings.json`.
+ *
+ *  - `active`: apunta al script de la app y no esta desactivada.
+ *  - `missing`: no hay archivo, no hay `statusLine` o no es un comando.
+ *  - `other-command`: hay una status line, pero es otra.
+ *  - `disabled`: es la de la app con `enabled: false`.
+ *  - `unreadable`: el archivo existe y no es un objeto JSON.
+ */
+export type StatusLineState = 'active' | 'missing' | 'other-command' | 'disabled' | 'unreadable';
+export const STATUS_LINE_STATES: readonly StatusLineState[] = [
+  'active',
+  'missing',
+  'other-command',
+  'disabled',
+  'unreadable',
+];
+
+/**
+ * Lo que muestra el dialogo de configuracion de la status line.
+ *
+ * Las dos rutas son **para mostrar**: viajan del servidor al navegador local,
+ * como el `cwd` de un proyecto, y el cliente nunca las devuelve (CLAUDE.md 2.4).
+ * La app no escribe el `settings.json` de la CLI: el usuario pega el fragmento.
+ */
+export interface StatusLineSetupInfo {
+  state: StatusLineState;
+  settingsPath: string;
+  scriptPath: string;
+  /**
+   * El JSON que el usuario fusiona con su `settings.json`, o null si no hay uno
+   * que funcione: en Windows la CLI corre la linea con `cmd /c` y ninguna
+   * comilla llega viva al programa, asi que una carpeta con caracteres que
+   * `cmd` interpreta no tiene fragmento posible. El dialogo dice por que.
+   */
+  fragment: string | null;
 }
 
 /** Un nivel de esfuerzo ofrecido: lo que se le pasa al comando y como se lee. */
@@ -134,6 +191,26 @@ export interface AgentCapabilities {
   plans: boolean;
 }
 
+/**
+ * true si la app no puede ver un menu de aprobacion abierto en esta pestana.
+ *
+ * Se decide por pestana y no por configuracion (R27-1 del hito 27): una CLI
+ * que publica su estado solo si el usuario configuro algo puede tenerlo
+ * configurado y no publicar nada —el script falla, `node` no esta en el PATH,
+ * la CLI lo apago tras varios fallos—, y esa pestana sigue `unknown`. Ahi vale
+ * lo mismo que sin fuente: una llamada sin resultado puede ser un menu. Con
+ * Claude Code una pestana nunca esta `unknown`, asi que no cambia nada.
+ *
+ * `activity` es la de la pestana; null o ausente, no se sabe cual (sin
+ * suscripcion): cuenta solo la capacidad.
+ */
+export function blindToApprovals(
+  capabilities: Pick<AgentCapabilities, 'statusSource'>,
+  activity: TerminalActivity | null = null,
+): boolean {
+  return !capabilities.statusSource || activity === 'unknown';
+}
+
 /** Nada declarado. Es el valor de cada campo ausente o invalido al parsear. */
 export const NO_CAPABILITIES: AgentCapabilities = {
   sessionIdAtLaunch: false,
@@ -166,6 +243,8 @@ export interface AgentInfo {
   missingMessage: string | null;
   capabilities: AgentCapabilities;
   environmentNotice: EnvironmentNoticeId | null;
+  /** Estado de la status line opcional; null para toda CLI que no la tenga. */
+  statusLine: StatusLineSetupInfo | null;
 }
 
 /** true si hay que ofrecer elegir CLI: mas de una disponible. */
@@ -202,7 +281,34 @@ export function parsePermissionCycle(value: unknown): PermissionCycleCapability 
   const keyLabel = asNonEmptyString(record['keyLabel']);
   if (keyLabel === null) return null;
 
-  return { modes, launchMode, keyLabel };
+  return { modes, launchMode, keyLabel, approvesPendingOnCycle: record['approvesPendingOnCycle'] === true };
+}
+
+/**
+ * La status line de una CLI, o null.
+ *
+ * Todo o nada, como el ciclo: un dialogo con un estado que no se entiende o sin
+ * la ruta que tiene que mostrar no puede decirle al usuario que hacer. Null
+ * esconde el dialogo; no rompe la CLI.
+ */
+export function parseStatusLineSetupInfo(value: unknown): StatusLineSetupInfo | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+
+  const state = asLiteral(record['state'], STATUS_LINE_STATES);
+  const settingsPath = asNonEmptyString(record['settingsPath']);
+  const scriptPath = asNonEmptyString(record['scriptPath']);
+  const rawFragment = record['fragment'];
+  const fragment = rawFragment === null ? null : asNonEmptyString(rawFragment);
+  if (
+    state === null ||
+    settingsPath === null ||
+    scriptPath === null ||
+    (rawFragment !== null && fragment === null)
+  ) {
+    return null;
+  }
+  return { state, settingsPath, scriptPath, fragment };
 }
 
 function parseModelOption(value: unknown): ModelOption | null {
@@ -295,5 +401,6 @@ export function parseAgentInfo(value: unknown): AgentInfo | null {
     missingMessage: asString(record['missingMessage']),
     capabilities: parseAgentCapabilities(record['capabilities']),
     environmentNotice: asLiteral(record['environmentNotice'], ENVIRONMENT_NOTICE_IDS),
+    statusLine: parseStatusLineSetupInfo(record['statusLine']),
   };
 }

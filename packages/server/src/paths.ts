@@ -6,7 +6,7 @@
  * su adaptador (`agents/claude-code/paths.ts`).
  */
 
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 /**
@@ -78,4 +78,49 @@ export function notesStatePath(): string {
 
 export function notesImagesDir(): string {
   return path.join(appConfigDir(), 'notes-images');
+}
+
+/**
+ * Donde se copia, un instante, el indice de conversaciones de Antigravity CLI
+ * para leerlo: una subcarpeta por lectura, que se borra al terminar.
+ *
+ * En la carpeta temporal y no en la de configuracion porque es efimero, y bajo
+ * `agent-workbench/` para no mezclarse con nada ajeno. Nunca en
+ * `agent-workbench/log/`: la CLI limpia por su cuenta la carpeta `log` que es
+ * hermana de la de su `--log-file` (medido en el hito 27).
+ */
+export function catalogTempDir(): string {
+  return path.join(tmpdir(), 'agent-workbench', 'agy-catalog');
+}
+
+/**
+ * Donde escribe cada pestana de Antigravity CLI el log de la CLI (`--log-file`),
+ * un archivo por lanzamiento. De ahi sale el id de la conversacion.
+ *
+ * Trae el texto de los prompts y el email de la cuenta (medido): se crea con
+ * permisos solo del usuario y se borra a las 24 h, no al cerrar la pestana,
+ * para no llevarse el diagnostico de la CLI (M8). El nombre no puede ser `log`:
+ * al salir, la CLI limpia la carpeta `log` hermana de la del archivo, que con
+ * esta es `agent-workbench/log` y la app no usa.
+ */
+export function cliLogsTempDir(): string {
+  return path.join(tmpdir(), 'agent-workbench', 'cli-logs');
+}
+
+/**
+ * Lo que la app instala para que una CLI le cuente algo: hoy, el script de la
+ * status line de Antigravity CLI. Vive en la carpeta propia porque el usuario lo
+ * nombra en la configuracion de la CLI, y tiene que estar ahi en cada arranque.
+ */
+export function integrationsDir(): string {
+  return path.join(appConfigDir(), 'integrations');
+}
+
+/**
+ * El estado que publica una CLI por un script de la app, un archivo por
+ * conversacion. Hermana de `integrationsDir()`: el script la encuentra
+ * relativa a si mismo, sin que nadie le pase la ruta.
+ */
+export function agentStatusDir(agent: string): string {
+  return path.join(appConfigDir(), 'agent-status', agent);
 }

@@ -30,7 +30,13 @@
  * que separacion (`AgentInput` en `agents/adapter.ts`).
  */
 
-import { cycleDistance, type ImageReferenceStyle } from '@agent-workbench/shared';
+import {
+  PERMISSION_MODE_CYCLE,
+  cycleDistance,
+  type ImageReferenceStyle,
+  type PermissionCycleCapability,
+  type PermissionMode,
+} from '@agent-workbench/shared';
 
 /** DECSET 2004. La CLI lo activa sola al arrancar. */
 const PASTE_START = '\x1b[200~';
@@ -273,11 +279,110 @@ export function buildAnswerKeys(
  * Devuelve null si no hay forma de llegar ciclando (un modo fuera del ciclo) y
  * una lista vacia si ya se esta en el destino, que no es un error: es que no
  * hay nada que escribir.
+ *
+ * `cycle` es el de la CLI de la pestana (`permissionCycle.modes`). Sin el, el de
+ * Claude Code, que es el que se contaba antes de que hubiera otra CLI con modos
+ * (hito 27): mismo orden, mismas pulsaciones.
  */
-export function buildModeKeys(from: string, to: string): string[] | null {
-  const distance = cycleDistance(from, to);
+export function buildModeKeys(
+  from: string,
+  to: string,
+  cycle: readonly string[] = PERMISSION_MODE_CYCLE,
+): string[] | null {
+  const distance = cycleDistance(from, to, cycle);
   if (distance === null) return null;
   return Array.from({ length: distance }, () => SHIFT_TAB);
+}
+
+/** Lo que el servidor hace con un pedido de cambio de modo. */
+export type ModeChangePlan =
+  /** Ya esta en ese modo: no se escribe nada y no es un error. */
+  | { kind: 'none' }
+  | { kind: 'keys'; keys: string[] }
+  | { kind: 'refused'; reason: 'pending-confirmation' | 'unreachable'; message: string };
+
+/** Por que no se cambia el modo con una confirmacion abierta. */
+export const MODE_PENDING_CONFIRMATION_MESSAGE =
+  'Hay una confirmacion pendiente en la CLI: cambiar de modo ahora la aprobaria. Contestala en la solapa CLI.';
+
+/**
+ * Por que no se manda un mensaje del cuadro mientras la CLI espera una
+ * respuesta, con una CLI cuya confirmacion abierta aprueba lo que llegue
+ * (`approvesPendingOnCycle`, hito 27, R27-2): el Enter aparte del mensaje cae
+ * sobre la opcion resaltada. Distingue el permiso, igual que la barra.
+ */
+export function pendingSubmitMessage(label: string, waitingFor: string): string {
+  return waitingFor === 'permission prompt'
+    ? `${label} esta esperando que autorices una herramienta: el Enter del mensaje la aprobaria. Contestala en la solapa CLI.`
+    : `${label} esta esperando una respuesta: el Enter del mensaje la contestaria. Contestala en la solapa CLI.`;
+}
+
+/**
+ * Decide si un mensaje del cuadro se rechaza antes de encolarlo, sin escribir
+ * nada: el socket solo ejecuta lo que sale de aca, y asi se prueba sin pty.
+ * null si pasa; si no, el motivo para `submit-failed`.
+ *
+ * Dos rechazos, en este orden:
+ *
+ *  1. **La CLI publica que espera algo, y su confirmacion abierta aprueba lo
+ *     que llegue** (`approvesPendingOnCycle`, R27-2): el Enter del mensaje
+ *     caeria sobre la opcion resaltada. Con Claude Code la capacidad es false.
+ *  2. **La pestana no deja ver su estado** (`blind`, `blindToApprovals`) y
+ *     tiene una llamada sin resultado de este proceso: puede ser un menu (A1
+ *     del hito 25; por pestana desde R27-1).
+ */
+export function submitRefusal(input: {
+  label: string;
+  approvesPendingOnCycle: boolean;
+  waitingFor: string | null;
+  blind: boolean;
+  openToolCall: boolean;
+}): string | null {
+  if (input.approvesPendingOnCycle && input.waitingFor !== null) {
+    return pendingSubmitMessage(input.label, input.waitingFor);
+  }
+  if (input.blind && input.openToolCall) {
+    return `${input.label} tiene una herramienta sin resultado: puede estar pidiendo una aprobacion. Contestala en la solapa CLI.`;
+  }
+  return null;
+}
+
+/**
+ * Decide un cambio de modo sin escribir nada: el socket solo ejecuta lo que
+ * sale de aca, y asi se prueba sin pty.
+ *
+ * Dos rechazos, en este orden:
+ *
+ *  1. **Una confirmacion abierta, con una CLI cuyo ciclo la aprueba**
+ *     (`approvesPendingOnCycle`, hito 27). La tecla que cicla, con ediciones
+ *     esperando permiso, cambia de modo *y las aprueba*: un clic en el combo
+ *     aprobaria algo que nadie leyo. `waitingFor` es lo que la CLI publica en
+ *     ese momento; sin fuente de estado es null y el pedido pasa, que es lo
+ *     que el combo avisa en su titulo. Con Claude Code la capacidad es false y
+ *     esto no cambia nada.
+ *  2. **Un destino fuera del ciclo**: mandar la tecla sin saber a donde lleva
+ *     deja a la pestana en un modo que nadie pidio.
+ */
+export function planModeChange(input: {
+  cycle: PermissionCycleCapability;
+  current: PermissionMode;
+  target: PermissionMode;
+  waitingFor: string | null;
+}): ModeChangePlan {
+  const { cycle, current, target, waitingFor } = input;
+  if (current === target) return { kind: 'none' };
+  if (cycle.approvesPendingOnCycle && waitingFor !== null) {
+    return { kind: 'refused', reason: 'pending-confirmation', message: MODE_PENDING_CONFIRMATION_MESSAGE };
+  }
+  const keys = buildModeKeys(current, target, cycle.modes);
+  if (keys === null || keys.length === 0) {
+    return {
+      kind: 'refused',
+      reason: 'unreachable',
+      message: `No se puede llegar a ese modo desde el actual. Cambialo con ${cycle.keyLabel} en la solapa CLI.`,
+    };
+  }
+  return { kind: 'keys', keys };
 }
 
 /**

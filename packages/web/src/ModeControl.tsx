@@ -27,7 +27,7 @@ import {
   type PermissionCycleCapability,
   type PermissionMode,
 } from '@agent-workbench/shared';
-import { modeTitle, shownMode } from './agent-ui.js';
+import { modeChangeBlocked, modeControlTitle, shownMode } from './agent-ui.js';
 
 interface ModeControlProps {
   /** Modo observado en el archivo, o null si todavia no lo dijo. */
@@ -39,10 +39,29 @@ interface ModeControlProps {
    */
   cycle: PermissionCycleCapability;
   disabled: boolean;
+  /**
+   * Lo que la CLI esta esperando, segun su estado, o null. Con una CLI cuya
+   * tecla de ciclo aprueba lo pendiente (hito 27) el combo se apaga mientras
+   * espera: cambiar el modo ahi aprobaria algo que nadie leyo.
+   */
+  waitingFor?: string | null;
+  /**
+   * Si la app ve el estado de esta pestana (`blindToApprovals`, R27-1): no
+   * alcanza con que su CLI lo publique. Sin eso, con una CLI cuya tecla aprueba
+   * lo pendiente, el titulo avisa que la app no ve una confirmacion abierta.
+   */
+  statusKnown?: boolean;
   onChange: (mode: PermissionMode) => void;
 }
 
-export function ModeControl({ mode, cycle, disabled, onChange }: ModeControlProps): JSX.Element {
+export function ModeControl({
+  mode,
+  cycle,
+  disabled,
+  waitingFor = null,
+  statusKnown = true,
+  onChange,
+}: ModeControlProps): JSX.Element {
   /*
     Sin observacion vale con que se lanzo la pestana, que lo pone la propia
     aplicacion (`--permission-mode auto`). No es una suposicion: es un
@@ -56,11 +75,11 @@ export function ModeControl({ mode, cycle, disabled, onChange }: ModeControlProp
     <select
       className="agent-select agent-select-mode"
       value={current}
-      disabled={disabled}
+      disabled={disabled || modeChangeBlocked(cycle, waitingFor)}
       onChange={(event) => {
         if (isPermissionMode(event.target.value)) onChange(event.target.value);
       }}
-      title={modeTitle(current, cycle)}
+      title={modeControlTitle(current, cycle, statusKnown, waitingFor)}
     >
       {cycle.modes.map((entry) => (
         <option key={entry} value={entry}>

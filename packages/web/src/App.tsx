@@ -4,7 +4,9 @@ import {
   discoveringSession,
   effectivePanelTab,
   instructionsFileFor,
+  modelChoiceNote,
   openToolCallNotice,
+  pendingApprovalNotice,
   projectAgent,
   sessionResumable,
   shortcutsAgent,
@@ -17,6 +19,7 @@ import { ConsolePane } from './ConsolePane.js';
 import { ConversationView } from './ConversationView.js';
 import { FolderPicker } from './FolderPicker.js';
 import { ShortcutsDialog } from './ShortcutsDialog.js';
+import { StatusLineDialog } from './StatusLineDialog.js';
 import { Sidebar } from './Sidebar.js';
 import { SidePanel, type PanelTab } from './SidePanel.js';
 import { TabBar } from './TabBar.js';
@@ -33,7 +36,7 @@ import { useNotes } from './useNotes.js';
 import { THEME_ICON, THEME_LABEL, useTheme } from './useTheme.js';
 import { useWorkspace } from './useWorkspace.js';
 import type { ConnectionStatus } from './connection.js';
-import type { TerminalId } from '@agent-workbench/shared';
+import { blindToApprovals, type TerminalId } from '@agent-workbench/shared';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connecting: 'Conectando',
@@ -127,6 +130,7 @@ export function App(): JSX.Element {
     renameTerminal,
     reorderTabs,
     refreshIndex,
+    refreshAgents,
   } = workspace;
 
   const theme = useTheme();
@@ -143,6 +147,13 @@ export function App(): JSX.Element {
   const activeAgent = activeTerminal?.agent ?? null;
   const activeCapabilities = capabilitiesFor(activeAgent);
   const activeControls = useMemo(() => controlsFor(activeCapabilities), [activeCapabilities]);
+  /*
+    Lo que anuncia la CLI de la pestana activa ademas de sus capacidades: el
+    nombre y, si tiene, su status line opcional (hito 27). Cambia sin recargar
+    cuando el usuario la configura: el servidor manda la lista de nuevo.
+  */
+  const activeAgentInfo = agents.find((info) => info.id === activeAgent) ?? null;
+  const activeStatusLine = activeAgentInfo?.statusLine ?? null;
 
   /*
     Con que CLI abre el `+` de la barra de pestanas cuando hay para elegir: la
@@ -228,6 +239,12 @@ export function App(): JSX.Element {
     readStored(MARKER_NOTICE_KEY, true, (raw) => raw !== 'true'),
   );
   const [shortcutsVisible, setShortcutsVisible] = useState(false);
+  /** El dialogo de la status line de la CLI de la pestana activa (hito 27). */
+  const [statusLineDialogVisible, setStatusLineDialogVisible] = useState(false);
+  // Una pestana de otra CLI cierra el dialogo: volver no tiene por que reabrirlo.
+  useEffect(() => {
+    if (activeStatusLine === null) setStatusLineDialogVisible(false);
+  }, [activeStatusLine]);
   /** El selector de carpetas para empezar un proyecto nuevo. */
   const [pickerVisible, setPickerVisible] = useState(false);
 
@@ -317,8 +334,16 @@ export function App(): JSX.Element {
     El esfuerzo se busca hacia atras porque no todas las lineas lo traen.
   */
   const observedModel = conversation.usage.lastModel;
+  /*
+    Si la CLI publica el esfuerzo en el acto (`usage.lastEffort`), manda eso:
+    el historial lo dice recien con el mensaje siguiente, y el combo de modelo
+    —que sale de `usage`— ya habria cambiado (R27-5 del hito 27). Con Claude
+    Code el campo no viene y se busca en los eventos, como siempre.
+  */
   const observedEffort =
-    [...conversation.events].reverse().find((event) => event.effort !== null)?.effort ?? null;
+    conversation.usage.lastEffort ??
+    [...conversation.events].reverse().find((event) => event.effort !== null)?.effort ??
+    null;
 
   /*
     Hasta la primera respuesta no hay nada observado, y ahi vale lo que dice la
@@ -332,17 +357,30 @@ export function App(): JSX.Element {
   const cliUnseen = useCliActivity(connection, activeTerminalId, cliVisible);
 
   /*
-    Por que el cuadro no deja mandar, si no deja. Solo una CLI que no publica
-    su estado y tiene una herramienta sin resultado: puede ser un menu de
-    aprobacion, y un mensaje llegaria ahi como teclas (A1 del hito 25). Con
-    Claude Code es siempre null: ella si dice cuando espera.
+    Por que el cuadro no deja mandar, si no deja. Solo una pestana cuyo estado
+    no se ve —su CLI no lo publica, o no publico nada para ella (R27-1)— y con
+    una herramienta sin resultado: puede ser un menu de aprobacion, y un
+    mensaje llegaria ahi como teclas (A1 del hito 25). Con Claude Code es
+    siempre null: ella si dice cuando espera.
   */
+  const activeActivity = activeTerminalId === null ? null : (activity.get(activeTerminalId) ?? null);
   const toolCallNotice = openToolCallNotice(
     activeCapabilities,
     conversation.openToolCall,
-    agents.find((info) => info.id === activeAgent)?.label ?? null,
+    activeAgentInfo?.label ?? null,
     activeTerminal?.alive ?? false,
+    activeActivity,
   );
+  /*
+    Y una CLI cuya confirmacion abierta aprueba un Enter, mientras dice que
+    espera: la barra de "esperando" ya esta a la vista, y Enviar se apaga con
+    su mismo texto (R27-2). Con Claude Code es siempre null.
+  */
+  const blockedReason =
+    toolCallNotice ??
+    pendingApprovalNotice(activeCapabilities, conversation.waitingFor, activeTerminal?.alive ?? false);
+  // La app ve el estado de esta pestana, no solo de su CLI (R27-1).
+  const statusKnown = !blindToApprovals(activeCapabilities, activeActivity);
 
   const togglePanel = useCallback(() => {
     setPanelVisible((current) => {
@@ -942,6 +980,10 @@ export function App(): JSX.Element {
                   discoveringSession(activeAgent, activeTerminal.sessionId, activeCapabilities)
                 }
                 toolCallNotice={toolCallNotice}
+                statusLineState={activeStatusLine?.state ?? null}
+                onConfigureStatusLine={
+                  activeStatusLine === null ? undefined : () => setStatusLineDialogVisible(true)
+                }
               />
             )}
           </div>
@@ -953,13 +995,15 @@ export function App(): JSX.Element {
               alive={activeTerminal.alive}
               sleeping={activeTerminal.sleeping}
               imagesAllowed={activeControls.imagesAllowed}
-              blockedReason={toolCallNotice}
+              blockedReason={blockedReason}
               leading={
                 activeControls.modeCycle === null ? undefined : (
                   <ModeControl
                     mode={conversation.permissionMode}
                     cycle={activeControls.modeCycle}
                     disabled={!activeTerminal.alive}
+                    waitingFor={conversation.waitingFor}
+                    statusKnown={statusKnown}
                     onChange={conversation.setPermissionMode}
                   />
                 )
@@ -973,6 +1017,7 @@ export function App(): JSX.Element {
                     effort={currentEffort}
                     modelProvisional={modelProvisional}
                     effortProvisional={effortProvisional}
+                    choiceNote={modelChoiceNote(activeAgent)}
                     disabled={!activeTerminal.alive}
                     onCommand={sendCommand}
                   />
@@ -1134,6 +1179,20 @@ export function App(): JSX.Element {
           </>
         )}
       </div>
+
+      {/*
+        Se dibuja con la status line de la pestana activa, la de ahora: al
+        pegar el fragmento y comprobar, el estado de arriba cambia en el sitio.
+        Si la pestana activa pasa a ser de una CLI sin status line, se cierra.
+      */}
+      {statusLineDialogVisible && activeStatusLine !== null && activeAgentInfo !== null && (
+        <StatusLineDialog
+          info={activeStatusLine}
+          agentLabel={activeAgentInfo.label}
+          onRefresh={refreshAgents}
+          onClose={() => setStatusLineDialogVisible(false)}
+        />
+      )}
 
       {shortcutsVisible && (
         <ShortcutsDialog

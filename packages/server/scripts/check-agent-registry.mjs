@@ -146,7 +146,7 @@ check('parseAgentCapabilities de algo que no es objeto no declara nada',
   check('los esfuerzos validos pasan', sameShape(parsed.efforts, [{ value: 'low', label: 'Bajo' }]));
 }
 
-const cycle = { modes: ['auto', 'default', 'acceptEdits', 'plan'], launchMode: 'auto', keyLabel: 'shift+tab' };
+const cycle = { modes: ['auto', 'default', 'acceptEdits', 'plan'], launchMode: 'auto', keyLabel: 'shift+tab', approvesPendingOnCycle: false };
 check('un ciclo valido se lee tal cual', sameShape(parsePermissionCycle(cycle), cycle));
 check('un ciclo con un modo que no se conoce es null', parsePermissionCycle({ ...cycle, modes: ['auto', 'yolo'] }) === null);
 check('un ciclo vacio es null', parsePermissionCycle({ ...cycle, modes: [] }) === null);
@@ -549,7 +549,7 @@ const adapter = createClaudeCodeAdapter();
     resume: true,
     statusSource: true,
     readySignal: true,
-    permissionCycle: { modes: PERMISSION_MODE_CYCLE, launchMode: LAUNCH_PERMISSION_MODE, keyLabel: 'shift+tab' },
+    permissionCycle: { modes: PERMISSION_MODE_CYCLE, launchMode: LAUNCH_PERMISSION_MODE, keyLabel: 'shift+tab', approvesPendingOnCycle: false },
     models: MODEL_OPTIONS,
     efforts: EFFORT_OPTIONS,
     questionCards: true,

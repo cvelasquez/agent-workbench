@@ -38,8 +38,9 @@ import type {
   ConversationQuestionPart,
   ConversationToolResultPart,
   ContextWindowSource,
+  StatusLineState,
 } from '@agent-workbench/shared';
-import { DISCOVERING_HINT } from './agent-ui.js';
+import { DISCOVERING_HINT, NO_TRANSCRIPT_TEXT, waitingBarText } from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
 import { noticeText } from './conversation-notice.js';
 import { ImageViewer } from './ImageViewer.js';
@@ -305,6 +306,13 @@ interface ConversationViewProps {
    * (`openToolCallNotice`). Se dibuja al pie, donde va la barra de "esperando".
    */
   toolCallNotice?: string | null;
+  /**
+   * Para el medidor: como esta la status line opcional de la CLI de la pestana,
+   * o null si no tiene (hito 27).
+   */
+  statusLineState?: StatusLineState | null;
+  /** Abre el dialogo de la status line desde el medidor. */
+  onConfigureStatusLine?: () => void;
 }
 
 export function ConversationView({
@@ -320,6 +328,8 @@ export function ConversationView({
   waking,
   discovering = false,
   toolCallNotice = null,
+  statusLineState = null,
+  onConfigureStatusLine,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -493,6 +503,8 @@ export function ConversationView({
           instructionsFile={instructionsFile}
           fallbackWindow={defaults.contextWindow}
           compact
+          statusLineState={statusLineState}
+          onConfigure={onConfigureStatusLine}
         />
       </div>
 
@@ -507,9 +519,11 @@ export function ConversationView({
           <p className="conversation-empty">
             {state === 'unavailable'
               ? 'Esta pestana no tiene un directorio conocido, asi que no hay archivo de sesion que seguir.'
-              : state === 'waiting'
-                ? 'Esperando el primer mensaje. El archivo de la sesion se crea cuando la conversacion arranca.'
-                : 'La sesion todavia no tiene mensajes.'}
+              : state === 'no-transcript'
+                ? NO_TRANSCRIPT_TEXT
+                : state === 'waiting'
+                  ? 'Esperando el primer mensaje. El archivo de la sesion se crea cuando la conversacion arranca.'
+                  : 'La sesion todavia no tiene mensajes.'}
             {/*
               Una CLI que pone el id ella misma: la pestana todavia no tiene
               sesion y por eso tampoco esta en la barra lateral. Se dice debajo
@@ -656,10 +670,7 @@ function WaitingBar({
 
   // La unica etiqueta que se traduce, porque es la unica que dice algo
   // accionable. El resto se agrupa: que espera se sabe, de que se trata no.
-  const text =
-    waitingFor === 'permission prompt'
-      ? 'La CLI esta esperando que autorices una herramienta.'
-      : 'La CLI esta esperando una respuesta tuya.';
+  const text = waitingBarText(waitingFor);
 
   return (
     <div className="conversation-waiting" role="status">

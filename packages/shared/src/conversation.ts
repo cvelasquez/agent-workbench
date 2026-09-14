@@ -309,6 +309,15 @@ export interface ContextUsage {
   totalCacheReadTokens: number;
   /** Cuantas respuestas de asistente entraron en el acumulado. */
   assistantMessages: number;
+  /**
+   * El esfuerzo con el que corre la CLI **ahora**, si lo publica aparte del
+   * historial. Ausente: no lo publica, y el combo lo busca en los eventos.
+   *
+   * Existe por la CLI que dice modelo y esfuerzo por su status line en el acto
+   * y en el historial recien con el mensaje siguiente (hito 27, R27-5): sin
+   * esto, tras un `/effort` el combo de modelo cambiaba y el de esfuerzo no.
+   */
+  lastEffort?: string;
 }
 
 export const EMPTY_CONTEXT_USAGE: ContextUsage = {
@@ -330,13 +339,17 @@ export const EMPTY_CONTEXT_USAGE: ContextUsage = {
  *    normal entre que se abre una pestana y el usuario manda el primer mensaje.
  *  - `live`: se esta siguiendo el archivo.
  *  - `unavailable`: no hay ruta que seguir (por ejemplo, un cwd vacio).
+ *  - `no-transcript`: la conversacion existe pero su CLI no dejo nada legible
+ *    que seguir (una version vieja que guardaba el historial vacio). Se lista y
+ *    se puede reanudar; el hilo dice por que no muestra nada.
  */
-export type ConversationState = 'waiting' | 'live' | 'unavailable';
+export type ConversationState = 'waiting' | 'live' | 'unavailable' | 'no-transcript';
 
 export const CONVERSATION_STATES: readonly ConversationState[] = [
   'waiting',
   'live',
   'unavailable',
+  'no-transcript',
 ];
 
 // ---------------------------------------------------------------------------
@@ -571,6 +584,7 @@ export function parseContextUsage(value: unknown): ContextUsage | null {
     return null;
   }
 
+  const lastEffort = asString(record['lastEffort']);
   return {
     lastRequestTokens,
     lastOutputTokens,
@@ -581,6 +595,8 @@ export function parseContextUsage(value: unknown): ContextUsage | null {
     totalOutputTokens,
     totalCacheReadTokens,
     assistantMessages,
+    // Solo si viene: las CLIs que no lo publican no llevan el campo.
+    ...(lastEffort !== null ? { lastEffort } : {}),
   };
 }
 

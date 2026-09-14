@@ -601,6 +601,15 @@ export interface ClientPickerCloseMessage {
 }
 
 /**
+ * Pide que el servidor vuelva a leer lo que cada CLI anuncia de su
+ * configuracion (la status line) y conteste con `agents`. Es el boton
+ * "Comprobar" del dialogo: el servidor tambien avisa solo cuando cambia.
+ */
+export interface ClientAgentsRefreshMessage {
+  type: 'agents.refresh';
+}
+
+/**
  * Memoria compartida del proyecto de una pestana (`memory.*`).
  *
  * Igual que `git.*` y `files.*`: todo se dirige por `terminalId` y el servidor
@@ -699,6 +708,7 @@ export type ClientMessage =
   | ClientPickerRootMessage
   | ClientPickerCreateMessage
   | ClientPickerCloseMessage
+  | ClientAgentsRefreshMessage
   | ClientMemorySubscribeMessage
   | ClientMemoryUnsubscribeMessage
   | ClientMemoryPlanMessage
@@ -746,6 +756,20 @@ export interface ServerHelloMessage {
    * generico, y en macOS o Linux ese rotulo seria directamente falso.
    */
   shellName: string | null;
+}
+
+/**
+ * La lista de CLIs otra vez, fuera del `hello`.
+ *
+ * Existe porque lo que anuncia una CLI puede cambiar con el servidor andando:
+ * si el usuario configura su status line, sus capacidades cambian. Misma forma
+ * y mismo parser que en `hello`: una CLI que este cliente no conoce se descarta
+ * sola. No sube `PROTOCOL_VERSION`: un cliente anterior ignora el mensaje.
+ */
+export interface ServerAgentsMessage {
+  type: 'agents';
+  agents: AgentInfo[];
+  defaultAgent: AgentId | null;
 }
 
 /** Estado completo de las pestanas. Se manda al conectar y tras cada cambio. */
@@ -1186,6 +1210,7 @@ export interface ServerErrorMessage {
 
 export type ServerMessage =
   | ServerHelloMessage
+  | ServerAgentsMessage
   | ServerTerminalListMessage
   | ServerTerminalOpenedMessage
   | ServerTerminalOutputMessage
@@ -1555,6 +1580,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const pickerId = asNonEmptyString(record['pickerId']);
       return pickerId === null ? null : { type: 'picker.close', pickerId };
     }
+    case 'agents.refresh':
+      return { type: 'agents.refresh' };
     case 'memory.subscribe': {
       const terminalId = asNonEmptyString(record['terminalId']);
       return terminalId === null
@@ -1631,6 +1658,13 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         defaultCwd,
         shellName: asNonEmptyString(record['shellName']),
       };
+    }
+    case 'agents': {
+      // Como en `hello`: filtrada, y un mensaje sin lista no dice nada.
+      const agents = asArrayFiltered(record['agents'], parseAgentInfo);
+      return agents === null
+        ? null
+        : { type: 'agents', agents, defaultAgent: asLiteral(record['defaultAgent'], AGENT_IDS) };
     }
     case 'terminal.list': {
       // Un descriptor que este lado no entiende —una CLI que no conoce— se

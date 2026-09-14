@@ -50,6 +50,8 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
     modes: PERMISSION_MODE_CYCLE,
     launchMode: LAUNCH_PERMISSION_MODE,
     keyLabel: 'shift+tab',
+    // El combo de modo se comporta como siempre: nada lo bloquea por un permiso pendiente.
+    approvesPendingOnCycle: false,
   },
   models: MODEL_OPTIONS,
   efforts: EFFORT_OPTIONS,

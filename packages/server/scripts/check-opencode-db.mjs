@@ -209,8 +209,9 @@ const unknownPart = { kind: 'parte-del-futuro', x: 1 };
 // 1e. La fuente de ventana `usage-with-catalog`.
 {
   const { CONTEXT_WINDOW_SOURCES, parseAgentCapabilities } = shared;
+  // Las que vienen despues (hito 27: `status-line`) las cubre el chequeo de su CLI.
   check('1 usage-with-catalog es una fuente, detras de las dos de antes',
-    same(CONTEXT_WINDOW_SOURCES, ['usage-with-variants', 'token-count', 'usage-with-catalog']), show(CONTEXT_WINDOW_SOURCES));
+    same(CONTEXT_WINDOW_SOURCES.slice(0, 3), ['usage-with-variants', 'token-count', 'usage-with-catalog']), show(CONTEXT_WINDOW_SOURCES));
   check('1 usage-with-catalog sobrevive al viaje por la red',
     parseAgentCapabilities({ contextWindowSource: 'usage-with-catalog' }).contextWindowSource === 'usage-with-catalog');
 
@@ -1289,7 +1290,8 @@ const historyOf = (file, extra = {}) => {
   check('13 id, etiqueta, comando y enlace', adapter.id === 'opencode' && adapter.label === 'OpenCode' && adapter.command === 'opencode' &&
     adapter.installUrl === 'https://opencode.ai/docs/' && OPENCODE_INSTALL_URL === adapter.installUrl);
   check('13 el texto de no instalada nombra el comando y el enlace', adapter.missingMessage().includes('"opencode"') && adapter.missingMessage().includes(OPENCODE_INSTALL_URL));
-  check('13 AGENT_IDS nombra al adaptador, al final', shared.AGENT_IDS.at(-1) === 'opencode' && shared.MEMORY_AGENT_IDS.includes('opencode'));
+  // Desde el hito 27 detras de OpenCode va Antigravity: lo que importa es que no se movio de lugar.
+  check('13 AGENT_IDS nombra al adaptador, detras de codex', shared.AGENT_IDS.indexOf('opencode') === 2 && shared.MEMORY_AGENT_IDS.includes('opencode'));
 
   const location = { resolvedPath: '/bin/opencode', file: '/bin/opencode', prefixArgs: [], version: '1.18.30' };
   const fresh = adapter.launch({ location, cwd: 'D:\\x', resumeSessionId: null, proposedSessionId: 'propuesto' });
@@ -1343,7 +1345,7 @@ const historyOf = (file, extra = {}) => {
 
   const { createAgentRegistry } = await import('../src/agents/registry.ts');
   const registry = createAgentRegistry();
-  check('13 registro: claude-code, codex y opencode, en ese orden', same(registry.all().map(({ adapter: a }) => a.id), ['claude-code', 'codex', 'opencode']));
+  check('13 registro: claude-code, codex, opencode y antigravity, en ese orden', same(registry.all().map(({ adapter: a }) => a.id), ['claude-code', 'codex', 'opencode', 'antigravity']));
   registry.get('opencode').location = { resolvedPath: '/bin/opencode', file: '/bin/opencode', prefixArgs: [], version: '1.18.30' };
   check('13 con opencode sola, es la de por defecto', registry.defaultAgent() === 'opencode');
   registry.get('codex').location = { resolvedPath: '/bin/codex', file: '/bin/codex', prefixArgs: [], version: 'codex-cli 0.154.0' };

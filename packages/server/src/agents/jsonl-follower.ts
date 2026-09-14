@@ -23,6 +23,13 @@
  *  - **El numero de linea cuenta todas las lineas**, vacias e invalidas
  *    incluidas. De ahi sale el `eventId` de respaldo (`line-<n>`), y contar
  *    distinto cambiaria los ids de conversaciones que ya se entregaron.
+ *
+ * Y una opcion que solo usa quien la pide: la **huella** (`fingerprintBytes`,
+ * hito 27). Una CLI que reescribe su historial entero —Antigravity al compactar
+ * el contexto— puede dejarlo del mismo tamano o mas grande, y ahi el offset no
+ * se entera. Con huella, los primeros bytes se comparan en cada lectura y si
+ * cambiaron es un reinicio. Sin la opcion (Claude Code, Codex) no se lee nada de
+ * mas.
  */
 
 import { open, stat } from 'node:fs/promises';
@@ -72,6 +79,19 @@ export interface JsonlPollResult {
   added: ConversationEvent[];
 }
 
+export interface JsonlFollowerOptions {
+  maxEvents?: number;
+  /**
+   * Cuantos bytes del principio del archivo forman la huella. 0 (el valor por
+   * defecto): sin huella, y ninguna lectura de mas.
+   *
+   * Con huella, en cuanto el archivo llega a ese tamano se guardan sus primeros
+   * bytes, y cada `poll` los vuelve a leer: si difieren, el archivo se
+   * reescribio aunque no haya encogido, y se reinicia igual que si encogiera.
+   */
+  fingerprintBytes?: number;
+}
+
 export class JsonlFollower implements EventLookup {
   private path: string | null;
   private offset = 0;
@@ -82,6 +102,9 @@ export class JsonlFollower implements EventLookup {
   private dropped = 0;
   private state: ConversationState = 'waiting';
   private readonly maxEvents: number;
+  private readonly fingerprintBytes: number;
+  /** Los primeros `fingerprintBytes` del archivo leido; null sin huella o si todavia no llego a ese tamano. */
+  private fingerprint: Buffer | null = null;
 
   /**
    * `filePath` null: todavia no se sabe que archivo es (una CLI que pone el id
@@ -91,14 +114,23 @@ export class JsonlFollower implements EventLookup {
   constructor(
     filePath: string | null,
     private readonly sink: JsonlLineSink,
-    options: { maxEvents?: number } = {},
+    options: JsonlFollowerOptions = {},
   ) {
     this.path = filePath;
     this.maxEvents = options.maxEvents ?? MAX_EVENTS;
+    this.fingerprintBytes = Math.max(0, Math.floor(options.fingerprintBytes ?? 0));
   }
 
   get filePath(): string | null {
     return this.path;
+  }
+
+  /**
+   * Cuantos bytes del archivo ya se leyeron, lineas a medias incluidas. 0 con un
+   * archivo vacio: es lo que distingue "existe pero no tiene nada" de "tiene".
+   */
+  get bytesRead(): number {
+    return this.offset;
   }
 
   /**
@@ -180,6 +212,10 @@ export class JsonlFollower implements EventLookup {
       // Reemplazado o truncado: lo que sabiamos ya no vale.
       this.reset();
       didReset = true;
+    } else if (this.fingerprint !== null && !(await this.sameFingerprint(this.path, this.fingerprint))) {
+      // Reescrito sin encoger: el principio ya no es el que se leyo.
+      this.reset();
+      didReset = true;
     }
 
     this.state = 'live';
@@ -197,7 +233,20 @@ export class JsonlFollower implements EventLookup {
     this.lineNumber = 0;
     this.events = [];
     this.dropped = 0;
+    this.fingerprint = null;
     this.sink.reset();
+  }
+
+  /** true si el archivo todavia empieza con `expected`. */
+  private async sameFingerprint(filePath: string, expected: Buffer): Promise<boolean> {
+    const handle = await open(filePath, 'r');
+    try {
+      const head = Buffer.alloc(expected.length);
+      const { bytesRead } = await handle.read(head, 0, expected.length, 0);
+      return bytesRead === expected.length && head.equals(expected);
+    } finally {
+      await handle.close();
+    }
   }
 
   private async readFrom(filePath: string, size: number): Promise<ConversationEvent[]> {
@@ -228,6 +277,13 @@ export class JsonlFollower implements EventLookup {
 
         // El resto queda pendiente hasta que llegue su salto de linea.
         this.pending = Buffer.from(combined.subarray(start));
+      }
+
+      // La huella se toma una vez, con el mismo handle, cuando ya hay bytes para ella.
+      if (this.fingerprintBytes > 0 && this.fingerprint === null && this.offset >= this.fingerprintBytes) {
+        const head = Buffer.alloc(this.fingerprintBytes);
+        const { bytesRead } = await handle.read(head, 0, this.fingerprintBytes, 0);
+        if (bytesRead === this.fingerprintBytes) this.fingerprint = head;
       }
     } finally {
       await handle.close();

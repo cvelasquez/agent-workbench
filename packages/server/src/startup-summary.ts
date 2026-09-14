@@ -17,9 +17,14 @@
  *
  * Y una linea mas, `CLIs disponibles`, con los ids: es lo que mira la demo para
  * negarse a capturar si encontro una CLI de verdad.
+ *
+ * Debajo de una CLI disponible con status line opcional (hito 27, Antigravity
+ * CLI), como esta configurada: sin ella la pestana no tiene estado ni medidor,
+ * y es lo primero que conviene saber si eso no aparece. Las demas no la tienen
+ * y no ganan ninguna linea.
  */
 
-import type { AgentId } from '@agent-workbench/shared';
+import type { AgentId, StatusLineState } from '@agent-workbench/shared';
 
 export interface StartupAgent {
   id: AgentId;
@@ -34,6 +39,30 @@ export interface StartupAgent {
    * Ausente: null.
    */
   historyNote?: string | null;
+  /**
+   * Como esta la status line opcional de esa CLI (`AgentInfo.statusLine`), o
+   * null si no tiene. Ausente: null. Solo la declara Antigravity CLI (hito 27).
+   */
+  statusLine?: StatusLineState | null;
+}
+
+/** Rotulo de la linea de la status line. */
+export const STATUS_LINE_LABEL = 'Status line';
+
+/** Lo que se imprime de cada estado: corto, y diciendo que se pierde sin ella. */
+export function statusLineStartupText(state: StatusLineState): string {
+  switch (state) {
+    case 'active':
+      return 'configurada';
+    case 'missing':
+      return 'sin configurar (sin estado ni medidor; se configura desde el medidor)';
+    case 'other-command':
+      return 'hay otra configurada (sin estado ni medidor)';
+    case 'disabled':
+      return 'desactivada con enabled: false';
+    case 'unreadable':
+      return 'no pude leer su settings.json';
+  }
 }
 
 /** Prefijo de la linea con los ids. La demo la busca por este texto. */
@@ -61,6 +90,8 @@ export function startupAgentLines(agents: readonly StartupAgent[]): string[] {
     lines.push(`  Binario      ${agent.resolvedPath ?? ''}`);
     const note = agent.historyNote ?? null;
     if (note !== null) lines.push(`  ${HISTORY_LABEL}    ${note}`);
+    const statusLine = agent.statusLine ?? null;
+    if (statusLine !== null) lines.push(`  ${STATUS_LINE_LABEL}  ${statusLineStartupText(statusLine)}`);
   }
 
   const first = agents[0];

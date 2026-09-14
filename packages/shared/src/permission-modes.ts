@@ -72,13 +72,20 @@ export function isPermissionMode(value: unknown): value is PermissionMode {
  * Null significa "no se puede llegar ciclando", y ahi lo correcto es no
  * escribir nada: mandar `shift+tab` a ciegas deja al usuario en un modo que no
  * pidio, que es peor que no hacer nada.
+ *
+ * `cycle` es el ciclo de la CLI de la pestana (`permissionCycle.modes`). Sin
+ * el, el de Claude Code: es el que se usaba antes de que hubiera otra CLI con
+ * ciclo de modos, y la cuenta no cambia.
  */
-export function cycleDistance(from: string, to: string): number | null {
-  const list = PERMISSION_MODE_CYCLE as readonly string[];
-  const start = list.indexOf(from);
-  const end = list.indexOf(to);
+export function cycleDistance(
+  from: string,
+  to: string,
+  cycle: readonly string[] = PERMISSION_MODE_CYCLE,
+): number | null {
+  const start = cycle.indexOf(from);
+  const end = cycle.indexOf(to);
   if (start === -1 || end === -1) return null;
-  return (end - start + list.length) % list.length;
+  return (end - start + cycle.length) % cycle.length;
 }
 
 /**
