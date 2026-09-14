@@ -25,7 +25,7 @@
  */
 
 import type { ContextUsage, ContextWindowSource } from '@agent-workbench/shared';
-import { meterIdleDetail, meterIdleWindow } from './agent-ui.js';
+import { meterIdleDetail, meterIdleWindow, meterWindowOrigin } from './agent-ui.js';
 
 /** Umbrales de color. Son de presentacion: la CLI no publica ninguno. */
 const WARN_RATIO = 0.75;
@@ -133,6 +133,8 @@ export function ContextMeter({
       ? ''
       : ` / ${formatTokens(contextWindow)}${usage.contextWindowEstimated ? '+' : ''}`;
 
+  const origin = meterWindowOrigin(source, usage);
+
   if (compact) {
     /*
       Todo lo que en la version apilada son filas aparte vive aca en el titulo.
@@ -141,7 +143,7 @@ export function ContextMeter({
     */
     const detail = [
       usage.lastModel === null ? null : usage.lastModel,
-      usage.contextWindowEstimated ? 'limite deducido de los tokens medidos' : null,
+      origin,
       ratio === null ? 'modelo no reconocido: sin tamano de ventana' : `${Math.round(ratio * 100)}% de la ventana`,
       `salida ${formatTokens(usage.lastOutputTokens)}`,
       `sesion ${formatTokens(usage.totalOutputTokens)} out · ${formatTokens(
@@ -188,8 +190,8 @@ export function ContextMeter({
               title={
                 usage.lastModel === null
                   ? undefined
-                  : usage.contextWindowEstimated
-                    ? `${usage.lastModel} — limite deducido de los tokens medidos`
+                  : origin !== null
+                    ? `${usage.lastModel} — ${origin}`
                     : usage.lastModel
               }
             >

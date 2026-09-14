@@ -536,66 +536,79 @@ export class SessionIndex extends EventEmitter {
     history: HistorySource,
     item: HistoryItem,
   ): Promise<IndexedSession | null> {
-    const key = cacheKey(agent, item.ref);
     try {
-      let cwd: string | null;
-      let resumeCwd: string | null;
-      let summary: ScannedSummary;
-      const cached = this.cache.entries[key];
-      if (
-        cached !== undefined &&
-        cached.mtimeMs === item.mtimeMs &&
-        cached.sizeBytes === item.sizeBytes
-      ) {
-        // Tambien desde la cache: si no, un arranque en caliente se quedaria
-        // sin lo que la CLI aprende al leer (con Claude Code, la variante).
-        history.restored(item, cached.extra);
-        cwd = cached.cwd.length > 0 ? cached.cwd : null;
-        resumeCwd = cached.resumeCwd !== undefined && cached.resumeCwd.length > 0 ? cached.resumeCwd : null;
-        summary = cached.summary;
-      } else {
-        const scanned = await history.scan(item);
-        if (scanned === null) {
-          /*
-            Existe pero no es una sesion que se liste. No se cachea: una entrada
-            vieja de ese mismo archivo —de cuando si lo era— tampoco sirve ya.
-          */
-          if (key in this.cache.entries) {
-            delete this.cache.entries[key];
-            this.cacheDirty = true;
-          }
-          return null;
-        }
-        cwd = scanned.cwd !== null && scanned.cwd.length > 0 ? scanned.cwd : null;
-        resumeCwd =
-          typeof scanned.resumeCwd === 'string' && scanned.resumeCwd.length > 0 && scanned.resumeCwd !== cwd
-            ? scanned.resumeCwd
-            : null;
-        summary = scanned.summary;
-        this.cache.entries[key] = {
-          agent,
-          ref: item.ref,
-          group: item.group,
-          mtimeMs: item.mtimeMs,
-          sizeBytes: item.sizeBytes,
-          cwd: cwd ?? '',
-          // Solo cuando difiere: una entrada de Claude Code queda igual que antes.
-          ...(resumeCwd !== null ? { resumeCwd } : {}),
-          summary,
-          extra: scanned.extra,
-        };
-        this.cacheDirty = true;
-      }
-      return {
-        agent,
-        ref: item.ref,
-        group: item.group,
-        cwd,
-        summary: { ...summary, agent, cwd: resumeCwd ?? cwd ?? '', archived: false },
-      };
+      return await this.readOrThrow(agent, history, item);
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Lo mismo que `read`, pero sin juntar los dos null: devuelve null solo si la
+   * fuente dice que no es una sesion que se liste, y **lanza** si no se pudo
+   * leer. `refreshPath` necesita la diferencia.
+   */
+  private async readOrThrow(
+    agent: AgentId,
+    history: HistorySource,
+    item: HistoryItem,
+  ): Promise<IndexedSession | null> {
+    const key = cacheKey(agent, item.ref);
+    let cwd: string | null;
+    let resumeCwd: string | null;
+    let summary: ScannedSummary;
+    const cached = this.cache.entries[key];
+    if (
+      cached !== undefined &&
+      cached.mtimeMs === item.mtimeMs &&
+      cached.sizeBytes === item.sizeBytes
+    ) {
+      // Tambien desde la cache: si no, un arranque en caliente se quedaria
+      // sin lo que la CLI aprende al leer (con Claude Code, la variante).
+      history.restored(item, cached.extra);
+      cwd = cached.cwd.length > 0 ? cached.cwd : null;
+      resumeCwd = cached.resumeCwd !== undefined && cached.resumeCwd.length > 0 ? cached.resumeCwd : null;
+      summary = cached.summary;
+    } else {
+      const scanned = await history.scan(item);
+      if (scanned === null) {
+        /*
+          Existe pero no es una sesion que se liste. No se cachea: una entrada
+          vieja de ese mismo archivo —de cuando si lo era— tampoco sirve ya.
+        */
+        if (key in this.cache.entries) {
+          delete this.cache.entries[key];
+          this.cacheDirty = true;
+        }
+        return null;
+      }
+      cwd = scanned.cwd !== null && scanned.cwd.length > 0 ? scanned.cwd : null;
+      resumeCwd =
+        typeof scanned.resumeCwd === 'string' && scanned.resumeCwd.length > 0 && scanned.resumeCwd !== cwd
+          ? scanned.resumeCwd
+          : null;
+      summary = scanned.summary;
+      this.cache.entries[key] = {
+        agent,
+        ref: item.ref,
+        group: item.group,
+        mtimeMs: item.mtimeMs,
+        sizeBytes: item.sizeBytes,
+        cwd: cwd ?? '',
+        // Solo cuando difiere: una entrada de Claude Code queda igual que antes.
+        ...(resumeCwd !== null ? { resumeCwd } : {}),
+        summary,
+        extra: scanned.extra,
+      };
+      this.cacheDirty = true;
+    }
+    return {
+      agent,
+      ref: item.ref,
+      group: item.group,
+      cwd,
+      summary: { ...summary, agent, cwd: resumeCwd ?? cwd ?? '', archived: false },
+    };
   }
 
   /**
@@ -612,7 +625,8 @@ export class SessionIndex extends EventEmitter {
     } catch {
       refs = null;
     }
-    if (refs === null) return;
+    // Una lista vacia —un checkpoint de una base compartida, una sesion hija— no toca nada.
+    if (refs === null || refs.length === 0) return;
 
     /*
       Solo se avisa y se guarda si algo cambio. Una `codex exec` de otra app
@@ -624,18 +638,30 @@ export class SessionIndex extends EventEmitter {
     let changed = false;
     for (const ref of refs) {
       const key = cacheKey(agent, ref);
-      if (key in this.cache.entries) {
+      const cachedBefore = this.cache.entries[key];
+      if (cachedBefore !== undefined) {
         delete this.cache.entries[key];
         this.cacheDirty = true;
       }
 
-      let item: HistoryItem | null;
+      /*
+        "No esta" y "no se pudo leer" no son lo mismo. `item` da null si la
+        sesion ya no existe, y `scan` null si no es una que se liste: esas se
+        quitan. Si cualquiera de los dos **lanza** —una base ocupada mas que el
+        `busy_timeout`, un archivo tomado un instante— queda lo que la barra ya
+        tenia, con su entrada de cache. Antes se quitaba, y con una base
+        compartida la sesion no volvia hasta su proximo cambio: la foto de
+        `changedRefs` ya la daba por leida (R26-4). La fuente que la vuelva a
+        pedir se encarga de reintentar.
+      */
+      let indexed: IndexedSession | null;
       try {
-        item = await history.item(ref);
+        const item = await history.item(ref);
+        indexed = item === null ? null : await this.readOrThrow(agent, history, item);
       } catch {
-        item = null;
+        if (cachedBefore !== undefined && !(key in this.cache.entries)) this.cache.entries[key] = cachedBefore;
+        continue;
       }
-      const indexed = item === null ? null : await this.read(agent, history, item);
       if (indexed === null) {
         if (this.sessions.delete(key)) changed = true;
         continue;

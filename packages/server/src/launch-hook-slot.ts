@@ -41,12 +41,12 @@ export class LaunchHookSlot {
     this.hook = hook;
   }
 
-  /** Alguien escribio en la pty. */
-  input(): void {
+  /** Alguien escribio `data` en la pty. */
+  input(data: string): void {
     const hook = this.hook;
     if (hook === null) return;
     if (hook.onInput !== undefined) {
-      hook.onInput();
+      hook.onInput(data);
       return;
     }
     this.take();

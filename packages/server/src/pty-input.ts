@@ -281,6 +281,20 @@ export function buildModeKeys(from: string, to: string): string[] | null {
 }
 
 /**
+ * Los Esc que interrumpen un turno, uno por pulsacion
+ * (`AgentInput.interruptPresses`).
+ *
+ * Por separado y no en una cadena, por lo mismo que las teclas de un menu: una
+ * CLI que arma la interrupcion con el primero tiene que ver el segundo como
+ * otra pulsacion. Nunca menos de uno: un boton de interrumpir que no escribe
+ * nada es peor que uno que escribe de mas.
+ */
+export function buildInterruptKeys(presses: number): string[] {
+  const count = Number.isInteger(presses) && presses > 1 ? presses : 1;
+  return Array.from({ length: count }, () => INTERRUPT);
+}
+
+/**
  * Arma lo que se le escribe a la pty para un envio del cuadro de escritura.
  *
  * El orden es el que se ve en pantalla: primero los adjuntos, en el orden en
@@ -321,6 +335,11 @@ function pasted(payload: string, markers: boolean): string {
 export interface SubmissionShape {
   readonly imageReference: ImageReferenceStyle | null;
   readonly pasteMarkers: boolean;
+  /**
+   * El Enter como pieza propia aunque no haya imagenes que separar. Ausente es
+   * false. Con `bare-path-paste` el Enter ya va aparte y esto no cambia nada.
+   */
+  readonly enterSeparately?: boolean;
 }
 
 /**
@@ -337,6 +356,9 @@ export interface SubmissionShape {
  *    texto, y el Enter como pieza aparte. Sueltas y no concatenadas: si la CLI
  *    recibe lo pegado como rafaga de teclas, dos pegados seguidos en el tiempo
  *    se funden en uno, "ruta1ruta2texto", que ya no es la ruta de nada.
+ *  - Sin `bare-path-paste` pero con `enterSeparately`: la misma pieza unica sin
+ *    el Enter, y el Enter aparte. Es para la CLI que puede recibir lo pegado
+ *    como rafaga y decidir por el tiempo si un Enter es parte de ella.
  *
  * Devuelve null si no hay nada que mandar, y tambien si hay imagenes y la CLI
  * no tiene forma de nombrarlas: el socket lo rechaza antes, y esto no escribe
@@ -358,6 +380,9 @@ export function buildSubmissionWrites(
       imagePaths.map((imagePath) => fileReference(imagePath, style ?? 'at-quoted')),
     );
     if (payload === null) return null;
+    if (shape.enterSeparately === true) {
+      return send ? [pasted(payload, shape.pasteMarkers), SUBMIT] : [pasted(payload, shape.pasteMarkers)];
+    }
     return [`${pasted(payload, shape.pasteMarkers)}${send ? SUBMIT : ''}`];
   }
 

@@ -29,6 +29,13 @@ process.env['APPDATA'] = path.join(root, 'appdata');
 process.env['XDG_CONFIG_HOME'] = path.join(root, 'xdg');
 // El registro de la app tambien trae el adaptador de Codex (hito 25).
 process.env['CODEX_HOME'] = path.join(root, 'codex');
+// Y el de OpenCode (hito 26): sus carpetas, adentro de la temporal.
+process.env['XDG_DATA_HOME'] = path.join(root, 'xdg-data');
+process.env['XDG_CACHE_HOME'] = path.join(root, 'xdg-cache');
+process.env['XDG_STATE_HOME'] = path.join(root, 'xdg-state');
+delete process.env['OPENCODE_DB'];
+delete process.env['OPENCODE_MODELS_PATH'];
+delete process.env['OPENCODE_MODELS_URL'];
 
 const shared = await import('@agent-workbench/shared');
 const {
@@ -558,7 +565,8 @@ const adapter = createClaudeCodeAdapter();
     sameShape(parseAgentCapabilities(JSON.parse(JSON.stringify(adapter.capabilities))), expected));
   // El envio: una sola pieza con el Enter adentro, como siempre (hito 25, A2).
   check('envio de claude-code igual al literal',
-    sameShape(adapter.input, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true }), JSON.stringify(adapter.input));
+    sameShape(adapter.input, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1 }),
+    JSON.stringify(adapter.input));
   check('id, comando y etiqueta', adapter.id === 'claude-code' && adapter.command === 'claude' && adapter.label === 'Claude Code');
   check('AGENT_IDS nombra al adaptador', AGENT_IDS.includes(adapter.id));
 

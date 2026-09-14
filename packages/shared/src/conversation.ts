@@ -145,13 +145,51 @@ export interface ConversationImagePart {
   source: ConversationImageSource;
 }
 
+/**
+ * Algo que paso en la conversacion y que no dijo nadie.
+ *
+ *  - `compacted`: la CLI resumio el contexto para seguir.
+ *  - `interrupted`: el turno se corto antes de terminar.
+ *  - `error`: el proveedor del modelo devolvio un error.
+ */
+export type ConversationNotice = 'compacted' | 'interrupted' | 'error';
+
+export const CONVERSATION_NOTICES: readonly ConversationNotice[] = [
+  'compacted',
+  'interrupted',
+  'error',
+];
+
+/**
+ * Un aviso en el hilo (hito 26).
+ *
+ * Existe por las CLIs que guardan estas cosas como datos y no como texto: sin
+ * esta parte, el dia que el modelo no tiene saldo la pestana no responde y el
+ * hilo no dice por que. Meterlo en una parte `text` haria que el hilo afirmara
+ * que lo escribio alguien.
+ *
+ * Un evento que la lleva no lleva ninguna otra: un cliente anterior descarta el
+ * evento entero sin perder nada mas.
+ */
+export interface ConversationNoticePart {
+  kind: 'notice';
+  notice: ConversationNotice;
+  /**
+   * Detalle corto, ya recortado a 300 caracteres. `compacted`: `'auto'` o `''`.
+   * `interrupted`: `''`. `error`: `<nombre>: <mensaje>` del proveedor, nunca
+   * cabeceras ni cuerpo de la respuesta.
+   */
+  detail: string;
+}
+
 export type ConversationPart =
   | ConversationTextPart
   | ConversationToolCallPart
   | ConversationToolResultPart
   | ConversationThinkingPart
   | ConversationQuestionPart
-  | ConversationImagePart;
+  | ConversationImagePart
+  | ConversationNoticePart;
 
 /** `message.usage` de una linea de asistente, con los nombres normalizados. */
 export interface MessageUsage {
@@ -476,6 +514,11 @@ export function parseConversationPart(value: unknown): ConversationPart | null {
       const source: ConversationImageSource =
         record['source'] === 'attachment' ? 'attachment' : 'content';
       return { kind: 'image', index, mediaType, source };
+    }
+    case 'notice': {
+      const notice = asLiteral(record['notice'], CONVERSATION_NOTICES);
+      if (notice === null) return null;
+      return { kind: 'notice', notice, detail: asString(record['detail']) ?? '' };
     }
     default:
       return null;

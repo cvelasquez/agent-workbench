@@ -18,6 +18,7 @@ import {
 import type { AgentAdapter, CliLocation } from './adapter.js';
 import { createClaudeCodeAdapter } from './claude-code/index.js';
 import { createCodexAdapter } from './codex/index.js';
+import { createOpenCodeAdapter } from './opencode/index.js';
 
 export interface RegisteredAgent {
   adapter: AgentAdapter;
@@ -175,8 +176,10 @@ export function resolveAgentForOpen(input: ResolveAgentInput): AgentId | null {
  *
  * Claude Code primero: con las dos instaladas sigue siendo la CLI por defecto,
  * y `Alt+T` en un proyecto sin pestanas abre lo mismo que abria antes de que
- * existiera la segunda.
+ * existiera la segunda. OpenCode ultima (hito 26): el orden tambien decide que
+ * `cwd` muestra un proyecto que comparten, y con las tres instaladas nada de lo
+ * que ya habia cambia de lugar.
  */
 export function createAgentRegistry(): AgentRegistry {
-  return new AgentRegistry([createClaudeCodeAdapter(), createCodexAdapter()]);
+  return new AgentRegistry([createClaudeCodeAdapter(), createCodexAdapter(), createOpenCodeAdapter()]);
 }

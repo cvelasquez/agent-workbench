@@ -1,10 +1,10 @@
 # Agent Workbench
 
 Una interfaz visual local para las CLIs de agentes de código. Funciona con la
-CLI de Claude Code y con la de Codex.
+CLI de Claude Code, con la de Codex y con la de OpenCode.
 
 No habla con ninguna API. Lanza la CLI que ya tenés instalada y logueada
-—`claude` o `codex`— dentro de una pseudo-terminal, y le agrega alrededor lo que
+—`claude`, `codex` u `opencode`— dentro de una pseudo-terminal, y le agrega alrededor lo que
 una terminal sola no da: pestañas, historial navegable, la conversación como
 tarjetas, un medidor de contexto, el estado de git y un árbol de archivos.
 
@@ -21,7 +21,7 @@ que la aplicación lo toque.
 |---|---|
 | **Pestañas** | Varias sesiones vivas a la vez, cada una en su directorio. Sobreviven a un `F5`: los procesos viven en el servidor, no en la pestaña del navegador. El punto de cada una dice si el agente está trabajando, parado o esperando una respuesta. |
 | **Arranque sin gastar nada** | Al abrir la app las pestañas vuelven **dormidas**: se leen enteras y no lanzan ninguna CLI. La abrís con un botón cuando quieras escribirle al agente. |
-| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, las de Claude Code y las de Codex juntas bajo cada proyecto. Abrir una la retoma con su CLI, en el mismo archivo. |
+| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, las de Claude Code, Codex y OpenCode juntas bajo cada proyecto. Abrir una la retoma con su CLI, en la misma sesión. De OpenCode lee su historial y abre pestañas de su CLI, pero sin su estado ni preguntas contestables desde el chat: esas se contestan en su terminal. |
 | **Conversación** | Los mensajes de la sesión activa, en vivo, con las herramientas plegadas y su resultado adentro. Búsqueda, salto entre resultados y copiado por mensaje. |
 | **Medidor de contexto** | Tokens de la última petición contra la ventana del modelo. Tokens, nunca dinero. |
 | **Cambios** | Rama, adelanto y atraso contra la rama de seguimiento, worktrees, y los archivos tocados con su diff. **Solo lectura.** |
@@ -41,15 +41,16 @@ que la aplicación lo toque.
 
 | | |
 |---|---|
-| **Node.js** | 20 o superior |
+| **Node.js** | 20 o superior. **Para ver el historial de OpenCode, 22.13 o posterior**: se lee con el SQLite que trae Node desde esa versión. Con uno anterior todo lo demás funciona igual, y el arranque te avisa |
 | **git** | para el panel de cambios; el resto funciona sin él |
 | **La CLI de Claude Code** | instalada y con sesión iniciada — [guía de instalación](https://docs.claude.com/en/docs/claude-code/setup) |
 | **La CLI de Codex** (opcional) | instalada y con sesión iniciada — [guía](https://learn.chatgpt.com/docs/codex/cli) |
+| **La CLI de OpenCode** (opcional) | instalada y con sesión iniciada — [documentación](https://opencode.ai/docs/) |
 
-Hace falta una de las dos. Agent Workbench **no** incluye ninguna CLI ni la
+Hace falta una de las tres. Agent Workbench **no** incluye ninguna CLI ni la
 descarga: usa las que ya tenés en el `PATH`. Si no encuentra ninguna, te lo dice
-y no abre sesiones. Con las dos instaladas, el `+` de nueva pestaña abre con la
-que usaste en ese proyecto, y su flecha te deja elegir la otra.
+y no abre sesiones. Con más de una instalada, el `+` de nueva pestaña abre con la
+que usaste en ese proyecto, y su flecha te deja elegir otra.
 
 Probado sobre Windows 11 con PowerShell, que es la plataforma principal.
 macOS y Linux funcionan igual. En Linux, la dependencia `node-pty` no trae
@@ -137,14 +138,21 @@ red saliente.
 
 - **Nunca toca tus credenciales.** No lee, copia ni reenvía
   `~/.claude/.credentials.json`, ni `auth.json` ni `config.toml` de Codex, ni
-  ningún token. No hay login en la interfaz: si no iniciaste sesión, lo hacés
-  dentro de la terminal de la CLI y la aplicación ni se entera.
+  `auth.json` ni `opencode.json` de OpenCode, ni ningún token. No hay login en la
+  interfaz: si no iniciaste sesión, lo hacés dentro de la terminal de la CLI y la
+  aplicación ni se entera.
 - **No agrega variables de autenticación** al entorno de los procesos que lanza.
   El entorno se hereda tal cual. La única excepción es que **quita**
   `CLAUDE_CODE_CHILD_SESSION` —que apaga el guardado del historial— y te avisa
   con un cartel cuando lo hace.
 - **De `~/.claude/` solo lee `projects/`**, que es el historial de
   conversaciones. **De `~/.codex/`, solo `sessions/` y `archived_sessions/`.**
+  **De OpenCode, su base `opencode.db`, abierta en sólo lectura**, y de ella
+  solo las tablas de sesiones, mensajes y partes; las de cuentas, credenciales,
+  permisos y sesiones compartidas no se consultan. Lo único que deja leer esa
+  base es lo que SQLite hace con cualquier lector: crea sus archivos `-wal` y
+  `-shm` si faltan y le cambia la fecha a `-shm`. Nunca corre un comando de
+  OpenCode sobre ella.
   Lo que la aplicación guarda (pestañas abiertas, caché del índice) va a su
   propio directorio de configuración, nunca dentro de la carpeta de una CLI.
 - **En tus proyectos escribe una sola cosa, y sólo si confirmás:** la memoria
@@ -168,6 +176,12 @@ red saliente.
 **"No se encontró el comando `claude` en el PATH"** — la CLI no está instalada o
 no está en el `PATH` del proceso que corre `pnpm dev`. Comprobalo con
 `where claude` (o `which claude`).
+
+**No aparece el historial de OpenCode.** Mirá la línea `Historial` del arranque.
+Si dice que esa versión de Node no trae `node:sqlite`, actualizá Node a la 22.13
+o posterior. Si no hay línea, no encontró la base: está en
+`~/.local/share/opencode/opencode.db`, o donde diga `OPENCODE_DB` o
+`XDG_DATA_HOME`.
 
 **`node-pty` no compila al instalar.** Es un módulo nativo. Normalmente baja un
 binario precompilado y no hace falta nada; si tu combinación de Node y
@@ -228,5 +242,5 @@ la CLI —que difiere de lo que uno esperaría— y las trampas ya pisadas.
 MIT. Ver [`LICENSE`](LICENSE).
 
 Agent Workbench es un proyecto independiente. Funciona con las CLIs de Claude
-Code y de Codex, pero no está afiliado a Anthropic ni a OpenAI, ni respaldado
-por ellos.
+Code, de Codex y de OpenCode, pero no está afiliado a Anthropic, a OpenAI ni a
+los autores de OpenCode, ni respaldado por ellos.

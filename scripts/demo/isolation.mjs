@@ -143,13 +143,27 @@ export function demoEnvironment(base, { home, bin, mainCwd, platform = process.p
   set('LOCALAPPDATA', path.join(home, 'AppData', 'Local'));
   set('XDG_CONFIG_HOME', path.join(home, '.config'));
   set('XDG_DATA_HOME', path.join(home, '.local', 'share'));
+  set('XDG_CACHE_HOME', path.join(home, '.cache'));
+  set('XDG_STATE_HOME', path.join(home, '.local', 'state'));
   set('CODEX_HOME', path.join(home, '.codex'));
   set('PATH', demoPath(bin, originalPath, { platform, pathext }));
   set('AGENT_WORKBENCH_CWD', mainCwd);
-  // Corrido desde una sesion de la CLI, el marcador heredado hace que la app
-  // muestre el aviso de CLAUDE.md 4.10, y saldria en las capturas. Las otras
-  // dos apuntarian a las bases reales de otras CLIs.
-  for (const key of ['CLAUDE_CODE_CHILD_SESSION', 'OPENCODE_DB', 'CODEX_SQLITE_HOME']) set(key, undefined);
+  /*
+    Corrido desde una sesion de la CLI, el marcador heredado hace que la app
+    muestre el aviso de CLAUDE.md 4.10, y saldria en las capturas. Las demas
+    apuntarian a la base, el catalogo o la configuracion reales de otras CLIs:
+    una variable del shell del usuario meteria su historial en las imagenes.
+  */
+  for (const key of [
+    'CLAUDE_CODE_CHILD_SESSION',
+    'CODEX_SQLITE_HOME',
+    'OPENCODE_DB',
+    'OPENCODE_MODELS_PATH',
+    'OPENCODE_MODELS_URL',
+    'OPENCODE_CONFIG',
+    'OPENCODE_CONFIG_DIR',
+    'OPENCODE_CONFIG_CONTENT',
+  ]) set(key, undefined);
   for (const [key, value] of Object.entries(env)) if (value === undefined) delete env[key];
   return env;
 }
@@ -163,6 +177,34 @@ export function assertOnlySimulatedAgent(availableAgents) {
   if (availableAgents.length === 1 && availableAgents[0] === 'claude-code') return;
   const seen = availableAgents.length === 0 ? 'ninguna CLI' : availableAgents.join(', ');
   throw new Error(`La demo vio ${seen} en vez de solo la CLI simulada. No se capturan: saldria en las imagenes.`);
+}
+
+/**
+ * true si el servidor ya imprimio el bloque de arranque entero. `Consola` es la
+ * ultima linea que no depende de nada, y va despues de las de las CLIs y del
+ * historial: esperar solo `CLIs disponibles` podia dejar afuera la del
+ * historial, que llega en otro trozo de la salida.
+ */
+export function startupBlockComplete(output) {
+  return /^\s*Consola\s/m.test(output);
+}
+
+/** Las lineas `Historial` del arranque: una base de verdad que el servidor va a leer. */
+export function historyLinesFromStartup(output) {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^Historial\b/.test(line));
+}
+
+/**
+ * Lanza si el servidor de la demo anuncio un historial de otra CLI: con una
+ * base de verdad a mano, sus sesiones saldrian en la barra de las capturas
+ * aunque la CLI no este en el `PATH` (hito 26).
+ */
+export function assertNoNativeHistory(historyLines) {
+  if (historyLines.length === 0) return;
+  throw new Error(`La demo va a leer un historial de verdad (${historyLines.join(' | ')}). No se capturan: saldria en las imagenes.`);
 }
 
 /**

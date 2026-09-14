@@ -7,18 +7,21 @@
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { repoRoot, startDemoServer } from './environment.mjs';
-import { assertOnlySimulatedAgent } from './isolation.mjs';
+import { assertNoNativeHistory, assertOnlySimulatedAgent } from './isolation.mjs';
 
 const outDir = path.join(repoRoot, 'docs');
-const { url, availableAgents, demo, stop } = await startDemoServer({ mode: 'prod', openBrowser: false });
+const { url, availableAgents, historyLines, demo, stop } = await startDemoServer({ mode: 'prod', openBrowser: false });
 
 /*
   Segunda red, despues del PATH filtrado de `isolation.mjs`: si el servidor igual
   encontro una CLI de verdad, el menu de CLIs y su historial saldrian en las
-  capturas. La unica disponible tiene que ser la simulada.
+  capturas. La unica disponible tiene que ser la simulada —con `CLI (OpenCode)`
+  o cualquier otra, no se captura—, y ninguna base de otra CLI puede estar a
+  mano: el historial de OpenCode se lee aunque su CLI no este (hito 26).
 */
 try {
   assertOnlySimulatedAgent(availableAgents);
+  assertNoNativeHistory(historyLines);
 } catch (error) {
   stop();
   throw error;

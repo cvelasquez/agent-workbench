@@ -740,7 +740,9 @@ export class ConversationHub extends EventEmitter {
         this.emit('reset', terminalId);
         return;
       }
-      if (result.added.length > 0) {
+      // Un `append` vacio si solo cambio el uso: los tokens de un paso llegan
+      // al cerrarlo, despues de sus eventos (`PollResult.usageChanged`).
+      if (result.added.length > 0 || result.usageChanged === true) {
         this.emit('append', terminalId, result.added, entry.follower.getUsage(), mode);
       }
       if (result.turns.length > 0) this.emit('turns', terminalId, result.turns);

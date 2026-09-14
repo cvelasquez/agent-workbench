@@ -197,6 +197,7 @@ function describeStartup(
     version: info.version,
     resolvedPath: agents.get(info.id)?.location?.resolvedPath ?? null,
     missingMessage: info.missingMessage,
+    historyNote: agents.get(info.id)?.adapter.startupHistoryNote?.(info.available) ?? null,
   }));
   for (const agentLine of startupAgentLines(startupAgents)) console.log(agentLine);
   console.log(`  Consola      ${shell === null ? 'no encontrada' : shell.file}`);

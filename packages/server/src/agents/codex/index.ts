@@ -86,6 +86,8 @@ export const CODEX_INPUT: AgentInput = {
   imageReference: 'bare-path-paste',
   pieceGapMs: 400,
   pasteMarkers: true,
+  enterSeparately: true,
+  interruptPresses: 1,
 };
 
 export function createCodexAdapter(): AgentAdapter {

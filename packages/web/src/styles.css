@@ -1808,6 +1808,28 @@ kbd {
   color: var(--warning);
 }
 
+/*
+  Un aviso del hilo: compactacion, interrupcion o error del proveedor. Una linea
+  centrada entre dos bordes punteados, que se lee como un corte y no como algo
+  que alguien escribio.
+*/
+.turn-notice {
+  padding: 4px 0;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  font-size: 12px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.turn-notice-interrupted {
+  color: var(--warning);
+}
+
+.turn-notice-error {
+  color: var(--danger);
+}
+
 /* Plegado de un mensaje propio largo. Se pliega la vista, no el dato. */
 .fold-toggle {
   display: block;
@@ -3574,13 +3596,25 @@ kbd {
   border-left-color: var(--accent);
 }
 
+/*
+  La fila del interruptor de archivadas y de "Archivar historial". El borde es
+  de la fila y no del interruptor: cualquiera de los dos puede faltar.
+*/
+.sidebar-archive-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
 .sidebar-archived-toggle {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 4px 10px;
   text-align: left;
   font-size: 11px;
   color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
 }
 
 .sidebar-archived-toggle:hover {
@@ -3590,6 +3624,84 @@ kbd {
 
 .sidebar-archived-toggle.is-on {
   color: var(--accent);
+}
+
+/* Sin interruptor a la izquierda, igual va a la derecha. */
+.sidebar-archive-history {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.sidebar-archive-history.is-on {
+  color: var(--accent);
+}
+
+/* El panel de "Archivar historial": en el sitio, debajo de la fila. */
+.archive-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 8px;
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--chrome);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.archive-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.archive-history-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+
+.archive-history-row:hover {
+  background: var(--hover);
+}
+
+.archive-history-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.archive-history-count {
+  color: var(--text-dim);
+}
+
+/* La confirmacion, con el mismo fondo que la de cerrar una nota. */
+.archive-history-confirm,
+.archive-history-confirm:hover {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.archive-history-confirm .archive-history-text {
+  display: block;
+}
+
+/* El aviso de lo que se acaba de archivar de una vez, con su Deshacer. */
+.archive-history-undo {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 14px;
+}
+
+.archive-history-undo .archive-history-text {
+  display: block;
+  color: var(--text-dim);
 }
 
 .sidebar-selection {

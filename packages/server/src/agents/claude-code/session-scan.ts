@@ -15,6 +15,7 @@
 import { stat } from 'node:fs/promises';
 import type { SessionSummary, SessionTitleSource } from '@agent-workbench/shared';
 import { parseJsonlLine, readHeadLines, readTailLines } from '../../jsonl-reader.js';
+import { toTitle, UNTITLED_SESSION_TITLE } from '../session-title.js';
 
 /** Cuantas lineas de la cabeza mirar buscando cwd y titulo. El cwd mas tardio medido esta en la 8. */
 const HEAD_MAX_LINES = 40;
@@ -22,11 +23,6 @@ const HEAD_MAX_LINES = 40;
 const HEAD_MAX_BYTES = 512 * 1024;
 /** Bloque final para fecha, ultimo mensaje y titulos tardios. */
 const TAIL_MAX_BYTES = 64 * 1024;
-
-const TITLE_MAX_LENGTH = 90;
-
-/** Lo que dice la barra de una sesion sin ningun texto que sirva de titulo. */
-export const UNTITLED_SESSION_TITLE = 'Sesion sin titulo';
 
 export interface ScanResult {
   cwd: string | null;
@@ -57,30 +53,6 @@ function extractMessageText(content: unknown): string | null {
 
   const joined = parts.join(' ').trim();
   return joined.length > 0 ? joined : null;
-}
-
-/**
- * Deja el texto en una linea legible.
- *
- * Como casi todos los titulos salen de aca, vale la pena: se sacan los saltos
- * de linea, los comandos de la CLI y las etiquetas de sistema que ensucian el
- * listado.
- *
- * Exportada porque el titulo de una sesion de Codex sale igual de su primer
- * mensaje, y dos limpiezas distintas harian que la misma barra se leyera
- * distinto segun la CLI.
- */
-export function toTitle(raw: string): string {
-  let text = raw
-    .replace(/<[^>]{1,80}>/g, ' ')
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (text.length > TITLE_MAX_LENGTH) {
-    text = `${text.slice(0, TITLE_MAX_LENGTH - 1).trimEnd()}…`;
-  }
-  return text;
 }
 
 /** true si la linea es un mensaje de usuario real y no ruido interno. */

@@ -83,6 +83,34 @@ const CODEX_SHORTCUTS: readonly Shortcut[] = [
 ];
 
 /**
+ * Las teclas de OpenCode dentro de su terminal.
+ *
+ * Salen de las cadenas del binario de la 1.18.30, salvo el lider `Ctrl + X`, que
+ * es el valor documentado y no se leyo ahi: la prueba en vivo del hito lo
+ * confirma o se corrige este texto.
+ *
+ * El salto de linea es `Ctrl + J` y no `Shift + Enter`, aunque el binario
+ * declare los dos: xterm manda el mismo `\r` con Shift o sin el, y OpenCode lo
+ * toma como un Enter y envia el mensaje a medias. `Ctrl + J` llega como `\n`.
+ */
+const OPENCODE_SHORTCUTS: readonly Shortcut[] = [
+  { keys: 'Esc Esc', description: 'Interrumpir (el primer toque sólo avisa)' },
+  {
+    keys: 'Tab / Shift + Tab',
+    description: 'Cambiar de agente, build o plan (con el foco en la terminal)',
+  },
+  { keys: 'Ctrl + P', description: 'Lista de comandos, con las variantes del modelo' },
+  { keys: 'Ctrl + X y M', description: 'Elegir modelo' },
+  {
+    keys: 'Ctrl + X y N',
+    description: 'Sesión nueva: la pestaña sigue atada a la sesión con la que se abrió',
+  },
+  { keys: 'Ctrl + J', description: 'Salto de línea' },
+  { keys: 'Ctrl + C', description: 'Limpiar la entrada; dos veces, salir' },
+  { keys: 'Ctrl + V', description: 'Pegar' },
+];
+
+/**
  * Una entrada por CLI con adaptador.
  *
  * Es un `Record` exhaustivo a proposito: agregar un id a `AGENT_IDS` sin su
@@ -113,6 +141,13 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     shortcuts: CODEX_SHORTCUTS,
     shortcutsNote:
       'Alt + ← / → cambian de agente dentro de Codex, pero acá los usa la app para cambiar de pestaña.',
+    instructionsFile: 'AGENTS.md',
+  },
+  opencode: {
+    shortLabel: 'OC',
+    shortcuts: OPENCODE_SHORTCUTS,
+    shortcutsNote:
+      'Ctrl + T cambia la variante del modelo dentro de OpenCode, pero el navegador se la queda: está en Ctrl + P.',
     instructionsFile: 'AGENTS.md',
   },
 };
@@ -272,6 +307,25 @@ export function meterIdleWindow(
   fallbackWindow: number | null,
 ): number | null {
   return fallbackWindow ?? (source === 'token-count' ? usage.contextWindow : null);
+}
+
+/**
+ * De donde sale el limite que dibuja el medidor, para su titulo, o null si no
+ * hace falta decirlo.
+ *
+ * Una cota deducida de los tokens se dice siempre (regla 4 del medidor). Un
+ * limite del catalogo de modelos de la CLI tambien: no es la ventana que la CLI
+ * uso, es la que su catalogo dice que tiene ese modelo en ese proveedor.
+ */
+export function meterWindowOrigin(
+  source: ContextWindowSource | null,
+  usage: Pick<ContextUsage, 'contextWindow' | 'contextWindowEstimated'>,
+): string | null {
+  if (usage.contextWindowEstimated) return 'limite deducido de los tokens medidos';
+  if (source === 'usage-with-catalog' && usage.contextWindow !== null) {
+    return 'limite del catalogo de modelos de la CLI';
+  }
+  return null;
 }
 
 /** Titulo del medidor antes de la primera respuesta. */

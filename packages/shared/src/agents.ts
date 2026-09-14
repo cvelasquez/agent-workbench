@@ -39,10 +39,10 @@ import {
  *
  * Que un id este aca no quiere decir que el servidor lo lance: lo que viaja en
  * `hello` son los adaptadores **registrados**, y un id sin adaptador se trata
- * igual que una CLI no instalada. El orden es el de preferencia: con las dos
+ * igual que una CLI no instalada. El orden es el de preferencia: con varias
  * instaladas, la que se abre por defecto sigue siendo la primera.
  */
-export const AGENT_IDS = ['claude-code', 'codex'] as const;
+export const AGENT_IDS = ['claude-code', 'codex', 'opencode'] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
@@ -67,9 +67,15 @@ export const FILE_MENTION_STYLES: readonly FileMentionStyle[] = ['at'];
  *    (CLAUDE.md 4.5.1).
  *  - `token-count`: la CLI escribe la ventana exacta junto a los tokens, y la
  *    anuncia al empezar cada turno. No hay nada que reconstruir.
+ *  - `usage-with-catalog`: tokens por respuesta mas el limite que da el
+ *    catalogo de modelos de la propia CLI, por proveedor y modelo.
  */
-export type ContextWindowSource = 'usage-with-variants' | 'token-count';
-export const CONTEXT_WINDOW_SOURCES: readonly ContextWindowSource[] = ['usage-with-variants', 'token-count'];
+export type ContextWindowSource = 'usage-with-variants' | 'token-count' | 'usage-with-catalog';
+export const CONTEXT_WINDOW_SOURCES: readonly ContextWindowSource[] = [
+  'usage-with-variants',
+  'token-count',
+  'usage-with-catalog',
+];
 
 /** Avisos de entorno que un adaptador puede levantar al arrancar. */
 export type EnvironmentNoticeId = 'child-session-marker';

@@ -16,7 +16,7 @@
  * razonamiento por el que el panel de git es de solo lectura (CLAUDE.md 6.1).
  */
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   resumeCwdFor,
   type AgentId,
@@ -28,6 +28,12 @@ import {
 import { AgentBadge } from './AgentBadge.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import { sessionAgentView } from './agent-ui.js';
+import {
+  archiveCandidatesByAgent,
+  sessionsToArchiveBefore,
+  startOfLocalDay,
+  type ArchiveCandidates,
+} from './archive-history.js';
 import { formatWhen } from './format-when.js';
 import { NotesPanel } from './NotesPanel.js';
 import { projectColor } from './project-color.js';
@@ -118,6 +124,117 @@ function ArchiveIcon({ out }: { out: boolean }): JSX.Element {
   );
 }
 
+/** "1 sesion" o "N sesiones". */
+function sessionsText(count: number): string {
+  return `${count} ${count === 1 ? 'sesión' : 'sesiones'}`;
+}
+
+interface ArchiveHistoryPanelProps {
+  candidates: readonly ArchiveCandidates[];
+  agents: readonly AgentInfo[];
+  onArchiveAgent: (agent: AgentId) => void;
+  onClose: () => void;
+  /** El boton que lo abre: un clic ahi es suyo, no un clic afuera. */
+  anchorRef: RefObject<HTMLElement>;
+}
+
+/**
+ * "Archivar historial": una fila por CLI con sesiones anteriores a hoy.
+ *
+ * En el sitio y no en un modal, y sin `confirm()` del navegador, por lo mismo
+ * que las notas (CLAUDE.md 6.6): un dialogo que bloquea la pagina entera frena
+ * tambien a la CLI que uno esta mirando. La confirmacion va en la misma fila y
+ * dice cuantas y de que CLI, porque esto esconde de a cientos.
+ */
+function ArchiveHistoryPanel({
+  candidates,
+  agents,
+  onArchiveAgent,
+  onClose,
+  anchorRef,
+}: ArchiveHistoryPanelProps): JSX.Element {
+  const [confirming, setConfirming] = useState<AgentId | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  /*
+    Se cierra como los menus, con un clic afuera: si no, queda abierto
+    mientras uno vuelve a trabajar.
+
+    Y `Escape` es del panel solo con el foco adentro o en su boton. Con el
+    foco en el cuadro de escritura esa tecla interrumpe a la CLI, y en una
+    terminal tiene que llegar intacta a la pty (CLAUDE.md 5): quedarsela desde
+    cualquier lado le robaba el primer Esc a quien queria cortar al agente.
+  */
+  useEffect(() => {
+    const isOwn = (target: EventTarget | null): boolean =>
+      target instanceof Node &&
+      (panelRef.current?.contains(target) === true || anchorRef.current?.contains(target) === true);
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || !isOwn(document.activeElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!isOwn(event.target)) onClose();
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [anchorRef, onClose]);
+
+  return (
+    <div ref={panelRef} className="archive-history" role="region" aria-label="Archivar historial">
+      <div className="archive-history-header">
+        <span>Archivar lo anterior a hoy</span>
+        <button className="icon-button" onClick={onClose} title="Cerrar (Esc)">
+          ×
+        </button>
+      </div>
+
+      {candidates.map(({ agent, count }) => {
+        const label = agents.find((info) => info.id === agent)?.label ?? agent;
+
+        if (confirming === agent) {
+          return (
+            <div key={agent} className="archive-history-row archive-history-confirm">
+              <span className="archive-history-text">
+                Se {count === 1 ? 'esconde' : 'esconden'} {sessionsText(count)} de {label}; no se
+                borra nada
+              </span>
+              <button className="link-button" onClick={() => onArchiveAgent(agent)}>
+                Archivar
+              </button>
+              <button className="link-button" onClick={() => setConfirming(null)}>
+                Cancelar
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div key={agent} className="archive-history-row">
+            <span className="archive-history-text">
+              <span className="archive-history-agent">{label}</span>
+              <span className="archive-history-count">
+                {sessionsText(count)} {count === 1 ? 'anterior' : 'anteriores'} a hoy
+              </span>
+            </span>
+            <button className="link-button" onClick={() => setConfirming(agent)}>
+              Archivar
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Sidebar({
   projects,
   indexStatus,
@@ -189,6 +306,59 @@ export function Sidebar({
   /** Una sesion con pestana abierta no se esconde: ver el manejador del socket. */
   const canArchive = (session: SessionSummary): boolean =>
     session.archived || !openSessionIds.has(session.sessionId);
+
+  /*
+    "Archivar historial". El corte se recalcula en cada render y no se fija al
+    montar: con la ventana abierta de un dia para otro, "anterior a hoy" tiene
+    que seguir siendo el hoy de ahora. Como es la medianoche, el numero cambia
+    una vez por dia y la memoria no se invalida de mas.
+
+    Las filas van en el orden de la lista de CLIs del `hello`: ver
+    `archiveCandidatesByAgent`.
+  */
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyButtonRef = useRef<HTMLButtonElement>(null);
+  const historyCutoff = startOfLocalDay(Date.now());
+  const agentOrder = useMemo(() => agents.map((info) => info.id), [agents]);
+  const historyCandidates = useMemo(
+    () => archiveCandidatesByAgent(projects, historyCutoff, openSessionIds, agentOrder),
+    [projects, historyCutoff, openSessionIds, agentOrder],
+  );
+
+  /*
+    Lo ultimo que se archivo de una vez, para deshacerlo con un clic. Esconde
+    de a cientos, y sin esto una fila confirmada por error se devuelve de a
+    una: "ver archivadas" solo las muestra. Deshacer manda los mismos ids y
+    nada mas, que son exactamente los que se escondieron —las que ya estaban
+    archivadas no entraron—. Queda hasta cerrarlo o hasta el siguiente.
+  */
+  const [lastHistoryArchive, setLastHistoryArchive] = useState<{
+    agent: AgentId;
+    sessionIds: string[];
+  } | null>(null);
+
+  // Sin nada que archivar el panel se cierra, para que no reaparezca abierto
+  // solo el dia en que vuelva a haber candidatas.
+  useEffect(() => {
+    if (historyCandidates.length === 0) setHistoryOpen(false);
+  }, [historyCandidates.length]);
+
+  const closeHistory = useCallback(() => setHistoryOpen(false), []);
+
+  /** Con la lista de ahora y no con la del render del panel: es la que se ve. */
+  const archiveHistory = (agent: AgentId): void => {
+    const ids = sessionsToArchiveBefore(projects, agent, historyCutoff, openSessionIds);
+    if (ids.length > 0) {
+      onArchive(ids, true);
+      setLastHistoryArchive({ agent, sessionIds: ids });
+    }
+    setHistoryOpen(false);
+  };
+
+  const undoHistoryArchive = (): void => {
+    if (lastHistoryArchive !== null) onArchive(lastHistoryArchive.sessionIds, false);
+    setLastHistoryArchive(null);
+  };
 
   const toggleSelected = (sessionId: string): void => {
     setSelected((current) => {
@@ -277,17 +447,66 @@ export function Sidebar({
         sesiones archivadas no se dibuja, asi que un boton adentro seria
         inalcanzable justo cuando hace falta.
       */}
-      {archivedCount > 0 && (
-        <button
-          className={`sidebar-archived-toggle${showArchived ? ' is-on' : ''}`}
-          onClick={() => setShowArchived((current) => !current)}
-          title="Las archivadas siguen en disco; esto solo las muestra u oculta"
-        >
-          {showArchived ? 'Ocultar' : 'Ver'} {archivedCount} archivada
-          {archivedCount === 1 ? '' : 's'}
-        </button>
+      {(archivedCount > 0 || historyCandidates.length > 0) && (
+        <div className="sidebar-archive-bar">
+          {archivedCount > 0 && (
+            <button
+              className={`sidebar-archived-toggle${showArchived ? ' is-on' : ''}`}
+              onClick={() => setShowArchived((current) => !current)}
+              title="Las archivadas siguen en disco; esto solo las muestra u oculta"
+            >
+              {showArchived ? 'Ocultar' : 'Ver'} {archivedCount} archivada
+              {archivedCount === 1 ? '' : 's'}
+            </button>
+          )}
+          {/*
+            Solo con algo que archivar, y tambien con una sola CLI: quien trae
+            historial viejo de una sola es justo quien lo necesita.
+          */}
+          {historyCandidates.length > 0 && (
+            <button
+              ref={historyButtonRef}
+              className={`link-button sidebar-archive-history${historyOpen ? ' is-on' : ''}`}
+              onClick={() => setHistoryOpen((current) => !current)}
+              aria-expanded={historyOpen}
+              title="Esconder de una vez las sesiones de una CLI anteriores a hoy. No borra nada"
+            >
+              Archivar historial…
+            </button>
+          )}
+        </div>
       )}
 
+      {historyOpen && historyCandidates.length > 0 && (
+        <ArchiveHistoryPanel
+          candidates={historyCandidates}
+          agents={agents}
+          onArchiveAgent={archiveHistory}
+          onClose={closeHistory}
+          anchorRef={historyButtonRef}
+        />
+      )}
+
+      {lastHistoryArchive !== null && !historyOpen && (
+        <div className="archive-history archive-history-undo" role="status">
+          <span className="archive-history-text">
+            {lastHistoryArchive.sessionIds.length === 1 ? 'Se archivó' : 'Se archivaron'}{' '}
+            {sessionsText(lastHistoryArchive.sessionIds.length)} de{' '}
+            {agents.find((info) => info.id === lastHistoryArchive.agent)?.label ??
+              lastHistoryArchive.agent}
+          </span>
+          <button className="link-button" onClick={undoHistoryArchive}>
+            Deshacer
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => setLastHistoryArchive(null)}
+            title="Cerrar el aviso; las sesiones siguen archivadas"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="sidebar-scroll">
         {visibleProjects.length === 0 && !scanning && (

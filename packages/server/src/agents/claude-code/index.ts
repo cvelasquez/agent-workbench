@@ -71,6 +71,8 @@ export const CLAUDE_CODE_INPUT: AgentInput = {
   imageReference: 'at-quoted',
   pieceGapMs: 0,
   pasteMarkers: true,
+  enterSeparately: false,
+  interruptPresses: 1,
 };
 
 /**

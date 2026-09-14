@@ -45,8 +45,8 @@ import { InvalidPathError, resolveInside } from './path-guard.js';
 import { PasteImageError, PasteStore, MAX_IMAGES_PER_SUBMIT } from './paste-store.js';
 import {
   ANSWER_KEY_INTERVAL_MS,
-  INTERRUPT,
   buildAnswerKeys,
+  buildInterruptKeys,
   buildModeKeys,
   buildSubmissionWrites,
 } from './pty-input.js';
@@ -76,7 +76,13 @@ const NO_DEFAULTS: AgentDefaults = { model: null, effort: null, contextWindow: n
  * pegado con el Enter al final, sin imagenes. Es lo que se hacia con cualquier
  * pestana antes de que cada CLI declarara su forma.
  */
-const PLAIN_INPUT: AgentInput = { imageReference: null, pieceGapMs: 0, pasteMarkers: true };
+const PLAIN_INPUT: AgentInput = {
+  imageReference: null,
+  pieceGapMs: 0,
+  pasteMarkers: true,
+  enterSeparately: false,
+  interruptPresses: 1,
+};
 
 export interface TerminalSocketOptions {
   httpServer: HttpServer;
@@ -835,10 +841,30 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           terminal se descarta antes, para que no caiga detras del Esc un
           Enter que mande lo que el usuario acaba de interrumpir.
         */
-        case 'agent.interrupt':
+        case 'agent.interrupt': {
           writeQueue.interrupt(message.terminalId);
-          writeToTerminal(socket, message.terminalId, INTERRUPT);
+          const [first, ...rest] = buildInterruptKeys(inputOf(message.terminalId).interruptPresses);
+          if (first === undefined || !writeToTerminal(socket, message.terminalId, first)) break;
+          /*
+            Una CLI que pide mas de un Esc: el resto va por la fila, espaciado,
+            y sin dejarse cortar. Por la fila para que un envio que llegue
+            justo despues caiga detras del ultimo Esc y no entre dos; sin
+            cortarse porque otro clic en interrumpir no deshace el primero.
+            Con un solo Esc no se encola nada: es lo de siempre.
+          */
+          if (rest.length > 0) {
+            const terminalId = message.terminalId;
+            void writeQueue.enqueue(
+              terminalId,
+              async (lane) => {
+                await new Promise((resolve) => setTimeout(resolve, ANSWER_KEY_INTERVAL_MS));
+                await lane.writePieces(rest, ANSWER_KEY_INTERVAL_MS, pieceWriter(socket, terminalId));
+              },
+              { interruptible: false },
+            );
+          }
           break;
+        }
 
         case 'resize':
           registry.resize(message.terminalId, message.cols, message.rows);

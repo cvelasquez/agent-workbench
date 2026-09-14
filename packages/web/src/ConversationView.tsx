@@ -41,6 +41,7 @@ import type {
 } from '@agent-workbench/shared';
 import { DISCOVERING_HINT } from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
+import { noticeText } from './conversation-notice.js';
 import { ImageViewer } from './ImageViewer.js';
 import { nextUrl } from './inline-markup.js';
 import { Markdown } from './Markdown.js';
@@ -157,6 +158,8 @@ function partText(part: ConversationPart): string {
       return part.questions
         .map((item) => `${item.question} ${item.options.map((o) => o.label).join(' ')}`)
         .join('\n');
+    case 'notice':
+      return noticeText(part);
     case 'thinking':
     case 'image':
       return '';
@@ -924,6 +927,17 @@ function PartView({
 
     case 'thinking':
       return null;
+
+    /*
+      Un aviso no lo escribio nadie: va como una linea aparte, no como texto
+      del asistente, para que el hilo no afirme que alguien lo dijo.
+    */
+    case 'notice':
+      return (
+        <div className={`turn-notice turn-notice-${part.notice}`}>
+          {highlight(noticeText(part), needle)}
+        </div>
+      );
 
     case 'question':
       return (

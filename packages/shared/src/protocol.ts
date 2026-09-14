@@ -1701,7 +1701,12 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       // Vacio es valido: la pestana todavia no sabe su sesion. Ausente no.
       const sessionId = asString(record['sessionId']);
       const state = asLiteral(record['state'], CONVERSATION_STATES);
-      const events = asArrayOf(record['events'], parseConversationEvent);
+      /*
+        Un evento que este lado no entiende —una parte nueva de un servidor mas
+        nuevo— se descarta solo, no se lleva la conversacion entera con el.
+        Igual en `append` y en `page`.
+      */
+      const events = asArrayFiltered(record['events'], parseConversationEvent);
       const usage = parseContextUsage(record['usage']);
       return terminalId === null ||
         sessionId === null ||
@@ -1728,7 +1733,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     }
     case 'conversation.append': {
       const terminalId = asNonEmptyString(record['terminalId']);
-      const events = asArrayOf(record['events'], parseConversationEvent);
+      const events = asArrayFiltered(record['events'], parseConversationEvent);
       const usage = parseContextUsage(record['usage']);
       return terminalId === null || events === null || usage === null
         ? null
@@ -1770,7 +1775,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     }
     case 'conversation.page': {
       const terminalId = asNonEmptyString(record['terminalId']);
-      const events = asArrayOf(record['events'], parseConversationEvent);
+      const events = asArrayFiltered(record['events'], parseConversationEvent);
       return terminalId === null || events === null
         ? null
         : {

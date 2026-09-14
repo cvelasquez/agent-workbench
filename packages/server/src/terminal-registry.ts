@@ -811,7 +811,7 @@ export class TerminalRegistry extends EventEmitter {
       caeria en cualquier lado. Un gancho que tiene que seguir vivo mientras se
       escribe lo declara (ver `launch-hook-slot.ts`).
     */
-    entry.launchHook.input();
+    entry.launchHook.input(data);
     entry.session.write(data);
     return true;
   }

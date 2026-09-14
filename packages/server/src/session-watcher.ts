@@ -26,6 +26,11 @@
  * sesiones nace con la primera sesion, y la pestana que la escribe se quedaria
  * sin ver su respuesta. Asi que se mira con `stat` **esa ruta exacta** cada
  * tanto, y cuando aparece se empieza a vigilar avisando de lo que ya trae.
+ *
+ * **Una raiz con `watch` no pasa por nada de esto** (hito 26): ni chokidar ni
+ * sondeo. Es la de una base compartida que otro proceso tiene abierta, donde un
+ * watcher de archivos no sirve; la fuente avisa con su propio sondeo, y el aviso
+ * sigue el mismo camino que uno de chokidar.
  */
 
 import { stat } from 'node:fs/promises';
@@ -79,29 +84,48 @@ export function watchSessions(
   const probes = new Set<NodeJS.Timeout>();
   let stopped = false;
 
+  const stops: (() => void)[] = [];
+
+  /** Lo mismo para un aviso de chokidar que para uno de `root.watch`. */
+  const onFileEvent = (agent: AgentId, root: HistoryRoot, filePath: string): void => {
+    // Un aviso que llega mientras se cierra no programa nada que nadie va a cancelar.
+    if (stopped || !root.accepts(filePath)) return;
+
+    // El hub se entera enseguida; el debounce corto lo maneja el.
+    hub.onHistoryChanged(agent, filePath);
+
+    const key = `${agent}:${filePath}`;
+    const existing = pending.get(key);
+    if (existing !== undefined) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      pending.delete(key);
+      void index.refreshPath(agent, filePath);
+    }, INDEX_DEBOUNCE_MS);
+    timer.unref();
+    pending.set(key, timer);
+  };
+
+  /**
+   * Una raiz que trae su propio aviso (D5 del hito 26). Ni chokidar ni sondeo de
+   * la raiz: la fuente sabe mejor que un watcher de archivos cuando cambio, y
+   * tambien cuando nace lo que vigila.
+   */
+  const subscribeRoot = (agent: AgentId, root: HistoryRoot, watch: NonNullable<HistoryRoot['watch']>): void => {
+    try {
+      stops.push(watch((filePath) => onFileEvent(agent, root, filePath)));
+    } catch (error) {
+      console.warn('[watcher] no se pudo observar el historial:', error);
+    }
+  };
+
   /**
    * `announceExisting` es para una raiz que aparecio con el servidor andando:
    * lo que ya trae se avisa como si acabara de llegar, porque llego despues del
    * escaneo del indice y la pestana que lo escribio esta esperando.
    */
   const watchRoot = (agent: AgentId, root: HistoryRoot, announceExisting: boolean): void => {
-    const onFileEvent = (filePath: string): void => {
-      if (!root.accepts(filePath)) return;
-
-      // El hub se entera enseguida; el debounce corto lo maneja el.
-      hub.onHistoryChanged(agent, filePath);
-
-      const key = `${agent}:${filePath}`;
-      const existing = pending.get(key);
-      if (existing !== undefined) clearTimeout(existing);
-
-      const timer = setTimeout(() => {
-        pending.delete(key);
-        void index.refreshPath(agent, filePath);
-      }, INDEX_DEBOUNCE_MS);
-      timer.unref();
-      pending.set(key, timer);
-    };
+    const onRootEvent = (filePath: string): void => onFileEvent(agent, root, filePath);
 
     let watcher: FSWatcher;
     try {
@@ -116,9 +140,9 @@ export function watchSessions(
       return;
     }
 
-    watcher.on('add', onFileEvent);
-    watcher.on('change', onFileEvent);
-    watcher.on('unlink', onFileEvent);
+    watcher.on('add', onRootEvent);
+    watcher.on('change', onRootEvent);
+    watcher.on('unlink', onRootEvent);
     watcher.on('error', (error) => console.warn('[watcher] error:', error));
     watchers.push(watcher);
   };
@@ -143,6 +167,10 @@ export function watchSessions(
 
   for (const { adapter } of agents.all()) {
     for (const root of adapter.history.roots()) {
+      if (root.watch !== undefined) {
+        subscribeRoot(adapter.id, root, root.watch);
+        continue;
+      }
       void isDirectory(root.path).then((exists) => {
         if (stopped) return;
         if (exists) watchRoot(adapter.id, root, false);
@@ -158,5 +186,12 @@ export function watchSessions(
     for (const timer of pending.values()) clearTimeout(timer);
     pending.clear();
     for (const watcher of watchers) void watcher.close();
+    for (const stop of stops.splice(0)) {
+      try {
+        stop();
+      } catch (error) {
+        console.warn('[watcher] no se pudo dejar de observar el historial:', error);
+      }
+    }
   };
 }

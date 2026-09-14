@@ -55,6 +55,13 @@ process.env['USERPROFILE'] = home;
 process.env['APPDATA'] = path.join(root, 'appdata');
 process.env['XDG_CONFIG_HOME'] = path.join(root, 'xdg');
 process.env['CODEX_HOME'] = codexHome;
+// El registro de la app tambien trae el adaptador de OpenCode (hito 26): sus carpetas, adentro.
+process.env['XDG_DATA_HOME'] = path.join(root, 'xdg-data');
+process.env['XDG_CACHE_HOME'] = path.join(root, 'xdg-cache');
+process.env['XDG_STATE_HOME'] = path.join(root, 'xdg-state');
+delete process.env['OPENCODE_DB'];
+delete process.env['OPENCODE_MODELS_PATH'];
+delete process.env['OPENCODE_MODELS_URL'];
 
 let failures = 0;
 const check = (label, ok, extra = '') => {
@@ -297,7 +304,8 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
 // B1. Claude Code: una sola pieza, byte por byte lo de antes.
 {
   check('B1 claude-code declara una sola forma: at-quoted, sin separacion, con marcadores',
-    same(CLAUDE_CODE_INPUT, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true }), show(CLAUDE_CODE_INPUT));
+    same(CLAUDE_CODE_INPUT, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1 }),
+    show(CLAUDE_CODE_INPUT));
   check('B1 la forma de escribir imagenes es la que se le promete a la interfaz',
     CLAUDE_CODE_INPUT.imageReference === CLAUDE_CODE_CAPABILITIES.imagesByPath);
 
@@ -384,13 +392,14 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
     info?.id === 'codex' && info.capabilities.imagesByPath === 'bare-path-paste' &&
     info.capabilities.contextWindowSource === 'token-count', show(info));
   check('B5 un id que no es de ningun adaptador sigue siendo null',
-    parseAgentInfo({ id: 'opencode', label: 'x', command: 'x', installUrl: 'x' }) === null);
+    parseAgentInfo({ id: 'antigravity', label: 'x', command: 'x', installUrl: 'x' }) === null);
 }
 
-// B6. Ids.
+// B6. Ids. OpenCode entra detras en el hito 26, sin mover a las dos de antes.
 {
   const { AGENT_IDS, MEMORY_AGENT_IDS } = shared;
-  check('B6 AGENT_IDS es claude-code y despues codex', same([...AGENT_IDS], ['claude-code', 'codex']), AGENT_IDS.join(','));
+  check('B6 AGENT_IDS es claude-code, despues codex y despues opencode',
+    same([...AGENT_IDS], ['claude-code', 'codex', 'opencode']), AGENT_IDS.join(','));
   check('B6 AGENT_IDS contenido en MEMORY_AGENT_IDS', AGENT_IDS.every((id) => MEMORY_AGENT_IDS.includes(id)));
 }
 
@@ -1706,7 +1715,7 @@ const orderedIds = (state) => workspace.orderedTabs(state).map((e) => (e.kind ==
     { position: 5, tab: T('codex', 'x9') },
     { position: 0, tab: T('claude-code', 'c1') },
   ];
-  const foreign = [{ position: 2, raw: { agent: 'opencode', cwd: '/p', sessionId: 'o1', futuro: { a: 1 } } }];
+  const foreign = [{ position: 2, raw: { agent: 'antigravity', cwd: '/p', sessionId: 'o1', futuro: { a: 1 } } }];
   const merged = workspace.mergePersistedTabs(live, unavailable, foreign);
   check('D3 las no disponibles y las ajenas vuelven a su lugar, sin repetir una viva',
     orderedIds(merged) === 'c1,x1,ajena:o1,c2,x9', orderedIds(merged));
@@ -1756,7 +1765,8 @@ const orderedIds = (state) => workspace.orderedTabs(state).map((e) => (e.kind ==
   }
 
   const store = new WorkspaceStore();
-  const ajena = { agent: 'opencode', cwd: 'D:\\b', sessionId: 'sb', label: '', futuro: { x: 1 } };
+  // Una CLI que esta build no conoce: desde el hito 26, OpenCode ya no sirve de ejemplo.
+  const ajena = { agent: 'antigravity', cwd: 'D:\\b', sessionId: 'sb', label: '', futuro: { x: 1 } };
   await writeFile(statePath, JSON.stringify({ version: 1, tabs: [{ agent: 'claude-code', cwd: 'D:\\a', sessionId: 'sa' }, ajena] }));
   let loaded;
   const warnings = await captureWarnings(async () => { loaded = await store.load(); });
@@ -2178,7 +2188,8 @@ const throwsOn = (run) => {
     plans: false,
   }), show(adapter.capabilities));
   check('E1 envio: imagenes por ruta sola, 400 ms entre piezas, con marcadores',
-    same(adapter.input, { imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true }), show(adapter.input));
+    same(adapter.input, { imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1 }),
+    show(adapter.input));
   check('E1 lo que se escribe coincide con lo que se le promete a la interfaz',
     adapter.input.imageReference === adapter.capabilities.imagesByPath);
   const missing = adapter.missingMessage();
@@ -2258,8 +2269,8 @@ const throwsOn = (run) => {
 // E1. En el registro de la app.
 {
   const registry = createAgentRegistry();
-  check('E1 el registro de la app trae claude-code y despues codex',
-    same(registry.all().map(({ adapter }) => adapter.id), ['claude-code', 'codex']));
+  check('E1 el registro de la app trae claude-code y despues codex (y opencode al final, desde el hito 26)',
+    same(registry.all().map(({ adapter }) => adapter.id), ['claude-code', 'codex', 'opencode']));
   check('E1 sin ninguna instalada, ninguna por defecto', registry.defaultAgent() === null);
   const codexInfo = registry.list().find((info) => info.id === 'codex');
   check('E1 hello: codex ausente con su texto y sus capacidades',
@@ -2319,8 +2330,8 @@ const throwsOn = (run) => {
   const registry = createAgentRegistry();
   const claudeText = registry.adapter('claude-code').missingMessage();
   const none = summarizeAgents(registry.list(), true);
-  check('A6 cartel sin ninguna: el de claude-code de siempre y "tambien funciona con: Codex"',
-    none.cliAvailable === false && none.cliMissingMessage === `${claudeText}\nTambien funciona con: Codex`, show(none));
+  check('A6 cartel sin ninguna: el de claude-code de siempre y "tambien funciona con: Codex, OpenCode"',
+    none.cliAvailable === false && none.cliMissingMessage === `${claudeText}\nTambien funciona con: Codex, OpenCode`, show(none));
   registry.get('claude-code').location = { resolvedPath: '/bin/claude', file: '/bin/claude', prefixArgs: [], version: '2.1.270' };
   const onlyClaude = summarizeAgents(registry.list(), true);
   const alone = new AgentRegistry([createClaudeCodeAdapter()]);
@@ -2451,7 +2462,11 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
     todo: ['TodoWrite'],
   };
   const codexNames = ['shell_command', 'apply_patch', 'update_plan'];
-  const kept = Object.fromEntries(TOOL_CATEGORIES.map((entry) => [entry.key, entry.names.filter((name) => !codexNames.includes(name))]));
+  // Los de OpenCode (hito 26) se prueban en check-opencode-db.mjs, caso 14.
+  const openCodeNames = ['bash', 'read', 'grep', 'glob', 'list', 'edit', 'write', 'webfetch', 'websearch', 'codesearch', 'task', 'todowrite', 'todoread'];
+  const kept = Object.fromEntries(TOOL_CATEGORIES.map((entry) => [
+    entry.key, entry.names.filter((name) => !codexNames.includes(name) && !openCodeNames.includes(name)),
+  ]));
   check('W1 las categorias de Claude Code siguen exactamente iguales', same(kept, before), show(kept));
   check('W1 shell_command es un comando de consola',
     toolCategory('shell_command').key === 'shell' && toolCategory('shell_command').label === 'comandos de consola');

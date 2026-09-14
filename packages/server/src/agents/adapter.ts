@@ -133,8 +133,14 @@ export interface LaunchHook {
    * como quedo el menu. Un gancho que tiene que durar mientras se escribe —el
    * que descubre la sesion de una CLI que pone el id ella misma, y que se entera
    * justamente por lo que se escribe— lo declara, aunque no haga nada.
+   *
+   * `data` es lo que se escribe, tal cual. Existe por la CLI que no deja ver el
+   * texto en su historial antes de casar la sesion (hito 26): ahi lo que decide
+   * cual de dos pestanas envio primero es cuando llego un Enter tecleado, y un
+   * aviso sin datos no distingue un Enter de la respuesta a una consulta de
+   * capacidades de la terminal.
    */
-  onInput?(): void;
+  onInput?(data: string): void;
   /**
    * Texto que la app va a escribir en la pty (cuadro de escritura o nota). Llega
    * **antes** de la primera escritura: quien lo busca en el historial de la CLI
@@ -153,6 +159,17 @@ export interface HistoryRoot {
   /** Filtro de eventos del watcher. */
   accepts(filePath: string): boolean;
   awaitWriteFinish: { stabilityThreshold: number; pollInterval: number } | false;
+  /**
+   * Como enterarse de los cambios de esta raiz sin chokidar. Si esta, el
+   * watcher no crea ningun chokidar ni sondea la raiz: se suscribe aca, recibe
+   * la ruta que la fuente decida avisar (que igual pasa por `accepts`) y guarda
+   * lo que devuelve para desuscribirse al cerrar.
+   *
+   * Existe por las fuentes que no son un archivo por sesion (hito 26): una base
+   * compartida que otro proceso mantiene abierta y escribe, donde un watcher de
+   * archivos avisa tarde o nunca y lo que sirve es un sondeo propio.
+   */
+  watch?: (onChange: (filePath: string) => void) => () => void;
 }
 
 /** Una sesion enumerada, sin leer su contenido. */
@@ -245,6 +262,16 @@ export interface PollResult {
   plans: string[];
   /** Eventos ya entregados a los que se les agrego una imagen adjunta. */
   parts: PartsUpdate[];
+  /**
+   * true si el uso cambio sin que llegara ningun evento nuevo.
+   *
+   * Existe por la CLI que escribe los tokens de un paso al **cerrarlo**, cuando
+   * su texto y sus herramientas ya se entregaron (hito 26): esa lectura no trae
+   * eventos, y como el uso viaja pegado a un `append`, la barra se quedaba un
+   * paso atras hasta el mensaje siguiente. El hub manda entonces un `append`
+   * vacio con el uso nuevo. Ausente es false: Claude Code y Codex no la ponen.
+   */
+  usageChanged?: boolean;
 }
 
 export interface LoadedImage {
@@ -398,6 +425,26 @@ export interface AgentInput {
    * como Enter. Por eso lo que decide ahi es `pieceGapMs`.
    */
   readonly pasteMarkers: boolean;
+  /**
+   * Si el Enter que envia va como pieza propia, separado del pegado por
+   * `pieceGapMs`, aunque no haya imagenes.
+   *
+   * Existe por la CLI cuyo pegado en Windows todavia no se midio (hito 26): si
+   * lo recibe como rafaga, igual que Codex, un Enter pegado al final puede
+   * quedar dentro de la rafaga como salto de linea. Con `bare-path-paste` el
+   * Enter ya va aparte; Claude Code lo lleva pegado, como siempre.
+   */
+  readonly enterSeparately: boolean;
+  /**
+   * Cuantos Esc hacen falta para interrumpir un turno.
+   *
+   * El primero sale enseguida, como siempre; los demas van espaciados por
+   * `ANSWER_KEY_INTERVAL_MS` y por la fila de la terminal, para que un envio
+   * que llegue justo despues no se cuele entre dos Esc. Existe por la CLI cuyo
+   * primer Esc solo arma la interrupcion y el segundo la hace (hito 26): con uno
+   * solo, el boton de interrumpir no haria nada.
+   */
+  readonly interruptPresses: number;
 }
 
 // ---- El adaptador ---------------------------------------------------------------
@@ -428,6 +475,18 @@ export interface AgentAdapter {
   onSpawned(context: SpawnedContext): LaunchHook | null;
 
   readonly history: HistorySource;
+  /**
+   * Lo que el arranque imprime despues de `Historial` para esta CLI, o null
+   * para no imprimir nada. Ausente: nada.
+   *
+   * Existe por la CLI cuyo historial es una base que se abre de otra forma y
+   * puede no leerse por motivos que el usuario tiene que ver (hito 26): la ruta
+   * que se abre en solo lectura, o que este Node no trae `node:sqlite`. Quien
+   * no usa esa CLI no tiene que ver una linea nueva, y por eso el adaptador
+   * decide cuando no hay nada que decir. `cliAvailable`: si su binario se
+   * encontro.
+   */
+  startupHistoryNote?(cliAvailable: boolean): string | null;
   readonly status: StatusSource | null;
   defaults(cwd: string): Promise<AgentDefaults | null>;
   /** Carpetas que el selector de directorios no lista ni deja entrar. */

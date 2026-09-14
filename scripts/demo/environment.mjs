@@ -19,7 +19,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFixtures } from './fixtures.mjs';
-import { assertDemoPath, availableAgentsFromStartup, demoEnvironment } from './isolation.mjs';
+import {
+  assertDemoPath,
+  availableAgentsFromStartup,
+  demoEnvironment,
+  historyLinesFromStartup,
+  startupBlockComplete,
+} from './isolation.mjs';
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const isWindows = process.platform === 'win32';
@@ -69,8 +75,9 @@ function mountDrive(root) {
  * @param {{ mode: 'dev' | 'prod', openBrowser: boolean }} options
  *   `prod` sirve `packages/web/dist` y necesita un `pnpm build` previo; `dev`
  *   monta Vite y recarga en caliente.
- * @returns {Promise<{ url: string, availableAgents: string[], demo: ReturnType<typeof prepareDemo>, stop: () => void }>}
+ * @returns {Promise<{ url: string, availableAgents: string[], historyLines: string[], demo: ReturnType<typeof prepareDemo>, stop: () => void }>}
  *   `availableAgents`: los ids de la linea `CLIs disponibles` del arranque.
+ *   `historyLines`: las lineas `Historial` del arranque (una base de otra CLI).
  */
 export async function startDemoServer({ mode, openBrowser }) {
   if (mode === 'prod' && !existsSync(path.join(repoRoot, 'packages', 'web', 'dist', 'index.html'))) {
@@ -116,11 +123,12 @@ export async function startDemoServer({ mode, openBrowser }) {
   process.on('exit', stop);
 
   /*
-    Se espera la URL y tambien la linea `CLIs disponibles`: la imprime el mismo
-    arranque, pero puede llegar en otro trozo de la salida. Sin ella no se sabe
-    que CLIs vio el servidor.
+    Se espera la URL y el bloque de arranque entero: la linea `CLIs disponibles`
+    y las de `Historial` las imprime el mismo arranque, pero pueden llegar en
+    otro trozo de la salida. Sin ellas no se sabe que CLIs ni que historiales
+    vio el servidor.
   */
-  const { url, availableAgents } = await new Promise((resolve, reject) => {
+  const { url, availableAgents, historyLines } = await new Promise((resolve, reject) => {
     let buffer = '';
     let settled = false;
     const timer = setTimeout(() => {
@@ -134,10 +142,10 @@ export async function startDemoServer({ mode, openBrowser }) {
       buffer += chunk.toString();
       const match = buffer.match(/URL\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=\S+)/);
       const agents = availableAgentsFromStartup(buffer);
-      if (match !== null && agents !== null) {
+      if (match !== null && agents !== null && startupBlockComplete(buffer)) {
         settled = true;
         clearTimeout(timer);
-        resolve({ url: match[1], availableAgents: agents });
+        resolve({ url: match[1], availableAgents: agents, historyLines: historyLinesFromStartup(buffer) });
       }
     });
     server.stderr.on('data', (chunk) => process.stderr.write(chunk));
@@ -149,5 +157,5 @@ export async function startDemoServer({ mode, openBrowser }) {
     });
   });
 
-  return { url, availableAgents, demo, stop };
+  return { url, availableAgents, historyLines, demo, stop };
 }

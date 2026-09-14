@@ -19,7 +19,7 @@
 import type { HistoryItem, ScannedSession } from '../adapter.js';
 import { parseJsonlLine, readHeadLines, readTailLines } from '../../jsonl-reader.js';
 import { debugLog } from '../../debug.js';
-import { toTitle, UNTITLED_SESSION_TITLE } from '../claude-code/session-scan.js';
+import { toTitle, UNTITLED_SESSION_TITLE } from '../session-title.js';
 import {
   INTERACTIVE_SOURCES,
   LISTED_HISTORY_MODES,
