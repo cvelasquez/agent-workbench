@@ -18,32 +18,38 @@ funcione.
 
 ## Las cuatro reglas que no se discuten
 
-1. **La aplicación no toca credenciales.** No se lee, copia ni reenvía
-   `~/.claude/.credentials.json` ni ningún token. No hay login en la interfaz.
-   No se inyectan `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` ni
-   `CLAUDE_CODE_OAUTH_TOKEN` en el entorno de los procesos que se lanzan.
+1. **La aplicación no toca credenciales de ninguna CLI.** No se lee, copia ni
+   reenvía `~/.claude/.credentials.json`, ni las de Codex, OpenCode o
+   Antigravity, ni ningún token: la lista de lo que no se abre nunca, por CLI,
+   está en `CLAUDE.md` §2.1. No hay login en la interfaz. No se inyectan
+   variables de autenticación en el entorno de los procesos que se lanzan.
 
-2. **El binario de la CLI va sin modificar y sin empaquetar.** Se busca en el
-   `PATH`. No se incluye en el repositorio, no se descarga y no se envuelve de
-   forma que altere su comportamiento.
+2. **Los binarios de las CLIs van sin modificar y sin empaquetar.** Se buscan en
+   el `PATH`. No se incluyen en el repositorio, no se descargan y no se envuelven
+   de forma que altere su comportamiento.
 
 3. **El servidor escucha solo en `127.0.0.1`**, con puerto efímero y un token
    aleatorio por arranque que exigen tanto el WebSocket como todas las rutas
    HTTP. Sin telemetría y sin ninguna llamada de red saliente.
 
 4. **La marca.** El producto se llama Agent Workbench. Ni el nombre, ni el logo,
-   ni ninguna funcionalidad llevan "Claude", "Claude Code" ni "Anthropic". En el
-   código, identificadores neutros (`agentCli`, `cliBinary`, `sessionIndex`).
-   El README puede decir en texto plano que funciona con la CLI de Claude Code:
-   es compatibilidad, no respaldo.
+   ni ninguna funcionalidad llevan el nombre de una CLI ni de su fabricante. En
+   el código, identificadores neutros (`agentCli`, `cliBinary`, `sessionIndex`).
+   El README puede decir en texto plano que funciona con las CLIs de Claude
+   Code, Codex, OpenCode y Antigravity: es compatibilidad, no respaldo.
 
    Con la misma lógica, el nombre de una CLI puede aparecer en el código en dos
    sitios, como dato de compatibilidad: el id de su adaptador (`AGENT_IDS` en
-   `packages/shared/src/agents.ts`) y la carpeta de ese adaptador,
-   `packages/server/src/agents/claude-code/`, donde los identificadores sí la
-   nombran (`createClaudeCodeAdapter`). Fuera de esa carpeta sólo la nombra el
-   registro de adaptadores; el resto del servidor habla con la interfaz y no
-   sabe qué CLI tiene delante (`CLAUDE.md` §2.3 y §3.2).
+   `packages/shared/src/agents.ts`) y la carpeta de ese adaptador
+   (`packages/server/src/agents/claude-code/`, `codex/`, `opencode/`,
+   `antigravity/`), donde los identificadores sí la nombran
+   (`createClaudeCodeAdapter`). Fuera de esas carpetas la nombran el
+   registro de adaptadores y dos módulos que trabajan con archivos de CLIs
+   concretas: la memoria compartida (`memory-bridge.ts`, que conoce el slug
+   de Claude Code y el archivo de instrucciones de cada CLI) y el importador
+   de un solo uso del IDE de Antigravity (`vault/importers/`). El servidor
+   genérico —terminales, hub, índice, socket— habla con la interfaz y no sabe
+   qué CLI tiene delante (`CLAUDE.md` §2.3 y §3.2).
 
 Cualquier cambio que roce estos puntos se revisa mirando esos cuatro criterios
 antes que nada.
@@ -101,9 +107,10 @@ respondiendo:
 ## Datos de demo y capturas
 
 `pnpm demo` levanta la app con proyectos y conversaciones inventadas, sin tocar
-tu historial ni tu configuración: un home falso, una CLI simulada primera en el
-`PATH` y, en Windows, una unidad `W:` montada con `subst` para que ninguna ruta
-lleve tu usuario. Sirve para trabajar en la interfaz con datos estables y para
+tu historial ni tu configuración: un home falso con historiales inventados de
+las cuatro CLIs, las cuatro CLIs simuladas primero en el `PATH` —la demo no
+arranca si encuentra una de verdad— y, en Windows, una unidad `W:` montada con
+`subst` para que ninguna ruta lleve tu usuario. Sirve para trabajar en la interfaz con datos estables y para
 verla sin exponer nada propio.
 
 `pnpm demo:shots` (después de `pnpm build`) saca las capturas del README con
@@ -141,9 +148,11 @@ npm install /ruta/al/agent-workbench-<version>.tgz
 
 ## Qué encaja y qué no
 
-**Encaja:** arreglos de compatibilidad entre plataformas, casos del esquema del
-JSONL que cambian entre versiones de la CLI, accesibilidad, rendimiento con
-repositorios o historiales grandes.
+**Encaja:** arreglos de compatibilidad entre plataformas, casos del formato del
+historial que cambian entre versiones de una CLI, accesibilidad, rendimiento con
+repositorios o historiales grandes. Una CLI nueva también, detrás de su propio
+adaptador (`CLAUDE.md` §3.2), con sus lecturas declaradas en §2.1 y un escritor
+de su formato en la demo (§7.3).
 
 **No encaja:** operaciones de git que escriben (commit, stage, push) desde la
 interfaz —hay un agente editando archivos y la terminal es donde el comando se

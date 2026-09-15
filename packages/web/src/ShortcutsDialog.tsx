@@ -25,7 +25,7 @@ import { AGENT_UI, composerShortcuts, type Shortcut } from './agent-ui.js';
 const APP_SHORTCUTS: readonly Shortcut[] = [
   { keys: 'Alt + T', description: 'Nueva pestaña en el directorio de la pestaña actual' },
   { keys: 'Alt + W', description: 'Cerrar la pestaña activa' },
-  { keys: 'Alt + ← / →', description: 'Pestaña anterior / siguiente' },
+  { keys: 'Alt + ← / →', description: 'Pestaña anterior / siguiente (también Alt + RePág / AvPág)' },
   { keys: 'Alt + P', description: 'Mostrar u ocultar el panel derecho' },
   {
     keys: 'Shift + Tab',

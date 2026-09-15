@@ -4,10 +4,13 @@
  * Genera, en una carpeta temporal, todo lo que la app lee de la maquina:
  *
  *   <root>/Proyectos/<nombre>       proyectos inventados; uno con git y cambios
- *   <home>/.claude/projects/<slug>  sesiones JSONL sinteticas, con el esquema real
- *   <home>/.codex                   el CODEX_HOME de la demo, vacio
- *   <configDir>/workspace.json      tres pestanas abiertas al arrancar
- *   <bin>/claude(.cmd)              CLI simulada: contesta --version y se queda
+ *   <home>/.claude/projects/<slug>  sesiones JSONL sinteticas, con el esquema real,
+ *                                   y la memoria nativa de un proyecto
+ *   <home>/.codex, .local/share/opencode, .gemini/antigravity-cli
+ *                                   historiales de las otras tres CLIs (other-clis.mjs)
+ *   <configDir>/workspace.json      cuatro pestanas guardadas, una por CLI
+ *   <bin>/claude, codex, opencode, agy (+ .cmd)
+ *                                   CLIs simuladas: contestan --version y se quedan
  *
  * Los nombres son inventados a proposito: las capturas del README son publicas
  * y no pueden mostrar proyectos reales. Ninguna ruta lleva el usuario de la
@@ -15,10 +18,11 @@
  */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, chmodSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { buildOtherClis } from './other-clis.mjs';
 
-const CLI_VERSION = '2.1.263';
+const CLI_VERSION = '2.1.270';
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
@@ -46,9 +50,11 @@ function git(cwd, ...args) {
 }
 
 function commit(cwd, message, when) {
-  execFileSync('git', ['add', '-A'], { cwd });
+  // Sin la salida de git: los avisos de fin de linea de Windows llenaban la de la demo.
+  execFileSync('git', ['add', '-A'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   execFileSync('git', ['commit', '-q', '-m', message], {
     cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       GIT_AUTHOR_NAME: 'Ana Torres',
@@ -846,13 +852,6 @@ Una decisión antes de cerrar:`,
 ];
 
 /**
- * @param {{ root: string, home: string, bin: string, configDir: string, projectsRoot: string }} dirs
- *   `projectsRoot` es la ruta con la que la app va a ver `<root>/Proyectos`
- *   (`W:\Proyectos` en Windows), y es la que se escribe en el `cwd` del JSONL.
- *   `configDir` es donde la app busca `workspace.json` con ese `home`.
- * @returns {{ mainCwd: string, tabs: Array<{cwd: string, sessionId: string, label: string}> }}
- */
-/**
  * Un plan del modo plan, para la solapa "Planes".
  *
  * La CLI escribe estos archivos en `~/.claude/plans/` y los nombra en el JSONL;
@@ -893,9 +892,42 @@ Sincronizar el carrito entre dispositivos. Eso necesita cuenta de usuario y es
 otro trabajo.
 `;
 
+/** La memoria nativa de Claude Code de tienda-online: dos notas y su indice. */
+const NATIVE_MEMORY = {
+  'MEMORY.md': `- [Precios en soles](precios-en-soles.md) — todo precio se muestra con S/ y dos decimales
+- [Tests del carrito](tests-del-carrito.md) — correr npm test -- cart antes de tocar src/cart
+`,
+  'precios-en-soles.md': `---
+name: Precios en soles
+description: Todo precio se muestra con S/ y dos decimales, también los descuentos
+---
+
+El formato vive en \`formatPrice\`. Un precio con descuento se redondea antes de
+mostrarlo: un cliente reclamó por un S/ 59.899999.
+`,
+  'tests-del-carrito.md': `---
+name: Tests del carrito
+description: Correr npm test -- cart antes de tocar src/cart
+---
+
+Los tests del carrito desmontan y vuelven a montar el proveedor para probar la
+recarga. Si fallan después de un cambio en \`storage.ts\`, revisar la clave
+\`tienda.cart\`.
+`,
+};
+
+/**
+ * @param {{ root: string, home: string, homeView?: string, bin: string, configDir: string, projectsRoot: string }} dirs
+ *   `projectsRoot` es la ruta con la que la app va a ver `<root>/Proyectos`
+ *   (`W:\Proyectos` en Windows), y es la que se escribe en el `cwd` del JSONL.
+ *   `homeView`, lo mismo para el home (`W:\home`): la ruta que se escribe dentro
+ *   de los archivos. `configDir` es donde se escribe `workspace.json`.
+ * @returns {{ mainCwd: string, tabs: Array<{agent: string, cwd: string, sessionId: string, label: string}> }}
+ */
 export function buildFixtures(dirs) {
   const root = dirs.root;
   const home = dirs.home;
+  const homeView = dirs.homeView ?? dirs.home;
   const bin = dirs.bin;
   const now = Date.now();
   const projectsDir = path.join(root, 'Proyectos');
@@ -904,8 +936,8 @@ export function buildFixtures(dirs) {
   for (const dir of [root, home, bin]) rmSync(dir, { recursive: true, force: true });
   mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
   mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
-  // El `CODEX_HOME` de la demo, vacio: con la variable definida, Codex exige
-  // que la carpeta exista.
+  // El `CODEX_HOME` de la demo: con la variable definida, Codex exige que la
+  // carpeta exista aunque todavia no tenga rollouts.
   mkdirSync(path.join(home, '.codex'), { recursive: true });
   mkdirSync(dirs.configDir, { recursive: true });
   mkdirSync(bin, { recursive: true });
@@ -988,8 +1020,10 @@ export function buildFixtures(dirs) {
   */
   mkdirSync(path.join(home, '.claude', 'plans'), { recursive: true });
   writeFileSync(path.join(home, '.claude', 'plans', DEMO_PLAN_FILE), DEMO_PLAN);
+  const mainFile = path.join(home, '.claude', 'projects', slugFor(main.cwd), `${main.sessionId}.jsonl`);
+  const mainWritten = statSync(mainFile).mtime;
   appendFileSync(
-    path.join(home, '.claude', 'projects', slugFor(main.cwd), `${main.sessionId}.jsonl`),
+    mainFile,
     `${JSON.stringify({
       type: 'attachment',
       uuid: 'plan-1',
@@ -997,13 +1031,19 @@ export function buildFixtures(dirs) {
       timestamp: new Date(now - 30 * MIN).toISOString(),
       attachment: {
         type: 'plan_mode_exit',
-        planFilePath: path.join(home, '.claude', 'plans', DEMO_PLAN_FILE),
+        planFilePath: path.join(homeView, '.claude', 'plans', DEMO_PLAN_FILE),
         planExists: true,
       },
       sessionId: main.sessionId,
       cwd: main.cwd,
     })}\n`,
   );
+  /*
+    Agregar la linea le pone la fecha de ahora al archivo, y una sesion recien
+    escrita no esta "en calma": la copia propia la dejaba afuera y el buscador
+    de las capturas no la encontraba. Vuelve a la fecha de su ultimo turno.
+  */
+  utimesSync(mainFile, mainWritten, mainWritten);
 
   // --- El resto de tienda-online ----------------------------------------------
   quick(ctx, TIENDA, 'main', 2 * DAY + 3 * HOUR, 'Agregá un filtro por categoría al catálogo, arriba de la lista.', 'Agregué el `<select>` con las tres categorías en `ProductList.tsx` y la función `byCategory` en `filters.ts`. El filtro se aplica en memoria sobre lo que ya bajó del API.');
@@ -1014,7 +1054,6 @@ export function buildFixtures(dirs) {
   quick(ctx, TIENDA, 'main', 12 * DAY + 4 * HOUR, 'Actualizá las dependencias y arreglá el build.', 'Vite 5.4 y Vitest 2.1. El build rompía por un `import.meta.env` tipado con `any`; quedó declarado en `vite-env.d.ts`.');
 
   // --- api-facturacion --------------------------------------------------------
-  const facturacionTab = quick(ctx, FACTURACION, 'main', 62 * MIN, 'Validá el RUC antes de emitir el comprobante: once dígitos y dígito verificador.', 'Agregué `RucValidator` con el algoritmo del módulo 11 y doce casos de prueba, incluidos RUC de persona natural (10) y de empresa (20).');
   quick(ctx, FACTURACION, 'main', DAY + 6 * HOUR, 'Generá el PDF de la factura con el logo del cliente arriba a la izquierda.', 'El logo se lee de `clientes.logo_path` y se escala a 140 px de ancho. Si no hay logo, el espacio se deja en blanco para que la numeración no se mueva.');
   quick(ctx, FACTURACION, 'main', 4 * DAY + 3 * HOUR, 'Cuando SUNAT no responde, el envío falla y no se reintenta. Implementá reintentos con espera exponencial.', 'Tres reintentos: 2, 8 y 32 segundos. Después de eso el comprobante queda en estado `pendiente` y lo levanta el job de la noche.');
   quick(ctx, FACTURACION, 'main', 9 * DAY + HOUR, 'La numeración correlativa se repite cuando dos facturas se emiten al mismo tiempo.', 'Era una lectura y escritura sin transacción. Ahora el correlativo se toma con `UPDATE … OUTPUT` en una sola sentencia.');
@@ -1029,7 +1068,6 @@ export function buildFixtures(dirs) {
   quick(ctx, RESERVAS, 'main', 5 * DAY + 2 * HOUR, 'Mandá un recordatorio por WhatsApp un día antes de cada reserva.', 'Job diario a las 9:00 que busca las reservas de mañana y las manda por la plantilla aprobada. Se registra cada envío para no repetirlo.');
 
   // --- inventario -------------------------------------------------------------
-  const inventarioTab = quick(ctx, INVENTARIO, 'main', 47 * MIN, 'Importá el stock desde una planilla de Excel. La primera fila son los encabezados.', 'Lectura con `openpyxl` en `importar.py`. Se valida que el SKU exista antes de tocar el stock y se muestra un resumen de filas leídas, aplicadas y rechazadas.');
   quick(ctx, INVENTARIO, 'main', 2 * DAY + 5 * HOUR, 'Alertas por correo cuando un producto baja del stock mínimo.', 'Se dispara al confirmar cada salida. Una alerta por producto por día, para no llenar la casilla.');
   quick(ctx, INVENTARIO, 'main', 4 * DAY + HOUR, 'Historial de movimientos por producto, con filtro por fechas.', 'Tabla paginada sobre `movimientos`, con índice nuevo por `(producto_id, fecha)`. La consulta bajó de 900 ms a 30 ms.');
   quick(ctx, INVENTARIO, 'main', 6 * DAY + 3 * HOUR, 'Imprimí el código de barras en la etiqueta del producto.', 'Code 128 con `python-barcode`, en la esquina inferior de la etiqueta de 50×30 mm.');
@@ -1038,15 +1076,51 @@ export function buildFixtures(dirs) {
   // --- dashboard-ventas -------------------------------------------------------
   quick(ctx, DASHBOARD, 'main', 3 * DAY + 6 * HOUR, 'Gráfico de ventas por mes con la comparación contra el año anterior.', 'Barras del año actual y línea del anterior, con el mismo eje. Los meses sin datos se dibujan en cero en vez de saltearse.');
 
-  // Pestanas abiertas al arrancar.
+  // --- Las otras tres CLIs, repartidas entre los mismos proyectos -------------
+  const { codexTab, openCodeTab, antigravityTab } = buildOtherClis({
+    home,
+    bin,
+    now,
+    projects: {
+      tienda: TIENDA,
+      facturacion: FACTURACION,
+      portal: PORTAL,
+      reservas: RESERVAS,
+      inventario: INVENTARIO,
+      dashboard: DASHBOARD,
+    },
+  });
+
+  /*
+    La memoria nativa de tienda-online, en la carpeta de la CLI: es lo que la
+    solapa Memoria ofrece importar al instalar la memoria compartida.
+  */
+  write(path.join(home, '.claude', 'projects', slugFor(TIENDA), 'memory'), NATIVE_MEMORY);
+
+  /*
+    Pestanas guardadas del arranque anterior, una por CLI. Vuelven dormidas: se
+    lee su conversacion y ninguna se lanza. Las de Claude Code van en `tabs` y
+    las demas en `otherTabs`, con su lugar en la lista (workspace-store.ts).
+  */
   const tabs = [
-    { cwd: main.cwd, sessionId: main.sessionId, label: main.title },
-    { cwd: facturacionTab.cwd, sessionId: facturacionTab.sessionId, label: 'Validar el RUC antes de emitir' },
-    { cwd: inventarioTab.cwd, sessionId: inventarioTab.sessionId, label: 'Importar stock desde Excel' },
+    { agent: 'claude-code', cwd: main.cwd, sessionId: main.sessionId, label: main.title },
+    { agent: 'codex', cwd: codexTab.cwd, sessionId: codexTab.sessionId, label: 'Validar el RUC antes de emitir' },
+    { agent: 'opencode', cwd: openCodeTab.cwd, sessionId: openCodeTab.sessionId, label: 'Importar stock desde Excel' },
+    { agent: 'antigravity', cwd: antigravityTab.cwd, sessionId: antigravityTab.sessionId, label: 'Filtro por región en ventas' },
   ];
   writeFileSync(
     path.join(dirs.configDir, 'workspace.json'),
-    JSON.stringify({ version: 1, tabs }, null, 2),
+    JSON.stringify(
+      {
+        version: 1,
+        tabs: tabs
+          .filter((tab) => tab.agent === 'claude-code')
+          .map(({ cwd, sessionId, label }) => ({ cwd, sessionId, label })),
+        otherTabs: tabs.map((tab, position) => ({ position, ...tab })).filter((tab) => tab.agent !== 'claude-code'),
+      },
+      null,
+      2,
+    ),
   );
 
   return { mainCwd: TIENDA, tabs };

@@ -36,7 +36,8 @@
  *  - 15 (el descubrimiento de la sesion de una pestana nueva) se borro en el
  *    hito 29 con `discovery.ts` (D7): la sesion se crea por API antes de lanzar.
  *  - 8: el arranque (la linea `Historial`, solo cuando hay algo que decir), la
- *    demo sin variables de OpenCode y sin capturar si ve un historial o la CLI,
+ *    demo sin variables de OpenCode y sin capturar si ve un historial fuera de
+ *    su home o CLIs que no son las cuatro simuladas (hito 30),
  *    y el piso de Node sin cambio (paso 8).
  *  - 16: las teclas de la interrupcion.
  *
@@ -1597,14 +1598,24 @@ const historyOf = (file, extra = {}) => {
   check('8 demo: el bloque de arranque esta completo recien con la linea Consola',
     demo.startupBlockComplete(clean) && !demo.startupBlockComplete(clean.slice(0, clean.indexOf('  Consola'))));
   check('8 demo: un arranque sin base no trae lineas de historial, y se captura',
-    same(demo.historyLinesFromStartup(clean), []) && !throwsOn(() => demo.assertNoNativeHistory(demo.historyLinesFromStartup(clean))));
+    same(demo.historyLinesFromStartup(clean), []) && !throwsOn(() => demo.assertDemoHistory(demo.historyLinesFromStartup(clean), demoHome)));
   const withBase = startupOf([claude(), opencode({ ...missing, historyNote: 'D:\\datos\\opencode.db (solo lectura)' })]);
   const historyLines = demo.historyLinesFromStartup(withBase);
-  check('8 demo: con una base de OpenCode a mano, la linea se ve y no se captura',
-    same(historyLines, ['Historial (OpenCode)  D:\\datos\\opencode.db (solo lectura)']) && throwsOn(() => demo.assertNoNativeHistory(historyLines)), show(historyLines));
+  check('8 demo: con una base de OpenCode de verdad a mano, la linea se ve y no se captura',
+    same(historyLines, ['Historial (OpenCode)  D:\\datos\\opencode.db (solo lectura)']) && throwsOn(() => demo.assertDemoHistory(historyLines, demoHome)), show(historyLines));
+  // Hito 30: la demo trae su propia base de OpenCode, inventada, en su home.
+  const demoDb = path.join(demoPaths.dataDir, 'opencode.db');
+  const ownBase = demo.historyLinesFromStartup(startupOf([claude(), opencode({ historyNote: `${demoDb} (solo lectura)` })]));
+  check('8 demo: la base inventada del home de la demo si se captura, aun con otra capitalizacion en Windows',
+    ownBase.length === 1 && !throwsOn(() => demo.assertDemoHistory(ownBase, demoHome)) &&
+    (process.platform !== 'win32' || !throwsOn(() => demo.assertDemoHistory(ownBase, demoHome.toUpperCase()))), show(ownBase));
+  const besideHome = demo.historyLinesFromStartup(startupOf([claude(), opencode({ historyNote: `${demoHome}-real${path.sep}opencode.db (solo lectura)` })]));
+  check('8 demo: una carpeta que solo empieza como el home de la demo no cuenta', throwsOn(() => demo.assertDemoHistory(besideHome, demoHome)), show(besideHome));
+  const noSqliteNote = demo.historyLinesFromStartup(startupOf([claude(), opencode({ historyNote: 'no se lee: esta version de Node no trae node:sqlite' })]));
+  check('8 demo: sin node:sqlite (la base de la demo no se veria) no se captura', throwsOn(() => demo.assertDemoHistory(noSqliteNote, demoHome)));
   const withCli = startupOf([claude(), opencode()]);
-  check('8 demo: con CLI (OpenCode) encontrada no se captura', withCli.includes('CLI (OpenCode)') &&
-    throwsOn(() => demo.assertOnlySimulatedAgent(demo.availableAgentsFromStartup(withCli))));
+  check('8 demo: con dos CLIs encontradas y no las cuatro simuladas no se captura', withCli.includes('CLI (OpenCode)') &&
+    throwsOn(() => demo.assertOnlySimulatedAgents(demo.availableAgentsFromStartup(withCli))));
   /*
     Las dos redes sirven solo si se usan: el servidor de la demo espera el bloque
     entero antes de leer las lineas, y las capturas no se toman sin pasar las dos
@@ -1615,8 +1626,9 @@ const historyOf = (file, extra = {}) => {
   const shotsSource = await readFile(path.join(serverDir, '..', '..', 'scripts', 'demo', 'shots.mjs'), 'utf8');
   check('8 demo: el servidor espera el bloque de arranque entero y devuelve sus lineas de historial',
     /agents !== null && startupBlockComplete\(buffer\)/.test(environmentSource) && /historyLines: historyLinesFromStartup\(buffer\)/.test(environmentSource));
-  check('8 demo: shots.mjs no captura sin comprobar la CLI simulada y la ausencia de historiales',
-    /^\s*assertOnlySimulatedAgent\(availableAgents\);/m.test(shotsSource) && /^\s*assertNoNativeHistory\(historyLines\);/m.test(shotsSource));
+  check('8 demo: shots.mjs no captura sin comprobar las CLIs simuladas y que el historial sea el de la demo',
+    /^\s*assertOnlySimulatedAgents\(availableAgents\);/m.test(shotsSource) && /^\s*assertDemoHistory\(historyLines, demo\.homeView\);/m.test(shotsSource) &&
+    /home: demo\.homeView/.test(environmentSource));
 
   // M8: el piso de Node no sube; lo que necesita 22.13 es solo el historial de OpenCode.
   const rootPackage = JSON.parse(await readFile(path.join(serverDir, '..', '..', 'package.json'), 'utf8'));

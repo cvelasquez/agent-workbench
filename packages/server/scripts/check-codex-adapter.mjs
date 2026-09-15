@@ -2370,7 +2370,10 @@ const throwsOn = (run) => {
   const realClaudeDir = path.join(m7, 'local-bin');
   const agyDir = path.join(m7, 'agy');
   const emptyDir = path.join(m7, 'vacia');
-  await tool(bin, 'claude');
+  const onlyClaudeBin = path.join(m7, 'bin-solo-claude');
+  // Hito 30: la demo simula las cuatro CLIs, todas en su carpeta.
+  for (const command of demo.AGENT_COMMANDS) await tool(bin, command);
+  await tool(onlyClaudeBin, 'claude');
   await tool(nodeDir, 'codex');
   await tool(nodeDir, 'node');
   await tool(gitDir, 'git');
@@ -2381,21 +2384,24 @@ const throwsOn = (run) => {
 
   const original = [nodeDir, `"${gitDir}"`, realClaudeDir, agyDir, emptyDir, ''].join(delimiter);
   const filtered = demo.demoPath(bin, original, options);
-  check('M7 PATH de la demo: la simulada primera y fuera toda carpeta con un comando de agente',
+  check('M7 PATH de la demo: las simuladas primero y fuera toda carpeta con un comando de agente',
     filtered === [bin, gitDir, emptyDir].join(delimiter), filtered);
   check('M7 con ese PATH arranca', !throwsOn(() => demo.assertDemoPath(bin, filtered, options)));
-  const rejection = (pathValue) => {
+  const rejection = (pathValue, simulatedBin = bin) => {
     try {
-      demo.assertDemoPath(bin, pathValue, options);
+      demo.assertDemoPath(simulatedBin, pathValue, options);
       return '';
     } catch (error) {
       return error.message;
     }
   };
-  check('M7 si ve codex no arranca, y dice donde', /encontro codex en/.test(rejection([bin, nodeDir, gitDir].join(delimiter))),
-    rejection([bin, nodeDir, gitDir].join(delimiter)));
-  check('M7 si ve agy no arranca', /encontro agy/.test(rejection([bin, agyDir, gitDir].join(delimiter))));
-  check('M7 si claude resuelve fuera de la simulada no arranca', /simulada/.test(rejection([realClaudeDir, bin, gitDir].join(delimiter))));
+  check('M7 si codex resuelve a uno de verdad no arranca, y dice donde', /encontro codex en/.test(rejection([nodeDir, bin, gitDir].join(delimiter))),
+    rejection([nodeDir, bin, gitDir].join(delimiter)));
+  check('M7 si agy resuelve a uno de verdad no arranca', /encontro agy/.test(rejection([agyDir, bin, gitDir].join(delimiter))));
+  check('M7 si claude resuelve fuera de las simuladas no arranca', /simulada/.test(rejection([realClaudeDir, bin, gitDir].join(delimiter))));
+  check('M7 si falta una simulada no arranca: la captura saldria sin esa CLI',
+    /no encontro la CLI simulada codex/.test(rejection([onlyClaudeBin, gitDir].join(delimiter), onlyClaudeBin)),
+    rejection([onlyClaudeBin, gitDir].join(delimiter), onlyClaudeBin));
   check('M7 sin git no arranca', /git/.test(rejection([bin, emptyDir].join(delimiter))));
 
   const base = {
@@ -2421,10 +2427,15 @@ const throwsOn = (run) => {
   check('M7 la demo lee la linea de disponibles que imprime el servidor', same(demo.availableAgentsFromStartup(startup), ['claude-code', 'codex']));
   check('M7 sin la linea todavia: null', demo.availableAgentsFromStartup('  URL          http://127.0.0.1:1/') === null);
   check('M7 ninguna: lista vacia', same(demo.availableAgentsFromStartup('  CLIs disponibles  ninguna\n'), []));
-  check('M7 las capturas solo con la simulada',
-    !throwsOn(() => demo.assertOnlySimulatedAgent(['claude-code'])) &&
-    throwsOn(() => demo.assertOnlySimulatedAgent(['claude-code', 'codex'])) &&
-    throwsOn(() => demo.assertOnlySimulatedAgent(['codex'])) && throwsOn(() => demo.assertOnlySimulatedAgent([])));
+  const four = ['claude-code', 'codex', 'opencode', 'antigravity'];
+  check('M7 las capturas solo con las cuatro simuladas, en cualquier orden',
+    same(demo.SIMULATED_AGENT_IDS, four) &&
+    !throwsOn(() => demo.assertOnlySimulatedAgents(four)) &&
+    !throwsOn(() => demo.assertOnlySimulatedAgents([...four].reverse())) &&
+    throwsOn(() => demo.assertOnlySimulatedAgents(['claude-code'])) &&
+    throwsOn(() => demo.assertOnlySimulatedAgents(['claude-code', 'codex', 'opencode'])) &&
+    throwsOn(() => demo.assertOnlySimulatedAgents([...four, 'codex'])) &&
+    throwsOn(() => demo.assertOnlySimulatedAgents([...four, 'otra'])) && throwsOn(() => demo.assertOnlySimulatedAgents([])));
 
   const { createRequire } = await import('node:module');
   const { fileURLToPath } = await import('node:url');

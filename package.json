@@ -3,7 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Interfaz visual local para la CLI de Claude Code",
+  "description": "Interfaz visual local para las CLIs de agentes de código: Claude Code, Codex, OpenCode y Antigravity CLI",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "opencode",
+    "antigravity",
+    "coding-agent",
+    "ai-agents",
+    "terminal",
+    "pty",
+    "xterm",
+    "developer-tools",
+    "cli",
+    "ui"
+  ],
   "license": "MIT",
   "packageManager": "pnpm@11.24.0",
   "engines": {

@@ -2,18 +2,20 @@
  * Levanta la app contra los datos de `fixtures.mjs`, aislada de la maquina.
  *
  * La app lee tres cosas del entorno y las tres se apuntan a la carpeta de demo:
- * el home (`~/.claude/projects`, `~/.claude/sessions` y `CODEX_HOME`), el
- * directorio de configuracion propio (`workspace.json`, notas, archivadas) y el
- * `PATH`, filtrado para que no aparezca ninguna CLI de verdad y con la simulada
- * primera (`isolation.mjs`). No hay ningun modo especial en el servidor: corre
+ * el home (los historiales de las cuatro CLIs), el directorio de configuracion
+ * propio (`workspace.json`, notas, archivadas, la copia propia) y el `PATH`,
+ * filtrado para que no aparezca ninguna CLI de verdad y con las cuatro simuladas
+ * primero (`isolation.mjs`). No hay ningun modo especial en el servidor: corre
  * el mismo codigo que en uso normal, con otro entorno.
  *
  * En Windows la carpeta se monta como unidad `W:` con `subst`, para que ninguna
- * ruta de las capturas lleve el usuario de la maquina; en macOS y Linux vive en
- * el directorio temporal, que tampoco lo lleva.
+ * ruta de las capturas lleve el usuario de la maquina. Adentro van los proyectos
+ * y tambien el home (`W:\home`): la app muestra rutas del home en la carpeta de
+ * la copia propia, en la de un plan y en los fragmentos de la memoria global.
+ * En macOS y Linux vive en el directorio temporal, que tampoco lo lleva.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -35,14 +37,18 @@ const DRIVE = 'W:';
 export function prepareDemo() {
   const base = path.join(tmpdir(), 'agent-workbench-demo');
   const root = path.join(base, 'root');
-  const home = path.join(base, 'home');
+  // Dentro de la carpeta que se monta: la app lo ve como `W:\home`.
+  const home = path.join(root, 'home');
+  const homeView = isWindows ? `${DRIVE}\\home` : home;
   const bin = path.join(base, 'bin');
   const configDir = isWindows
     ? path.join(home, 'AppData', 'Roaming', 'agent-workbench')
     : path.join(home, '.config', 'agent-workbench');
   const projectsRoot = isWindows ? `${DRIVE}\\Proyectos` : path.join(root, 'Proyectos');
-  const fixtures = buildFixtures({ root, home, bin, configDir, projectsRoot });
-  return { root, home, bin, configDir, projectsRoot, ...fixtures };
+  // El home de antes, cuando vivia al lado de `root`.
+  rmSync(path.join(base, 'home'), { recursive: true, force: true });
+  const fixtures = buildFixtures({ root, home, homeView, bin, configDir, projectsRoot });
+  return { root, home, homeView, bin, configDir, projectsRoot, ...fixtures };
 }
 
 function mountDrive(root) {
@@ -86,7 +92,7 @@ export async function startDemoServer({ mode, openBrowser }) {
 
   const demo = prepareDemo();
 
-  const env = demoEnvironment(process.env, { home: demo.home, bin: demo.bin, mainCwd: demo.mainCwd });
+  const env = demoEnvironment(process.env, { home: demo.homeView, bin: demo.bin, mainCwd: demo.mainCwd });
   if (!openBrowser) env['AGENT_WORKBENCH_NO_OPEN'] = '1';
   // Antes de montar nada: si la demo ve una CLI de verdad, no se arranca.
   assertDemoPath(demo.bin, env['PATH']);

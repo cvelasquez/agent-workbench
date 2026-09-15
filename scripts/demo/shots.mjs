@@ -3,25 +3,30 @@
  * el Chrome instalado en la maquina (Playwright no descarga ningun navegador).
  * Escribe `docs/captura-*.png`. Necesita un `pnpm build` previo: se capturan
  * en modo produccion para que no aparezca nada del entorno de desarrollo.
+ *
+ * Van en orden, porque algunas escriben: la memoria se instala de verdad en
+ * tienda-online (despues de las de git, que la veria) y la copia propia se
+ * activa en la carpeta de configuracion de la demo antes del buscador. Todo en
+ * la carpeta temporal de la demo, que se regenera en cada corrida.
  */
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { repoRoot, startDemoServer } from './environment.mjs';
-import { assertNoNativeHistory, assertOnlySimulatedAgent } from './isolation.mjs';
+import { assertDemoHistory, assertOnlySimulatedAgents } from './isolation.mjs';
 
 const outDir = path.join(repoRoot, 'docs');
 const { url, availableAgents, historyLines, demo, stop } = await startDemoServer({ mode: 'prod', openBrowser: false });
 
 /*
-  Segunda red, despues del PATH filtrado de `isolation.mjs`: si el servidor igual
-  encontro una CLI de verdad, el menu de CLIs y su historial saldrian en las
-  capturas. La unica disponible tiene que ser la simulada —con `CLI (OpenCode)`
-  o cualquier otra, no se captura—, y ninguna base de otra CLI puede estar a
-  mano: el historial de OpenCode se lee aunque su CLI no este (hito 26).
+  Segunda red, despues del PATH filtrado de `isolation.mjs`: el servidor tiene
+  que haber visto exactamente las cuatro CLIs simuladas —una de verdad saldria
+  con su version, una que falta dejaria el menu incompleto— y ningun historial
+  fuera del home de la demo: el de OpenCode se lee aunque su CLI no este
+  (hito 26).
 */
 try {
-  assertOnlySimulatedAgent(availableAgents);
-  assertNoNativeHistory(historyLines);
+  assertOnlySimulatedAgents(availableAgents);
+  assertDemoHistory(historyLines, demo.homeView);
 } catch (error) {
   stop();
   throw error;
@@ -46,7 +51,7 @@ try {
   page.on('pageerror', (error) => console.error('pageerror:', error.message));
 
   await page.goto(url);
-  // Las tres pestanas de workspace.json y los seis proyectos de la barra.
+  // Las cuatro pestanas de workspace.json y los seis proyectos de la barra.
   await page.locator('.tab').nth(demo.tabs.length - 1).waitFor({ timeout: 30_000 });
   await page.locator('.project-row').nth(5).waitFor({ timeout: 30_000 });
 
@@ -55,11 +60,16 @@ try {
   await page.locator('.tab', { hasText: demo.tabs[0].label }).click();
   await page.locator('.turn').nth(8).waitFor({ state: 'attached', timeout: 30_000 });
 
+  const projectRow = (name) =>
+    page.locator('.project-row', { has: page.locator('.project-name', { hasText: new RegExp(`^${name}$`) }) });
+  const setExpanded = async (name, open) => {
+    const row = projectRow(name);
+    const isOpen = (await row.locator('.chevron-open').count()) > 0;
+    if (isOpen !== open) await row.locator('.project-toggle').click();
+  };
+
   // tienda-online desplegado en la barra lateral.
-  const tiendaRow = page.locator('.project-row', {
-    has: page.locator('.project-name', { hasText: /^tienda-online$/ }),
-  });
-  await tiendaRow.locator('.project-toggle').click();
+  await setExpanded('tienda-online', true);
   await page.locator('.session-item').nth(6).waitFor();
 
   const panelTab = (label) => page.locator('.side-panel-tabs button', { hasText: label });
@@ -111,6 +121,78 @@ try {
   await page.locator('.preview-code').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(300);
   await page.locator('section.side-panel').screenshot({ path: path.join(outDir, 'captura-archivos.png') });
+
+  /*
+    4. Las cuatro CLIs: la barra con proyectos de varias —cada sesion con su
+    insignia— y el menu del `+` de un proyecto abierto. tienda-online se pliega
+    para que entren los que mezclan CLIs.
+  */
+  await setExpanded('tienda-online', false);
+  for (const name of ['dashboard-ventas', 'inventario', 'api-facturacion', 'portal-clientes']) await setExpanded(name, true);
+  await page.locator('.session-item .agent-badge', { hasText: 'OC' }).first().waitFor({ timeout: 15_000 });
+  await page.locator('.sidebar-scroll').evaluate((element) => element.scrollTo(0, 0));
+  await projectRow('dashboard-ventas').locator('.split-button-arrow').click();
+  await page.locator('.agent-menu-item').nth(3).waitFor({ timeout: 5_000 });
+  await page.waitForTimeout(300);
+  const sidebarBox = await page.locator('.sidebar').boundingBox();
+  const menuBox = await page.locator('.agent-menu').boundingBox();
+  const lastProjectBox = await page.locator('.project', { has: projectRow('portal-clientes') }).boundingBox();
+  await page.screenshot({
+    path: path.join(outDir, 'captura-clis.png'),
+    clip: {
+      x: 0,
+      y: 0,
+      width: Math.max(sidebarBox.x + sidebarBox.width, menuBox.x + menuBox.width) + 16,
+      height: Math.min(sidebarBox.y + sidebarBox.height, lastProjectBox.y + lastProjectBox.height),
+    },
+  });
+  await page.keyboard.press('Escape');
+  await page.locator('.agent-menu').waitFor({ state: 'detached', timeout: 5_000 });
+
+  /*
+    5. La memoria compartida, instalada de verdad en tienda-online con las dos
+    notas de la memoria nativa de Claude Code que trae la demo.
+  */
+  await panelTab('Memoria').click();
+  await page.locator('.memory-form button', { hasText: 'Ver cambios' }).click();
+  await page.locator('.memory-change-list').waitFor({ timeout: 15_000 });
+  await page.locator('.memory-form .primary-button', { hasText: 'Instalar' }).click();
+  await page.locator('.plan-row', { hasText: 'Precios en soles' }).waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+  await page.screenshot({
+    path: path.join(outDir, 'captura-memoria.png'),
+    clip: clipTo(await page.locator('.memory-global').boundingBox()),
+  });
+
+  /*
+    6. Buscar en todo: la copia propia se mide y se activa desde su dialogo, y
+    se busca una palabra que esta en conversaciones de las cuatro CLIs.
+  */
+  await page.locator('.sidebar-header button[aria-label="Copia propia"]').click();
+  await page.locator('.vault-modal').waitFor();
+  await page.locator('.vault-modal button', { hasText: /^Medir$/ }).click();
+  await page.locator('.vault-modal .primary-button', { hasText: 'Activar' }).waitFor({ timeout: 60_000 });
+  await page.locator('.vault-modal .primary-button', { hasText: 'Activar' }).click();
+  await page.waitForFunction(() => document.querySelector('.vault-state')?.textContent === 'Encendida', null, { timeout: 60_000 });
+  await page.keyboard.press('Escape');
+  await page.locator('.sidebar-search-mode-option', { hasText: 'En conversaciones' }).click({ timeout: 60_000 });
+  await page.locator('.sidebar-filter').fill('pasan');
+  await page.locator('.sidebar-filter').press('Enter');
+  for (const badge of ['CC', 'CX', 'OC', 'AG']) {
+    await page.locator('.search-group-title .agent-badge', { hasText: badge }).first().waitFor({ timeout: 30_000 });
+  }
+  await page.waitForTimeout(800);
+  const searchSidebar = await page.locator('.sidebar').boundingBox();
+  const resultsBox = await page.locator('.search-results').boundingBox();
+  await page.screenshot({
+    path: path.join(outDir, 'captura-buscador.png'),
+    clip: {
+      x: searchSidebar.x,
+      y: searchSidebar.y,
+      width: searchSidebar.width,
+      height: Math.min(searchSidebar.height, resultsBox.y + resultsBox.height + 16 - searchSidebar.y),
+    },
+  });
 
   console.log(`\nCapturas escritas en ${outDir}`);
 } finally {

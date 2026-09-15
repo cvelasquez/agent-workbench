@@ -96,16 +96,9 @@ writeFileSync(
       repository: { type: 'git', url: `git+${REPO_URL}.git` },
       homepage: `${REPO_URL}#readme`,
       bugs: { url: `${REPO_URL}/issues` },
-      keywords: [
-        'claude-code',
-        'coding-agent',
-        'terminal',
-        'pty',
-        'xterm',
-        'developer-tools',
-        'cli',
-        'ui',
-      ],
+      // Como la descripcion: del `package.json` de la raiz, para no tener dos
+      // listas que se desincronizan cuando se suma una CLI.
+      keywords: rootPkg.keywords,
       type: 'module',
       bin: { 'agent-workbench': 'dist/server.js' },
       files: ['dist'],

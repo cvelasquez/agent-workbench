@@ -3,23 +3,28 @@
  *
  * Las capturas del README salen de datos inventados (CLAUDE.md 7.3). Desde que
  * la app localiza mas de una CLI, eso ya no alcanza con un home falso: si la
- * demo encuentra Codex en el `PATH`, el menu de CLIs y las insignias salen en
- * las capturas, y con su `CODEX_HOME` real saldria su historial.
+ * demo encuentra la Codex de la maquina en el `PATH`, su version sale en las
+ * capturas, y con su `CODEX_HOME` real saldria su historial.
  *
- * Por eso el servidor de la demo arranca con un `PATH` **filtrado**: sin
- * ninguna carpeta que contenga un comando de agente, con la CLI simulada
- * primera. Y se lanza con el mismo Node que corre este script, sin `pnpm` ni
- * shell: la carpeta de Node suele ser la del prefijo global de npm, que es
- * justo donde `npm i -g` deja `codex.cmd`, y sacarla del `PATH` dejaria sin
- * `node` a cualquier cosa que lo buscara ahi.
+ * Desde el hito 30 la demo muestra las cuatro CLIs, y las cuatro son simuladas
+ * (`other-clis.mjs`). Por eso el servidor de la demo arranca con un `PATH`
+ * **filtrado**: sin ninguna carpeta que contenga un comando de agente, con la
+ * carpeta de las simuladas primera. Y se lanza con el mismo Node que corre este
+ * script, sin `pnpm` ni shell: la carpeta de Node suele ser la del prefijo
+ * global de npm, que es justo donde `npm i -g` deja `codex.cmd`, y sacarla del
+ * `PATH` dejaria sin `node` a cualquier cosa que lo buscara ahi.
  *
- * Todo aca es puro o de solo lectura: lo prueba `check-codex-adapter.mjs`.
+ * Todo aca es puro o de solo lectura: lo prueban `check-codex-adapter.mjs` y
+ * `check-opencode-db.mjs`.
  */
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import path from 'node:path';
 
-/** Los comandos de agente que la demo no puede encontrar, salvo la CLI simulada. */
+/** Los comandos de agente: la demo solo puede encontrar los simulados de su carpeta. */
 export const AGENT_COMMANDS = ['codex', 'opencode', 'agy', 'claude'];
+
+/** Los ids de las CLIs que el servidor de la demo tiene que ver: las cuatro simuladas. */
+export const SIMULATED_AGENT_IDS = ['claude-code', 'codex', 'opencode', 'antigravity'];
 
 /** Lo que la demo necesita del `PATH` real: el panel de git de las capturas. */
 export const REQUIRED_COMMANDS = ['git'];
@@ -94,20 +99,18 @@ function isInside(root, candidate) {
 
 /**
  * Lanza si con ese `PATH` la demo veria una CLI de verdad, o no veria lo que
- * necesita: ningun comando de agente salvo `claude`, y `claude` dentro de la
- * carpeta de la CLI simulada; `git`, en algun lado.
+ * necesita: cada comando de agente resuelve dentro de la carpeta de las
+ * simuladas —si falta uno, esa CLI no sale en las capturas, y si resuelve
+ * afuera, sale la de verdad—; `git`, en algun lado.
  */
 export function assertDemoPath(bin, pathValue, options = {}) {
   for (const command of AGENT_COMMANDS) {
     const found = findInPath(command, pathValue, options);
-    if (command === 'claude') {
-      if (found === null || !isInside(bin, found)) {
-        throw new Error(`La demo no encontro su CLI simulada en ${bin}${found === null ? '' : ` (encontro ${found})`}. No se arranca: saldria la CLI de verdad en las capturas.`);
-      }
-      continue;
+    if (found === null) {
+      throw new Error(`La demo no encontro la CLI simulada ${command} en ${bin}. No se arranca: las capturas saldrian sin esa CLI.`);
     }
-    if (found !== null) {
-      throw new Error(`La demo encontro ${command} en ${path.dirname(found)}. No se arranca: saldria en las capturas.`);
+    if (!isInside(bin, found)) {
+      throw new Error(`La demo encontro ${command} en ${path.dirname(found)}, fuera de la carpeta de las simuladas. No se arranca: saldria la CLI de verdad en las capturas.`);
     }
   }
   for (const command of REQUIRED_COMMANDS) {
@@ -169,14 +172,16 @@ export function demoEnvironment(base, { home, bin, mainCwd, platform = process.p
 }
 
 /**
- * Lanza si el servidor de la demo no vio exactamente la CLI simulada: con
- * cualquier otra, el menu de CLIs y su historial saldrian en las capturas; sin
- * ninguna, el cartel de "no encontrada".
+ * Lanza si el servidor de la demo no vio exactamente las cuatro CLIs simuladas:
+ * con una de mas, una CLI que no es de la demo; con una de menos, el menu y la
+ * barra saldrian sin ella, o con el cartel de "no encontrada".
  */
-export function assertOnlySimulatedAgent(availableAgents) {
-  if (availableAgents.length === 1 && availableAgents[0] === 'claude-code') return;
-  const seen = availableAgents.length === 0 ? 'ninguna CLI' : availableAgents.join(', ');
-  throw new Error(`La demo vio ${seen} en vez de solo la CLI simulada. No se capturan: saldria en las imagenes.`);
+export function assertOnlySimulatedAgents(availableAgents, expected = SIMULATED_AGENT_IDS) {
+  const seen = [...new Set(availableAgents)].sort();
+  const wanted = [...expected].sort();
+  if (availableAgents.length === wanted.length && seen.length === wanted.length && seen.every((id, index) => id === wanted[index])) return;
+  const shown = availableAgents.length === 0 ? 'ninguna CLI' : availableAgents.join(', ');
+  throw new Error(`La demo vio ${shown} en vez de las simuladas (${wanted.join(', ')}). No se capturan.`);
 }
 
 /**
@@ -189,7 +194,7 @@ export function startupBlockComplete(output) {
   return /^\s*Consola\s/m.test(output);
 }
 
-/** Las lineas `Historial` del arranque: una base de verdad que el servidor va a leer. */
+/** Las lineas `Historial` del arranque: una base que el servidor va a leer. */
 export function historyLinesFromStartup(output) {
   return output
     .split(/\r?\n/)
@@ -198,13 +203,25 @@ export function historyLinesFromStartup(output) {
 }
 
 /**
- * Lanza si el servidor de la demo anuncio un historial de otra CLI: con una
- * base de verdad a mano, sus sesiones saldrian en la barra de las capturas
- * aunque la CLI no este en el `PATH` (hito 26).
+ * Lanza si el servidor de la demo anuncio un historial que no esta en el home
+ * de la demo: con una base de verdad a mano, sus sesiones saldrian en la barra
+ * de las capturas aunque la CLI no este en el `PATH` (hito 26). La base
+ * inventada de `other-clis.mjs` si vale, y cualquier otra nota —la de un Node
+ * sin `node:sqlite`, que dejaria a OpenCode fuera de las capturas— tambien
+ * lanza.
+ *
+ * La linea es `Historial <ruta> (solo lectura)`, o `Historial (<CLI>) <ruta>…`
+ * si esa CLI no se encontro.
  */
-export function assertNoNativeHistory(historyLines) {
-  if (historyLines.length === 0) return;
-  throw new Error(`La demo va a leer un historial de verdad (${historyLines.join(' | ')}). No se capturan: saldria en las imagenes.`);
+export function assertDemoHistory(historyLines, home, platform = process.platform) {
+  const fold = (value) => (platform === 'win32' ? value.replace(/\//g, '\\').toLowerCase() : value);
+  const prefix = fold(home.endsWith(platform === 'win32' ? '\\' : '/') ? home : `${home}${platform === 'win32' ? '\\' : '/'}`);
+  const foreign = historyLines.filter((line) => {
+    const note = line.replace(/^Historial(?:\s+\([^)]*\))?\s+/, '');
+    return !fold(note).startsWith(prefix);
+  });
+  if (foreign.length === 0) return;
+  throw new Error(`La demo va a leer un historial fuera de su home (${foreign.join(' | ')}). No se capturan: saldria en las imagenes.`);
 }
 
 /**

@@ -175,7 +175,7 @@ export function TabBar({
         return (
           <div
             key={terminal.terminalId}
-            className={`tab${isActive ? ' tab-active' : ''}${terminal.alive ? '' : ' tab-dead'}`}
+            className={`tab${isActive ? ' tab-active' : ''}${terminal.alive || terminal.sleeping ? '' : ' tab-dead'}`}
             draggable={!isEditing}
             onDragStart={() => setDragId(terminal.terminalId)}
             onDragOver={(event) => event.preventDefault()}
@@ -183,7 +183,7 @@ export function TabBar({
             onDragEnd={() => setDragId(null)}
             onClick={() => onSelect(terminal.terminalId)}
             onDoubleClick={() => startEditing(terminal)}
-            title={`${terminal.cwd}\n${terminal.alive ? 'activa' : `terminada (codigo ${terminal.exitCode ?? '?'})`}`}
+            title={`${terminal.cwd}\n${terminal.alive ? 'activa' : terminal.sleeping ? 'dormida' : `terminada (codigo ${terminal.exitCode ?? '?'})`}`}
             style={{ '--tab-project-color': projectColor(terminal.cwd) } as React.CSSProperties}
           >
             {isEditing ? (
