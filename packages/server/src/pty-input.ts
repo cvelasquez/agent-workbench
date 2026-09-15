@@ -36,7 +36,9 @@ import {
   type ImageReferenceStyle,
   type PermissionCycleCapability,
   type PermissionMode,
+  type TerminalActivity,
 } from '@agent-workbench/shared';
+import type { QuestionAnswerOutcome } from './agents/adapter.js';
 
 /** DECSET 2004. La CLI lo activa sola al arrancar. */
 const PASTE_START = '\x1b[200~';
@@ -317,17 +319,58 @@ export function pendingSubmitMessage(label: string, waitingFor: string): string 
     : `${label} esta esperando una respuesta: el Enter del mensaje la contestaria. Contestala en la solapa CLI.`;
 }
 
+/** `answer-failed`: la pregunta ya se contesto, se cerro, o no es la abierta. */
+export const ANSWER_NOT_PENDING_MESSAGE = 'Esa pregunta ya no esta esperando respuesta.';
+
+/** `answer-failed`: lo elegido no tiene la forma de la pregunta. */
+export const ANSWER_INVALID_MESSAGE = 'La respuesta no corresponde a la pregunta.';
+
+/** `answer-failed`: una respuesta escrita a una pregunta que no la acepta (hito 29, B4). */
+export const ANSWER_NO_FREE_TEXT_MESSAGE = 'Esta pregunta no acepta respuesta escrita: elegi una de las opciones.';
+
+/**
+ * El texto de `answer-failed` para como termino una respuesta por la API de la
+ * CLI (`QuestionChannel`, hito 29), o null si se contesto. Los dos primeros son
+ * los mismos que con teclas: la tarjeta no distingue por donde se mando.
+ */
+export function answerFailureMessage(outcome: QuestionAnswerOutcome): string | null {
+  switch (outcome) {
+    case 'answered':
+      return null;
+    case 'not-pending':
+      return ANSWER_NOT_PENDING_MESSAGE;
+    case 'invalid':
+      return ANSWER_INVALID_MESSAGE;
+    case 'no-free-text':
+      return ANSWER_NO_FREE_TEXT_MESSAGE;
+  }
+}
+
+/**
+ * Por que no se manda un mensaje del cuadro mientras la CLI espera, con una CLI
+ * que declara `waitingBlocksSubmit` (hito 29, D12). No distingue la clase de
+ * espera: el registro solo sabe que espera, y la barra ya dice cual.
+ */
+export function waitingSubmitMessage(label: string): string {
+  return `${label} esta esperando una respuesta: contestala antes de mandar otro mensaje.`;
+}
+
 /**
  * Decide si un mensaje del cuadro se rechaza antes de encolarlo, sin escribir
  * nada: el socket solo ejecuta lo que sale de aca, y asi se prueba sin pty.
  * null si pasa; si no, el motivo para `submit-failed`.
  *
- * Dos rechazos, en este orden:
+ * Tres rechazos, en este orden:
  *
  *  1. **La CLI publica que espera algo, y su confirmacion abierta aprueba lo
  *     que llegue** (`approvesPendingOnCycle`, R27-2): el Enter del mensaje
  *     caeria sobre la opcion resaltada. Con Claude Code la capacidad es false.
- *  2. **La pestana no deja ver su estado** (`blind`, `blindToApprovals`) y
+ *  2. **La CLI declara `waitingBlocksSubmit` y la pestana esta esperando**
+ *     (hito 29, D12): con un permiso o una pregunta abiertos, el pegado y su
+ *     Enter caerian en el menu. `activity` es la del registro, que la sigue
+ *     haya o no alguien mirando la conversacion. Con Claude Code la capacidad
+ *     es false.
+ *  3. **La pestana no deja ver su estado** (`blind`, `blindToApprovals`) y
  *     tiene una llamada sin resultado de este proceso: puede ser un menu (A1
  *     del hito 25; por pestana desde R27-1).
  */
@@ -335,11 +378,18 @@ export function submitRefusal(input: {
   label: string;
   approvesPendingOnCycle: boolean;
   waitingFor: string | null;
+  /** Ausente: false. */
+  waitingBlocksSubmit?: boolean;
+  /** La actividad de la pestana en el registro. Ausente: null. */
+  activity?: TerminalActivity | null;
   blind: boolean;
   openToolCall: boolean;
 }): string | null {
   if (input.approvesPendingOnCycle && input.waitingFor !== null) {
     return pendingSubmitMessage(input.label, input.waitingFor);
+  }
+  if (input.waitingBlocksSubmit === true && input.activity === 'waiting') {
+    return waitingSubmitMessage(input.label);
   }
   if (input.blind && input.openToolCall) {
     return `${input.label} tiene una herramienta sin resultado: puede estar pidiendo una aprobacion. Contestala en la solapa CLI.`;

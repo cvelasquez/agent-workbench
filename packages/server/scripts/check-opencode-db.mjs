@@ -27,13 +27,14 @@
  *    catalogo de modelos (`events.ts`, `catalog.ts`).
  *  - 10 y 11: el seguidor, con la carga por tandas de mensajes, las lecturas
  *    incrementales, `usageChanged` y el `append` vacio del hub.
- *  - 12 a 14: el historial (`history.ts`), el adaptador con la guardia del id y
- *    su forma de escribir, el registro, `changedRefs`; y en la web, las tandas
+ *  - 12 a 14: el historial (`history.ts`, con las sesiones vacias que crea la
+ *    app fuera de la barra desde el hito 29), el adaptador con la guardia del id
+ *    y su forma de escribir, el registro, `changedRefs`; y en la web, las tandas
  *    de herramientas y la entrada de `AGENT_UI`. Tambien `toTitle`, movido.
- *  - 15: el descubrimiento de la sesion de una pestana nueva (paso 7):
- *    `matchDiscoveries`, que cuenta como envio y que no (el `ESC[I` del foco
- *    no), el descubrimiento contra la base de prueba, y de punta a punta con el
- *    sondeo de verdad.
+ *    El lanzamiento por `serve` + `attach`, el estado y las preguntas por API
+ *    se prueban en `check-opencode-serve.mjs` (O1 a O12).
+ *  - 15 (el descubrimiento de la sesion de una pestana nueva) se borro en el
+ *    hito 29 con `discovery.ts` (D7): la sesion se crea por API antes de lanzar.
  *  - 8: el arranque (la linea `Historial`, solo cuando hay algo que decir), la
  *    demo sin variables de OpenCode y sin capturar si ve un historial o la CLI,
  *    y el piso de Node sin cambio (paso 8).
@@ -544,12 +545,16 @@ const base = await createOpenCodeFixture(path.join(fixturesDir, 'base'), openCod
   const richIds = db.all(OPENCODE_SQL.messagesSince, 'ses_c_rica', 0).map((row) => row.id);
   const params = {
     listRoots: [], rootStamps: [], sessionById: ['ses_c_rica'], sessionExists: ['ses_c_rica'], sessionHasMessages: ['ses_c_rica'],
+    // Hito 29 (R29-1): el padre de una sub-agente.
+    sessionParentById: ['ses_hija'],
     firstUserText: ['ses_c_rica'], sessionSignature: [{ $s: 'ses_c_rica' }], messagesSince: ['ses_c_rica', 0],
     partCountsByMessage: ['ses_c_rica'],
     // Hito 28: las dos sentencias de partes van enteras con nombre, con los cortes del hilo.
     partsForMessages: [{ $ids: JSON.stringify(richIds), ...partCutParams(TRANSPORT_LIMITS) }],
     partsSince: [{ $s: 'ses_c_rica', $since: 0, ...partCutParams(TRANSPORT_LIMITS) }],
-    imageParts: ['msg_c01'], imageUrlById: [{ $id: 'prt_c02g', $max: 100_000_000 }], discoveryRows: [0],
+    imageParts: ['msg_c01'], imageUrlById: [{ $id: 'prt_c02g', $max: 100_000_000 }],
+    // Hito 29 (O12): la pregunta de una tarjeta, por id y sesion.
+    partCallById: [{ $id: 'prt_c03c', $s: 'ses_c_rica' }],
   };
   check('2 cada sentencia tiene sus parametros en este chequeo', same(Object.keys(params).sort(), Object.keys(OPENCODE_SQL).sort()));
   const leaks = [];
@@ -566,6 +571,11 @@ const base = await createOpenCodeFixture(path.join(fixturesDir, 'base'), openCod
     db.get(OPENCODE_SQL.imageUrlById, { $id: 'prt_c02g', $max: 100_000_000 }) === undefined);
   const capped = db.get(OPENCODE_SQL.imageUrlById, { $id: 'prt_c01a', $max: 1000 });
   check('2 imageUrlById por encima del tope devuelve null sin los bytes', capped !== undefined && capped.url === null, show(capped));
+  const { readSessionParent } = await import('../src/agents/opencode/serve-status.ts');
+  check('2 (R29-1) readSessionParent: el padre de una sub-agente, null de padre en una raiz, y null si la base no la tiene',
+    same(readSessionParent(db, 'ses_hija'), { parentId: 'ses_a_nueva' }) && same(readSessionParent(db, 'ses_c_rica'), { parentId: null }) &&
+    readSessionParent(db, 'ses_no_existe') === null,
+    show([readSessionParent(db, 'ses_hija'), readSessionParent(db, 'ses_c_rica')]));
   db.close();
 }
 
@@ -1190,13 +1200,24 @@ const historyOf = (file, extra = {}) => {
   posix.db.close();
   check('12 ningun aviso de sesion sin mensajes con raices que los tienen', warnings.length === 0, show(warnings));
 
+  /*
+    Hito 29 (D14): una raiz sin mensajes y con el titulo por defecto es la
+    sesion que crea la app por API al abrir una pestana, y no se lista. Con un
+    mensaje que no deja titulo (solo del asistente) si, como "Sesion sin titulo".
+  */
   historyFixture.insertSession({ id: 'ses_vacia', directory: '', title: 'New session - 2026-09-02T10:00:00.000Z', time_created: 4000, time_updated: 4000 });
+  historyFixture.insertMessage(messageRow('ses_vacia', 'msg_vacia_1', 4001, { role: 'assistant' }));
   const bare = await history.item('ses_vacia');
   const bareScan = await history.scan(bare);
   check('12 sin texto que sirva de titulo: "Sesion sin titulo", none; sin carpeta: grupo = la sesion y cwd null',
-    bareScan.summary.title === 'Sesion sin titulo' && bareScan.summary.titleSource === 'none' && bareScan.cwd === null && bare.group === 'ses_vacia', show([bare, bareScan]));
+    bareScan?.summary.title === 'Sesion sin titulo' && bareScan?.summary.titleSource === 'none' && bareScan?.cwd === null && bare.group === 'ses_vacia', show([bare, bareScan]));
+  historyFixture.remove('message', 'msg_vacia_1');
+  const emptyScan = await history.scan(bare);
+  check('12 (D14) la misma sin ningun mensaje y con titulo por defecto: null, y sin aviso', emptyScan === null && warnings.length === 0, show([emptyScan, warnings]));
+  historyFixture.update('session', 'ses_vacia', { title: 'Titulo propio' });
   await history.scan(bare);
-  check('12 una raiz sin mensajes avisa una sola vez', warnings.length === 1 && warnings[0].includes('message'), show(warnings));
+  await history.scan(bare);
+  check('12 una raiz sin mensajes y con titulo propio se lista, y avisa una sola vez', warnings.length === 1 && warnings[0].includes('message'), show(warnings));
   historyFixture.remove('session', 'ses_vacia');
 
   check('12 item: la hija no, una que no esta no, una raiz si',
@@ -1282,14 +1303,22 @@ const historyOf = (file, extra = {}) => {
   const { buildSubmissionWrites } = await import('../src/pty-input.ts');
   const { createOpenCodeAdapter, OPENCODE_CAPABILITIES, OPENCODE_INPUT, OPENCODE_INSTALL_URL } = opencode;
   const customDb = path.join(root, 'proyecto-de-prueba', 'oc.db');
-  const adapter = createOpenCodeAdapter({ env: { OPENCODE_DB: customDb }, home: 'C:\\Users\\u', platform: 'win32' });
+  // Este caso no lanza nada: un `serve` que se intentara arrancar fallaria aca, sin tocar el disco.
+  const serveSpawns = [];
+  const adapter = createOpenCodeAdapter({
+    env: { OPENCODE_DB: customDb }, home: 'C:\\Users\\u', platform: 'win32',
+    serveProcess: { cwd: path.join(root, 'serve-13'), spawn: (file) => { serveSpawns.push(file); throw new Error('en este chequeo no se lanza nada'); } },
+  });
+  // Hito 29 (§5.3, sin `promptApi`): serve + attach. O11 compara lo mismo en check-opencode-serve.
   check('13 capacidades iguales al literal', same(adapter.capabilities, {
-    sessionIdAtLaunch: false, resume: true, statusSource: false, readySignal: false, permissionCycle: null, models: null, efforts: null,
-    questionCards: false, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
+    sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, models: null, efforts: null,
+    questionCards: true, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
+    waitingBlocksSubmit: true,
   }) && adapter.capabilities === OPENCODE_CAPABILITIES, show(adapter.capabilities));
   check('13 las capacidades sobreviven al viaje por la red', same(shared.parseAgentCapabilities(JSON.parse(JSON.stringify(adapter.capabilities))), adapter.capabilities));
   check('13 envio: imagenes por ruta pegada sola (medido en vivo), el Enter aparte, 400 ms y dos Esc', same(adapter.input, {
     imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 2,
+    transcriptReference: 'quoted-path',
   }) && adapter.input === OPENCODE_INPUT && adapter.input.imageReference === adapter.capabilities.imagesByPath, show(adapter.input));
   check('13 id, etiqueta, comando y enlace', adapter.id === 'opencode' && adapter.label === 'OpenCode' && adapter.command === 'opencode' &&
     adapter.installUrl === 'https://opencode.ai/docs/' && OPENCODE_INSTALL_URL === adapter.installUrl);
@@ -1297,35 +1326,50 @@ const historyOf = (file, extra = {}) => {
   // Desde el hito 27 detras de OpenCode va Antigravity: lo que importa es que no se movio de lugar.
   check('13 AGENT_IDS nombra al adaptador, detras de codex', shared.AGENT_IDS.indexOf('opencode') === 2 && shared.MEMORY_AGENT_IDS.includes('opencode'));
 
-  const location = { resolvedPath: '/bin/opencode', file: '/bin/opencode', prefixArgs: [], version: '1.18.30' };
-  const fresh = adapter.launch({ location, cwd: 'D:\\x', resumeSessionId: null, proposedSessionId: 'propuesto' });
-  check('13 sesion nueva: sin argumentos, y se descubre', fresh.file === '/bin/opencode' && same(fresh.args, []) && same(fresh.session, { kind: 'discover' }), show(fresh));
+  /*
+    M1c (hito 29): `launch` ya no devuelve el plan en el acto —crea la sesion
+    por API y engancha el TUI al `serve`, y eso lo prueba O5 y O11 en
+    check-opencode-serve—. Lo que se queda aca es la guardia del id: sigue
+    siendo un throw sincronico, antes de tocar el `serve` (M1b).
+  */
   const id = 'ses_3f2a9c1b7e5d4a2b8c6e0f1a2b';
-  const resumed = adapter.launch({ location, cwd: 'D:\\x', resumeSessionId: id, proposedSessionId: 'propuesto' });
-  check('13 reanudar: -s con el id, conocido', same(resumed.args, ['-s', id]) && same(resumed.session, { kind: 'known', sessionId: id }), show(resumed));
-  const shim = adapter.launch({ location: { resolvedPath: 'C:\\x.cmd', file: 'cmd.exe', prefixArgs: ['/c', 'x.cmd'], version: null }, cwd: 'D:\\x', resumeSessionId: id, proposedSessionId: '' });
-  check('13 con un shim, los argumentos del interprete van primero', shim.file === 'cmd.exe' && same(shim.args, ['/c', 'x.cmd', '-s', id]), show(shim));
   const hostile = [`${id}&calc`, `ses_x&calc.exe`, `${id}"`, `ses_3f2a9c1b 7e5d4a2b8c6e0f1a2b`, `${id}^`, `${id}\r\n`, 'ses_', 'ses_corto', '3f2a9c1b-7e5d-4a2b-8c6e-0f1a2b3c4d5e', `SES_3f2a9c1b7e5d4a2b8c6e0f1a2b`];
   const shimLocation = { resolvedPath: 'C:\\x.cmd', file: 'cmd.exe', prefixArgs: ['/c', 'x.cmd'], version: null };
-  const accepted = hostile.filter((value) =>
-    errorOf(() => adapter.launch({ location: shimLocation, cwd: 'D:\\x', resumeSessionId: value, proposedSessionId: '' })) !== 'Id de sesion de OpenCode invalido.');
-  check('13 un id con &, comillas, espacio, ^, salto de linea, corto o que no es ses_ lanza y no llega a los argumentos (A1)', same(accepted, []), show(accepted));
+  const outcomes = hostile.map((value) => {
+    try {
+      const returned = adapter.launch({ location: shimLocation, cwd: 'D:\\x', resumeSessionId: value, proposedSessionId: '', launchToken: 't' });
+      // Una guardia rota devolveria una promesa: se atrapa para que el caso falle por su nombre.
+      returned?.catch?.(() => undefined);
+      return 'devolvio';
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  });
+  const accepted = hostile.filter((_, index) => outcomes[index] !== 'Id de sesion de OpenCode invalido.');
+  check('13 un id con &, comillas, espacio, ^, salto de linea, corto o que no es ses_ lanza sincronico y no llega a los argumentos (A1, M1b)',
+    same(accepted, []), show(accepted));
+  await flushAsync();
+  check('13 ... sin intentar arrancar el serve', same(serveSpawns, []), show(serveSpawns));
 
   const environment = adapter.environment({ PATH: 'p', OPENCODE_DB: 'x', CLAUDE_CODE_CHILD_SESSION: '1', VACIA: undefined });
   check('13 entorno: copia sin claves nuevas, sin undefined, sin quitar nada y sin aviso',
     same(environment, { env: { PATH: 'p', OPENCODE_DB: 'x', CLAUDE_CODE_CHILD_SESSION: '1' }, notice: null }), show(environment));
   check('13 defaults: null (opencode.json no se abre)', (await adapter.defaults('D:\\x')) === null);
-  check('13 status: null', adapter.status === null);
-  const context = (resumedFlag) => ({
-    terminalId: 't', sessionId: '', cwd: 'D:\\x', resumed: resumedFlag, pid: 1, launchedAt: 1,
+  const heard = [];
+  adapter.status?.subscribe(id, (value) => heard.push(value));
+  check('13 status: el del serve, y una sesion que no se lanzo en este arranque es null (offline)',
+    adapter.status !== null && same(heard, [null]), show(heard));
+  check('13 questions: las preguntas se contestan por la API del serve', typeof adapter.questions?.answer === 'function');
+  const context = (sessionId, resumedFlag) => ({
+    terminalId: 't', sessionId, cwd: 'D:\\x', resumed: resumedFlag, pid: 1, launchedAt: 1, launchToken: 't',
     readOutput: () => '', write: () => true, onDone: () => undefined, reportSessionId: () => undefined,
   });
-  check('13 onSpawned: una reanudacion ya sabe su sesion y no engancha nada', adapter.onSpawned(context(true)) === null);
-  const discoveryHook = adapter.onSpawned(context(false));
-  check('13 onSpawned: una sesion nueva engancha el descubrimiento, que sobrevive a lo que se escribe y mira al salir (paso 7)',
-    discoveryHook !== null && typeof discoveryHook.cancel === 'function' && typeof discoveryHook.onInput === 'function' &&
-    typeof discoveryHook.onSubmitted === 'function' && typeof discoveryHook.onExit === 'function', show(Object.keys(discoveryHook ?? {})));
-  discoveryHook?.cancel();
+  check('13 onSpawned sin sesion: nada que retener ni cortar', adapter.onSpawned(context('', false)) === null);
+  const hooks = [context(id, false), context(id, true)].map((each) => adapter.onSpawned(each));
+  check('13 onSpawned con sesion, nueva o reanudada: el gancho del serve, que no se suelta al escribir y no espera un envio',
+    hooks.every((hook) => hook !== null && typeof hook.cancel === 'function' && typeof hook.onExit === 'function' &&
+      typeof hook.onInput === 'function' && hook.onSubmitted === undefined), show(hooks.map((hook) => Object.keys(hook ?? {}))));
+  for (const hook of hooks) hook?.cancel();
   check('13 protectedDirs: las cuatro carpetas bajo el home, y no la de un OPENCODE_DB propio', same(adapter.protectedDirs(), [
     'C:\\Users\\u\\.local\\share\\opencode', 'C:\\Users\\u\\.config\\opencode', 'C:\\Users\\u\\.cache\\opencode', 'C:\\Users\\u\\.local\\state\\opencode',
   ]) && !adapter.protectedDirs().some((dir) => customDb.startsWith(dir)), show(adapter.protectedDirs()));
@@ -1457,278 +1501,6 @@ const historyOf = (file, extra = {}) => {
   check('14 R26-4 indice: una borrada de verdad si se quita', updatedOf('ses_z_vieja') === null && updatedOf('ses_c_rica') === 9000);
   inner.close();
   retryFixture.close();
-}
-
-// ---------------------------------------------------------------------------
-// 15. Descubrir la sesion de una pestana nueva (paso 7)
-// ---------------------------------------------------------------------------
-
-const discoveryModule = await import('../src/agents/opencode/discovery.ts');
-const { matchDiscoveries, isTypedSubmission, OpenCodeSessionDiscovery, DISCOVERY_SKEW_MS } = discoveryModule;
-
-// 15a. matchDiscoveries, pura.
-{
-  const key = (cwd) => shared.normalizeCwdKey(cwd, 'win32');
-  const tab = (terminalId, launchedAt, submittedAt = null, cwd = 'd:\\mi app\\') => ({ terminalId, cwdKey: key(cwd), launchedAt, submittedAt });
-  const row = (id, time_created, directory = 'D:/Mi App') => ({ id, directory, time_created });
-  const brief = (assignments) => assignments.map(({ terminalId, sessionId, uncertain }) => [terminalId, sessionId, uncertain]);
-  const none = new Set();
-
-  check('15 el margen de relojes es de 2 s', DISCOVERY_SKEW_MS === 2000);
-  check('15 una pendiente que envio y una fila del mismo proyecto (D:/Mi App contra d:\\mi app\\) -> asignada, sin duda',
-    same(brief(matchDiscoveries([row('ses_1', 5000)], [tab('A', 4000, 4500)], none, 'win32')), [['A', 'ses_1', false]]));
-  /*
-    R26-3, con lo medido en vivo: la fila nace con el primer mensaje, nunca al
-    lanzar. Sola y sin un envio que la explique, la abrio OpenCode Desktop u
-    `opencode` en otra terminal: no se asigna.
-  */
-  const aloneSilent = matchDiscoveries([row('ses_1', 5000)], [tab('A', 4000)], none, 'win32');
-  check('15 una pendiente sola que no envio nada -> nada: la fila es de otro proceso', same(aloneSilent, []), show(aloneSilent));
-  // Sin margen para el envio: uno posterior a la fila, aunque sea por 1 ms, no pudo crearla.
-  const aloneLate = matchDiscoveries([row('ses_1', 5000)], [tab('A', 4000, 5001)], none, 'win32');
-  const aloneEdge = matchDiscoveries([row('ses_1', 5000)], [tab('A', 4000, 5000)], none, 'win32');
-  check('15 una pendiente sola que envio 1 ms despues de la fila -> nada; a la misma hora -> sin duda',
-    same(aloneLate, []) && same(brief(aloneEdge), [['A', 'ses_1', false]]), show([aloneLate, aloneEdge]));
-  check('15 la misma fila en linux, con otra forma de la carpeta, no casa (la clave depende de la plataforma)',
-    same(matchDiscoveries([row('ses_1', 5000)], [{ ...tab('A', 4000, 4500), cwdKey: shared.normalizeCwdKey('d:\\mi app\\', 'linux') }], none, 'linux'), []));
-  check('15 una fila de antes del lanzamiento menos 2 s -> nada; justo en el borde -> asignada',
-    same(matchDiscoveries([row('ses_1', 1999)], [tab('A', 4000, 1500)], none, 'win32'), []) &&
-    same(brief(matchDiscoveries([row('ses_1', 2000)], [tab('A', 4000, 2000)], none, 'win32')), [['A', 'ses_1', false]]));
-  check('15 otro proyecto -> nada', same(matchDiscoveries([row('ses_1', 5000, 'D:/Otro')], [tab('A', 4000, 4500)], none, 'win32'), []));
-  check('15 una fila sin carpeta -> nada', same(matchDiscoveries([row('ses_1', 5000, '')], [{ ...tab('A', 4000, 4500), cwdKey: '' }], none, 'win32'), []));
-  check('15 un id que este proceso ya asigno -> nada', same(matchDiscoveries([row('ses_1', 5000)], [tab('A', 4000, 4500)], new Set(['ses_1']), 'win32'), []));
-
-  const secondSent = matchDiscoveries([row('ses_1', 9100)], [tab('A', 1000), tab('B', 3000, 9000)], none, 'win32');
-  check('15 dos pendientes y solo la segunda envio antes de la fila -> la segunda, sin duda', same(brief(secondSent), [['B', 'ses_1', false]]), show(secondSent));
-  const firstSent = matchDiscoveries([row('ses_1', 9100)], [tab('A', 1000, 9000), tab('B', 3000)], none, 'win32');
-  check('15 dos pendientes y solo la lanzada primero envio -> esa, aunque la otra sea mas nueva', same(brief(firstSent), [['A', 'ses_1', false]]), show(firstSent));
-  const nobodySent = matchDiscoveries([row('ses_1', 9100)], [tab('A', 3000), tab('B', 1000)], none, 'win32');
-  check('15 dos sin envio -> nada: la fila es de otro proceso', same(nobodySent, []), show(nobodySent));
-  const lateSend = matchDiscoveries([row('ses_1', 9100)], [tab('A', 1000, 9101), tab('B', 3000)], none, 'win32');
-  check('15 un envio posterior a la fila no cuenta: sin otro envio, nada', same(lateSend, []), show(lateSend));
-  const lateAndOnTime = matchDiscoveries([row('ses_1', 9100)], [tab('A', 1000, 9101), tab('B', 3000, 9000)], none, 'win32');
-  check('15 uno tarde y otro a tiempo -> el de a tiempo, sin duda', same(brief(lateAndOnTime), [['B', 'ses_1', false]]), show(lateAndOnTime));
-  check('15 una fila sin duda no lleva motivo', secondSent[0]?.reason === null);
-  const bothBefore = matchDiscoveries([row('ses_1', 9100)], [tab('A', 1000, 8000), tab('B', 3000, 9000)], none, 'win32');
-  check('15 dos que enviaron antes de la fila -> la del envio mas nuevo, dudosa y con motivo',
-    same(brief(bothBefore), [['B', 'ses_1', true]]) && /varias/.test(bothBefore[0]?.reason ?? ''), show(bothBefore));
-
-  const twoByTwo = matchDiscoveries([row('ses_2', 7100), row('ses_1', 5100)], [tab('A', 1000, 5000), tab('B', 1500, 7000)], none, 'win32');
-  check('15 dos filas y dos pendientes -> una a cada una, en el orden de las filas, sin duda', same(brief(twoByTwo), [['A', 'ses_1', false], ['B', 'ses_2', false]]), show(twoByTwo));
-  /*
-    Una sesion ajena que nace poco antes de un envio: con un margen, iba
-    primero en el orden y le ganaba a la sesion de la pestana.
-  */
-  const foreignFirst = matchDiscoveries([row('ses_ajena', 6500), row('ses_propia', 7400)], [tab('A', 1000, 7000)], none, 'win32');
-  check('15 una sesion ajena nacida medio segundo antes del envio no le gana a la propia',
-    same(brief(foreignFirst), [['A', 'ses_propia', false]]), show(foreignFirst));
-  const bothAfter = matchDiscoveries([row('ses_1', 5100)], [tab('A', 1000, 5500), tab('B', 1500, 6000)], none, 'win32');
-  check('15 si las dos enviaron despues de la fila -> nada', same(bothAfter, []), show(bothAfter));
-  const sameTime = matchDiscoveries([row('ses_b', 5000), row('ses_a', 5000)], [tab('A', 1000, 4000)], none, 'win32');
-  check('15 dos filas con la misma hora: se desempata por id, y la pestana se asigna una sola vez', same(brief(sameTime), [['A', 'ses_a', false]]), show(sameTime));
-
-  const typed = ['\r', 'hola\r', 'a\rb'].map(isTypedSubmission);
-  const notTyped = ['\x1b[I', '\x1b[O', '\x1b[200~hola\x1b[201~\r', '\x1b\r', '\x1b[?1;2c', 'hola', '', '\n'].map(isTypedSubmission);
-  check('15 un Enter tecleado cuenta como envio; ESC[I, ESC[O, un pegado entre marcadores, Alt+Enter, respuestas de la terminal y texto sin Enter no',
-    typed.every(Boolean) && notTyped.every((value) => !value), show([typed, notTyped]));
-}
-
-// 15b. OpenCodeSessionDiscovery contra una base de prueba, con un aviso de mentira.
-{
-  const found = await createOpenCodeFixture(path.join(fixturesDir, 'descubrimiento'), {});
-  const listeners = new Set();
-  const signal = {
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    fire: () => { for (const listener of [...listeners]) listener(); },
-  };
-  let clock = 0;
-  const warnings = [];
-  const db = openDb(found.file);
-  const discovery = new OpenCodeSessionDiscovery({ db, signal, platform: 'win32', now: () => clock, warn: (message) => warnings.push(message) });
-  const reports = [];
-  const context = (terminalId, launchedAt, cwd = 'D:\\Proyecto') => ({ terminalId, cwd, launchedAt, reportSessionId: (id) => reports.push([terminalId, id]) });
-  const insert = (id, time_created, directory = 'D:/Proyecto') => found.insertSession({ id, directory, title: 'New session - 2026-09-13T10:00:00.000Z', time_created, time_updated: time_created });
-
-  check('15 sin pendientes no escucha la base', !discovery.isListening() && listeners.size === 0);
-  insert('ses_temprana_000000000000000001', 10_500);
-  const hookA = discovery.track(context('A', 10_000));
-  check('15 track: escucha la base, y no asigna adentro de onSpawned', discovery.isListening() && listeners.size === 1 && discovery.pendingCount() === 1 && reports.length === 0, show(reports));
-  // El envio que la creo, antes del intento inmediato: sin el, la asignacion saldria dudosa.
-  clock = 10_400;
-  hookA.onSubmitted('hola');
-  await flushAsync();
-  check('15 track: el intento inmediato corre despues, y encuentra la fila que ya estaba, sin aviso',
-    same(reports, [['A', 'ses_temprana_000000000000000001']]) && warnings.length === 0, show([reports, warnings]));
-  check('15 sin pendientes deja de escuchar', !discovery.isListening() && listeners.size === 0 && discovery.pendingCount() === 0);
-  hookA.onInput('hola\r');
-  hookA.onSubmitted('hola');
-  hookA.onExit();
-  check('15 un gancho ya casado ignora lo que se escribe y la salida', discovery.pendingCount() === 0 && reports.length === 1);
-
-  reports.length = 0;
-  const hookB = discovery.track(context('B', 20_000));
-  const hookC = discovery.track(context('C', 21_000));
-  await flushAsync();
-  hookB.onInput('\x1b[I');
-  hookC.onInput('\x1b[I');
-  hookC.onInput('\x1b[?1;2c');
-  clock = 25_000;
-  hookB.onInput('listo\r');
-  clock = 26_000;
-  hookC.onInput('\x1b[200~otro\x1b[201~');
-  insert('ses_de_b_00000000000000000001', 25_100);
-  // Un segundo Enter antes de que se mire: cuenta el primer envio, que es el que pudo crear la sesion.
-  clock = 28_000;
-  hookB.onInput('\r');
-  signal.fire();
-  check('15 dos pestanas: el foco y las respuestas de la terminal no cuentan, el primer Enter tecleado en la lanzada primero decide, sin aviso',
-    same(reports, [['B', 'ses_de_b_00000000000000000001']]) && warnings.length === 0 && discovery.pendingCount() === 1 && discovery.isListening(), show([reports, warnings]));
-
-  const hookLate = discovery.track(context('D', 25_050));
-  const hookGone = discovery.track(context('X', 25_060));
-  await flushAsync();
-  check('15 una fila ya asignada no se le da a otra pestana', reports.length === 1 && discovery.pendingCount() === 3, show(reports));
-  hookGone.cancel();
-  check('15 cancel suelta solo esa pestana', discovery.pendingCount() === 2 && discovery.isListening());
-
-  // C y D esperan en el mismo proyecto y ninguna tecleo un Enter: decide el envio del cuadro, no el lanzamiento (D es la mas nueva).
-  clock = 30_000;
-  hookC.onSubmitted('mensaje del cuadro');
-  insert('ses_de_c_00000000000000000001', 30_100);
-  signal.fire();
-  check('15 el envio del cuadro de escritura decide entre dos pestanas, sin aviso',
-    same(reports.at(-1), ['C', 'ses_de_c_00000000000000000001']) && warnings.length === 0 && discovery.pendingCount() === 1, show([reports, warnings]));
-  hookLate.cancel();
-  check('15 con ninguna esperando deja de escuchar', discovery.pendingCount() === 0 && !discovery.isListening());
-  hookB.cancel();
-  hookC.cancel();
-
-  const hookE = discovery.track(context('E', 40_000));
-  await flushAsync();
-  clock = 40_400;
-  hookE.onSubmitted('hola');
-  insert('ses_de_e_00000000000000000001', 40_500);
-  hookE.onExit();
-  check('15 al salir el proceso mira una vez mas, y despues suelta', same(reports.at(-1), ['E', 'ses_de_e_00000000000000000001']) && discovery.pendingCount() === 0);
-  check('15 hasta aca, ninguna asignacion dudosa', warnings.length === 0, show(warnings));
-
-  // R26-3: una pestana sola que no escribio, y una sesion que abre otro proceso en la misma carpeta.
-  const hookS = discovery.track(context('S', 45_000));
-  await flushAsync();
-  insert('ses_de_otro_proceso_000000001', 46_000);
-  signal.fire();
-  const reportsBeforeS = reports.length;
-  check('15 sola y sin envio: la sesion que nace en su carpeta no se le asigna, y la pestana sigue esperando la suya',
-    reports.length === reportsBeforeS && discovery.pendingCount() === 1 && discovery.isListening() && warnings.length === 0,
-    show([reports, warnings]));
-  // Su propio envio, despues: la sesion que crea ese envio si es suya.
-  clock = 47_000;
-  hookS.onSubmitted('hola');
-  insert('ses_de_s_00000000000000000001', 47_400);
-  signal.fire();
-  check('15 ...y la que nace despues de su envio si, sin aviso',
-    same(reports.at(-1), ['S', 'ses_de_s_00000000000000000001']) && discovery.pendingCount() === 0 && warnings.length === 0,
-    show([reports, warnings]));
-  hookS.cancel();
-
-  const hookF = discovery.track(context('F', 50_000));
-  const hookG = discovery.track(context('G', 50_500));
-  await flushAsync();
-  insert('ses_ajena_de_dos_00000000000001', 51_000);
-  signal.fire();
-  check('15 dos sin envio: la sesion ajena no va a ninguna',
-    reports.length === reportsBeforeS + 1 && discovery.pendingCount() === 2 && warnings.length === 0, show([reports, warnings]));
-  clock = 52_000;
-  hookF.onSubmitted('uno');
-  clock = 52_100;
-  hookG.onSubmitted('dos');
-  insert('ses_dudosa_000000000000000001', 52_500);
-  signal.fire();
-  check('15 dos que enviaron antes de la fila: la del envio mas nuevo, y un aviso con la sesion',
-    same(reports.at(-1), ['G', 'ses_dudosa_000000000000000001']) && warnings.length === 1 && warnings[0].includes('ses_dudosa_000000000000000001') && warnings[0].includes('reanuda'),
-    show([reports, warnings]));
-  hookF.cancel();
-  hookG.cancel();
-
-  const first = discovery.track(context('H', 60_000));
-  const relaunched = discovery.track(context('H', 61_000));
-  first.cancel();
-  check('15 el cancel de un lanzamiento viejo no suelta al nuevo de la misma pestana', discovery.pendingCount() === 1 && discovery.isListening());
-  relaunched.cancel();
-
-  const failing = new OpenCodeSessionDiscovery({ db: { all: () => { throw new Error('database is locked'); } }, signal, platform: 'win32' });
-  const failingHook = failing.track(context('I', 70_000));
-  await flushAsync();
-  let attemptError = null;
-  try { failing.attempt(); } catch (error) { attemptError = error; }
-  check('15 una base que falla no rompe el intento ni suelta la pestana', attemptError === null && failing.pendingCount() === 1);
-  failingHook.cancel();
-  failing.dispose();
-
-  discovery.track(context('J', 80_000));
-  discovery.dispose();
-  check('15 dispose suelta todo y deja de escuchar', discovery.pendingCount() === 0 && !discovery.isListening() && listeners.size === 0);
-  db.close();
-
-  // 15c. De punta a punta: el adaptador de verdad, su sondeo de la base y el registro del gancho.
-  const { createOpenCodeAdapter } = await import('../src/agents/opencode/index.ts');
-  const { LaunchHookSlot } = await import('../src/launch-hook-slot.ts');
-  const adapter = createOpenCodeAdapter({ env: { OPENCODE_DB: found.file }, home, platform: 'win32' });
-  const live = [];
-  const hook = adapter.onSpawned({
-    terminalId: 'K', sessionId: '', cwd: 'D:\\Proyecto', resumed: false, pid: 1, launchedAt: Date.now(),
-    readOutput: () => '', write: () => true, onDone: () => undefined, reportSessionId: (id) => live.push(id),
-  });
-  const slot = new LaunchHookSlot();
-  slot.set(hook);
-  slot.input('\x1b[I');
-  slot.input('hola\r');
-  check('15 el registro no suelta el descubrimiento con el foco ni con un Enter', slot.active);
-  await flushAsync();
-  /*
-    Cambios ajenos primero, hasta que el sondeo avise uno: prueba que ya tiene
-    su firma antes de que nazca la fila buscada. Uno solo podia caer antes de
-    la primera vuelta del sondeo y quedar adentro de la firma, sin aviso.
-  */
-  const probe = [];
-  const stopProbe = adapter.history.roots()[0].watch(() => probe.push(1));
-  let foreign = 0;
-  const probed = await waitFor(() => {
-    if (probe.length > 0) return true;
-    foreign += 1;
-    found.insertSession({ id: `ses_ajena_${String(foreign).padStart(20, '0')}`, directory: 'D:/Otro', title: 'x', time_created: Date.now(), time_updated: Date.now() });
-    return false;
-  }, 5000);
-  const liveId = 'ses_en_vivo_00000000000000001';
-  found.insertSession({ id: liveId, directory: 'D:/Proyecto', title: 'x', time_created: Date.now(), time_updated: Date.now() });
-  const heard = await waitFor(() => live.length > 0, 5000);
-  check('15 de punta a punta: el aviso de la base casa la pestana con su sesion, y la ajena no',
-    probed && heard && same(live, [liveId]), show(live));
-  stopProbe();
-  slot.cancel();
-  adapter.dispose();
-
-  /*
-    Apagar el adaptador suelta tambien a las pestanas que esperaban: en el
-    apagado los adaptadores se liberan antes que las pestanas, y la pasada final
-    de cada salida no puede reabrir la base ya cerrada ni avisar una sesion.
-  */
-  const closing = createOpenCodeAdapter({ env: { OPENCODE_DB: found.file }, home, platform: 'win32' });
-  const afterDispose = [];
-  const waiting = closing.onSpawned({
-    terminalId: 'L', sessionId: '', cwd: 'D:\\Cierre', resumed: false, pid: 2, launchedAt: Date.now(),
-    readOutput: () => '', write: () => true, onDone: () => undefined, reportSessionId: (id) => afterDispose.push(id),
-  });
-  closing.dispose();
-  found.insertSession({ id: 'ses_tras_el_cierre_0000000001', directory: 'D:/Cierre', title: 'x', time_created: Date.now(), time_updated: Date.now() });
-  await flushAsync();
-  waiting.onExit();
-  check('15 dispose del adaptador: una pestana que esperaba no se casa despues del cierre', same(afterDispose, []), show(afterDispose));
-  closing.dispose();
-  found.close();
 }
 
 // ---------------------------------------------------------------------------

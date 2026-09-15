@@ -193,9 +193,23 @@ export class AgentRegistry {
     return [...dirs];
   }
 
-  disposeAll(): void {
+  /**
+   * Suelta todos los adaptadores. Lo sincronico pasa antes de devolver, como
+   * siempre; la promesa espera ademas lo que alguno tenga que terminar (hito 29:
+   * el `serve` de OpenCode). Nunca rechaza.
+   */
+  disposeAll(): Promise<void> {
     for (const stop of [...this.changeSubscriptions]) stop();
-    for (const { adapter } of this.agents.values()) adapter.dispose();
+    const pending: Promise<void>[] = [];
+    for (const { adapter } of this.agents.values()) {
+      try {
+        const result = adapter.dispose();
+        if (result instanceof Promise) pending.push(result);
+      } catch (error) {
+        console.warn(`[agentes] ${adapter.label} no se pudo soltar: ${String(error)}`);
+      }
+    }
+    return Promise.allSettled(pending).then(() => undefined);
   }
 }
 
@@ -254,10 +268,16 @@ export function resolveAgentForOpen(input: ResolveAgentInput): AgentId | null {
  * lo mismo.
  */
 export function createAgentRegistry(): AgentRegistry {
-  return new AgentRegistry([
+  /*
+    El `serve` de OpenCode (hito 29) arranca con el mismo entorno que las
+    pestanas: el compuesto de este registro, que todavia no existe cuando se
+    crea el adaptador. Se lo pide recien al lanzar el primero.
+  */
+  const registry: AgentRegistry = new AgentRegistry([
     createClaudeCodeAdapter(),
     createCodexAdapter(),
-    createOpenCodeAdapter(),
+    createOpenCodeAdapter({ serveEnv: () => registry.composedEnvironment(process.env) }),
     createAntigravityAdapter(),
   ]);
+  return registry;
 }

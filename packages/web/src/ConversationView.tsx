@@ -31,6 +31,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
+  AgentId,
+  AgentInfo,
   AnswerSelection,
   ConversationEvent,
   ConversationImageSource,
@@ -40,8 +42,16 @@ import type {
   ContextWindowSource,
   StatusLineState,
 } from '@agent-workbench/shared';
-import { DISCOVERING_HINT, NO_TRANSCRIPT_TEXT, waitingBarText } from './agent-ui.js';
+import {
+  DISCOVERING_HINT,
+  NO_TRANSCRIPT_TEXT,
+  SERVER_CLOSED_RELAUNCHING_TEXT,
+  SERVER_CLOSED_RELAUNCH_TEXT,
+  waitingBarText,
+  type ServerClosedBarState,
+} from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
+import { ContinueButton } from './ContinueButton.js';
 import { noticeText } from './conversation-notice.js';
 import { ImageViewer } from './ImageViewer.js';
 import { nextUrl } from './inline-markup.js';
@@ -307,12 +317,32 @@ interface ConversationViewProps {
    */
   toolCallNotice?: string | null;
   /**
+   * El servidor de la CLI se cerro con la pestana enganchada (hito 29, M2), o
+   * null (`serverClosedBarState`). Relanzar es `onWakeCli`.
+   */
+  serverClosed?: { state: ServerClosedBarState; text: string } | null;
+  /**
    * Para el medidor: como esta la status line opcional de la CLI de la pestana,
    * o null si no tiene (hito 27).
    */
   statusLineState?: StatusLineState | null;
   /** Abre el dialogo de la status line desde el medidor. */
   onConfigureStatusLine?: () => void;
+  /**
+   * Con que CLIs se puede continuar esta conversacion (hito 29,
+   * `continueTargets`). Vacia: no hay `↪` al lado del medidor.
+   */
+  continueTargets?: readonly AgentInfo[];
+  /** Por que el `↪` esta apagado, o null (`continueBlockedReason`). */
+  continueBlockedReason?: string | null;
+  onContinue?: (target: AgentId) => void;
+  /**
+   * Un texto para el buscador del hilo, pedido desde afuera: el clic en un
+   * acierto del buscador global (hito 29). `seq` distingue dos pedidos iguales.
+   */
+  searchRequest?: { query: string; seq: number } | null;
+  /** El pedido ya se aplico: quien lo guarda lo suelta. */
+  onSearchRequestApplied?: (seq: number) => void;
 }
 
 export function ConversationView({
@@ -328,8 +358,14 @@ export function ConversationView({
   waking,
   discovering = false,
   toolCallNotice = null,
+  serverClosed = null,
   statusLineState = null,
   onConfigureStatusLine,
+  continueTargets = [],
+  continueBlockedReason = null,
+  onContinue,
+  searchRequest = null,
+  onSearchRequestApplied,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -350,6 +386,16 @@ export function ConversationView({
   const [query, setQuery] = useState('');
   const [matchIndex, setMatchIndex] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  /*
+    Tambien al montar: si no habia ninguna pestana, la vista nace con la que
+    abrio el acierto, y el pedido la estaba esperando.
+  */
+  useEffect(() => {
+    if (searchRequest === null) return;
+    setQuery(searchRequest.query);
+    onSearchRequestApplied?.(searchRequest.seq);
+  }, [searchRequest, onSearchRequestApplied]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef(new Map<string, HTMLElement>());
@@ -497,6 +543,20 @@ export function ConversationView({
           </>
         )}
         <span className="conversation-spacer" />
+        {/*
+          Continuar con otra CLI (hito 29), con la CLI y la sesion de esta
+          pestana. Solo con otra instalada; apagado mientras la sesion todavia
+          no esta en el historial.
+        */}
+        {onContinue !== undefined && (
+          <ContinueButton
+            targets={continueTargets}
+            className="icon-button conversation-continue"
+            text="↪ Continuar con…"
+            blockedReason={continueBlockedReason}
+            onPick={onContinue}
+          />
+        )}
         <ContextMeter
           usage={usage}
           source={contextWindowSource}
@@ -592,11 +652,13 @@ export function ConversationView({
         })}
       </div>
 
-      {cliPresence === 'live' ? (
+      {serverClosed !== null && (serverClosed.state === 'relaunching' || cliPresence === 'live') ? (
+        <ServerClosedBar text={serverClosed.text} relaunching={serverClosed.state === 'relaunching'} onRelaunch={onWakeCli} />
+      ) : cliPresence === 'live' ? (
         waitingFor === null && toolCallNotice !== null ? (
           <ToolCallBar notice={toolCallNotice} onGoToCli={onGoToCli} />
         ) : (
-          <WaitingBar waitingFor={waitingFor} onGoToCli={onGoToCli} />
+          <WaitingBar waitingFor={waitingFor} questionsAnswerable={questionsAnswerable} onGoToCli={onGoToCli} />
         )
       ) : (
         <WakeBar presence={cliPresence} exitCode={exitCode} waking={waking} onWake={onWakeCli} />
@@ -647,6 +709,36 @@ function WakeBar({
 }
 
 /**
+ * El servidor de la CLI se cerro y la pestana quedo enganchada a nada (hito 29,
+ * M2).
+ *
+ * Mismo sitio que la barra de abrir la CLI, porque contesta lo mismo: por que
+ * no puedo escribir y que hago. Medido con OpenCode: el TUI no termina cuando
+ * muere su `serve`, asi que sin esto la pestana se veia viva y no decia nada.
+ * Relanzar termina ese TUI, relanza el servidor y vuelve a enganchar la sesion;
+ * mientras tanto la barra se queda, aunque en el medio la CLI vieja salga.
+ */
+function ServerClosedBar({
+  text,
+  relaunching,
+  onRelaunch,
+}: {
+  text: string;
+  relaunching: boolean;
+  onRelaunch: () => void;
+}): JSX.Element {
+  return (
+    <div className="conversation-waiting conversation-wake" role="status">
+      <span className="conversation-wake-dot" aria-hidden="true" />
+      <span>{text}</span>
+      <button className="primary-button primary-button-small" onClick={onRelaunch} disabled={relaunching}>
+        {relaunching ? SERVER_CLOSED_RELAUNCHING_TEXT : SERVER_CLOSED_RELAUNCH_TEXT}
+      </button>
+    </div>
+  );
+}
+
+/**
  * La CLI esta esperando una respuesta.
  *
  * Va al pie, entre el hilo y el cuadro de escritura, porque es ahi donde uno
@@ -661,16 +753,19 @@ function WakeBar({
  */
 function WaitingBar({
   waitingFor,
+  questionsAnswerable,
   onGoToCli,
 }: {
   waitingFor: string | null;
+  questionsAnswerable: boolean;
   onGoToCli: () => void;
 }): JSX.Element | null {
   if (waitingFor === null) return null;
 
-  // La unica etiqueta que se traduce, porque es la unica que dice algo
-  // accionable. El resto se agrupa: que espera se sabe, de que se trata no.
-  const text = waitingBarText(waitingFor);
+  // Las etiquetas que se traducen son las que dicen algo accionable. El resto
+  // se agrupa: que espera se sabe, de que se trata no. Una pregunta que se
+  // contesta desde el hilo lo dice (hito 29, B6).
+  const text = waitingBarText(waitingFor, questionsAnswerable);
 
   return (
     <div className="conversation-waiting" role="status">

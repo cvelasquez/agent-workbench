@@ -25,6 +25,7 @@ import {
   isAgentId,
   modelOptionFor,
   normalizeCwdKey,
+  shouldOfferAgentChoice,
   type AgentCapabilities,
   type AgentId,
   type AgentInfo,
@@ -41,6 +42,8 @@ import {
   type StatusLineState,
   type TerminalActivity,
   type TerminalDescriptor,
+  type TerminalId,
+  type TerminalOfflineReason,
 } from '@agent-workbench/shared';
 
 export interface Shortcut {
@@ -737,6 +740,119 @@ export function menuPlacement(
   return { left, top };
 }
 
+/** Lo unico que el menu usa de un nodo del DOM para decidir si un scroll lo cierra. */
+export interface MenuScrollNode {
+  contains(other: unknown): boolean;
+}
+
+/**
+ * Si un scroll cierra el menu: solo el de algo que puede mover el boton que lo
+ * abrio —el documento o un ancestro suyo—, y nunca el del propio menu.
+ *
+ * Hito 29, medido en la prueba en vivo: con texto largo en el filtro de la
+ * barra, el clic en `↪` de una fila le saca el foco al campo, Chrome devuelve su
+ * scroll horizontal a cero y ese scroll cerraba el menu recien abierto. El
+ * primer clic no hacia nada. El scroll interno de un campo de texto no mueve
+ * nada de lo que hay alrededor. Un destino desconocido cierra, como antes.
+ */
+export function scrollClosesMenu(
+  scrolled: unknown,
+  anchor: unknown,
+  menu: MenuScrollNode | null,
+): boolean {
+  const node = scrolled as Partial<MenuScrollNode> | null;
+  if (node === null || typeof node !== 'object' || typeof node.contains !== 'function') return true;
+  if (menu !== null && menu.contains(scrolled)) return false;
+  return node.contains(anchor);
+}
+
+// ---------------------------------------------------------------------------
+// Continuar en otra CLI (hito 29)
+// ---------------------------------------------------------------------------
+
+/**
+ * Con que CLIs se puede continuar una conversacion: las instaladas salvo la de
+ * origen, en orden de registro.
+ *
+ * `[]` —y entonces no se dibuja ningun `↪`— si no hay mas de una instalada
+ * (D21): quien usa una sola CLI no ve nada nuevo. Tambien con una sesion
+ * `partial`: el rescate del IDE (hito 28) no trae ningun mensaje, y el servidor
+ * la rechazaria igual con "no tiene mensajes que continuar" (B9).
+ */
+export function continueTargets(
+  agents: readonly AgentInfo[],
+  source: SessionAgentId | null,
+  partial = false,
+): AgentInfo[] {
+  if (source === null || partial || !shouldOfferAgentChoice(agents)) return [];
+  return menuAgents(agents).filter((agent) => agent.id !== source);
+}
+
+/** Titulo del `↪`, en la fila y en el medidor. */
+export const CONTINUE_BUTTON_TITLE = 'Continuar esta conversación con otra CLI';
+
+/**
+ * Por que el `↪` del medidor esta apagado, o null si no lo esta.
+ *
+ * `hasMessages` es si el hilo de la pestana tiene algun evento (R29-5): una
+ * pestana nueva de Claude Code tiene id desde el lanzamiento, pero su archivo no
+ * existe hasta el primer mensaje, y el servidor contestaba que la conversacion
+ * no esta en el historial.
+ */
+export function continueBlockedReason(sessionId: string, discovering: boolean, hasMessages: boolean): string | null {
+  if (discovering) return 'La sesión todavía no está en el historial: aparece con el primer mensaje.';
+  if (sessionId.length === 0) return 'Esta pestaña todavía no tiene una conversación que continuar.';
+  if (!hasMessages) return 'Esta conversación todavía no tiene mensajes que continuar.';
+  return null;
+}
+
+/**
+ * El aviso encima del cuadro de una pestana que continua otra conversacion.
+ * Dice lo que se pierde: el agente no tiene el contexto de la otra CLI, tiene un
+ * recorte (D16).
+ */
+export function handoffNoticeText(
+  label: string,
+  includedTurns: number,
+  totalTurns: number,
+  totalTurnsIsMinimum: boolean,
+): string {
+  const of = totalTurnsIsMinimum ? `de más de ${totalTurns}` : `de ${totalTurns}`;
+  const turns =
+    includedTurns >= totalTurns && !totalTurnsIsMinimum
+      ? totalTurns === 1
+        ? 'del único turno'
+        : `de los ${totalTurns} turnos`
+      : includedTurns === 1
+        ? `del último turno ${of}`
+        : `de los últimos ${includedTurns} ${of} turnos`;
+  return `Continuación de ${label}: el agente arranca de un transcript ${turns}, no del contexto que tenía. Los resultados de herramientas van recortados y las imágenes no viajan.`;
+}
+
+/** Lo que agrega el aviso mientras el servidor manda la continuacion sola. */
+export const HANDOFF_SENDING_TEXT = 'Mandando la continuación…';
+
+/** Lo que agrega el aviso cuando la continuacion no se mando sola y quedo en el cuadro. */
+export function handoffPrefillText(reason: 'no-delivery' | 'not-ready' | 'send-failed'): string {
+  switch (reason) {
+    case 'no-delivery':
+      return 'El mensaje quedó en el cuadro: revisalo y mandalo con Enter.';
+    case 'not-ready':
+      return 'La CLI no llegó a estar lista a tiempo: el mensaje quedó en el cuadro para que lo mandes.';
+    case 'send-failed':
+      return 'No se pudo mandar solo: el mensaje quedó en el cuadro para que lo mandes.';
+  }
+}
+
+/**
+ * Como queda el borrador de una pestana cuando llega un texto prellenado: el
+ * texto solo si estaba vacio; si no, antes de lo escrito y separado por una
+ * linea en blanco. Nunca se pisa lo que el usuario escribio.
+ */
+export function mergePrefill(draft: string, prefill: string): string {
+  return draft.trim().length === 0 ? prefill : `${prefill}\n\n${draft}`;
+}
+
 /** La insignia de una pestana: solo si hay para elegir, y si la pestana tiene CLI. */
 export function tabBadgeVisible(offerAgentChoice: boolean, agent: AgentId | null): boolean {
   return offerAgentChoice && agent !== null;
@@ -831,25 +947,102 @@ export function openToolCallNotice(
  * resto se agrupa. Una sola copia para la barra y para el cuadro que se apaga
  * por ella (`pendingApprovalNotice`).
  */
-export function waitingBarText(waitingFor: string): string {
-  return waitingFor === 'permission prompt'
-    ? 'La CLI esta esperando que autorices una herramienta.'
-    : 'La CLI esta esperando una respuesta tuya.';
+export function waitingBarText(waitingFor: string, questionsAnswerable = false): string {
+  if (waitingFor === 'permission prompt') return 'La CLI esta esperando que autorices una herramienta.';
+  /*
+    Hito 29 (B6): una CLI que publica que espera la respuesta a una pregunta
+    —`'question'`— y cuyas tarjetas se contestan desde el hilo. Ahi la barra no
+    manda a la solapa CLI: la tarjeta con los botones esta arriba. Ninguna CLI
+    de hoy publica esa etiqueta, y con cualquier otra el texto es el de siempre.
+  */
+  if (waitingFor === 'question' && questionsAnswerable) return 'El agente te hizo una pregunta: respondela en el hilo.';
+  return 'La CLI esta esperando una respuesta tuya.';
+}
+
+/**
+ * La barra de "el servidor de la CLI se cerro" (hito 29, M2).
+ *
+ * Medido con OpenCode: si su `serve` muere, el TUI enganchado no termina y la
+ * pestana queda viva, `offline` y muda. La barra lo dice y ofrece relanzar,
+ * que es el mismo `terminal.wake`: con la CLI viva y ese motivo, el servidor
+ * termina el TUI, relanza el `serve` y vuelve a enganchar la sesion.
+ *
+ *  - `offer`: el motivo esta y la CLI sigue viva. Con la CLI terminada la
+ *    barra de siempre ya ofrece abrirla.
+ *  - `relaunching`: se pidio relanzar y todavia no termino. Gana a todo: en el
+ *    medio el TUI viejo sale, y sin esto la barra de "La CLI se cerro (codigo
+ *    1)" apareceria justo despues del clic.
+ */
+export type ServerClosedBarState = 'offer' | 'relaunching';
+
+export function serverClosedBarState(input: {
+  offlineReason: TerminalOfflineReason | null;
+  alive: boolean;
+  relaunching: boolean;
+}): ServerClosedBarState | null {
+  if (input.relaunching) return 'relaunching';
+  return input.offlineReason === 'server-closed' && input.alive ? 'offer' : null;
+}
+
+/** Lo que dice la barra, y el cuadro que se apaga por ella. */
+export function serverClosedBarText(label: string | null): string {
+  return `El servidor de ${label ?? 'la CLI'} se cerró y esta pestaña quedó sin conexión.`;
+}
+
+export const SERVER_CLOSED_RELAUNCH_TEXT = 'Relanzar';
+export const SERVER_CLOSED_RELAUNCHING_TEXT = 'Relanzando…';
+
+/**
+ * Por donde va cada relanzamiento: `waiting-exit` hasta que la lista de
+ * pestanas diga que el TUI viejo termino, `exited` hasta que diga que el nuevo
+ * esta vivo.
+ */
+export type RelaunchPhase = 'waiting-exit' | 'exited';
+
+/**
+ * Avanza los relanzamientos con una lista de pestanas nueva. `finished` son los
+ * que ya no esperan nada: el TUI nuevo vive, o la pestana ya no esta. Uno que
+ * todavia no vio salir al viejo no termina aunque la pestana diga "viva": esa es
+ * la del TUI viejo.
+ */
+export function advanceRelaunches(
+  phases: ReadonlyMap<TerminalId, RelaunchPhase>,
+  terminals: readonly Pick<TerminalDescriptor, 'terminalId' | 'alive'>[],
+): { phases: Map<TerminalId, RelaunchPhase>; finished: TerminalId[] } {
+  const next = new Map<TerminalId, RelaunchPhase>();
+  const finished: TerminalId[] = [];
+  for (const [terminalId, phase] of phases) {
+    const found = terminals.find((terminal) => terminal.terminalId === terminalId);
+    if (found === undefined || (found.alive && phase === 'exited')) {
+      finished.push(terminalId);
+    } else {
+      next.set(terminalId, found.alive ? phase : 'exited');
+    }
+  }
+  return { phases: next, finished };
 }
 
 /**
  * Por que el cuadro no deja mandar mientras la CLI espera, o null si deja.
  *
- * Solo con una CLI cuya confirmacion abierta aprueba lo que llegue
- * (`approvesPendingOnCycle`, R27-2): el Enter aparte del mensaje caeria sobre
- * la opcion resaltada. Es el mismo texto de la barra, que ya esta a la vista.
- * Con Claude Code la capacidad es false y el cuadro sigue como siempre.
+ * Con dos clases de CLI, y con ninguna otra:
+ *
+ *  - La que tiene una confirmacion abierta que aprueba lo que llegue
+ *    (`approvesPendingOnCycle`, R27-2): el Enter aparte del mensaje caeria
+ *    sobre la opcion resaltada.
+ *  - La que declara que su espera bloquea el cuadro (`waitingBlocksSubmit`,
+ *    hito 29, D12): un permiso o una pregunta abiertos recibirian el pegado.
+ *
+ * Es el mismo texto de la barra, que ya esta a la vista; con una pregunta que
+ * se contesta en el hilo, la barra lo dice (B6). Con Claude Code las dos
+ * capacidades son false y el cuadro sigue como siempre.
  */
 export function pendingApprovalNotice(
   capabilities: AgentCapabilities,
   waitingFor: string | null,
   alive: boolean,
 ): string | null {
-  if (!alive || waitingFor === null || capabilities.permissionCycle?.approvesPendingOnCycle !== true) return null;
-  return waitingBarText(waitingFor);
+  if (!alive || waitingFor === null) return null;
+  if (capabilities.permissionCycle?.approvesPendingOnCycle !== true && !capabilities.waitingBlocksSubmit) return null;
+  return waitingBarText(waitingFor, capabilities.questionCards);
 }

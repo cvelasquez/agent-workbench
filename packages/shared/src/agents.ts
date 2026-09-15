@@ -230,6 +230,16 @@ export interface AgentCapabilities {
   contextWindowSource: ContextWindowSource | null;
   /** Solapa Planes. */
   plans: boolean;
+  /**
+   * Mientras la CLI espera un permiso o una respuesta, el cuadro no manda y el
+   * servidor rechaza el envio (hito 29, D12).
+   *
+   * Existe por la CLI cuyo menu de espera recibiria el pegado y su Enter como
+   * teclas, y que ademas publica su estado: ahi el candado de una herramienta
+   * sin resultado (CLAUDE.md 10.8) se apaga con `statusSource`, y sin esto no
+   * quedaria ninguno. Hoy ninguna CLI lo declara.
+   */
+  waitingBlocksSubmit: boolean;
 }
 
 /**
@@ -267,6 +277,7 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   rewind: false,
   contextWindowSource: null,
   plans: false,
+  waitingBlocksSubmit: false,
 };
 
 /** Una CLI tal como la ve el cliente. */
@@ -418,6 +429,7 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     rewind: record['rewind'] === true,
     contextWindowSource: asLiteral(record['contextWindowSource'], CONTEXT_WINDOW_SOURCES),
     plans: record['plans'] === true,
+    waitingBlocksSubmit: record['waitingBlocksSubmit'] === true,
   };
 }
 

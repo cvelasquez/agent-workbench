@@ -33,6 +33,8 @@ import {
   IMPORTED_AGENT_LABELS,
   isImportedAgentId,
   normalizeCwdKey,
+  type ConversationEvent,
+  type GlobalSearchResult,
   type IndexStatus,
   type ProjectSummary,
   type SessionAgentId,
@@ -44,6 +46,10 @@ import {
   type VaultStatus,
 } from '@agent-workbench/shared';
 import type { AgentRegistry } from '../agents/registry.js';
+import { TRANSPORT_LIMITS, limitEvent } from '../agents/transport-limits.js';
+import { runGlobalSearch, type GlobalSearchOptions, type SearchableSession } from '../global-search.js';
+import type { ArchivedEvents } from '../handoff/handoff.js';
+import { HANDOFF_MAX_EVENTS } from '../handoff/transcript.js';
 import { revealPath } from '../reveal.js';
 import type { SessionIndex } from '../session-index.js';
 import type { SettingsStore } from '../settings-store.js';
@@ -381,6 +387,87 @@ export class VaultService {
     await writeFileAtomic(file, text, this.writeDeps);
     this.openWithSystem(file);
     return file;
+  }
+
+  /**
+   * Los eventos de una sesion para continuarla en otra CLI (hito 29, D15), o
+   * null si la copia no la tiene o no conviene leerla de ahi.
+   *
+   * La copia sirve cuando es lo que hay —una fila que solo esta en la copia, o
+   * una importada— y cuando esta al dia con su historial nativo (la huella de
+   * §13.5, como al exportar). Una nativa cuya copia quedo atras da null: la
+   * copia llega despues de 60 s de calma y solo encendida, y lo que se pierde
+   * con una copia vieja son justo los ultimos turnos, que es lo que la otra CLI
+   * necesita. Ahi lee el seguidor nativo.
+   *
+   * Se quedan los ultimos `maxEvents`, recortados a los topes de transporte: una
+   * sesion de la copia trae los textos enteros y puede pesar decenas de MB, y el
+   * transcript corta mas abajo que eso.
+   */
+  async handoffEvents(agent: SessionAgentId, sessionId: string, maxEvents = HANDOFF_MAX_EVENTS): Promise<ArchivedEvents | null> {
+    const { catalog, index, agents } = this.options;
+    if (this.writer.snapshot().activity === 'moving') return null;
+    const header = catalog.header(agent, sessionId);
+    if (header === null) return null;
+
+    const native = index.nativeSessions().find((session) => session.agent === agent && session.summary.sessionId === sessionId);
+    if (native !== undefined) {
+      const item = await agents
+        .adapter(native.agent)
+        .history.item(native.ref)
+        .catch(() => null);
+      // Sin origen en disco, la copia es lo que queda; con origen, solo si esta al dia.
+      if (item !== null && !copyMatchesOrigin(header, item, this.writer.getRevision())) return null;
+    }
+
+    const cap = Math.max(1, Math.floor(maxEvents));
+    let kept: ConversationEvent[] = [];
+    let total = 0;
+    for await (const line of catalog.readBody(agent, sessionId)) {
+      if (line.kind !== 'event') continue;
+      total += 1;
+      kept.push(limitEvent(line.event, TRANSPORT_LIMITS));
+      // De a tandas y no un `shift` por evento: una sesion de cien mil eventos no cuesta cuadratico.
+      if (kept.length >= cap * 2) kept = kept.slice(-cap);
+    }
+    return { events: kept.slice(-cap), partial: header.partial, complete: total <= cap };
+  }
+
+  /**
+   * Busca en el texto de las conversaciones de la copia (hito 29, D22).
+   *
+   * **Solo la copia**, con lo que tenga: encendida, lo nuevo llega despues de
+   * su minuto de calma; apagada, se busca en lo que guardo mientras estuvo
+   * encendida o en lo importado. No escribe nada y no lee ningun historial
+   * nativo. Todas las sesiones del catalogo, tambien las que tienen su nativa:
+   * la barra las muestra una sola vez y el acierto lleva el par para encontrar
+   * la fila. Se rechaza durante una mudanza, como abrir o exportar.
+   */
+  async search(query: string, options: GlobalSearchOptions): Promise<GlobalSearchResult> {
+    this.refuseWhileMoving();
+    const { catalog } = this.options;
+    return runGlobalSearch(
+      {
+        sessions: () => this.searchableSessions(),
+        readLines: (session) => catalog.bodyLines(session.agent, session.sessionId),
+        ...(this.options.now !== undefined ? { now: this.options.now } : {}),
+      },
+      query,
+      options,
+    );
+  }
+
+  /** Las sesiones de la copia con lo que el buscador necesita, archivadas marcadas como en la barra. */
+  private searchableSessions(): SearchableSession[] {
+    const { catalog, archived } = this.options;
+    return catalog.summaries().map((summary) => ({
+      agent: summary.agent,
+      sessionId: summary.sessionId,
+      cwd: summary.cwd,
+      title: summary.title,
+      updatedAt: summary.updatedAt,
+      archived: archived.has(summary.sessionId),
+    }));
   }
 
   /**

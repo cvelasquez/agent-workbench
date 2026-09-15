@@ -22,7 +22,7 @@
  */
 
 import type { ContextUsage, ConversationEvent, ConversationImageSource } from '@agent-workbench/shared';
-import type { HistorySource, LoadedImage } from '../agents/adapter.js';
+import type { HistorySource, LoadedImage, SessionFollower } from '../agents/adapter.js';
 import type { EventLimits } from '../agents/transport-limits.js';
 
 /** Lecturas seguidas sin novedades que alcanzan para dar la sesion por leida. */
@@ -61,6 +61,32 @@ export interface WholeSession {
 const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 /**
+ * `start()` y `poll()` hasta que una lectura, despues de la primera, no trae
+ * nada; un `reset` vuelve a contar, y hay un tope duro de lecturas. Entre dos
+ * lecturas se cede el turno: esto corre en el proceso que reenvia las pty.
+ *
+ * Lo comparten la copia (`readWholeSession`) y la continuacion en otra CLI
+ * (hito 29), que lee con otro tope de eventos. Lanza si el seguidor lanza.
+ */
+export async function drainFollower(follower: SessionFollower): Promise<void> {
+  await follower.start();
+
+  let budget = MAX_POLLS;
+  for (let total = 1; ; total += 1) {
+    const result = await follower.poll();
+    const quiet = !result.reset && result.added.length === 0;
+    if (result.reset) {
+      budget = MAX_POLLS;
+    } else if (quiet && total > 1 && follower.getState() !== 'waiting') {
+      break;
+    }
+    budget -= 1;
+    if (budget <= 0 || total >= MAX_TOTAL_POLLS) break;
+    await nextTurn();
+  }
+}
+
+/**
  * La sesion entera, con `limits`, en una pasada.
  *
  * null si el origen no se encontro: el seguidor no llego a `live` (archivo
@@ -80,21 +106,7 @@ export async function readWholeSession(
   if (history.wholeRead !== true) throw new UnsupportedHistoryError(target.sessionId);
 
   const follower = history.follow(target, { limits, maxEvents: Number.POSITIVE_INFINITY });
-  await follower.start();
-
-  let budget = MAX_POLLS;
-  for (let total = 1; ; total += 1) {
-    const result = await follower.poll();
-    const quiet = !result.reset && result.added.length === 0;
-    if (result.reset) {
-      budget = MAX_POLLS;
-    } else if (quiet && total > 1 && follower.getState() !== 'waiting') {
-      break;
-    }
-    budget -= 1;
-    if (budget <= 0 || total >= MAX_TOTAL_POLLS) break;
-    await nextTurn();
-  }
+  await drainFollower(follower);
 
   const state = follower.getState();
   if (state !== 'live' && state !== 'no-transcript') return null;

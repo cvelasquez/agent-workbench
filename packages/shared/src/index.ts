@@ -11,3 +11,4 @@ export * from './memory.js';
 export * from './agents.js';
 export * from './project-key.js';
 export * from './vault.js';
+export * from './search.js';

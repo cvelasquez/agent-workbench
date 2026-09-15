@@ -21,8 +21,9 @@ import type {
   TerminalDescriptor,
   TerminalId,
   TerminalKind,
+  TerminalOfflineReason,
 } from '@agent-workbench/shared';
-import type { AgentAdapter, CliLocation, LaunchHook } from './agents/adapter.js';
+import type { AgentAdapter, CliLocation, LaunchHook, LaunchPlan } from './agents/adapter.js';
 import {
   resolveAgentForOpen,
   type AgentRegistry,
@@ -34,7 +35,8 @@ import { OutputBuffer } from './output-buffer.js';
 import { PtySession, type LaunchSpec } from './pty-session.js';
 import type { ShellLocation } from './shell-locator.js';
 import { insertionIndex } from './tab-order.js';
-import { ActivityBook } from './terminal-activity.js';
+import { ActivityBook, wakeActionFor, type ActivityEntry } from './terminal-activity.js';
+import { TerminalOpenError, resolveLaunchPlan } from './terminal-open-error.js';
 import {
   WorkspaceStore,
   mergePersistedTabs,
@@ -47,6 +49,9 @@ import {
 
 /** Tope defensivo: cada pestana es un proceso real. */
 const MAX_TERMINALS = 24;
+
+/** Cuanto se espera a que termine la CLI de una pestana que se relanza. */
+const RESTART_EXIT_TIMEOUT_MS = 10_000;
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -109,6 +114,15 @@ interface TerminalEntry {
    * estar esperando una aprobacion, una de un proceso anterior quedo huerfana.
    */
   launchedAt: number | null;
+  /**
+   * true mientras se prepara un lanzamiento (hito 29, D23).
+   *
+   * `launch()` de un adaptador puede ser asincrono, y entre el pedido y la pty
+   * pasa tiempo: sin esto, un segundo "Abrir CLI" lanzaria otro proceso sobre
+   * la misma pestana y el primero quedaria huerfano. Un despertar que encuentra
+   * la entrada lanzando devuelve el descriptor sin lanzar nada.
+   */
+  launching: boolean;
 }
 
 export interface OpenTerminalOptions {
@@ -126,22 +140,8 @@ export interface OpenTerminalOptions {
   rows?: number;
 }
 
-export class TerminalOpenError extends Error {
-  constructor(
-    readonly code:
-      | 'cli-not-found'
-      | 'shell-not-found'
-      | 'invalid-cwd'
-      | 'too-many-terminals'
-      | 'spawn-failed'
-      | 'agent-unsupported',
-    message: string,
-    readonly detail?: string,
-  ) {
-    super(message);
-    this.name = 'TerminalOpenError';
-  }
-}
+// Vive en su propio modulo para que se pueda reconocer sin cargar node-pty.
+export { TerminalOpenError } from './terminal-open-error.js';
 
 export interface TerminalRegistryEvents {
   output: (terminalId: TerminalId, chunk: string) => void;
@@ -152,8 +152,9 @@ export interface TerminalRegistryEvents {
    *
    * Va aparte de `changed` porque late cada 700 ms y `changed` reenvia la lista
    * entera de pestanas: seria repetir todo para cambiar una palabra.
+   * `offlineReason` solo con `offline` y un motivo (hito 29, M2).
    */
-  activity: (terminalId: TerminalId, activity: TerminalActivity) => void;
+  activity: (terminalId: TerminalId, activity: TerminalActivity, offlineReason: TerminalOfflineReason | null) => void;
   /**
    * Cambio la sesion de una pestana de agente.
    *
@@ -340,14 +341,26 @@ export class TerminalRegistry extends EventEmitter {
       launchHook: new LaunchHookSlot(),
       launchedAt: null,
       stopWatchingActivity: null,
+      launching: true,
     };
     this.terminals.set(terminalId, entry);
 
     try {
-      this.spawn(entry, { resume: resumed });
+      /*
+        `spawn` espera al adaptador. Con Claude Code `launch` devuelve un valor y
+        el `await` no cambia nada que se vea: `open` ya era asincrono. Una
+        entrada que se solto mientras tanto (el apagado) no lanza nada, y eso
+        para quien abre es un fallo: no hay pestana.
+      */
+      const spawned = await this.spawn(entry, { resume: resumed });
+      if (!spawned) {
+        throw new TerminalOpenError('spawn-failed', 'La pestaña se cerró mientras se abría.');
+      }
     } catch (error) {
-      this.terminals.delete(terminalId);
+      if (this.terminals.get(terminalId) === entry) this.terminals.delete(terminalId);
       throw error;
+    } finally {
+      entry.launching = false;
     }
 
     this.insertInOrder(terminalId, entry.descriptor);
@@ -368,28 +381,78 @@ export class TerminalRegistry extends EventEmitter {
   async wake(terminalId: TerminalId): Promise<TerminalDescriptor | null> {
     const entry = this.terminals.get(terminalId);
     if (entry === undefined) return null;
-    if (entry.session !== null && entry.descriptor.alive) return entry.descriptor;
-
-    await this.assertDirectory(entry.descriptor.cwd);
-
     /*
-      Se reanuda solo si hay algo que reanudar. Una pestana que se cerro antes
-      del primer turno no tiene archivo de sesion, y ahi `--resume` deja a la
-      CLI mostrando un error en vez de una conversacion; con `--session-id`
-      arranca limpia y sigue escribiendo el archivo que ya esperabamos.
+      Ya se esta lanzando (hito 29, D23): un segundo pedido no lanza otro
+      proceso. Con la CLI corriendo no hay nada que despertar, salvo que su
+      servidor haya muerto sin que la app lo pidiera (M2): ahi despertar es
+      relanzar.
     */
-    const { kind, agent, cwd, sessionId } = entry.descriptor;
-    const history = agent === null ? null : (this.agents.get(agent)?.adapter.history ?? null);
-    const resume =
-      kind === 'agent' &&
-      history !== null &&
-      sessionId.length > 0 &&
-      (await history.exists(cwd, sessionId));
+    const action = wakeActionFor({
+      launching: entry.launching,
+      alive: entry.session !== null && entry.descriptor.alive,
+      offlineReason: this.activity.offlineReasonOf(terminalId),
+    });
+    if (action === 'none') return entry.descriptor;
 
-    this.spawn(entry, { resume });
+    entry.launching = true;
+    try {
+      if (action === 'restart' && !(await this.endSessionForRestart(entry))) {
+        throw new TerminalOpenError('spawn-failed', 'No se pudo cerrar la CLI de la pestaña para relanzarla.');
+      }
+      // Cerrada mientras terminaba la CLI vieja: nada que relanzar.
+      if (this.terminals.get(terminalId) !== entry) return null;
+      await this.assertDirectory(entry.descriptor.cwd);
+
+      /*
+        Se reanuda solo si hay algo que reanudar. Una pestana que se cerro antes
+        del primer turno no tiene archivo de sesion, y ahi `--resume` deja a la
+        CLI mostrando un error en vez de una conversacion; con `--session-id`
+        arranca limpia y sigue escribiendo el archivo que ya esperabamos.
+      */
+      const { kind, agent, cwd, sessionId } = entry.descriptor;
+      const history = agent === null ? null : (this.agents.get(agent)?.adapter.history ?? null);
+      const resume =
+        kind === 'agent' &&
+        history !== null &&
+        sessionId.length > 0 &&
+        (await history.exists(cwd, sessionId));
+
+      // Cerrada mientras se miraba el disco o se preparaba el lanzamiento: nada que despertar.
+      if (this.terminals.get(terminalId) !== entry) return null;
+      if (!(await this.spawn(entry, { resume }))) return null;
+    } finally {
+      entry.launching = false;
+    }
     this.persist();
     this.emit('changed');
     return entry.descriptor;
+  }
+
+  /**
+   * Termina la CLI de una pestana que se va a relanzar y espera su salida, que
+   * es la que la deja como terminada, suelta su gancho y deja de seguir su
+   * estado (`onExit` de `spawn`). Sin esperar, la salida tardia de la vieja
+   * pisaria a la nueva. false si no salio a tiempo.
+   */
+  private endSessionForRestart(entry: TerminalEntry): Promise<boolean> {
+    const session = entry.session;
+    if (session === null) return Promise.resolve(true);
+    const { terminalId } = entry.descriptor;
+    return new Promise<boolean>((resolve) => {
+      const onExit = (exited: TerminalId): void => {
+        if (exited !== terminalId) return;
+        clearTimeout(timer);
+        this.off('exit', onExit);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        this.off('exit', onExit);
+        resolve(entry.session !== session);
+      }, RESTART_EXIT_TIMEOUT_MS);
+      this.on('exit', onExit);
+      debugLog('registro', `relanzando ${terminalId.slice(0, 8)}: su servidor se cerro`);
+      session.dispose();
+    });
   }
 
   /** El `cwd` tiene que existir y ser un directorio. Vale para abrir y despertar. */
@@ -411,8 +474,14 @@ export class TerminalRegistry extends EventEmitter {
    * Lo usan `open()` y `wake()`, y por eso esta aca afuera: eran el mismo
    * codigo, y dos copias de esto es como una de las dos termina sin el
    * gancho posterior al lanzamiento (el contestador del dialogo de reanudar).
+   *
+   * Asincrono desde el hito 29 (D23): `launch()` de un adaptador puede devolver
+   * una promesa. Devuelve false si la entrada ya no esta en el registro cuando
+   * el plan llega —se cerro, o se apago el servidor—: ahi no se lanza nada.
+   * Un `launch()` que falla, sincronico o no, es `spawn-failed` con su mensaje
+   * como detalle (M1a); antes llegaba al cliente como un error interno.
    */
-  private spawn(entry: TerminalEntry, options: { resume: boolean }): void {
+  private async spawn(entry: TerminalEntry, options: { resume: boolean }): Promise<boolean> {
     const { terminalId, kind, cwd, sessionId, agent } = entry.descriptor;
     const launcher = this.launcherFor(kind, agent);
     const { buffer } = entry;
@@ -432,13 +501,19 @@ export class TerminalRegistry extends EventEmitter {
     const launchToken = randomUUID();
     if (launcher.kind === 'agent') {
       adapter = launcher.agent.adapter;
-      const plan = adapter.launch({
-        location: launcher.agent.location,
-        cwd,
-        resumeSessionId: options.resume ? sessionId : null,
-        proposedSessionId: sessionId,
-        launchToken,
-      });
+      const { location } = launcher.agent;
+      const launching = adapter;
+      const plan: LaunchPlan = await resolveLaunchPlan(() =>
+        launching.launch({
+          location,
+          cwd,
+          resumeSessionId: options.resume ? sessionId : null,
+          proposedSessionId: sessionId,
+          launchToken,
+        }),
+      );
+      // Cerrada, o el servidor se apago, mientras se preparaba: no se lanza nada.
+      if (this.terminals.get(terminalId) !== entry) return false;
       launch = { file: plan.file, args: plan.args };
       // Una CLI que pone el id ella misma deja la pestana sin id hasta que el
       // gancho lo descubra y lo avise (`reportSessionId`). Con Claude Code el
@@ -564,6 +639,7 @@ export class TerminalRegistry extends EventEmitter {
       y no se avisa nada.
     */
     if (launchedSessionId !== sessionId) this.emit('session', terminalId, launchedSessionId);
+    return true;
   }
 
   /**
@@ -604,15 +680,30 @@ export class TerminalRegistry extends EventEmitter {
     return entry.launchedAt;
   }
 
+  /**
+   * La ultima actividad avisada de una pestana, o null si no hay ninguna.
+   *
+   * La sigue el registro siempre, haya o no alguien mirando la conversacion:
+   * por eso la usa el candado de `waitingBlocksSubmit` (hito 29, D12), que no
+   * puede depender de que el hub este suscrito.
+   */
+  activityOf(terminalId: TerminalId): TerminalActivity | null {
+    return this.activity.get(terminalId);
+  }
+
   /** La ultima actividad avisada de cada pestana. Para el cliente que se conecta. */
-  activitySnapshot(): { terminalId: TerminalId; activity: TerminalActivity }[] {
+  activitySnapshot(): ActivityEntry[] {
     return this.activity.snapshot();
   }
 
   /** Anota y avisa. Todo aviso de actividad pasa por aca. */
-  private setActivity(terminalId: TerminalId, activity: TerminalActivity): void {
-    this.activity.set(terminalId, activity);
-    this.emit('activity', terminalId, activity);
+  private setActivity(
+    terminalId: TerminalId,
+    activity: TerminalActivity,
+    offlineReason: TerminalOfflineReason | null = null,
+  ): void {
+    this.activity.set(terminalId, activity, offlineReason);
+    this.emit('activity', terminalId, activity, this.activity.offlineReasonOf(terminalId));
   }
 
   /**
@@ -652,8 +743,12 @@ export class TerminalRegistry extends EventEmitter {
       return;
     }
 
-    entry.stopWatchingActivity = status.subscribe(sessionId, (current) => {
-      this.setActivity(terminalId, current === null ? 'offline' : current.activity);
+    /*
+      Un null con motivo (hito 29, M2) es el servidor de la CLI que murio con la
+      pestana enganchada: el motivo viaja para que la vista ofrezca relanzar.
+    */
+    entry.stopWatchingActivity = status.subscribe(sessionId, (current, offlineReason) => {
+      this.setActivity(terminalId, current === null ? 'offline' : current.activity, current === null ? (offlineReason ?? null) : null);
     });
   }
 
@@ -732,6 +827,7 @@ export class TerminalRegistry extends EventEmitter {
         launchHook: new LaunchHookSlot(),
         launchedAt: null,
         stopWatchingActivity: null,
+        launching: false,
       });
       this.insertInOrder(terminalId, descriptor);
     }

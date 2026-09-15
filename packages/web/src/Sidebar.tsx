@@ -21,6 +21,7 @@ import {
   resumeCwdFor,
   type AgentId,
   type AgentInfo,
+  type GlobalSearchHit,
   type IndexStatus,
   type ProjectSummary,
   type SessionAgentId,
@@ -29,7 +30,8 @@ import {
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
-import { resumableSession, sessionAgentLabel, sessionAgentView } from './agent-ui.js';
+import { continueTargets, resumableSession, sessionAgentLabel, sessionAgentView } from './agent-ui.js';
+import { ContinueButton } from './ContinueButton.js';
 import {
   archiveCandidatesByAgent,
   sessionsToArchiveBefore,
@@ -37,8 +39,25 @@ import {
   type ArchiveCandidates,
 } from './archive-history.js';
 import { formatWhen } from './format-when.js';
+import {
+  GLOBAL_SEARCH_OFF_TEXT,
+  GLOBAL_SEARCH_TOO_SHORT_TEXT,
+  SEARCH_MODE_CONVERSATIONS_TEXT,
+  SEARCH_MODE_CONVERSATIONS_TITLE,
+  SEARCH_MODE_TITLES_TEXT,
+  globalSearchStatusText,
+  globalSearchTooShort,
+  groupSearchHits,
+  groupThreadQuery,
+  searchHitRoleText,
+  sidebarFilterPlaceholder,
+  snippetPieces,
+  threadQueryFor,
+  type SidebarSearchMode,
+} from './global-search-ui.js';
 import { NotesPanel } from './NotesPanel.js';
 import { projectColor } from './project-color.js';
+import type { GlobalSearchApi } from './useGlobalSearch.js';
 import type { NotesApi } from './useNotes.js';
 import type { VaultExported } from './useVault.js';
 import {
@@ -125,6 +144,31 @@ interface SidebarProps {
   exporting: ReadonlySet<string>;
   /** La ultima exportacion que llego: el boton de ese proyecto acusa recibo. */
   lastExported: VaultExported | null;
+  /**
+   * Continua una sesion con otra CLI (hito 29). El `↪` de cada fila solo se
+   * dibuja con algo que ofrecer (`continueTargets`).
+   */
+  onContinueSession: (session: SessionSummary, target: AgentId) => void;
+  /**
+   * El buscador global (hito 29), o null si no se ofrece
+   * (`globalSearchVisible`): con null la barra es la de siempre, sin
+   * conmutador. `vaultEnabled` es para decir que busca en una copia apagada.
+   */
+  globalSearch: (GlobalSearchApi & { vaultEnabled: boolean }) | null;
+  /** Abre un acierto: su sesion, con el texto encontrado para el buscador del hilo. */
+  onOpenSearchHit: (hit: GlobalSearchHit, threadQuery: string) => void;
+}
+
+/** El fragmento de un acierto con lo encontrado resaltado. */
+function SearchSnippet({ hit }: { hit: GlobalSearchHit }): JSX.Element {
+  const { before, match, after } = snippetPieces(hit);
+  return (
+    <>
+      {before}
+      <mark>{match}</mark>
+      {after}
+    </>
+  );
 }
 
 /** Nombre corto para el encabezado del proyecto. */
@@ -349,6 +393,9 @@ export function Sidebar({
   onExportProject,
   exporting,
   lastExported,
+  onContinueSession,
+  globalSearch,
+  onOpenSearchHit,
 }: SidebarProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -376,6 +423,49 @@ export function Sidebar({
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  /*
+    Donde busca el cuadro de arriba (hito 29). Sin buscador global es siempre
+    en titulos, que es el filtro de siempre: el conmutador no se dibuja.
+  */
+  const [searchModeChoice, setSearchModeChoice] = useState<SidebarSearchMode>('titles');
+  const searchMode: SidebarSearchMode = globalSearch === null ? 'titles' : searchModeChoice;
+  const [searchTooShort, setSearchTooShort] = useState(false);
+  const showingSearch =
+    globalSearch !== null &&
+    searchMode === 'conversations' &&
+    filter.trim().length > 0 &&
+    (searchTooShort || globalSearch.submitted !== null);
+  const searchResult = globalSearch?.result ?? null;
+  const searchGroups = useMemo(
+    () => (showingSearch && searchResult !== null ? groupSearchHits(searchResult.hits) : []),
+    [showingSearch, searchResult],
+  );
+
+  const changeSearchMode = (next: SidebarSearchMode): void => {
+    setSearchModeChoice(next);
+    setSearchTooShort(false);
+    globalSearch?.clear();
+  };
+
+  const submitGlobalSearch = (): void => {
+    if (globalSearch === null) return;
+    if (globalSearchTooShort(filter)) {
+      setSearchTooShort(true);
+      globalSearch.clear();
+      return;
+    }
+    setSearchTooShort(false);
+    globalSearch.search(filter.trim(), showArchived);
+  };
+
+  // "Ver archivadas" cambia donde se busca: lo encontrado se vuelve a pedir.
+  const lastSearch = globalSearch?.submitted ?? null;
+  const researchGlobal = globalSearch?.search;
+  useEffect(() => {
+    if (searchMode !== 'conversations' || lastSearch === null || researchGlobal === undefined) return;
+    if (lastSearch.includeArchived !== showArchived) researchGlobal(lastSearch.query, showArchived);
+  }, [searchMode, lastSearch, researchGlobal, showArchived]);
+
   const archivedCount = useMemo(
     () =>
       projects.reduce(
@@ -395,7 +485,8 @@ export function Sidebar({
     ocupando lugar, que es el desorden que uno vino a resolver.
   */
   const visibleProjects = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
+    // Buscando en las conversaciones, el texto no filtra la lista: la reemplazan los aciertos.
+    const needle = searchMode === 'titles' ? filter.trim().toLowerCase() : '';
 
     return projects
       .map((project) => {
@@ -416,7 +507,8 @@ export function Sidebar({
         return found.length > 0 ? { ...project, sessions: found } : null;
       })
       .filter((project): project is ProjectSummary => project !== null);
-  }, [projects, filter, showArchived]);
+  }, [projects, filter, showArchived, searchMode]);
+  const filtering = searchMode === 'titles' && filter.trim().length > 0;
 
   /** Una sesion con pestana abierta no se esconde: ver el manejador del socket. */
   const canArchive = (session: SessionSummary): boolean =>
@@ -520,9 +612,20 @@ export function Sidebar({
         <input
           className="sidebar-filter"
           type="search"
-          placeholder="Filtrar proyectos y sesiones"
+          placeholder={sidebarFilterPlaceholder(searchMode)}
           value={filter}
-          onChange={(event) => setFilter(event.target.value)}
+          onChange={(event) => {
+            setFilter(event.target.value);
+            if (searchMode !== 'conversations') return;
+            setSearchTooShort(false);
+            // Borrado entero, vuelve la lista: los aciertos eran de otro texto.
+            if (event.target.value.trim().length === 0) globalSearch?.clear();
+          }}
+          onKeyDown={(event) => {
+            if (searchMode !== 'conversations' || event.key !== 'Enter') return;
+            event.preventDefault();
+            submitGlobalSearch();
+          }}
           spellCheck={false}
         />
         {/*
@@ -563,6 +666,31 @@ export function Sidebar({
           «
         </button>
       </div>
+
+      {/*
+        Buscar en las conversaciones (hito 29). Solo con otra CLI y con algo en
+        la copia propia (`globalSearchVisible`): si no, ni el hueco.
+      */}
+      {globalSearch !== null && (
+        <div className="sidebar-search-mode" role="group" aria-label="Dónde buscar">
+          <button
+            className={`sidebar-search-mode-option${searchMode === 'titles' ? ' is-on' : ''}`}
+            aria-pressed={searchMode === 'titles'}
+            onClick={() => changeSearchMode('titles')}
+            title="Filtra la lista por nombre de proyecto y título de sesión"
+          >
+            {SEARCH_MODE_TITLES_TEXT}
+          </button>
+          <button
+            className={`sidebar-search-mode-option${searchMode === 'conversations' ? ' is-on' : ''}`}
+            aria-pressed={searchMode === 'conversations'}
+            onClick={() => changeSearchMode('conversations')}
+            title={SEARCH_MODE_CONVERSATIONS_TITLE}
+          >
+            {SEARCH_MODE_CONVERSATIONS_TEXT}
+          </button>
+        </div>
+      )}
 
       {scanning && (
         <div className="sidebar-progress">
@@ -651,7 +779,54 @@ export function Sidebar({
       )}
 
       <div className="sidebar-scroll">
-        {visibleProjects.length === 0 && !scanning && (
+        {/*
+          Los aciertos reemplazan a la lista, como la busqueda de archivos al
+          arbol (CLAUDE.md 6.14): dos listas a la vez en 270 px no se leen.
+        */}
+        {showingSearch && globalSearch !== null && (
+          <div className="search-results">
+            {!globalSearch.vaultEnabled && <p className="search-note">{GLOBAL_SEARCH_OFF_TEXT}</p>}
+            <p className={`search-status${globalSearch.error !== null ? ' is-problem' : ''}`} role="status">
+              {searchTooShort
+                ? GLOBAL_SEARCH_TOO_SHORT_TEXT
+                : globalSearchStatusText(globalSearch)}
+            </p>
+            {!searchTooShort &&
+              searchGroups.map((group) => {
+                const lead = group.hits[0] ?? group.titleHit;
+                if (lead === null) return null;
+                return (
+                  <div className="search-group" key={group.key}>
+                    <button
+                      className="search-group-title"
+                      onClick={() => onOpenSearchHit(lead, groupThreadQuery(group))}
+                      title={group.title}
+                    >
+                      <AgentBadge agent={group.agent} agents={agents} />
+                      {group.titleHit !== null ? <SearchSnippet hit={group.titleHit} /> : group.title}
+                    </button>
+                    {group.hits.map((hit) => (
+                      <button
+                        key={hit.eventId ?? 'titulo'}
+                        className="search-hit"
+                        onClick={() => onOpenSearchHit(hit, threadQueryFor(hit))}
+                      >
+                        <span className="search-hit-snippet">
+                          <SearchSnippet hit={hit} />
+                        </span>
+                        <span className="search-hit-meta">
+                          {searchHitRoleText(hit)}
+                          {hit.at !== null ? ` · ${formatWhen(hit.at)}` : ''}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+          </div>
+        )}
+
+        {!showingSearch && visibleProjects.length === 0 && !scanning && (
           <p className="sidebar-empty">
             {projects.length === 0
               ? 'No se encontraron proyectos en el historial.'
@@ -659,8 +834,8 @@ export function Sidebar({
           </p>
         )}
 
-        {visibleProjects.map((project) => {
-          const isOpen = expanded.has(project.key) || filter.trim().length > 0;
+        {!showingSearch && visibleProjects.map((project) => {
+          const isOpen = expanded.has(project.key) || filtering;
           const canOpen = !disabled && project.cwdExists;
 
           return (
@@ -793,6 +968,21 @@ export function Sidebar({
                           </span>
                           <span className="session-meta">{formatWhen(session.updatedAt)}</span>
                         </button>
+
+                        {/*
+                          Continuar con otra CLI (hito 29). Solo con otra
+                          instalada: con una sola, `continueTargets` es vacio y
+                          no se dibuja nada, ni siquiera su hueco. Escondido no
+                          ocupa lugar, como exportar un proyecto (§13.10): si
+                          no, cada titulo se cortaria antes para quien tiene
+                          varias CLIs.
+                        */}
+                        <ContinueButton
+                          targets={continueTargets(agents, session.agent, session.partial)}
+                          className="icon-button session-continue"
+                          text="↪"
+                          onPick={(target) => onContinueSession(session, target)}
+                        />
 
                         <button
                           className="icon-button session-action"

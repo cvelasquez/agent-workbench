@@ -20,6 +20,7 @@
  */
 
 import type {
+  AnswerSelection,
   AgentCapabilities,
   AgentDefaults,
   AgentId,
@@ -35,6 +36,7 @@ import type {
   SessionPlan,
   SessionSummary,
   StatusLineSetupInfo,
+  TerminalOfflineReason,
 } from '@agent-workbench/shared';
 import type { CliLocation } from './locate.js';
 import type { EventLimits } from './transport-limits.js';
@@ -144,11 +146,11 @@ export interface LaunchHook {
    * que descubre la sesion de una CLI que pone el id ella misma, y que se entera
    * justamente por lo que se escribe— lo declara, aunque no haga nada.
    *
-   * `data` es lo que se escribe, tal cual. Existe por la CLI que no deja ver el
-   * texto en su historial antes de casar la sesion (hito 26): ahi lo que decide
-   * cual de dos pestanas envio primero es cuando llego un Enter tecleado, y un
-   * aviso sin datos no distingue un Enter de la respuesta a una consulta de
-   * capacidades de la terminal.
+   * `data` es lo que se escribe, tal cual. Nacio con el descubrimiento de la
+   * sesion de OpenCode (hito 26), que decidia por un Enter tecleado cual de dos
+   * pestanas envio primero; ese descubrimiento se borro en el hito 29, cuando
+   * la sesion paso a crearse por API. El miembro se queda porque es generico:
+   * a Antigravity CLI (27) le alcanza con que exista.
    */
   onInput?(data: string): void;
   /**
@@ -447,8 +449,18 @@ export interface AgentStatus {
 }
 
 export interface StatusSource {
-  /** `listener(null)` = no hay proceso registrado. El registro lo pinta 'offline'. */
-  subscribe(sessionId: string, listener: (status: AgentStatus | null) => void): () => void;
+  /**
+   * `listener(null)` = no hay proceso registrado. El registro lo pinta 'offline'.
+   *
+   * Con `offlineReason` (hito 29, M2), el null tiene un motivo que la vista
+   * dice: `server-closed` es el servidor de la CLI que termino sin que la app lo
+   * pidiera, con la pestana todavia enganchada a el. Solo lo manda la CLI que
+   * atiende sus pestanas por un servidor propio (OpenCode).
+   */
+  subscribe(
+    sessionId: string,
+    listener: (status: AgentStatus | null, offlineReason?: TerminalOfflineReason) => void,
+  ): () => void;
   /** true si llego a "lista para recibir" dentro del plazo. */
   waitUntilReady(sessionId: string, timeoutMs: number): Promise<boolean>;
   /**
@@ -459,6 +471,39 @@ export interface StatusSource {
    */
   refresh?(sessionId: string): Promise<void>;
   dispose(): void;
+}
+
+// ---- Preguntas por API ----------------------------------------------------------
+
+/**
+ * Como termino un intento de contestar por API (hito 29, D10):
+ *
+ *  - `answered`: la CLI acepto la respuesta.
+ *  - `not-pending`: esa pregunta no esta abierta (ya se contesto, se rechazo, o
+ *    la sesion no es de este arranque). No se mando nada.
+ *  - `invalid`: lo elegido no describe una respuesta a esa pregunta. No se mando
+ *    nada.
+ *  - `no-free-text`: se escribio una respuesta a una pregunta que no la acepta
+ *    (B4). La tarjeta ofrece escribir siempre; la CLI dice si se puede. No se
+ *    mando nada.
+ *
+ * Un fallo de la CLI al contestar (una ruta que no existe, un error) lanza.
+ */
+export type QuestionAnswerOutcome = 'answered' | 'not-pending' | 'invalid' | 'no-free-text';
+
+/**
+ * Contestar la pregunta abierta por la API de la CLI, sin teclas (capacidad
+ * `questionCards` en una CLI que las contesta asi).
+ *
+ * Recibe la carpeta ademas de la sesion (A1): la CLI que separa sus proyectos
+ * por carpeta no encuentra la pregunta sin ella.
+ */
+export interface QuestionChannel {
+  answer(
+    target: { cwd: string; sessionId: string },
+    toolUseId: string,
+    selections: readonly AnswerSelection[],
+  ): Promise<QuestionAnswerOutcome>;
 }
 
 // ---- Envio desde el cuadro de escritura ---------------------------------------
@@ -517,7 +562,26 @@ export interface AgentInput {
    * solo, el boton de interrumpir no haria nada.
    */
   readonly interruptPresses: number;
+  /**
+   * Como se nombra el transcript en el mensaje que continua una conversacion de
+   * otra CLI (hito 29, D18). `transcriptReferenceFor` en `handoff/transcript.ts`
+   * arma la forma.
+   *
+   * Obligatorio a proposito: una CLI nueva que no lo declara no compila, y nada
+   * elige por ella una forma que puede frenar a pedir permiso.
+   */
+  readonly transcriptReference: TranscriptReferenceStyle;
 }
+
+/**
+ * Como se nombra un archivo para que el agente lo lea (hito 29, D18).
+ *
+ *  - `at-quoted`: `@"ruta"`. La CLI lo adjunta sola, sin pedir permiso para leer
+ *    fuera del proyecto. Es la misma forma que una imagen (`fileReference`).
+ *  - `quoted-path`: `"ruta"`. El agente lo lee con su herramienta. Para la CLI
+ *    donde `@` abre un buscador, o donde la forma no esta medida.
+ */
+export type TranscriptReferenceStyle = 'at-quoted' | 'quoted-path';
 
 // ---- El adaptador ---------------------------------------------------------------
 
@@ -532,7 +596,14 @@ export interface AgentAdapter {
   locate(): Promise<CliLocation | null>;
   /** Texto cuando no esta. */
   missingMessage(): string;
-  launch(input: LaunchInput): LaunchPlan;
+  /**
+   * Que se lanza. Puede ser asincrono (hito 29, D23): la CLI que crea la sesion
+   * por su API antes de lanzar. El registro lo espera con la entrada marcada
+   * "lanzando", y un fallo —sincronico o no— llega al cliente como
+   * `spawn-failed` con el mensaje como detalle. Las cuatro CLIs de hoy
+   * devuelven un valor.
+   */
+  launch(input: LaunchInput): LaunchPlan | Promise<LaunchPlan>;
   /**
    * El entorno del proceso de la CLI.
    *
@@ -560,6 +631,13 @@ export interface AgentAdapter {
    */
   startupHistoryNote?(cliAvailable: boolean): string | null;
   readonly status: StatusSource | null;
+  /**
+   * Presente si las preguntas de la CLI se contestan por su API (hito 29, D10).
+   * Ausente con `questionCards`: se contestan con teclas en la pty (§5.5 de
+   * CLAUDE.md). El socket lo llama fuera de la fila de escritura: no escribe en
+   * la pty.
+   */
+  readonly questions?: QuestionChannel;
   defaults(cwd: string): Promise<AgentDefaults | null>;
   /** Carpetas que el selector de directorios no lista ni deja entrar. */
   protectedDirs(): readonly string[];
@@ -594,5 +672,11 @@ export interface AgentAdapter {
    * mientras haya alguien suscrito.
    */
   subscribeChanges?(listener: () => void): () => void;
-  dispose(): void;
+  /**
+   * Suelta lo del adaptador. Puede devolver una promesa (hito 29): la CLI que
+   * lanza un proceso propio aparte de las pestanas lo mata ahi, y el apagado lo
+   * espera para no dejarlo huerfano. Lo sincronico de soltar ocurre antes de
+   * devolver, espere quien espere.
+   */
+  dispose(): void | Promise<void>;
 }

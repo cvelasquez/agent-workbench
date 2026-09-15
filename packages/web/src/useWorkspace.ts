@@ -14,15 +14,20 @@ import {
   type AgentCapabilities,
   type AgentId,
   type AgentInfo,
+  type ComposerPrefillReason,
   type EnvironmentNoticeId,
+  type HandoffDelivery,
+  type SessionAgentId,
   type IndexStatus,
   type ProjectSummary,
   type ServerMessage,
   type TerminalActivity,
   type TerminalDescriptor,
   type TerminalId,
+  type TerminalOfflineReason,
 } from '@agent-workbench/shared';
 import { summarizeAgents } from './agent-summary.js';
+import { advanceRelaunches, type RelaunchPhase } from './agent-ui.js';
 import { AgentConnection, type ConnectionStatus } from './connection.js';
 import { isMemoryPanelRequest } from './useMemory.js';
 
@@ -39,6 +44,30 @@ export interface OpenTerminalRequest {
   agent?: AgentId;
   /** Se llama cuando el servidor confirma la pestana, con su descriptor. */
   onOpened?: (terminal: TerminalDescriptor) => void;
+}
+
+/**
+ * Una pestana que continua una conversacion de otra CLI (hito 29): lo que dice
+ * el aviso encima de su cuadro, hasta que el usuario mande algo o lo cierre.
+ */
+export interface HandoffNotice {
+  /** La CLI —o la fuente importada— de la conversacion de origen. */
+  sourceAgent: SessionAgentId;
+  includedTurns: number;
+  totalTurns: number;
+  totalTurnsIsMinimum: boolean;
+  /** `sending`: el servidor la esta mandando sola. `prefilled`: quedo en el cuadro. */
+  delivery: HandoffDelivery;
+  /** Por que quedo en el cuadro, si quedo; null mientras se manda sola. */
+  prefillReason: ComposerPrefillReason | null;
+}
+
+/** Un texto que llego para el cuadro de una pestana y todavia no se aplico. */
+export interface ComposerPrefill {
+  /** Unico por llegada: el cuadro no aplica dos veces el mismo. */
+  id: number;
+  terminalId: TerminalId;
+  text: string;
 }
 
 export interface Workspace {
@@ -96,6 +125,13 @@ export interface Workspace {
   waking: ReadonlySet<TerminalId>;
   /** Que esta haciendo la CLI de cada pestana. Ausente = sin proceso. */
   activity: ReadonlyMap<TerminalId, TerminalActivity>;
+  /**
+   * Por que una pestana con proceso quedo `offline` (hito 29, M2): hoy solo
+   * `server-closed`. Ausente = sin motivo.
+   */
+  offlineReasons: ReadonlyMap<TerminalId, TerminalOfflineReason>;
+  /** Pestanas cuyo servidor se cerro y que se estan relanzando. */
+  relaunching: ReadonlySet<TerminalId>;
   renameTerminal: (terminalId: TerminalId, label: string) => void;
   reorderTabs: (terminalIds: TerminalId[]) => void;
   refreshIndex: () => void;
@@ -106,6 +142,19 @@ export interface Workspace {
   refreshAgents: () => void;
   /** Esconde de la barra lateral, o restaura. No borra ningun archivo. */
   archiveSessions: (sessionIds: string[], archived: boolean) => void;
+  /**
+   * Continua una conversacion con otra CLI (hito 29). La pestana nueva pasa a
+   * ser la activa, como una que se abre desde aca.
+   */
+  continueSession: (source: { agent: SessionAgentId; sessionId: string }, target: AgentId) => void;
+  /** El aviso de continuacion de cada pestana que lo tiene. */
+  handoffs: ReadonlyMap<TerminalId, HandoffNotice>;
+  /** Cierra el aviso de una pestana: con la ×, o al mandar el primer mensaje. */
+  dismissHandoff: (terminalId: TerminalId) => void;
+  /** Textos para el cuadro de escritura que llegaron del servidor, en orden. */
+  prefills: readonly ComposerPrefill[];
+  /** El cuadro ya aplico ese texto. */
+  prefillApplied: (id: number) => void;
 }
 
 const EMPTY_INDEX_STATUS: IndexStatus = { state: 'idle', scannedFiles: 0, totalFiles: 0 };
@@ -147,7 +196,25 @@ export function useWorkspace(): Workspace {
     recien lanzada y todavia sin registrar.
   */
   const [activity, setActivity] = useState<Map<TerminalId, TerminalActivity>>(new Map());
+  /*
+    Hito 29 (M2): el motivo de un `offline` con proceso, y los relanzamientos en
+    curso. Los relanzamientos se siguen por la lista de pestanas
+    (`advanceRelaunches`): el TUI viejo sale y el nuevo nace, y "Abriendo…" no
+    se puede soltar con la primera lista que diga "viva", que es la del viejo.
+  */
+  const [offlineReasons, setOfflineReasons] = useState<Map<TerminalId, TerminalOfflineReason>>(new Map());
+  const offlineReasonsRef = useRef<ReadonlyMap<TerminalId, TerminalOfflineReason>>(new Map());
+  const relaunchPhases = useRef<Map<TerminalId, RelaunchPhase>>(new Map());
+  const [relaunching, setRelaunching] = useState<ReadonlySet<TerminalId>>(new Set());
   const [error, setError] = useState<WorkspaceError | null>(null);
+  /*
+    Hito 29. Los avisos de continuacion y los textos prellenados viven aca y no
+    en el cuadro: el cuadro no esta montado si no habia ninguna pestana, y el
+    texto de la primera continuacion llega antes de que exista.
+  */
+  const [handoffs, setHandoffs] = useState<Map<TerminalId, HandoffNotice>>(new Map());
+  const [prefills, setPrefills] = useState<ComposerPrefill[]>([]);
+  const nextPrefillId = useRef(1);
 
   // Las pestanas que abrimos nosotros pasan a estar activas; las que abrio otra
   // ventana, no. Por eso se registran los requestId propios.
@@ -199,16 +266,30 @@ export function useWorkspace(): Workspace {
 
         case 'terminal.list': {
           setAllTerminals(message.terminals);
+          const relaunches = advanceRelaunches(relaunchPhases.current, message.terminals);
+          const relaunchChanged =
+            relaunches.finished.length > 0 ||
+            [...relaunches.phases].some(([id, phase]) => relaunchPhases.current.get(id) !== phase);
+          relaunchPhases.current = relaunches.phases;
+          if (relaunchChanged) setRelaunching(new Set(relaunches.phases.keys()));
           // La CLI ya arranco —o la pestana se fue—: en los dos casos deja de
-          // haber algo que esperar.
+          // haber algo que esperar. Salvo un relanzamiento en curso.
           setWaking((current) => {
             if (current.size === 0) return current;
             const next = new Set(current);
             for (const id of current) {
+              if (relaunches.phases.has(id)) continue;
               const found = message.terminals.find((t) => t.terminalId === id);
               if (found === undefined || found.alive) next.delete(id);
             }
             return next.size === current.size ? current : next;
+          });
+          setOfflineReasons((current) => {
+            if (current.size === 0) return current;
+            const next = new Map([...current].filter(([id]) => message.terminals.some((t) => t.terminalId === id)));
+            if (next.size === current.size) return current;
+            offlineReasonsRef.current = next;
+            return next;
           });
           // La pestana activa se elige solo entre las de la CLI: una consola
           // vive en el panel derecho y no tiene por que robar el foco de la
@@ -217,6 +298,53 @@ export function useWorkspace(): Workspace {
           setActiveTerminalId((current) => {
             if (current !== null && agentTabs.some((t) => t.terminalId === current)) return current;
             return agentTabs[0]?.terminalId ?? null;
+          });
+          // El aviso de una continuacion se va con su pestana.
+          setHandoffs((current) => {
+            if (current.size === 0) return current;
+            const next = new Map(current);
+            for (const id of current.keys()) {
+              if (!message.terminals.some((t) => t.terminalId === id)) next.delete(id);
+            }
+            return next.size === current.size ? current : next;
+          });
+          break;
+        }
+
+        /*
+          Una continuacion quedo armada (hito 29). Llega despues del
+          `terminal.opened` que activo la pestana, y anota el aviso que va
+          encima de su cuadro.
+        */
+        case 'session.continued':
+          setHandoffs((current) =>
+            new Map(current).set(message.terminalId, {
+              sourceAgent: message.source.agent,
+              includedTurns: message.includedTurns,
+              totalTurns: message.totalTurns,
+              totalTurnsIsMinimum: message.totalTurnsIsMinimum,
+              delivery: message.delivery,
+              prefillReason: null,
+            }),
+          );
+          break;
+
+        /*
+          Un texto para el cuadro de una pestana: la continuacion que no se
+          manda sola, o que no se pudo mandar. Nunca se manda desde aca.
+        */
+        case 'composer.prefill': {
+          const id = nextPrefillId.current;
+          nextPrefillId.current += 1;
+          setPrefills((current) => [...current, { id, terminalId: message.terminalId, text: message.text }]);
+          setHandoffs((current) => {
+            const notice = current.get(message.terminalId);
+            if (notice === undefined) return current;
+            return new Map(current).set(message.terminalId, {
+              ...notice,
+              delivery: 'prefilled',
+              prefillReason: message.reason,
+            });
           });
           break;
         }
@@ -241,6 +369,15 @@ export function useWorkspace(): Workspace {
             if (current.get(message.terminalId) === message.activity) return current;
             return new Map(current).set(message.terminalId, message.activity);
           });
+          setOfflineReasons((current) => {
+            const reason = message.offlineReason ?? null;
+            if ((current.get(message.terminalId) ?? null) === reason) return current;
+            const next = new Map(current);
+            if (reason === null) next.delete(message.terminalId);
+            else next.set(message.terminalId, reason);
+            offlineReasonsRef.current = next;
+            return next;
+          });
           break;
 
         case 'index.status':
@@ -263,10 +400,16 @@ export function useWorkspace(): Workspace {
           // Lo mismo con la copia propia (hito 28): lo dice su dialogo, o su
           // propio aviso si el dialogo esta cerrado. Ver `useVault`.
           if (message.code === 'vault-failed') break;
+          // Y la busqueda global (hito 29): lo dice su linea de estado, en la barra.
+          if (message.code === 'search-failed') break;
           setError({ message: message.message, at: Date.now() });
           // Un fallo al abrir la CLI no puede dejar el boton diciendo
-          // "Abriendo…" para siempre.
+          // "Abriendo…" para siempre. Ni "Relanzando…".
           setWaking((current) => (current.size === 0 ? current : new Set()));
+          if (relaunchPhases.current.size > 0) {
+            relaunchPhases.current = new Map();
+            setRelaunching(new Set());
+          }
           if (message.detail !== undefined) console.error('[servidor]', message.detail);
           if (message.requestId !== undefined) {
             ownRequests.current.delete(message.requestId);
@@ -294,7 +437,27 @@ export function useWorkspace(): Workspace {
         case 'files.results':
         case 'notes.list':
         case 'notes.imageData':
+        case 'search.progress':
+        case 'search.results':
           break;
+      }
+    });
+
+    /*
+      Al reconectar se sueltan "Abriendo…" y "Relanzando…" (hito 29, M2). Los
+      dos esperan algo que pudo perderse con el socket viejo: el `error` de un
+      fallo se mando a quien ya no estaba, y un relanzamiento pudo terminar sin
+      que esta pagina viera la lista del medio —el TUI viejo muerto—, que es la
+      unica que lo hace avanzar. La lista que manda el servidor al conectar dice
+      como quedo cada pestana, y con eso decide la barra: Relanzar si el motivo
+      sigue, la de siempre si no. Corre despues de vaciar la cola de salida, asi
+      que un clic con el socket caido tampoco queda esperando.
+    */
+    const offReopen = connection.onReopen(() => {
+      setWaking((current) => (current.size === 0 ? current : new Set()));
+      if (relaunchPhases.current.size > 0) {
+        relaunchPhases.current = new Map();
+        setRelaunching(new Set());
       }
     });
 
@@ -303,6 +466,7 @@ export function useWorkspace(): Workspace {
     return () => {
       offStatus();
       offMessage();
+      offReopen();
       connection.close();
     };
   }, [connection]);
@@ -346,6 +510,11 @@ export function useWorkspace(): Workspace {
   const wakeTerminal = useCallback(
     (terminalId: TerminalId) => {
       setWaking((current) => new Set(current).add(terminalId));
+      // Con el servidor cerrado, despertar es relanzar: el TUI viejo sale antes (M2).
+      if (offlineReasonsRef.current.get(terminalId) === 'server-closed') {
+        relaunchPhases.current = new Map(relaunchPhases.current).set(terminalId, 'waiting-exit');
+        setRelaunching(new Set(relaunchPhases.current.keys()));
+      }
       connection.send({ type: 'terminal.wake', terminalId });
     },
     [connection],
@@ -367,6 +536,36 @@ export function useWorkspace(): Workspace {
       connection.send({ type: 'session.archive', sessionIds, archived }),
     [connection],
   );
+
+  const continueSession = useCallback(
+    (source: { agent: SessionAgentId; sessionId: string }, target: AgentId) => {
+      const requestId = crypto.randomUUID();
+      // Como una pestana que se abre desde aca: sin esto, el `terminal.opened`
+      // de la continuacion no la activaria (B5).
+      ownRequests.current.add(requestId);
+      connection.send({
+        type: 'session.continue',
+        requestId,
+        agent: source.agent,
+        sessionId: source.sessionId,
+        target,
+      });
+    },
+    [connection],
+  );
+
+  const dismissHandoff = useCallback((terminalId: TerminalId) => {
+    setHandoffs((current) => {
+      if (!current.has(terminalId)) return current;
+      const next = new Map(current);
+      next.delete(terminalId);
+      return next;
+    });
+  }, []);
+
+  const prefillApplied = useCallback((id: number) => {
+    setPrefills((current) => (current.some((item) => item.id === id) ? current.filter((item) => item.id !== id) : current));
+  }, []);
 
   const refreshIndex = useCallback(
     () => connection.send({ type: 'index.refresh' }),
@@ -432,10 +631,17 @@ export function useWorkspace(): Workspace {
     wakeTerminal,
     waking,
     activity,
+    offlineReasons,
+    relaunching,
     renameTerminal,
     reorderTabs,
     refreshIndex,
     refreshAgents,
     archiveSessions,
+    continueSession,
+    handoffs,
+    dismissHandoff,
+    prefills,
+    prefillApplied,
   };
 }

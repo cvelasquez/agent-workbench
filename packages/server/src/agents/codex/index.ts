@@ -69,6 +69,8 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   contextWindowSource: 'token-count',
   // `update_plan` es una lista de pasos, no un archivo.
   plans: false,
+  // Sin estado publicado no hay espera que mirar: manda el candado de 10.8.
+  waitingBlocksSubmit: false,
 };
 
 /**
@@ -88,6 +90,8 @@ export const CODEX_INPUT: AgentInput = {
   pasteMarkers: true,
   enterSeparately: true,
   interruptPresses: 1,
+  // `@` abre el buscador de la TUI: el transcript se nombra entre comillas y lo lee el agente.
+  transcriptReference: 'quoted-path',
 };
 
 export function createCodexAdapter(): AgentAdapter {

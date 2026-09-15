@@ -364,13 +364,18 @@ async function main(): Promise<void> {
     // Cancela los temporizadores de la copia; lo pendiente se copia en el proximo arranque.
     vault.dispose();
     conversations.disposeAll();
-    agents.disposeAll();
+    /*
+      Suelta los adaptadores ya, y la promesa espera lo que alguno tiene que
+      terminar: el `serve` de OpenCode (hito 29), que corre sin consola
+      compartida y no muere con el Ctrl+C. Nunca rechaza.
+    */
+    const agentsDisposed = agents.disposeAll();
     repos.disposeAll();
     void memory.disposeAll();
     // Los procesos no sobreviven al cierre; las pestanas si, en disco.
     registry.disposeAll();
 
-    void Promise.all([store.flush(), archived.flush(), notes.flush()])
+    void Promise.all([store.flush(), archived.flush(), notes.flush(), agentsDisposed])
       .catch(() => undefined)
       .then(() => closeUi())
       .catch(() => undefined)

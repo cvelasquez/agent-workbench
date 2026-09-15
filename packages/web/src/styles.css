@@ -4351,3 +4351,185 @@ kbd {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* ---------- continuar en otra CLI (hito 29) ---------- */
+
+/*
+  El `↪` de una fila de sesion. Aparece al pasar el mouse, como archivar, y solo
+  existe con otra CLI instalada.
+
+  **No ocupa lugar en la fila**, por lo mismo que exportar un proyecto: el
+  margen negativo descuenta su ancho y el hueco de `.session-row`, y se dibuja
+  encima del final del titulo. Con la opacidad sola, quien tiene dos CLIs veria
+  cada titulo cortado 24 px antes. Con el menu abierto queda a la vista.
+*/
+.session-continue {
+  opacity: 0;
+  pointer-events: none;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-left: -24px;
+  background: var(--chrome-alt);
+  font-size: 12px;
+}
+
+.session-row:hover .session-continue,
+.session-continue:focus-visible,
+.session-continue[aria-expanded='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* El `↪` del medidor: al lado, del mismo alto que la busqueda. */
+.conversation-continue {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/*
+  El aviso de una continuacion, encima del cuadro: lo que el agente no tiene del
+  contexto de la otra CLI. Con acento y no con peligro: no es un fallo, es algo
+  que hay que saber antes de escribirle.
+*/
+.handoff-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.handoff-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.handoff-notice-status {
+  display: block;
+  color: var(--accent);
+}
+
+/*
+  Buscar en todo (hito 29): el conmutador "En títulos / En conversaciones" bajo
+  el buscador de la barra, y los aciertos, que reemplazan a la lista. Solo con
+  otra CLI y con algo en la copia propia: con una sola CLI no se dibuja nada.
+*/
+.sidebar-search-mode {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-search-mode-option {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-search-mode-option:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.sidebar-search-mode-option.is-on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.search-results {
+  padding: 0 6px;
+}
+
+.search-note,
+.search-status {
+  margin: 0;
+  padding: 6px 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.search-note {
+  color: var(--warning);
+}
+
+.search-status.is-problem {
+  color: var(--danger);
+}
+
+.search-group {
+  margin-bottom: 6px;
+}
+
+.search-group-title,
+.search-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 4px;
+}
+
+.search-group-title {
+  padding: 4px 6px;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit {
+  margin-left: 12px;
+  width: calc(100% - 12px);
+  padding: 3px 8px;
+  border-left: 1px solid var(--border);
+}
+
+.search-group-title:hover,
+.search-hit:hover {
+  background: var(--hover);
+}
+
+.search-hit:hover {
+  border-left-color: var(--accent);
+}
+
+/* Dos lineas como mucho: el fragmento es para reconocer el mensaje, no para leerlo. */
+.search-hit-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.search-hit-meta {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.search-group-title mark,
+.search-hit mark {
+  background: var(--mark);
+  color: inherit;
+  border-radius: 2px;
+}

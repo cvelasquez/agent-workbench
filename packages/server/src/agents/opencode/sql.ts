@@ -96,6 +96,12 @@ FROM session WHERE id = ?`,
 
   sessionExists: `SELECT 1 AS found FROM session WHERE id = ?`,
 
+  /**
+   * Hito 29 (R29-1). El padre de UNA sesion: con eso se le atribuye a la raiz de
+   * una pestana el permiso o la pregunta de un sub-agente (`serve-status.ts`).
+   */
+  sessionParentById: `SELECT parent_id FROM session WHERE id = ?`,
+
   /** Si la sesion tiene al menos un mensaje. Solo toca el indice. */
   sessionHasMessages: `SELECT 1 AS found FROM message WHERE session_id = ? LIMIT 1`,
 
@@ -159,10 +165,13 @@ ORDER BY time_created, id`,
   imageUrlById: `SELECT CASE WHEN length(json_extract(data, '$.url')) <= $max THEN json_extract(data, '$.url') END AS url
 FROM part WHERE id = $id AND json_extract(data, '$.type') = 'file'`,
 
-  /** Sesiones raiz nacidas desde un momento: con esto se casa una pestana nueva. */
-  discoveryRows: `SELECT id, directory, time_created FROM session
-WHERE parent_id IS NULL AND time_created >= ?
-ORDER BY time_created, id`,
+  /**
+   * Hito 29. El mensaje y el `callID` de UNA pregunta, por id y sesion: con eso
+   * se casa la tarjeta con el pedido pendiente del `serve` (D10). Solo partes
+   * `question`; `$id` y `$s`.
+   */
+  partCallById: `SELECT message_id, json_extract(data, '$.callID') AS call_id
+FROM part WHERE id = $id AND session_id = $s AND json_extract(data, '$.tool') = 'question'`,
 });
 
 export type OpenCodeStatement = keyof typeof OPENCODE_SQL;
@@ -207,6 +216,10 @@ export interface SessionRow {
 
 export interface FoundRow {
   found: number;
+}
+
+export interface SessionParentRow {
+  parent_id: string | null;
 }
 
 export interface FirstUserTextRow {
@@ -284,8 +297,7 @@ export interface ImageUrlRow {
   url: string | null;
 }
 
-export interface DiscoveryRow {
-  id: string;
-  directory: string;
-  time_created: number;
+export interface PartCallRow {
+  message_id: string;
+  call_id: string | null;
 }

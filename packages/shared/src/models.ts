@@ -212,6 +212,19 @@ export const TERMINAL_ACTIVITIES: readonly TerminalActivity[] = [
   'unknown',
 ];
 
+/**
+ * Por que una pestana **con proceso** quedo `offline` (hito 29, M2).
+ *
+ * `server-closed`: la CLI de la pestana es un cliente de un servidor que lanzo
+ * la app —el `opencode serve`— y ese servidor termino sin que la app lo
+ * pidiera. Medido con OpenCode 1.18.30: el TUI enganchado no termina, queda
+ * apuntando a un puerto muerto y la pestana no dice nada. Con esto la vista lo
+ * dice y ofrece relanzar.
+ */
+export type TerminalOfflineReason = 'server-closed';
+
+export const TERMINAL_OFFLINE_REASONS: readonly TerminalOfflineReason[] = ['server-closed'];
+
 // ---------------------------------------------------------------------------
 // Parsers
 // ---------------------------------------------------------------------------

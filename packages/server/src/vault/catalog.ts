@@ -260,6 +260,19 @@ export class VaultCatalog {
    * se salta sola, sin llevarse el resto.
    */
   async *readBody(agent: SessionAgentId, sessionId: string): AsyncGenerator<VaultBodyLine> {
+    for await (const line of this.bodyLines(agent, sessionId)) {
+      const body = parseVaultBodyLine(parseJsonlLine(line));
+      if (body !== null) yield body;
+    }
+  }
+
+  /**
+   * Las lineas del cuerpo sin parsear, despues de comprobar la cabecera: lo
+   * que lee el buscador global (hito 29), que salta una linea enorme **antes**
+   * de pagar el `JSON.parse`. Las mismas reglas que `readBody`, que se arma
+   * sobre esto. Cortar el recorrido cierra el archivo.
+   */
+  async *bodyLines(agent: SessionAgentId, sessionId: string): AsyncGenerator<string> {
     const dir = this.dir;
     if (dir === null || !this.entries.has(keyOf(agent, sessionId))) return;
 
@@ -274,15 +287,13 @@ export class VaultCatalog {
       for await (const raw of lines) {
         const line = raw.trim();
         if (line.length === 0) continue;
-        const record = parseJsonlLine(line);
         if (!sawHeader) {
-          const header = parseVaultHeader(record);
+          const header = parseVaultHeader(parseJsonlLine(line));
           if (header === null || header.agent !== agent || header.sessionId !== sessionId) return;
           sawHeader = true;
           continue;
         }
-        const body = parseVaultBodyLine(record);
-        if (body !== null) yield body;
+        yield line;
       }
     } finally {
       lines.close();

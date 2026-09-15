@@ -578,6 +578,29 @@ export class SessionIndex extends EventEmitter {
   }
 
   /**
+   * La fila de la barra de una sesion, por su CLI y su id, o null si la barra no
+   * la lista (hito 29).
+   *
+   * Primero las nativas y despues las que solo estan en la copia propia
+   * (`vaultOnlySessions`), que es exactamente lo que ve el usuario: continuar
+   * una fila "copia" tiene que encontrarla. Por par y no solo por id, al reves
+   * que `agentOf`: una copia importada puede tener el mismo id que una nativa
+   * de otra fuente, y quien pide dice de cual.
+   *
+   * El `cwd` del resumen es el de reanudar (`ScannedSession.resumeCwd`), y puede
+   * ser `''`. Sin marcar archivada: no le hace falta a nadie que pregunte esto.
+   */
+  find(agent: SessionAgentId, sessionId: string): SessionSummary | null {
+    for (const session of this.sessions.values()) {
+      if (session.agent === agent && session.summary.sessionId === sessionId) return session.summary;
+    }
+    for (const copy of this.vaultCopies()) {
+      if (copy.agent === agent && copy.summary.sessionId === sessionId) return copy.summary;
+    }
+    return null;
+  }
+
+  /**
    * Las sesiones de las CLIs registradas tal como las leyo el indice, en su
    * orden y sin marcar archivadas. Las usa el escritor de la copia propia
    * (hito 28), que decide aparte que se copia.

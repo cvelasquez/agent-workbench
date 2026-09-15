@@ -23,7 +23,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AgentId, AgentInfo } from '@agent-workbench/shared';
-import { menuAgents, menuPlacement, menuStartIndex, menuStep } from './agent-ui.js';
+import { menuAgents, menuPlacement, menuStartIndex, menuStep, scrollClosesMenu } from './agent-ui.js';
 
 interface AgentMenuProps {
   /** Todas las anunciadas: el menu muestra solo las instaladas, en su orden. */
@@ -35,11 +35,13 @@ interface AgentMenuProps {
    * al cerrar con `Escape`.
    */
   anchor: HTMLElement;
+  /** Lo que el lector de pantalla dice del menu. "Abrir con" por omision. */
+  label?: string;
   onPick: (agent: AgentId) => void;
   onClose: () => void;
 }
 
-export function AgentMenu({ agents, preselected, anchor, onPick, onClose }: AgentMenuProps): JSX.Element {
+export function AgentMenu({ agents, preselected, anchor, label = 'Abrir con', onPick, onClose }: AgentMenuProps): JSX.Element {
   const items = useMemo(() => menuAgents(agents), [agents]);
   const [active, setActive] = useState(() => menuStartIndex(items, preselected));
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
@@ -101,10 +103,10 @@ export function AgentMenu({ agents, preselected, anchor, onPick, onClose }: Agen
 
     // Un menu que queda flotando sobre algo que ya se movio es peor que no
     // tener menu: el scroll de la barra lateral y el cambio de tamano lo cierran.
+    // Solo un scroll que puede mover el boton: el de un campo de texto que
+    // pierde el foco no (`scrollClosesMenu`).
     const onScroll = (event: Event): void => {
-      const target = event.target;
-      if (target instanceof Node && menuRef.current?.contains(target)) return;
-      onClose();
+      if (scrollClosesMenu(event.target, anchor, menuRef.current)) onClose();
     };
 
     window.addEventListener('keydown', onKeyDown, true);
@@ -124,7 +126,7 @@ export function AgentMenu({ agents, preselected, anchor, onPick, onClose }: Agen
       ref={menuRef}
       className="agent-menu"
       role="menu"
-      aria-label="Abrir con"
+      aria-label={label}
       style={
         position === null
           ? { left: 0, top: 0, visibility: 'hidden' }

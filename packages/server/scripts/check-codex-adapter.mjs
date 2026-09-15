@@ -304,7 +304,7 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
 // B1. Claude Code: una sola pieza, byte por byte lo de antes.
 {
   check('B1 claude-code declara una sola forma: at-quoted, sin separacion, con marcadores',
-    same(CLAUDE_CODE_INPUT, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1 }),
+    same(CLAUDE_CODE_INPUT, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1, transcriptReference: 'at-quoted' }),
     show(CLAUDE_CODE_INPUT));
   check('B1 la forma de escribir imagenes es la que se le promete a la interfaz',
     CLAUDE_CODE_INPUT.imageReference === CLAUDE_CODE_CAPABILITIES.imagesByPath);
@@ -2187,9 +2187,10 @@ const throwsOn = (run) => {
     rewind: false,
     contextWindowSource: 'token-count',
     plans: false,
+    waitingBlocksSubmit: false,
   }), show(adapter.capabilities));
-  check('E1 envio: imagenes por ruta sola, 400 ms entre piezas, con marcadores',
-    same(adapter.input, { imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1 }),
+  check('E1 envio: imagenes por ruta sola, 400 ms entre piezas, con marcadores, transcript entre comillas',
+    same(adapter.input, { imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1, transcriptReference: 'quoted-path' }),
     show(adapter.input));
   check('E1 lo que se escribe coincide con lo que se le promete a la interfaz',
     adapter.input.imageReference === adapter.capabilities.imagesByPath);

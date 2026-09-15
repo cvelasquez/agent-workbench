@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  HANDOFF_SENDING_TEXT,
+  continueBlockedReason,
+  continueTargets,
   controlsFor,
   discoveringSession,
+  handoffNoticeText,
+  handoffPrefillText,
+  sessionAgentLabel,
   effectivePanelTab,
   instructionsFileFor,
   modelChoiceNote,
   openToolCallNotice,
   pendingApprovalNotice,
   projectAgent,
+  serverClosedBarState,
+  serverClosedBarText,
   sessionResumable,
   shortcutsAgent,
   tabBarAgent,
@@ -18,6 +26,7 @@ import { Composer } from './Composer.js';
 import { ConsolePane } from './ConsolePane.js';
 import { ConversationView } from './ConversationView.js';
 import { FolderPicker } from './FolderPicker.js';
+import { globalSearchVisible, searchHitAction } from './global-search-ui.js';
 import { ShortcutsDialog } from './ShortcutsDialog.js';
 import { StatusLineDialog } from './StatusLineDialog.js';
 import { Sidebar } from './Sidebar.js';
@@ -29,6 +38,7 @@ import { useDragSize } from './useDragSize.js';
 import { readStored, writeStored } from './window-prefs.js';
 import { useConversation } from './useConversation.js';
 import { useFiles } from './useFiles.js';
+import { useGlobalSearch } from './useGlobalSearch.js';
 import { usePlans } from './usePlans.js';
 import { useGit } from './useGit.js';
 import { useMemory } from './useMemory.js';
@@ -38,7 +48,7 @@ import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
 import { VaultDialog } from './VaultDialog.js';
 import type { ConnectionStatus } from './connection.js';
-import { blindToApprovals, type TerminalId } from '@agent-workbench/shared';
+import { blindToApprovals, type GlobalSearchHit, type TerminalId } from '@agent-workbench/shared';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connecting: 'Conectando',
@@ -129,10 +139,17 @@ export function App(): JSX.Element {
     wakeTerminal,
     waking,
     activity,
+    offlineReasons,
+    relaunching,
     renameTerminal,
     reorderTabs,
     refreshIndex,
     refreshAgents,
+    continueSession,
+    handoffs,
+    dismissHandoff,
+    prefills,
+    prefillApplied,
   } = workspace;
 
   const theme = useTheme();
@@ -183,6 +200,59 @@ export function App(): JSX.Element {
   */
   const vault = useVault(connection);
   const [vaultDialogVisible, setVaultDialogVisible] = useState(false);
+
+  /*
+    El buscador global (hito 29), sobre la copia. Solo con otra CLI y con algo
+    en la copia: si no, la barra es la de siempre. El texto que un acierto deja
+    en el buscador del hilo espera aca a que la vista lo tome: si no habia
+    ninguna pestana, la vista todavia no existe.
+  */
+  const globalSearch = useGlobalSearch(connection);
+  const globalSearchShown = globalSearchVisible(agents, vault.status);
+  const [threadSearch, setThreadSearch] = useState<{ query: string; seq: number } | null>(null);
+  const threadSearchSeq = useRef(0);
+  const threadSearchApplied = useCallback((seq: number) => {
+    setThreadSearch((current) => (current !== null && current.seq === seq ? null : current));
+  }, []);
+
+  /**
+   * Un acierto: la sesion con pestana se activa, una fila que se retoma se abre
+   * como desde la barra, y lo demas —solo en la copia, sin su CLI o sin su
+   * carpeta— se abre en Markdown, que no depende de nada de eso.
+   */
+  const openSearchHit = (hit: GlobalSearchHit, threadQuery: string): void => {
+    const action = searchHitAction(hit, {
+      projects,
+      terminals,
+      platform,
+      canResume: (agent) => sessionResumable(agents, agent),
+    });
+    const leaveThreadQuery = (): void => {
+      if (threadQuery.length === 0) return;
+      threadSearchSeq.current += 1;
+      setThreadSearch({ query: threadQuery, seq: threadSearchSeq.current });
+    };
+    switch (action.kind) {
+      case 'activate':
+        setActiveTerminal(action.terminalId);
+        leaveThreadQuery();
+        break;
+      case 'resume':
+        // Como el clic en la fila: abrir una archivada la devuelve a la lista.
+        if (action.session.archived) archiveSessions([action.session.sessionId], false);
+        openTerminal({
+          cwd: action.cwd,
+          resumeSessionId: action.session.sessionId,
+          agent: action.session.agent,
+          label: action.session.title,
+        });
+        leaveThreadQuery();
+        break;
+      case 'copy':
+        vault.openSession(hit.agent, hit.sessionId);
+        break;
+    }
+  };
 
   /*
     Que sesiones tienen una pestana abierta. La barra lateral las necesita para
@@ -384,15 +454,64 @@ export function App(): JSX.Element {
     activeActivity,
   );
   /*
-    Y una CLI cuya confirmacion abierta aprueba un Enter, mientras dice que
-    espera: la barra de "esperando" ya esta a la vista, y Enviar se apaga con
-    su mismo texto (R27-2). Con Claude Code es siempre null.
+    Y una CLI cuya confirmacion abierta aprueba un Enter (R27-2), o cuya espera
+    bloquea el cuadro (hito 29, D12), mientras dice que espera: la barra de
+    "esperando" ya esta a la vista, y Enviar se apaga con su mismo texto. Con
+    Claude Code es siempre null.
   */
+  /*
+    Y el servidor de la CLI que se cerro con la pestana enganchada (hito 29,
+    M2): el TUI sigue vivo pero no llega a nada, y un mensaje se perderia.
+  */
+  const activeServerClosed = serverClosedBarState({
+    offlineReason: activeTerminalId === null ? null : (offlineReasons.get(activeTerminalId) ?? null),
+    alive: activeTerminal?.alive ?? false,
+    relaunching: activeTerminalId !== null && relaunching.has(activeTerminalId),
+  });
+  const serverClosedNotice =
+    activeServerClosed === null ? null : serverClosedBarText(activeAgentInfo?.label ?? null);
   const blockedReason =
+    serverClosedNotice ??
     toolCallNotice ??
     pendingApprovalNotice(activeCapabilities, conversation.waitingFor, activeTerminal?.alive ?? false);
   // La app ve el estado de esta pestana, no solo de su CLI (R27-1).
   const statusKnown = !blindToApprovals(activeCapabilities, activeActivity);
+
+  /*
+    Continuar la conversacion de la pestana activa con otra CLI (hito 29). Con
+    una sola CLI instalada la lista es vacia y el medidor queda como siempre.
+  */
+  const activeContinueTargets = useMemo(
+    () => continueTargets(agents, activeAgent),
+    [agents, activeAgent],
+  );
+  const activeDiscovering =
+    activeTerminal !== null && discoveringSession(activeAgent, activeTerminal.sessionId, activeCapabilities);
+
+  /*
+    El aviso de una pestana que continua otra conversacion: que CLI, cuantos
+    turnos, que se pierde. Debajo, si se esta mandando sola o por que quedo en el
+    cuadro. "Mandando" dura hasta que aparece el primer mensaje en el hilo, que es
+    la confirmacion de que llego.
+  */
+  const activeHandoff = activeTerminalId === null ? null : (handoffs.get(activeTerminalId) ?? null);
+  const handoffNotice =
+    activeHandoff === null
+      ? null
+      : {
+          text: handoffNoticeText(
+            sessionAgentLabel(activeHandoff.sourceAgent, agents),
+            activeHandoff.includedTurns,
+            activeHandoff.totalTurns,
+            activeHandoff.totalTurnsIsMinimum,
+          ),
+          status:
+            activeHandoff.prefillReason !== null
+              ? handoffPrefillText(activeHandoff.prefillReason)
+              : activeHandoff.delivery === 'sending' && conversation.events.length === 0
+                ? HANDOFF_SENDING_TEXT
+                : null,
+        };
 
   const togglePanel = useCallback(() => {
     setPanelVisible((current) => {
@@ -933,6 +1052,13 @@ export function App(): JSX.Element {
             onExportProject={vault.exportProject}
             exporting={vault.exporting}
             lastExported={vault.lastExported}
+            onContinueSession={(session, target) =>
+              continueSession({ agent: session.agent, sessionId: session.sessionId }, target)
+            }
+            globalSearch={
+              globalSearchShown ? { ...globalSearch, vaultEnabled: vault.status?.enabled === true } : null
+            }
+            onOpenSearchHit={openSearchHit}
           />
         )}
 
@@ -1007,11 +1133,26 @@ export function App(): JSX.Element {
                 onWakeCli={() => {
                   if (activeTerminalId !== null) wakeTerminal(activeTerminalId);
                 }}
-                discovering={
-                  activeTerminal !== null &&
-                  discoveringSession(activeAgent, activeTerminal.sessionId, activeCapabilities)
+                discovering={activeDiscovering}
+                continueTargets={activeContinueTargets}
+                continueBlockedReason={continueBlockedReason(
+                  activeTerminal?.sessionId ?? '',
+                  activeDiscovering,
+                  conversation.events.length > 0,
+                )}
+                onContinue={
+                  activeTerminal === null || activeAgent === null
+                    ? undefined
+                    : (target) => continueSession({ agent: activeAgent, sessionId: activeTerminal.sessionId }, target)
                 }
+                searchRequest={threadSearch}
+                onSearchRequestApplied={threadSearchApplied}
                 toolCallNotice={toolCallNotice}
+                serverClosed={
+                  activeServerClosed === null || serverClosedNotice === null
+                    ? null
+                    : { state: activeServerClosed, text: serverClosedNotice }
+                }
                 statusLineState={activeStatusLine?.state ?? null}
                 onConfigureStatusLine={
                   activeStatusLine === null ? undefined : () => setStatusLineDialogVisible(true)
@@ -1028,6 +1169,12 @@ export function App(): JSX.Element {
               sleeping={activeTerminal.sleeping}
               imagesAllowed={activeControls.imagesAllowed}
               blockedReason={blockedReason}
+              prefills={prefills}
+              onPrefillApplied={prefillApplied}
+              notice={handoffNotice}
+              onDismissNotice={activeTerminalId === null ? undefined : () => dismissHandoff(activeTerminalId)}
+              /* El aviso de una continuacion dura hasta el primer envio de esa pestana. */
+              onSubmitted={dismissHandoff}
               leading={
                 activeControls.modeCycle === null ? undefined : (
                   <ModeControl

@@ -136,6 +136,14 @@ check('parseAgentCapabilities de algo que no es objeto no declara nada',
   check('una lista de esfuerzos vacia es null', wrong.efforts === null);
   check('un ciclo sin nombre de tecla es null', wrong.permissionCycle === null);
 }
+// Hito 29: la capacidad nueva cae a false si falta o no es true (un servidor
+// anterior no la manda, y eso no puede encender un candado).
+check('29 waitingBlocksSubmit ausente es false, y NO_CAPABILITIES la declara en false',
+  parseAgentCapabilities({ statusSource: true }).waitingBlocksSubmit === false && NO_CAPABILITIES.waitingBlocksSubmit === false);
+check('29 waitingBlocksSubmit que no es true cae a false; true se lee',
+  parseAgentCapabilities({ waitingBlocksSubmit: 'true' }).waitingBlocksSubmit === false &&
+  parseAgentCapabilities({ waitingBlocksSubmit: 1 }).waitingBlocksSubmit === false &&
+  parseAgentCapabilities({ waitingBlocksSubmit: true }).waitingBlocksSubmit === true);
 {
   const models = [
     { value: 'default', label: 'Por defecto', family: '', long: false, window: null },
@@ -344,6 +352,59 @@ check(
     withNull !== null && withNull.agent === undefined && withNull.unsupportedAgent === undefined);
   check('un cliente que manda unsupportedAgent no lo cuela: lo pone solo el parser',
     open({ unsupportedAgent: 'x' })?.unsupportedAgent === undefined);
+
+  // --- Hito 29: continuar en otra CLI (paso 1). Sin subir la version (D24). ---
+  const { SERVER_ERROR_CODES } = shared;
+  const cont = (extra) => parseClientMessage(JSON.stringify({
+    type: 'session.continue', requestId: 'r9', agent: 'opencode', sessionId: 'ses_abc', target: 'claude-code', ...extra,
+  }));
+  const plainContinue = cont({});
+  check('29 session.continue con destino conocido se lee entero, sin unsupportedAgent',
+    sameShape(plainContinue, { type: 'session.continue', requestId: 'r9', agent: 'opencode', sessionId: 'ses_abc', target: 'claude-code' }),
+    JSON.stringify(plainContinue));
+  const otherTarget = cont({ target: 'otra' });
+  check('29 session.continue con target desconocido: target null y unsupportedAgent tal cual',
+    otherTarget?.type === 'session.continue' && otherTarget.target === null && otherTarget.unsupportedAgent === 'otra', JSON.stringify(otherTarget));
+  check('29 session.continue con target que no es texto tambien se anota', cont({ target: 7 })?.unsupportedAgent === '7');
+  check('29 session.continue sin target, o con null, no es un mensaje',
+    cont({ target: undefined }) === null && cont({ target: null }) === null);
+  check('29 session.continue desde una fila importada de la copia: el origen se acepta',
+    cont({ agent: 'gemini-cli' })?.agent === 'gemini-cli');
+  check('29 session.continue con un origen desconocido, sin requestId o sin sessionId no es un mensaje',
+    cont({ agent: 'nope' }) === null && cont({ requestId: '' }) === null && cont({ sessionId: '' }) === null);
+  check('29 un cliente que manda unsupportedAgent con un destino conocido no lo cuela',
+    cont({ unsupportedAgent: 'x' })?.unsupportedAgent === undefined);
+
+  const continued = (extra) => parseServerMessage(JSON.stringify({
+    type: 'session.continued', requestId: 'r9', terminalId: 't2',
+    source: { agent: 'opencode', sessionId: 'ses_abc', title: 'Ajustar el importador' },
+    includedTurns: 20, totalTurns: 57, totalTurnsIsMinimum: false, delivery: 'sending', ...extra,
+  }));
+  const fullContinued = continued({});
+  check('29 session.continued completo se lee entero',
+    sameShape(fullContinued, {
+      type: 'session.continued', requestId: 'r9', terminalId: 't2',
+      source: { agent: 'opencode', sessionId: 'ses_abc', title: 'Ajustar el importador' },
+      includedTurns: 20, totalTurns: 57, totalTurnsIsMinimum: false, delivery: 'sending',
+    }), JSON.stringify(fullContinued));
+  check('29 session.continued: totalTurnsIsMinimum ausente es false; true se lee',
+    continued({ totalTurnsIsMinimum: undefined })?.totalTurnsIsMinimum === false && continued({ totalTurnsIsMinimum: true })?.totalTurnsIsMinimum === true);
+  check('29 session.continued con una entrega desconocida, cuentas negativas o de mas, o sin origen, no es un mensaje',
+    continued({ delivery: 'api' }) === null && continued({ includedTurns: -1 }) === null && continued({ includedTurns: 1.5 }) === null &&
+    continued({ includedTurns: 58 }) === null && continued({ source: null }) === null &&
+    continued({ source: { agent: 'opencode', sessionId: 'ses_abc' } }) === null);
+  check('29 session.continued con prefilled se lee', continued({ delivery: 'prefilled' })?.delivery === 'prefilled');
+
+  const prefill = (extra) => parseServerMessage(JSON.stringify({ type: 'composer.prefill', terminalId: 't2', text: 'hola', reason: 'not-ready', ...extra }));
+  check('29 composer.prefill con cada motivo conocido se lee',
+    ['no-delivery', 'not-ready', 'send-failed'].every((reason) => sameShape(prefill({ reason }), { type: 'composer.prefill', terminalId: 't2', text: 'hola', reason })));
+  check('29 composer.prefill con un motivo desconocido o ausente es null',
+    prefill({ reason: 'porque-si' }) === null && prefill({ reason: undefined }) === null);
+  check('29 composer.prefill sin texto o sin pestana es null', prefill({ text: '' }) === null && prefill({ terminalId: undefined }) === null);
+
+  check('29 continue-failed es un codigo de error y no cae a internal',
+    SERVER_ERROR_CODES.includes('continue-failed') &&
+    parseServerMessage(JSON.stringify({ type: 'error', code: 'continue-failed', message: 'no', requestId: 'r9' }))?.code === 'continue-failed');
 }
 
 // ---------------------------------------------------------------------------
@@ -559,6 +620,7 @@ const adapter = createClaudeCodeAdapter();
     rewind: true,
     contextWindowSource: 'usage-with-variants',
     plans: true,
+    waitingBlocksSubmit: false,
   };
   check('capacidades de claude-code iguales al literal', sameShape(adapter.capabilities, expected), JSON.stringify(adapter.capabilities));
   check('el ciclo declarado es el que usa el servidor', sameShape([...adapter.capabilities.permissionCycle.modes], [...PERMISSION_MODE_CYCLE]));
@@ -566,7 +628,7 @@ const adapter = createClaudeCodeAdapter();
     sameShape(parseAgentCapabilities(JSON.parse(JSON.stringify(adapter.capabilities))), expected));
   // El envio: una sola pieza con el Enter adentro, como siempre (hito 25, A2).
   check('envio de claude-code igual al literal',
-    sameShape(adapter.input, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1 }),
+    sameShape(adapter.input, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1, transcriptReference: 'at-quoted' }),
     JSON.stringify(adapter.input));
   check('id, comando y etiqueta', adapter.id === 'claude-code' && adapter.command === 'claude' && adapter.label === 'Claude Code');
   check('AGENT_IDS nombra al adaptador', AGENT_IDS.includes(adapter.id));
@@ -648,6 +710,16 @@ const adapter = createClaudeCodeAdapter();
     consoleEnv.PATH === 'p', JSON.stringify(consoleEnv));
   check('con las CLIs de la app registradas, el entorno compuesto es el de claude-code: las demas no quitan nada',
     sameShape(consoleEnv, withMarker.env), JSON.stringify(consoleEnv));
+
+  // Hito 29 (D18, §11.4): como nombra cada CLI el transcript de una continuacion.
+  const registered = Object.fromEntries(AGENT_IDS.map((id) => [id, appRegistry.adapter(id).input.transcriptReference]));
+  check('29 transcriptReference de cada adaptador: Claude Code con @, las demas entre comillas',
+    sameShape(registered, { 'claude-code': 'at-quoted', codex: 'quoted-path', opencode: 'quoted-path', antigravity: 'quoted-path' }),
+    JSON.stringify(registered));
+  // Hito 29, paso 5 (D12): solo OpenCode por `serve`, que publica su espera; con Claude Code no cambia nada.
+  const blocking = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.waitingBlocksSubmit !== false);
+  check('29 waitingBlocksSubmit: true solo para opencode, false para las demas CLIs registradas',
+    sameShape(blocking, ['opencode']) && appRegistry.adapter('opencode').capabilities.waitingBlocksSubmit === true, blocking.join(','));
   appRegistry.disposeAll();
 }
 

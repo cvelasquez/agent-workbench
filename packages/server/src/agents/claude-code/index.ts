@@ -61,6 +61,8 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
   rewind: true,
   contextWindowSource: 'usage-with-variants',
   plans: true,
+  // Hito 29: sin candado nuevo. Con la CLI esperando, el cuadro manda como siempre.
+  waitingBlocksSubmit: false,
 };
 
 /**
@@ -75,6 +77,8 @@ export const CLAUDE_CODE_INPUT: AgentInput = {
   pasteMarkers: true,
   enterSeparately: false,
   interruptPresses: 1,
+  // La CLI adjunta el transcript sola y no pide permiso para leerlo fuera del proyecto.
+  transcriptReference: 'at-quoted',
 };
 
 /**

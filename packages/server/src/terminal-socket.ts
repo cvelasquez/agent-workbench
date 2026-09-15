@@ -28,6 +28,7 @@ import {
   type ServerMessage,
   type SessionPlan,
   type TerminalActivity,
+  type TerminalOfflineReason,
   type TerminalId,
 } from '@agent-workbench/shared';
 import type { AgentAdapter, AgentInput, PartsUpdate } from './agents/adapter.js';
@@ -41,10 +42,16 @@ import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
 import { listDirectory, readPreview, searchFiles } from './file-browser.js';
 import { readDiff } from './git-repo.js';
+import { GlobalSearchSlot } from './global-search.js';
+import { deliverWhenReady, prefillReasonFor, type DeliverDeps } from './deliver-when-ready.js';
+import { HANDOFF_DELIVERY_TIMEOUT_MS, continueSession, type ContinueDeps } from './handoff/handoff.js';
 import { InvalidPathError, resolveInside } from './path-guard.js';
 import { PasteImageError, PasteStore, MAX_IMAGES_PER_SUBMIT } from './paste-store.js';
 import {
+  ANSWER_INVALID_MESSAGE,
   ANSWER_KEY_INTERVAL_MS,
+  ANSWER_NOT_PENDING_MESSAGE,
+  answerFailureMessage,
   buildAnswerKeys,
   buildInterruptKeys,
   buildSubmissionWrites,
@@ -84,6 +91,7 @@ const PLAIN_INPUT: AgentInput = {
   pasteMarkers: true,
   enterSeparately: false,
   interruptPresses: 1,
+  transcriptReference: 'quoted-path',
 };
 
 export interface TerminalSocketOptions {
@@ -266,8 +274,16 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     al que mira esa pestana: lo dibuja la barra de pestanas, que las muestra
     todas a la vez.
   */
-  const onRegistryActivity = (terminalId: TerminalId, activity: TerminalActivity): void =>
-    broadcast({ type: 'terminal.activity', terminalId, activity });
+  const onRegistryActivity = (
+    terminalId: TerminalId,
+    activity: TerminalActivity,
+    offlineReason: TerminalOfflineReason | null,
+  ): void =>
+    broadcast(
+      offlineReason === null
+        ? { type: 'terminal.activity', terminalId, activity }
+        : { type: 'terminal.activity', terminalId, activity, offlineReason },
+    );
 
   const onIndexStatus = (status: IndexStatus): void =>
     broadcast({ type: 'index.status', status });
@@ -360,6 +376,57 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     (socket: WebSocket, terminalId: TerminalId): PieceWriter =>
     (piece) =>
       writeToTerminal(socket, terminalId, piece);
+
+  /**
+   * Cierra una pestana y suelta todo lo que la seguia, para todos: el hub, git,
+   * la memoria y lo que se pego en ella. Lo usan `terminal.close` y una
+   * continuacion que abrio su pestana y no llego a servir. false si ya no estaba.
+   */
+  const dropTab = (terminalId: TerminalId): boolean => {
+    if (!registry.close(terminalId)) return false;
+    // Sin pestana no hay nada que seguir, la mire quien la mire.
+    conversations.drop(terminalId);
+    repos.drop(terminalId);
+    memory.drop(terminalId);
+    // Las imagenes que se pegaron en esta pestana ya no le sirven a nadie: la
+    // conversacion que las nombraba se fue con ella. Y el transcript de una
+    // continuacion, tampoco (hito 29, D17).
+    void pasteStore.clearTerminal(terminalId);
+    broadcast({ type: 'terminal.closed', terminalId });
+    return true;
+  };
+
+  /**
+   * Mandarle un texto a la CLI de una pestana cuando esta lista: una nota, o la
+   * continuacion de una conversacion (hito 29, M3). Ver `deliver-when-ready.ts`.
+   */
+  const deliverDeps: DeliverDeps = {
+    describe: (terminalId) => registry.get(terminalId),
+    onChanged: (listener) => {
+      registry.on('changed', listener);
+      return () => {
+        registry.off('changed', listener);
+      };
+    },
+    adapterOf,
+    saveImage: async (terminalId, mediaType, data) => (await pasteStore.save(terminalId, mediaType, data)).path,
+    noteSubmitted: (terminalId, text) => registry.noteSubmitted(terminalId, text),
+    enqueue: (terminalId, job, enqueueOptions) => writeQueue.enqueue(terminalId, job, enqueueOptions),
+  };
+
+  /** Lo que la continuacion en otra CLI usa del servidor (hito 29). */
+  const continueDeps: ContinueDeps = {
+    registry,
+    closeTab: (terminalId) => {
+      dropTab(terminalId);
+    },
+    agents,
+    index,
+    pasteStore,
+    // La copia propia, si tiene la sesion y sirve (D15). Con la copia apagada y
+    // vacia no encuentra nada y lee el seguidor de la CLI.
+    archive: { events: (agent, sessionId) => vault.handoffEvents(agent, sessionId) },
+  };
 
   /** El archivo se reemplazo: hay que rehacer la vista, no agregarle nada. */
   const onConversationReset = (terminalId: TerminalId): void => {
@@ -478,6 +545,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       servidor no lista nada.
     */
     const pickers = new DirectoryPickers(agents.protectedDirs());
+    /** La busqueda global en curso de este socket: una nueva o el cierre la cancelan. */
+    const globalSearch = new GlobalSearchSlot();
 
     /**
      * `cwd` de una pestana viva.
@@ -557,8 +626,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       esto una recarga dejaba sin punto a toda pestana que no cambiara de estado
       despues —con una CLI que no publica su estado, para siempre—.
     */
-    for (const { terminalId, activity } of registry.activitySnapshot()) {
-      send(socket, { type: 'terminal.activity', terminalId, activity });
+    for (const entry of registry.activitySnapshot()) {
+      send(socket, { type: 'terminal.activity', ...entry });
     }
     send(socket, { type: 'index.status', status: index.getStatus() });
     send(socket, { type: 'index.projects', projects: index.getProjects(), replace: true });
@@ -639,6 +708,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             cicla (D16). Con Claude Code la capacidad es false y no cambia nada.
           */
           const guardsPending = submitting?.capabilities.permissionCycle?.approvesPendingOnCycle === true;
+          /*
+            Y una CLI que declara que su espera bloquea el cuadro (hito 29, D12:
+            OpenCode por `serve`). La actividad es la del registro, que la sigue
+            siempre; la del hub solo existe con alguien mirando la conversacion.
+          */
+          const blocksWhileWaiting = submitting?.capabilities.waitingBlocksSubmit === true;
           if (submitting !== null) {
             const launchedAt = registry.launchedAtOf(terminalId);
             const blind = isBlind();
@@ -646,6 +721,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               label: submitting.label,
               approvesPendingOnCycle: guardsPending,
               waitingFor: conversations.getWaitingFor(terminalId),
+              waitingBlocksSubmit: blocksWhileWaiting,
+              activity: registry.activityOf(terminalId),
               blind,
               openToolCall: blind && launchedAt !== null && conversations.hasOpenToolCall(terminalId, launchedAt),
             });
@@ -664,11 +741,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             publicar a mitad del envio.
           */
           const approvalGuard =
-            submitting !== null && (guardsPending || isBlind())
+            submitting !== null && (guardsPending || blocksWhileWaiting || isBlind())
               ? async (): Promise<boolean> => {
                   const current = registry.launchedAtOf(terminalId);
                   // Sin proceso no hay menu: la escritura la rechaza la terminal.
                   if (current === null) return true;
+                  // D12: el estado llega por eventos, y el registro ya tiene el ultimo.
+                  if (blocksWhileWaiting && registry.activityOf(terminalId) === 'waiting') return false;
                   if (isBlind() && (await conversations.checkOpenToolCall(terminalId, current))) return false;
                   return !guardsPending || (await conversations.checkWaitingFor(terminalId)) === null;
                 }
@@ -715,10 +794,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               );
               if (outcome === 'interrupted') interrupted();
               if (outcome === 'blocked') {
+                const waitingNow = blocksWhileWaiting && registry.activityOf(terminalId) === 'waiting';
                 sendError(
                   socket,
                   'submit-failed',
-                  `El mensaje no se termino de mandar: ${submitting?.label ?? 'la CLI'} abrio una herramienta mientras se escribia y puede estar pidiendo una aprobacion. Revisa la solapa CLI.`,
+                  waitingNow
+                    ? `El mensaje no se termino de mandar: ${submitting?.label ?? 'la CLI'} empezo a esperar una respuesta mientras se escribia. Contestala antes de mandar otro mensaje.`
+                    : `El mensaje no se termino de mandar: ${submitting?.label ?? 'la CLI'} abrio una herramienta mientras se escribia y puede estar pidiendo una aprobacion. Revisa la solapa CLI.`,
                 );
               }
             },
@@ -749,6 +831,43 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             );
             break;
           }
+          /*
+            Una CLI que contesta por su API (hito 29, D10: OpenCode por
+            `serve`). No escribe en la pty, y por eso va fuera de la fila de
+            escritura: una respuesta no tiene que esperar a que termine de
+            pegarse un mensaje. La pregunta abierta la confirma la propia CLI en
+            el momento, con la carpeta de la pestana (A1); un fallo al mandar
+            (una version sin esa ruta, el `serve` caido) tambien es
+            `answer-failed`, y la tarjeta se reabre.
+          */
+          const channel = answering?.questions;
+          if (channel !== undefined) {
+            const descriptor = registry.get(message.terminalId);
+            if (descriptor === null) {
+              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              break;
+            }
+            const { terminalId, toolUseId, selections } = message;
+            void (async () => {
+              try {
+                const failure = answerFailureMessage(
+                  await channel.answer({ cwd: descriptor.cwd, sessionId: descriptor.sessionId }, toolUseId, selections),
+                );
+                if (failure !== null) sendError(socket, 'answer-failed', failure);
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                debugLog('socket', `respuesta por API en ${terminalId.slice(0, 8)}: ${error instanceof Error ? error.name : 'error'}`);
+                sendError(
+                  socket,
+                  'answer-failed',
+                  'No se pudo mandar la respuesta: contestala en la solapa CLI.',
+                  detail,
+                );
+              }
+            })();
+            break;
+          }
+
           const interruptedAnswer = (): void =>
             sendError(socket, 'answer-failed', 'La respuesta no se termino de mandar: la corto la interrupcion.');
           /*
@@ -761,11 +880,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             async (lane) => {
               const pending = conversations.getPendingQuestion(message.terminalId);
               if (pending === null || pending.toolUseId !== message.toolUseId) {
-                sendError(
-                  socket,
-                  'answer-failed',
-                  'Esa pregunta ya no esta esperando respuesta.',
-                );
+                sendError(socket, 'answer-failed', ANSWER_NOT_PENDING_MESSAGE);
                 return;
               }
 
@@ -777,7 +892,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 message.selections,
               );
               if (keys === null) {
-                sendError(socket, 'answer-failed', 'La respuesta no corresponde a la pregunta.');
+                sendError(socket, 'answer-failed', ANSWER_INVALID_MESSAGE);
                 return;
               }
               /*
@@ -986,11 +1101,19 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           Una pestana dormida no tiene proceso: existe, se lee y no gasta nada.
           Esto es lo que pasa cuando el usuario quiere escribirle al agente.
         */
-        case 'terminal.wake':
+        case 'terminal.wake': {
+          /*
+            Se mira antes de esperar. Con un lanzamiento que tarda —el `serve` de
+            OpenCode, hito 29— el usuario puede cerrar la pestana mientras se
+            despierta, y `wake` da null: la cerro el, y un cartel "La terminal ya
+            no existe" sobre algo que acaba de cerrar a proposito es ruido.
+            Medido en la prueba en vivo del hito.
+          */
+          const existed = registry.has(message.terminalId);
           void (async () => {
             try {
               const descriptor = await registry.wake(message.terminalId);
-              if (descriptor === null) {
+              if (descriptor === null && !existed) {
                 sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
               }
             } catch (error) {
@@ -1007,22 +1130,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             }
           })();
           break;
+        }
 
         case 'terminal.close':
-          if (!registry.close(message.terminalId)) {
+          if (!dropTab(message.terminalId)) {
             sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
           } else {
-            // Sin pestana no hay nada que seguir, la mire quien la mire.
-            conversations.drop(message.terminalId);
-            repos.drop(message.terminalId);
-            memory.drop(message.terminalId);
-            // Las imagenes que se pegaron en esta pestana ya no le sirven a
-            // nadie: la conversacion que las nombraba se fue con ella.
-            void pasteStore.clearTerminal(message.terminalId);
             subscriptions.delete(message.terminalId);
             gitSubscriptions.delete(message.terminalId);
             memorySubscriptions.delete(message.terminalId);
-            broadcast({ type: 'terminal.closed', terminalId: message.terminalId });
           }
           break;
 
@@ -1610,81 +1726,168 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               la CLI se declare lista; si no llega, no se escribe nada. Una CLI
               que no avisa cuando esta lista no recibe notas: pegar a ciegas es
               justo lo que esta espera evita.
+
+              Desde el hito 29 la espera y la escritura estan en
+              `deliverWhenReady`, que tambien usa la continuacion en otra CLI
+              (M3): mismas comprobaciones en el mismo orden, misma fila, mismas
+              piezas. Los textos de cada fallo siguen aca.
             */
-            const adapter = adapterOf(message.terminalId);
-            const status = adapter?.capabilities.readySignal === true ? adapter.status : null;
-            if (status === null) {
-              sendError(
-                socket,
-                'agent-unsupported',
-                'Esta CLI no avisa cuando esta lista; la nota no se mando.',
-              );
-              return;
+            const outcome = await deliverWhenReady(deliverDeps, {
+              terminalId: message.terminalId,
+              text: note.text,
+              images: note.images,
+              timeoutMs: NOTE_SEND_TIMEOUT_MS,
+              write: pieceWriter(socket, message.terminalId),
+            });
+            switch (outcome.kind) {
+              case 'sent':
+              case 'nothing':
+              // La fila ya lo dijo al no poder escribir (`writeToTerminal`).
+              case 'refused':
+                return;
+              case 'gone':
+                sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+                return;
+              case 'no-agent':
+              case 'no-session':
+                sendError(socket, 'submit-failed', 'Esa pestana no tiene un agente al que mandarle la nota.');
+                return;
+              case 'no-ready-signal':
+                sendError(socket, 'agent-unsupported', 'Esta CLI no avisa cuando esta lista; la nota no se mando.');
+                return;
+              case 'no-images':
+                sendError(socket, 'agent-unsupported', 'Esta CLI no recibe imagenes; la nota no se mando.');
+                return;
+              case 'not-ready':
+                sendError(socket, 'submit-failed', 'La CLI de esa pestana no llego a arrancar; la nota no se mando.');
+                return;
+              case 'image-failed':
+                sendError(socket, 'submit-failed', 'No se pudo adjuntar una imagen de la nota.', outcome.detail);
+                return;
+              case 'interrupted':
+                sendError(socket, 'submit-failed', 'La nota no se termino de mandar: la corto la interrupcion.');
+                return;
             }
-            // Antes de esperar el arranque: si la nota no puede ir entera, no
-            // tiene sentido esperar quince segundos para decirlo.
-            if (
-              note.images.length > 0 &&
-              imageStyleFor(socket, message.terminalId, 'Esta CLI no recibe imagenes; la nota no se mando.') === null
-            ) {
-              return;
-            }
-
-            if (!(await status.waitUntilReady(descriptor.sessionId, NOTE_SEND_TIMEOUT_MS))) {
-              sendError(
-                socket,
-                'submit-failed',
-                'La CLI de esa pestana no llego a arrancar; la nota no se mando.',
-              );
-              return;
-            }
-
-            /*
-              La espera queda fuera de la fila a proposito: es una espera por
-              la CLI, no una escritura, y lo que se le mande a la pestana
-              mientras tanto no tiene por que quedar quince segundos detras.
-            */
-            const input = inputOf(message.terminalId);
-            const interrupted = (): void =>
-              sendError(socket, 'submit-failed', 'La nota no se termino de mandar: la corto la interrupcion.');
-            await writeQueue.enqueue(
-              message.terminalId,
-              async (lane) => {
-                const imagePaths: string[] = [];
-                try {
-                  for (const image of note.images) {
-                    const stored = await pasteStore.save(
-                      message.terminalId,
-                      image.mediaType,
-                      image.data,
-                    );
-                    imagePaths.push(stored.path);
-                  }
-                } catch (error) {
-                  const detail = error instanceof Error ? error.message : String(error);
-                  sendError(socket, 'submit-failed', 'No se pudo adjuntar una imagen de la nota.', detail);
-                  return;
-                }
-
-                const pieces = buildSubmissionWrites(note.text, imagePaths, input);
-                if (pieces === null) return;
-                registry.noteSubmitted(message.terminalId, note.text);
-                const outcome = await lane.writePieces(
-                  pieces,
-                  input.pieceGapMs,
-                  pieceWriter(socket, message.terminalId),
-                );
-                if (outcome === 'interrupted') interrupted();
-              },
-              { onDropped: interrupted },
-            );
           })();
+          break;
+
+        /*
+          Continuar una conversacion con otra CLI (hito 29).
+
+          No viaja ninguna ruta ni ningun texto: la sesion se busca en el indice
+          por `(agent, sessionId)`. `continueSession` abre la pestana y guarda el
+          transcript; aca se contesta y se entrega. La pestana llega con
+          `terminal.opened` y el mismo `requestId`, que es lo que la activa en
+          la ventana que la pidio; despues `session.continued`, con lo que dice
+          el aviso encima del cuadro.
+
+          La entrega va en segundo plano. Si no se manda sola —la CLI no avisa
+          cuando esta lista, o no llego a estarlo—, el mensaje queda en el
+          cuadro de esa pestana, y lo manda el usuario. Nunca las dos cosas.
+        */
+        case 'session.continue': {
+          if (message.target === null) {
+            sendError(
+              socket,
+              'agent-unsupported',
+              'Este servidor no sabe lanzar esa CLI.',
+              message.unsupportedAgent,
+              message.requestId,
+            );
+            break;
+          }
+          const { requestId, target } = message;
+          void (async () => {
+            let outcome;
+            try {
+              outcome = await continueSession(continueDeps, { agent: message.agent, sessionId: message.sessionId, target });
+            } catch (error) {
+              sendError(
+                socket,
+                'continue-failed',
+                'No se pudo armar la continuación.',
+                error instanceof Error ? error.message : String(error),
+                requestId,
+              );
+              return;
+            }
+            if (!outcome.ok) {
+              sendError(socket, outcome.code, outcome.message, outcome.detail, requestId);
+              return;
+            }
+
+            const { terminalId } = outcome.descriptor;
+            send(socket, { type: 'terminal.opened', requestId, terminal: outcome.descriptor });
+            send(socket, { type: 'session.continued', requestId, ...outcome.continued });
+            if (outcome.continued.delivery === 'prefilled') {
+              send(socket, { type: 'composer.prefill', terminalId, text: outcome.message, reason: 'no-delivery' });
+              return;
+            }
+
+            const delivered = await deliverWhenReady(deliverDeps, {
+              terminalId,
+              text: outcome.message,
+              images: [],
+              timeoutMs: HANDOFF_DELIVERY_TIMEOUT_MS,
+              // Sin avisos por pieza: si no entra, el mensaje vuelve al cuadro y eso ya lo dice.
+              write: (piece) => registry.write(terminalId, piece),
+            });
+            const reason = prefillReasonFor(delivered);
+            if (reason !== null) {
+              debugLog('continuar', `no se mando sola a ${terminalId.slice(0, 8)}: ${delivered.kind}`);
+              send(socket, { type: 'composer.prefill', terminalId, text: outcome.message, reason });
+            }
+          })();
+          break;
+        }
+
+        /*
+          Buscar en las conversaciones de la copia propia (hito 29). Solo viaja
+          el texto: donde se busca lo decide el catalogo. La respuesta es solo
+          para este socket, y una busqueda que otra reemplazo no contesta.
+          Recorre todas las sesiones y va mandando lo que encuentra
+          (`search.progress`) hasta el resultado final.
+        */
+        case 'search.global': {
+          const { searchId, query, includeArchived } = message;
+          void globalSearch
+            .run(
+              (signal) =>
+                vault.search(query, {
+                  includeArchived,
+                  signal,
+                  onProgress: (progress) => {
+                    if (!signal.aborted) send(socket, { type: 'search.progress', searchId, progress });
+                  },
+                }),
+              searchId,
+            )
+            .then((result) => {
+              if (result !== null) send(socket, { type: 'search.results', searchId, result });
+            })
+            .catch((error: unknown) => {
+              const detail = error instanceof Error ? error.message : String(error);
+              sendError(
+                socket,
+                'search-failed',
+                error instanceof VaultError ? error.message : 'No se pudo buscar en la copia propia.',
+                detail,
+                searchId,
+              );
+            });
+          break;
+        }
+
+        // Se cerro el buscador: solo esa busqueda, si todavia es la que corre.
+        case 'search.cancel':
+          globalSearch.cancel(message.searchId);
           break;
       }
     });
 
     const teardown = (): void => {
       // Se quitan los oyentes de este socket. Las terminales siguen vivas.
+      globalSearch.cancel();
       pickers.closeAll();
       registry.detachAll(listener);
       for (const terminalId of subscriptions) conversations.unsubscribe(terminalId);

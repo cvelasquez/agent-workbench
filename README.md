@@ -21,8 +21,9 @@ que la aplicación lo toque.
 |---|---|
 | **Pestañas** | Varias sesiones vivas a la vez, cada una en su directorio. Sobreviven a un `F5`: los procesos viven en el servidor, no en la pestaña del navegador. El punto de cada una dice si el agente está trabajando, parado o esperando una respuesta. |
 | **Arranque sin gastar nada** | Al abrir la app las pestañas vuelven **dormidas**: se leen enteras y no lanzan ninguna CLI. La abrís con un botón cuando quieras escribirle al agente. |
-| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, las de Claude Code, Codex, OpenCode y Antigravity juntas bajo cada proyecto. Abrir una la retoma con su CLI, en la misma sesión. De OpenCode lee su historial y abre pestañas de su CLI, pero sin su estado ni preguntas contestables desde el chat: esas se contestan en su terminal. Antigravity publica su estado y sus tokens sólo si configurás su status line ([abajo](#antigravity-cli-estado-y-medidor-opcional)). |
+| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, las de Claude Code, Codex, OpenCode y Antigravity juntas bajo cada proyecto. Abrir una la retoma con su CLI, en la misma sesión. Las pestañas de OpenCode se enganchan a un servidor local de OpenCode que la aplicación arranca solo cuando hace falta: así tienen su estado, avisan cuando esperan que autorices algo y sus preguntas se contestan desde el chat. Antigravity publica su estado y sus tokens sólo si configurás su status line ([abajo](#antigravity-cli-estado-y-medidor-opcional)). |
 | **Conversación** | Los mensajes de la sesión activa, en vivo, con las herramientas plegadas y su resultado adentro. Búsqueda, salto entre resultados y copiado por mensaje. |
+| **Continuar y buscar** | Con más de una CLI instalada: continuar una conversación con otra CLI, en la misma carpeta —el agente nuevo arranca de un recorte de los últimos turnos, no del contexto que tenía el anterior—, y, con la copia propia, buscar en el texto de todas las conversaciones guardadas, no sólo en sus títulos. |
 | **Medidor de contexto** | Tokens de la última petición contra la ventana del modelo. Tokens, nunca dinero. |
 | **Cambios** | Rama, adelanto y atraso contra la rama de seguimiento, worktrees, y los archivos tocados con su diff. **Solo lectura.** |
 | **Archivos** | El árbol del directorio de la pestaña, con carga perezosa, buscador por nombre y previsualización con resaltado de sintaxis. Un ojo muestra lo que esconden `.gitignore` y las carpetas de artefactos. Menú contextual para copiar rutas, insertarlas como `@ruta` o abrir el archivo con la app del sistema. |
@@ -199,18 +200,26 @@ red saliente.
   Antigravity ni su entrada en el llavero del sistema, ni ningún token. No hay login en la
   interfaz: si no iniciaste sesión, lo hacés dentro de la terminal de la CLI y la
   aplicación ni se entera.
-- **No agrega variables de autenticación** al entorno de los procesos que lanza.
-  El entorno se hereda tal cual. La única excepción es que **quita**
+- **No agrega variables de autenticación** al entorno de las CLIs que lanza.
+  El entorno se hereda tal cual. Las excepciones son dos: **quita**
   `CLAUDE_CODE_CHILD_SESSION` —que apaga el guardado del historial— y te avisa
-  con un cartel cuando lo hace.
+  con un cartel cuando lo hace; y al servidor local de OpenCode (abajo) le
+  **agrega** una sola variable, `OPENCODE_SERVER_PASSWORD`, con una contraseña
+  que la aplicación genera en cada arranque. No es la de ninguna cuenta, y la
+  variable no llega a ninguna pestaña: cada pestaña de OpenCode recibe esa
+  contraseña en su línea de comando (`attach --password`), donde la ven los
+  demás procesos de tu usuario. Sólo sirve para ese servidor, en `127.0.0.1`, y
+  deja de valer al cerrar la aplicación.
 - **De `~/.claude/` solo lee `projects/`**, que es el historial de
   conversaciones. **De `~/.codex/`, solo `sessions/` y `archived_sessions/`.**
   **De OpenCode, su base `opencode.db`, abierta en sólo lectura**, y de ella
   solo las tablas de sesiones, mensajes y partes; las de cuentas, credenciales,
   permisos y sesiones compartidas no se consultan. Lo único que deja leer esa
   base es lo que SQLite hace con cualquier lector: crea sus archivos `-wal` y
-  `-shm` si faltan y le cambia la fecha a `-shm`. Nunca corre un comando de
-  OpenCode sobre ella. **De Antigravity, de `~/.gemini/antigravity-cli/`**: los
+  `-shm` si faltan y le cambia la fecha a `-shm`. Para leerla nunca corre un
+  comando de OpenCode; para contestar una pregunta desde el chat lee, además, una
+  sola fila de esa pregunta, y para avisar de un permiso o una pregunta de un
+  sub-agente, de qué sesión cuelga. **De Antigravity, de `~/.gemini/antigravity-cli/`**: los
   transcripts de cada conversación, `history.jsonl`, la última conversación de
   cada carpeta, y de `settings.json` sólo el modelo y la status line; si el log
   propio de una pestaña no aparece, los `log/cli-*.log` de la CLI, que traen tus
@@ -226,7 +235,10 @@ red saliente.
   configuración o a la carpeta que elijas para la copia, nunca dentro de la
   carpeta de una CLI. El log de cada pestaña de Antigravity, que trae tus
   mensajes, queda en la carpeta temporal con permisos sólo tuyos y se borra en el
-  primer arranque de la aplicación pasadas 24 horas.
+  primer arranque de la aplicación pasadas 24 horas. El transcript de una
+  conversación que continuás en otra CLI —con sus mensajes y resultados
+  recortados— va a la carpeta temporal de esa pestaña, y se borra al cerrarla o
+  a las 24 horas.
 - **En tus proyectos escribe una sola cosa, y sólo si confirmás:** la memoria
   compartida. Antes muestra archivo por archivo qué va a cambiar, y se limita a
   `.agents/memory/`, a lo que está entre sus marcas en `AGENTS.md` y
@@ -235,6 +247,15 @@ red saliente.
 - **El servidor escucha solo en `127.0.0.1`**, en un puerto efímero, con un
   token aleatorio por arranque que exigen el WebSocket y todas las rutas HTTP,
   y rechaza peticiones cuyo `Origin` no sea el propio.
+- **Con OpenCode, la aplicación corre su servidor local**, `opencode serve`: uno
+  solo, desde que abrís la primera pestaña de OpenCode hasta cinco minutos
+  después de cerrar la última, o hasta que cerrás la aplicación. Escucha en
+  `127.0.0.1`, con un puerto efímero y una contraseña distinta en cada arranque,
+  aunque tu configuración de OpenCode diga otra cosa. La aplicación le pide sólo
+  el estado de las sesiones, los permisos y preguntas pendientes, crear una
+  sesión, contestar una pregunta y cortar una sesión: nada de tu configuración ni
+  de tus cuentas. Ese servidor es OpenCode trabajando, así que habla con el
+  proveedor del modelo y escribe su base como lo haría abierto a mano.
 - **El panel de git es de solo lectura.** No hay commit, stage ni push. Con un
   agente editando archivos, un botón que escribe historia es exactamente lo que
   después nadie sabe quién disparó.
@@ -254,6 +275,12 @@ Si dice que esa versión de Node no trae `node:sqlite`, actualizá Node a la 22.
 o posterior. Si no hay línea, no encontró la base: está en
 `~/.local/share/opencode/opencode.db`, o donde diga `OPENCODE_DB` o
 `XDG_DATA_HOME`.
+
+**Una pestaña de OpenCode no abre y dice "No se pudo arrancar el servidor de
+OpenCode".** La pestaña se engancha a un `opencode serve` que la aplicación
+lanza, y el motivo va después de los dos puntos. Si no queda claro, abrí
+`opencode` en una terminal común: si tampoco arranca, el problema es de esa
+instalación de OpenCode.
 
 **Una pestaña de Antigravity no muestra su estado ni el medidor.** Mirá la línea
 `Status line` del arranque, debajo de la CLI: si dice que no está configurada, o

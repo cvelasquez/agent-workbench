@@ -17,6 +17,10 @@
  *    Sin esto, cualquier cosa se guarda en disco con extension de imagen.
  *  - **Se limpia sola.** Por pestana al cerrarla, y lo viejo al arrancar. Una
  *    carpeta de temporales que solo crece termina siendo un problema de otro.
+ *  - **Sin permisos para nadie mas** (R29-4): carpetas `0o700` y archivos
+ *    `0o600`. En Linux la temporal es compartida, y lo que aterriza aca son
+ *    capturas y el transcript de una conversacion. En Windows %TEMP% ya es por
+ *    usuario y los bits no hacen nada.
  */
 
 import { MAX_SUBMIT_IMAGES, MAX_SUBMIT_IMAGE_BYTES } from '@agent-workbench/shared';
@@ -24,6 +28,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { HANDOFF_MAX_BYTES } from './handoff/transcript.js';
 import { detectImageFormat } from './image-signature.js';
 
 /** Tipos que la CLI sabe leer como imagen. Lista corta y explicita. */
@@ -43,6 +48,10 @@ export const MAX_IMAGES_PER_SUBMIT = MAX_SUBMIT_IMAGES;
 /** Los temporales de arranques anteriores se borran pasado este tiempo. */
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
+/** Solo el usuario: la temporal de Linux es compartida (R29-4). */
+const DIRECTORY_MODE = 0o700;
+const FILE_MODE = 0o600;
+
 export interface StoredImage {
   /** Ruta absoluta, la que se le nombra a la CLI. */
   path: string;
@@ -50,6 +59,18 @@ export interface StoredImage {
 }
 
 export class PasteImageError extends Error {}
+
+/**
+ * Tope de un texto guardado: el transcript de una continuacion mas un margen
+ * (hito 29, §6.4). El documento ya sale recortado a `HANDOFF_MAX_BYTES`; esto
+ * es la guarda de que ninguna otra cosa llegue a escribir megas en la temporal.
+ */
+export const MAX_TEXT_BYTES = HANDOFF_MAX_BYTES + 4 * 1024;
+
+/** Lo que se puede guardar como texto. Un literal: el cliente no nombra nada. */
+export type StoredTextKind = 'continuacion';
+
+export class PasteTextError extends Error {}
 
 export class PasteStore {
   private readonly root: string;
@@ -89,12 +110,36 @@ export class PasteStore {
     // Gana la firma, no lo que dijo el navegador. La extension tiene que
     // describir lo que hay adentro para que la CLI lo lea bien.
     const directory = path.join(this.root, safeSegment(terminalId));
-    await mkdir(directory, { recursive: true });
+    await mkdir(directory, { recursive: true, mode: DIRECTORY_MODE });
 
     this.counter += 1;
     const name = `pegada-${this.counter}-${randomUUID().slice(0, 8)}.${signature.ext}`;
     const file = path.join(directory, name);
-    await writeFile(file, bytes);
+    await writeFile(file, bytes, { mode: FILE_MODE });
+    return { path: file, bytes: bytes.length };
+  }
+
+  /**
+   * Guarda un texto que la app arma para una pestana y le nombra a su CLI: el
+   * transcript de una continuacion (hito 29, D17).
+   *
+   * Mismas reglas que una imagen: el nombre y la carpeta los pone el servidor
+   * —`<baseName>-<n>-<8 hex>.md` en la subcarpeta de la pestana—, y se borra con
+   * `clearTerminal` al cerrarla o con `purgeStale` a las 24 h. UTF-8 sin BOM.
+   * Lanza `PasteTextError` si pasa `MAX_TEXT_BYTES`.
+   */
+  async saveText(terminalId: string, baseName: StoredTextKind, content: string): Promise<StoredImage> {
+    const bytes = Buffer.from(content, 'utf8');
+    if (bytes.length > MAX_TEXT_BYTES) {
+      throw new PasteTextError(`El texto pesa ${bytes.length} bytes; el maximo son ${MAX_TEXT_BYTES}.`);
+    }
+    const directory = path.join(this.root, safeSegment(terminalId));
+    await mkdir(directory, { recursive: true, mode: DIRECTORY_MODE });
+
+    this.counter += 1;
+    const name = `${baseName}-${this.counter}-${randomUUID().slice(0, 8)}.md`;
+    const file = path.join(directory, name);
+    await writeFile(file, bytes, { mode: FILE_MODE });
     return { path: file, bytes: bytes.length };
   }
 

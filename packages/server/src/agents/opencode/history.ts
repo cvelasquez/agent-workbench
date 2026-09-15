@@ -17,7 +17,9 @@
  *    siempre toca la sesion y el indice no lee `message` para ordenar.
  *
  * Lo que no se lista: los sub-agentes (`parent_id` no nulo; 76 de 295, medido),
- * que no se pueden reanudar solos. `time_archived` se ignora: la barra no podria
+ * que no se pueden reanudar solos, y desde el hito 29 las raices sin mensajes y
+ * con el titulo por defecto, que es como quedan las que crea la app por API al
+ * abrir una pestana (D14). `time_archived` se ignora: la barra no podria
  * desarchivar sin escribir la base, y el archivado propio de la app sigue
  * sirviendo.
  *
@@ -141,19 +143,35 @@ export function createOpenCodeHistory(deps: OpenCodeHistoryDeps): HistorySource 
     // Borrada entre el listado y esta lectura: no esta, y eso no es un error.
     if (row === undefined || row.parent_id !== null) return null;
 
-    /*
-      Rastro del dia que OpenCode mude los mensajes a otra tabla: hoy hay
-      `session_message` con cambios de modelo y de agente, y 0 raices sin
-      mensajes (critica M6). Una vez por arranque.
-    */
-    if (!warnedWithoutMessages && db.get<FoundRow>(OPENCODE_SQL.sessionHasMessages, row.id) === undefined) {
-      warnedWithoutMessages = true;
-      warn('[opencode] hay sesiones sin filas en la tabla message: su conversacion puede verse vacia. Si pasa con una sesion con mensajes, OpenCode cambio donde los guarda.');
+    const defaultTitle = DEFAULT_TITLE_PATTERN.test(row.title);
+    const hasMessages = db.get<FoundRow>(OPENCODE_SQL.sessionHasMessages, row.id) !== undefined;
+    // Sin la base legible, "sin mensajes" no dice nada: null la sacaria de la barra.
+    if (db.status() !== 'ok') throw new Error(`la base de OpenCode no se pudo leer (${db.status()})`);
+    if (!hasMessages) {
+      /*
+        Hito 29 (D14): cada pestana nueva crea su sesion por API antes de
+        lanzar, y la sesion queda vacia hasta el primer mensaje —o para
+        siempre, si se cierra sin escribir—. Esa no se lista, como una de
+        Claude Code que no llego a escribir su archivo. Tampoco se borra: seria
+        una segunda escritura destructiva de la app. En cuanto recibe un
+        mensaje cambia `time_updated`, `changedRefs` la da y se lista.
+      */
+      if (defaultTitle) return null;
+      /*
+        Una sin mensajes pero con titulo propio no la creo la app. Es el rastro
+        del dia que OpenCode mude los mensajes a otra tabla: hoy hay
+        `session_message` con cambios de modelo y de agente, y 0 raices sin
+        mensajes (critica M6 del hito 26). Una vez por arranque.
+      */
+      if (!warnedWithoutMessages) {
+        warnedWithoutMessages = true;
+        warn('[opencode] hay sesiones sin filas en la tabla message: su conversacion puede verse vacia. Si pasa con una sesion con mensajes, OpenCode cambio donde los guarda.');
+      }
     }
 
     let title: string;
     let titleSource: SessionTitleSource;
-    if (DEFAULT_TITLE_PATTERN.test(row.title)) {
+    if (defaultTitle) {
       const first = db.get<FirstUserTextRow>(OPENCODE_SQL.firstUserText, row.id)?.text ?? null;
       title = first === null ? '' : toTitle(first);
       titleSource = 'first-message';

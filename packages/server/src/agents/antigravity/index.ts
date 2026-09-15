@@ -112,6 +112,8 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
   // Solo con la status line: el transcript no trae tokens.
   contextWindowSource: null,
   plans: false,
+  // Con la status line, su confirmacion abierta ya la frena `submitRefusal` (12.7).
+  waitingBlocksSubmit: false,
 };
 
 /** Las mismas con la status line configurada: estado, "esperando" y medidor. */
@@ -134,6 +136,8 @@ export const ANTIGRAVITY_INPUT: AgentInput = {
   pasteMarkers: true,
   enterSeparately: true,
   interruptPresses: 1,
+  // `@ruta` no esta medido (M10): el transcript va entre comillas.
+  transcriptReference: 'quoted-path',
 };
 
 /** La ruta del log de un lanzamiento, o null si el token no es un uuid. */

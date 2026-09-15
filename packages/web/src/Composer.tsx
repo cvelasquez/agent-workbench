@@ -24,7 +24,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TerminalId } from '@agent-workbench/shared';
+import { mergePrefill } from './agent-ui.js';
 import { ImageViewer } from './ImageViewer.js';
+import type { ComposerPrefill } from './useWorkspace.js';
 import { useComposerAttachments, type Attachment } from './useComposerAttachments.js';
 import { useDragSize } from './useDragSize.js';
 import { parseStoredSize, readStored, writeStored } from './window-prefs.js';
@@ -90,6 +92,22 @@ interface ComposerProps {
    * un mensaje llegaria como teclas al menu, y el Enter final aprueba.
    */
   blockedReason?: string | null;
+  /**
+   * Textos que llegaron del servidor para el cuadro de alguna pestana (hito 29:
+   * la continuacion de una conversacion que no se manda sola). Se escriben en
+   * el borrador de **esa** pestana, este a la vista o no, y nunca se mandan.
+   */
+  prefills?: readonly ComposerPrefill[];
+  /** Ya se escribio ese texto: el espacio de trabajo lo olvida. */
+  onPrefillApplied?: (id: number) => void;
+  /**
+   * Un aviso encima del cuadro, con su ×, o null. Hoy, el de una continuacion:
+   * lo que el agente no tiene del contexto de la otra CLI.
+   */
+  notice?: { text: string; status: string | null } | null;
+  onDismissNotice?: () => void;
+  /** Se mando algo desde el cuadro de esa pestana. */
+  onSubmitted?: (terminalId: TerminalId) => void;
 }
 
 export function Composer({
@@ -101,6 +119,11 @@ export function Composer({
   leading,
   imagesAllowed = true,
   blockedReason = null,
+  prefills,
+  onPrefillApplied,
+  notice = null,
+  onDismissNotice,
+  onSubmitted,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -211,6 +234,35 @@ export function Composer({
     if (terminalId !== null) textareaRef.current?.focus();
   }, [terminalId, replaceAttachments]);
 
+  /*
+    Un texto prellenado (hito 29) va al borrador de su pestana: al cuadro si es
+    la que se muestra, y al borrador guardado si no —la pestana nueva de una
+    continuacion puede no estar a la vista todavia—. Solo si esta vacio; si no,
+    antes de lo escrito y con una linea en blanco (`mergePrefill`).
+
+    Va **despues** del efecto de cambio de pestana, a proposito: si los dos
+    corren en la misma pasada, la pestana nueva ya quedo a la vista y el texto
+    cae en su cuadro, no en el borrador de la anterior.
+  */
+  const appliedPrefills = useRef(new Set<number>());
+  useEffect(() => {
+    if (prefills === undefined || prefills.length === 0) return;
+    for (const prefill of prefills) {
+      if (appliedPrefills.current.has(prefill.id)) continue;
+      appliedPrefills.current.add(prefill.id);
+      if (prefill.terminalId === shown.current) {
+        setText((current) => mergePrefill(current, prefill.text));
+      } else {
+        const draft = drafts.current.get(prefill.terminalId);
+        drafts.current.set(prefill.terminalId, {
+          text: mergePrefill(draft?.text ?? '', prefill.text),
+          items: draft?.items ?? [],
+        });
+      }
+      onPrefillApplied?.(prefill.id);
+    }
+  }, [prefills, onPrefillApplied]);
+
   const submit = useCallback(() => {
     if (terminalId === null || blockedReason !== null) return;
 
@@ -227,7 +279,8 @@ export function Composer({
     connection.send({ type: 'agent.submit', terminalId, text: body, images });
     setText('');
     attachments.clear();
-  }, [connection, terminalId, text, attachments, blockedReason]);
+    onSubmitted?.(terminalId);
+  }, [connection, terminalId, text, attachments, blockedReason, onSubmitted]);
 
   const interrupt = useCallback(() => {
     if (terminalId === null) return;
@@ -289,6 +342,20 @@ export function Composer({
         {...heightDivider}
         title="Arrastrar para cambiar el alto del cuadro"
       />
+
+      {notice !== null && (
+        <div className="handoff-notice" role="status">
+          <span className="handoff-notice-text">
+            {notice.text}
+            {notice.status !== null && <span className="handoff-notice-status">{notice.status}</span>}
+          </span>
+          {onDismissNotice !== undefined && (
+            <button className="icon-button" onClick={onDismissNotice} title="Cerrar el aviso">
+              ×
+            </button>
+          )}
+        </div>
+      )}
 
       {attachments.problem !== null && (
         <div className="composer-problem">

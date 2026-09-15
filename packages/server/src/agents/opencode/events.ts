@@ -296,8 +296,8 @@ function answersText(items: readonly ConversationQuestionItem[], answersJson: st
  * termino, su resultado, todas con `toolUseId = part.id`.
  *
  * `pending`, `running` o un estado desconocido: sin resultado. Una pregunta
- * `running` es una pregunta abierta; la tarjeta la dibuja sin botones, porque
- * esta CLI no declara `questionCards`.
+ * `running` es una pregunta abierta; desde el hito 29 la tarjeta la contesta por
+ * la API del `serve` (`serve-questions.ts`), casando `toolUseId` con el pedido.
  *
  * `limits`: los mismos con los que se leyo la fila (ver `BuildEventsInput`).
  */

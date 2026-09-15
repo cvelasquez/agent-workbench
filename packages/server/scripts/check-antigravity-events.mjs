@@ -1882,6 +1882,7 @@ const statusRecord = (id, over = {}) => ({
     rewind: false,
     contextWindowSource: null,
     plans: false,
+    waitingBlocksSubmit: false,
   };
   check('9 sin status line: capacidades iguales al literal', same(adapter.capabilities, expectedBase) && adapter.capabilities === ANTIGRAVITY_BASE_CAPABILITIES, show(adapter.capabilities));
   check('9 con status line: estado y medidor, y lista para recibir sigue apagada (P0-4)',
@@ -1892,7 +1893,7 @@ const statusRecord = (id, over = {}) => ({
   check('9 el modo de arranque de la linea de comando es el punto de partida del ciclo',
     fresh.args[fresh.args.indexOf('--mode') + 1] === 'accept-edits' && adapter.capabilities.permissionCycle.launchMode === 'acceptEdits');
   check('9 envio (P0-16): sin imagenes, marcadores, Enter aparte a 400 ms, un Esc',
-    same(adapter.input, { imageReference: null, pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1 }) && adapter.input === ANTIGRAVITY_INPUT &&
+    same(adapter.input, { imageReference: null, pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1, transcriptReference: 'quoted-path' }) && adapter.input === ANTIGRAVITY_INPUT &&
     adapter.input.imageReference === adapter.capabilities.imagesByPath);
 
   // defaults (M11): la etiqueta entera y el esfuerzo.
