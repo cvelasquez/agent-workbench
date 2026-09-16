@@ -292,6 +292,12 @@ kbd {
   line-height: 1;
 }
 
+/* El sonido de aviso silenciado (§6.20): la misma nota, tachada y apagada. */
+.icon-button-muted {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
 .icon-button:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--accent);

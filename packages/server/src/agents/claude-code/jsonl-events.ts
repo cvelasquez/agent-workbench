@@ -37,9 +37,13 @@ import { scratchRoot } from './paths.js';
  *
  * `system-reminder` va aparte porque no es una orden sino contexto que
  * inyecta el arnes, pero se descarta por lo mismo: no lo escribio nadie.
+ * `task-notification` (hito 32) es el aviso de una tarea en segundo plano:
+ * su linea se descarta entera por `origin` (`isHumanOrigin`), y la etiqueta
+ * queda aca por si una version de la CLI deja de escribir `origin`.
  */
 const HARNESS_TAGS = [
   'system-reminder',
+  'task-notification',
   'command-name',
   'command-message',
   'command-args',
@@ -71,6 +75,19 @@ const HARNESS_BLOCK = new RegExp(`<(${HARNESS_TAGS.join('|')})>[\\s\\S]*?</\\1>`
  */
 function cleanUserText(raw: string): string {
   return raw.replace(HARNESS_BLOCK, '').trim();
+}
+
+/**
+ * Si el `origin` de una linea dice que la escribio una persona.
+ *
+ * Sin `origin` es humana: las versiones viejas de la CLI no lo escribian y
+ * todo lo que hay en el historial de antes es del usuario. Con `origin`, solo
+ * `human` lo es; `task-notification`, o cualquier otro, es el arnes.
+ */
+function isHumanOrigin(origin: unknown): boolean {
+  if (typeof origin !== 'object' || origin === null) return true;
+  const kind = (origin as Record<string, unknown>)['kind'];
+  return typeof kind !== 'string' || kind === 'human';
 }
 
 /** `message.usage`, con los nombres del JSONL pasados a los nuestros. */
@@ -334,10 +351,7 @@ function toQueuedUserEvent(
   if (attachmentRecord['type'] !== 'queued_command') return null;
   if (attachmentRecord['commandMode'] !== 'prompt') return null;
 
-  const origin = attachmentRecord['origin'];
-  if (typeof origin === 'object' && origin !== null) {
-    if ((origin as Record<string, unknown>)['kind'] !== 'human') return null;
-  }
+  if (!isHumanOrigin(attachmentRecord['origin'])) return null;
 
   const prompt = attachmentRecord['prompt'];
   if (typeof prompt !== 'string') return null;
@@ -544,6 +558,15 @@ export function toConversationEvent(
   if (type === 'attachment') return toQueuedUserEvent(record, lineNumber, limits);
 
   if (type !== 'user' && type !== 'assistant') return null;
+
+  // Una linea `user` que no escribio el usuario (hito 32). El aviso de que
+  // termino una tarea en segundo plano llega como linea `user` con
+  // `origin.kind: "task-notification"` y `promptSource: "system"`, y se
+  // dibujaba como si lo hubiera escrito el. Medido en esta instalacion: 58
+  // lineas asi, todas con esa marca; las humanas traen `human` o no traen
+  // `origin` (las versiones viejas de la CLI no lo escribian). Se mira solo
+  // `origin.kind`, como en `toQueuedUserEvent`: `promptSource` es redundante.
+  if (type === 'user' && !isHumanOrigin(record['origin'])) return null;
 
   const message = record['message'];
   if (typeof message !== 'object' || message === null) return null;

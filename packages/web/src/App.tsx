@@ -46,6 +46,8 @@ import { useGit } from './useGit.js';
 import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
 import { THEME_ICON, THEME_LABEL, useTheme } from './useTheme.js';
+import { useNotificationSound } from './useNotificationSound.js';
+import { soundButtonTitle } from './notification-sound.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
 import { VaultDialog } from './VaultDialog.js';
@@ -156,6 +158,7 @@ export function App(): JSX.Element {
   } = workspace;
 
   const theme = useTheme();
+  const sound = useNotificationSound(activity);
   const activeTerminal = terminals.find((t) => t.terminalId === activeTerminalId) ?? null;
 
   /*
@@ -915,6 +918,14 @@ export function App(): JSX.Element {
           title={`${THEME_LABEL[theme.preference]} — clic para cambiar`}
         >
           {THEME_ICON[theme.preference]}
+        </button>
+        <button
+          className={`icon-button${sound.enabled ? '' : ' icon-button-muted'}`}
+          onClick={sound.toggle}
+          title={soundButtonTitle(sound.enabled)}
+          aria-pressed={sound.enabled}
+        >
+          ♪
         </button>
         <button
           className="icon-button"

@@ -588,6 +588,32 @@ check('el que sale por dequeue aparece una sola vez',
   dequeued.added.map((event) => event.eventId).join(','));
 check('y no queda marcado como encolado', dequeued.added[0]?.queued === false);
 
+// 11i (hito 32). El aviso de una tarea en segundo plano tambien llega como
+// linea `user` suelta, marcada con `origin.kind: "task-notification"`, y se
+// dibujaba como un mensaje del usuario. Las lineas humanas traen `human` o no
+// traen `origin` (58 avisos y ninguna linea humana con otra marca en esta
+// instalacion). Si una version de la CLI dejara de escribir `origin`, la
+// etiqueta se limpia igual y el mensaje queda vacio.
+const taskNote = '<task-notification>\n<task-id>bjlf5ex3d</task-id>\n<status>completed</status>\n</task-notification>';
+await appendFile(queueFile,
+  line({ type: 'user', uuid: 'n1', timestamp: new Date().toISOString(), cwd: 'D:/x',
+    origin: { kind: 'task-notification' }, promptSource: 'system',
+    message: { role: 'user', content: taskNote } }) +
+  line({ type: 'user', uuid: 'n2', timestamp: new Date().toISOString(), cwd: 'D:/x',
+    message: { role: 'user', content: [{ type: 'text', text: taskNote }] } }) +
+  line({ type: 'user', uuid: 'n3', timestamp: new Date().toISOString(), cwd: 'D:/x',
+    origin: { kind: 'human' }, promptSource: 'typed',
+    message: { role: 'user', content: 'y este si lo escribi yo' } }) +
+  line({ type: 'user', uuid: 'n4', timestamp: new Date().toISOString(), cwd: 'D:/x',
+    origin: { kind: 'algo-nuevo' },
+    message: { role: 'user', content: 'esto tampoco lo escribio nadie' } }));
+const notices = await queueFollower.poll();
+check('el aviso de tarea como linea user no genera tarjeta, ni con origin ni sin el',
+  notices.added.length === 1 && notices.added[0]?.eventId === 'n3',
+  notices.added.map((event) => event.eventId).join(','));
+check('y la linea humana con origin se dibuja igual que siempre',
+  notices.added[0]?.parts[0]?.text === 'y este si lo escribi yo');
+
 // ---------------------------------------------------------------------------
 // Las imagenes que la CLI adjunta por ruta
 // ---------------------------------------------------------------------------
