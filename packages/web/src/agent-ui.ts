@@ -22,6 +22,7 @@ import {
   PERMISSION_MODE_HINT,
   PERMISSION_MODE_LABEL,
   blindToApprovals,
+  insertionIndex,
   isAgentId,
   modelOptionFor,
   normalizeCwdKey,
@@ -43,6 +44,7 @@ import {
   type TerminalActivity,
   type TerminalDescriptor,
   type TerminalId,
+  type TerminalKind,
   type TerminalOfflineReason,
 } from '@agent-workbench/shared';
 
@@ -1046,3 +1048,117 @@ export function pendingApprovalNotice(
   if (capabilities.permissionCycle?.approvesPendingOnCycle !== true && !capabilities.waitingBlocksSubmit) return null;
   return waitingBarText(waitingFor, capabilities.questionCards);
 }
+
+/**
+ * Una pestana que se pidio y el servidor todavia no confirmo (hito 31).
+ *
+ * `terminal.opened` no sale hasta que la pty esta viva: `registry.open` espera
+ * a `spawn`, y con OpenCode eso incluye levantar su `serve` —2,6 s medidos en
+ * el hito 29 (CLAUDE.md 11.12)—. Hasta entonces la barra no decia nada y el
+ * `+` quedaba igual, asi que el segundo clic parecia el primero.
+ *
+ * Se sigue por `requestId`, que ya es el unico hilo entre el pedido y la
+ * respuesta (`pendingOpen`), y por lo tanto es **de la ventana que la pidio**:
+ * una pestana que abrio otra ventana aparece cuando aparece, como siempre.
+ */
+export interface PendingOpen {
+  requestId: string;
+  cwd: string;
+  /** Con que CLI, si se eligio. null: la decide el servidor. */
+  agent: AgentId | null;
+  /** La etiqueta pedida, si la habia (una continuacion trae la suya). */
+  label: string;
+  at: number;
+}
+
+/**
+ * Cuanto se espera antes de soltar una provisional sola.
+ *
+ * Lo normal es que la suelte el `terminal.opened`, el `error` o la reconexion,
+ * que son los tres caminos que ya sueltan "Abriendo…" y "Relanzando…". Esto es
+ * la red por si no llega ninguno: 20 s es mas del doble de lo que tarda el peor
+ * lanzamiento medido, y deja de ser un estado que se queda para siempre.
+ */
+export const PENDING_OPEN_TIMEOUT_MS = 20_000;
+
+/** Donde va una provisional en la barra, y que dice. */
+export interface PendingTabPlacement {
+  pending: PendingOpen;
+  /** Indice de la barra **ya construida** donde se inserta. */
+  index: number;
+  label: string;
+}
+
+/**
+ * El nombre de la carpeta, que es lo que la barra muestra cuando la pestana no
+ * tiene etiqueta propia (`defaultLabel` de `TabBar`). Se repite la regla en vez
+ * de importarla porque alla trabaja sobre un `TerminalDescriptor` que aca
+ * todavia no existe: eso es justo lo provisional.
+ */
+export function pendingTabLabel(pending: PendingOpen): string {
+  if (pending.label.length > 0) return pending.label;
+  const parts = pending.cwd.split(/[\\/]/).filter((part) => part.length > 0);
+  return parts[parts.length - 1] ?? pending.cwd;
+}
+
+/**
+ * Donde cae cada provisional entre las pestanas de verdad.
+ *
+ * Usa `insertionIndex`, la misma regla con la que el servidor la va a insertar
+ * (CLAUDE.md 6.8), asi que la de verdad aparece donde estaba la provisional.
+ * Al final de la barra saltaria de lugar al llegar, que es el parpadeo que
+ * esto viene a sacar.
+ *
+ * Los indices se calculan **en orden**, cada uno sobre la lista que dejan las
+ * anteriores: dos pestanas pedidas del mismo proyecto caen una detras de otra,
+ * no las dos en el mismo sitio.
+ */
+export function pendingTabPlacements(
+  terminals: readonly Pick<TerminalDescriptor, 'terminalId' | 'kind' | 'cwd'>[],
+  pendings: readonly PendingOpen[],
+  platform: string,
+): PendingTabPlacement[] {
+  const order: { terminalId: TerminalId; kind: TerminalKind; cwd: string }[] = terminals.map(
+    (terminal) => ({ terminalId: terminal.terminalId, kind: terminal.kind, cwd: terminal.cwd }),
+  );
+  const placements: PendingTabPlacement[] = [];
+
+  for (const pending of pendings) {
+    const index = insertionIndex(
+      order.map((entry) => entry.terminalId),
+      (id) => order.find((entry) => entry.terminalId === id),
+      { kind: 'agent', cwd: pending.cwd },
+      platform,
+    );
+    placements.push({ pending, index, label: pendingTabLabel(pending) });
+    // Una provisional ocupa sitio para la siguiente: sin esto, dos pedidos del
+    // mismo proyecto se dibujarian los dos en el mismo indice.
+    order.splice(index, 0, {
+      terminalId: `pending:${pending.requestId}` as TerminalId,
+      kind: 'agent',
+      cwd: pending.cwd,
+    });
+  }
+
+  return placements;
+}
+
+/**
+ * true si ya hay una pestana pedida para esa carpeta.
+ *
+ * Es la otra mitad del pedido: que el segundo clic no pueda abrir una segunda
+ * pestana "por si el primero no entro". Se mira **por proyecto** y no en toda
+ * la barra —abrir en otra carpeta mientras una tarda no tiene por que
+ * esperar— con la misma clave normalizada con la que agrupa todo lo demas.
+ */
+export function openBlockedFor(
+  pendings: readonly PendingOpen[],
+  cwd: string,
+  platform: string,
+): boolean {
+  const key = normalizeCwdKey(cwd, platform);
+  return pendings.some((pending) => normalizeCwdKey(pending.cwd, platform) === key);
+}
+
+/** El titulo del `+` mientras esa carpeta tiene una pestana en camino. */
+export const OPEN_BLOCKED_TITLE = 'Abriendo una pestaña en este proyecto…';

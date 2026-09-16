@@ -57,7 +57,11 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
     variants: ModelVariantRegistry,
     private readonly options: FollowOptions = {},
   ) {
-    this.inner = new ConversationFollower(sessionFilePath(cwd, sessionId), variants, options);
+    this.inner = new ConversationFollower(sessionFilePath(cwd, sessionId), variants, {
+      ...options,
+      // Las raices de los documentos que la conversacion nombre (hito 31).
+      target: { cwd, sessionId },
+    });
   }
 
   get label(): string {
@@ -109,7 +113,10 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
         `[conversacion] la sesion ${this.sessionId.slice(0, 8)} escribio en ${filePath}, no en la ruta calculada; me mudo ahi.`,
       );
       // Sin registro de variantes, igual que antes de mudarse aca (D11); con los topes que se pidieron.
-      this.inner = new ConversationFollower(filePath, undefined, this.options);
+      this.inner = new ConversationFollower(filePath, undefined, {
+        ...this.options,
+        target: { cwd: this.cwd, sessionId: this.sessionId },
+      });
       return true;
     }
     return false;

@@ -1665,7 +1665,7 @@ async function waitFor(condition, timeoutMs = 5000) {
 
 // D1. Donde cae una pestana nueva: junto a las de su proyecto, por clave normalizada.
 {
-  const { insertionIndex } = await import('../src/tab-order.ts');
+  const { insertionIndex } = await import('@agent-workbench/shared');
   const tabs = {
     a: { kind: 'agent', cwd: 'D:\\Mi App' },
     b: { kind: 'agent', cwd: 'D:\\otra' },

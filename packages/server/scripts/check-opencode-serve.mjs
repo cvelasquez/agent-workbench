@@ -1575,8 +1575,11 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
       /const blockedReason =\s*serverClosedNotice \?\?/.test(appSource) &&
       /if \(offlineReasonsRef\.current\.get\(terminalId\) === 'server-closed'\) \{/.test(workspaceSource) &&
       /const relaunches = advanceRelaunches\(relaunchPhases\.current, message\.terminals\);/.test(workspaceSource));
-    check('O13 fuente: al reconectar se sueltan "Relanzando…" y "Abriendo…": el error o la lista del medio pudieron perderse con el socket viejo',
-      /const offReopen = connection\.onReopen\(\(\) => \{\s*setWaking\(\(current\) => \(current\.size === 0 \? current : new Set\(\)\)\);\s*if \(relaunchPhases\.current\.size > 0\) \{\s*relaunchPhases\.current = new Map\(\);\s*setRelaunching\(new Set\(\)\);\s*\}\s*\}\);/.test(workspaceSource) &&
+    // Desde el hito 31 tambien las pestanas provisionales: su `terminal.opened`
+    // viaja por el socket que recibio el pedido, asi que con el socket caido no
+    // llega nunca y quedarian en la barra para siempre.
+    check('O13 fuente: al reconectar se sueltan "Relanzando…", "Abriendo…" y las provisionales: el error o la lista del medio pudieron perderse con el socket viejo',
+      /const offReopen = connection\.onReopen\(\(\) => \{(?:\s*\/\/[^\n]*)*\s*dropAllPending\(\);\s*setWaking\(\(current\) => \(current\.size === 0 \? current : new Set\(\)\)\);\s*if \(relaunchPhases\.current\.size > 0\) \{\s*relaunchPhases\.current = new Map\(\);\s*setRelaunching\(new Set\(\)\);\s*\}\s*\}\);/.test(workspaceSource) &&
       /offReopen\(\);\s*connection\.close\(\);/.test(workspaceSource));
   }
 }

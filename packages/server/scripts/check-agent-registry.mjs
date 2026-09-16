@@ -1062,6 +1062,62 @@ const adapter = createClaudeCodeAdapter();
   check('nota con una CLI que no avisa cuando esta lista: lo dice, no pide abrir una pestana',
     ui.noteSendTitle(false, 'D:\\p', false).includes('no avisa') && !ui.noteSendTitle(false, 'D:\\p', false).startsWith('Abri'));
 
+
+  // --- La pestana provisional (hito 31) ---
+  //
+  // `terminal.opened` no llega hasta que la pty esta viva, y eso puede tardar
+  // segundos: sin ninguna senal, el clic no contestaba nada y el segundo
+  // parecia el primero. Lo que se rompe en silencio es **donde** cae: al final
+  // de la barra, la de verdad aparece en otro sitio y la barra parpadea.
+  const pending = (requestId, cwd, label = '') => ({ requestId, cwd, agent: null, label, at: 0 });
+  const tab = (terminalId, cwd, kind = 'agent') => ({ terminalId, kind, cwd });
+  // Las rutas de Windows se arman sin escapes: el fixture pasa por varias
+  // capas y un backslash de menos convertiria `D:\Mi App` en `D:Mi App`.
+  const BS = String.fromCharCode(92);
+  const winPath = (...parts) => parts.join(BS);
+
+  check('la etiqueta es el nombre de la carpeta, como la de una pestana sin nombre',
+    ui.pendingTabLabel(pending('r1', winPath('D:', 'Mi App'))) === 'Mi App',
+    ui.pendingTabLabel(pending('r1', winPath('D:', 'Mi App'))));
+  check('una etiqueta pedida gana (una continuacion trae la suya)',
+    ui.pendingTabLabel(pending('r1', winPath('D:', 'Mi App'), 'Continuacion: x')) === 'Continuacion: x');
+
+  const A = winPath('D:', 'A');
+  const B = winPath('D:', 'B');
+  const C = winPath('D:', 'C');
+  const bar = [tab('t1', A), tab('t2', B), tab('t3', A)];
+  const same = ui.pendingTabPlacements(bar, [pending('r1', A)], 'win32');
+  check('cae junto a las de su proyecto, no al final (la regla del servidor)',
+    same.length === 1 && same[0].index === 3, JSON.stringify(same.map((p) => p.index)));
+  check('un proyecto nuevo cae al final',
+    ui.pendingTabPlacements(bar, [pending('r1', C)], 'win32')[0].index === 3);
+  const lower = ui.pendingTabPlacements(bar, [pending('r1', 'd:/a/')], 'win32');
+  check('la clave es la normalizada: d:/a/ es la misma carpeta que D:\\A',
+    lower[0].index === 3, JSON.stringify(lower.map((p) => p.index)));
+  const two = ui.pendingTabPlacements(
+    [tab('t1', A), tab('t2', B)],
+    [pending('r1', A), pending('r2', A)],
+    'win32',
+  );
+  check('dos pedidos del mismo proyecto caen uno detras del otro, no en el mismo sitio',
+    two.length === 2 && two[0].index === 1 && two[1].index === 2,
+    JSON.stringify(two.map((p) => p.index)));
+  check('una consola no agrupa: la provisional va al final',
+    ui.pendingTabPlacements([tab('s1', A, 'shell')], [pending('r1', A)], 'win32')[0].index === 1);
+  check('sin pedidos no hay ninguna', ui.pendingTabPlacements(bar, [], 'win32').length === 0);
+
+  // El candado del `+`: por proyecto, no en toda la barra.
+  check('con un pedido en esa carpeta, el + se apaga', ui.openBlockedFor([pending('r1', A)], A, 'win32'));
+  check('y con otra forma de escribir la misma carpeta, tambien',
+    ui.openBlockedFor([pending('r1', 'd:/a/')], A, 'win32'));
+  check('en otra carpeta no: abrir ahi no tiene por que esperar',
+    !ui.openBlockedFor([pending('r1', A)], B, 'win32'));
+  check('sin pedidos, nunca', !ui.openBlockedFor([], A, 'win32'));
+  check('el titulo del + bloqueado',
+    ui.OPEN_BLOCKED_TITLE === 'Abriendo una pestaña en este proyecto…', ui.OPEN_BLOCKED_TITLE);
+  check('el plazo de seguridad es mas del doble del peor lanzamiento medido',
+    ui.PENDING_OPEN_TIMEOUT_MS === 20000, String(ui.PENDING_OPEN_TIMEOUT_MS));
+
   real.dispose();
 }
 

@@ -27,7 +27,12 @@ import {
   type TerminalOfflineReason,
 } from '@agent-workbench/shared';
 import { summarizeAgents } from './agent-summary.js';
-import { advanceRelaunches, type RelaunchPhase } from './agent-ui.js';
+import {
+  PENDING_OPEN_TIMEOUT_MS,
+  advanceRelaunches,
+  type PendingOpen,
+  type RelaunchPhase,
+} from './agent-ui.js';
 import { AgentConnection, type ConnectionStatus } from './connection.js';
 import { isMemoryPanelRequest } from './useMemory.js';
 
@@ -103,6 +108,11 @@ export interface Workspace {
   terminals: TerminalDescriptor[];
   /** Consolas del sistema. Viven en la columna derecha, no en la barra. */
   shells: TerminalDescriptor[];
+  /**
+   * Las pestanas pedidas desde **esta** ventana que el servidor todavia no
+   * confirmo (hito 31). La barra dibuja una provisional por cada una.
+   */
+  pendingOpens: readonly PendingOpen[];
   activeTerminalId: TerminalId | null;
   projects: ProjectSummary[];
   indexStatus: IndexStatus;
@@ -208,6 +218,12 @@ export function useWorkspace(): Workspace {
   const [relaunching, setRelaunching] = useState<ReadonlySet<TerminalId>>(new Set());
   const [error, setError] = useState<WorkspaceError | null>(null);
   /*
+    Hito 31: las pestanas pedidas que el servidor todavia no confirmo. La barra
+    dibuja una provisional por cada una, en el sitio donde va a caer, y el `+`
+    de ese proyecto queda apagado hasta que llegue. Ver `PendingOpen`.
+  */
+  const [pendingOpens, setPendingOpens] = useState<readonly PendingOpen[]>([]);
+  /*
     Hito 29. Los avisos de continuacion y los textos prellenados viven aca y no
     en el cuadro: el cuadro no esta montado si no habia ninguna pestana, y el
     texto de la primera continuacion llega antes de que exista.
@@ -228,6 +244,36 @@ export function useWorkspace(): Workspace {
    * hilo que une el pedido con la respuesta.
    */
   const pendingOpen = useRef(new Map<string, (terminal: TerminalDescriptor) => void>());
+  /*
+    Los plazos de las provisionales, uno por pedido. Lo normal es que la suelte
+    la respuesta; esto es la red por si no llega ninguna (`PENDING_OPEN_TIMEOUT_MS`).
+  */
+  const pendingTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  /**
+   * Suelta la provisional de un pedido, y su plazo.
+   *
+   * La llaman los tres caminos que ya sueltan "Abriendo…" y "Relanzando…": la
+   * confirmacion, el error de **ese** pedido y la reconexion.
+   */
+  const dropPending = useCallback((requestId: string) => {
+    const timer = pendingTimers.current.get(requestId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      pendingTimers.current.delete(requestId);
+    }
+    setPendingOpens((current) =>
+      current.some((pending) => pending.requestId === requestId)
+        ? current.filter((pending) => pending.requestId !== requestId)
+        : current,
+    );
+  }, []);
+
+  const dropAllPending = useCallback(() => {
+    for (const timer of pendingTimers.current.values()) clearTimeout(timer);
+    pendingTimers.current.clear();
+    setPendingOpens((current) => (current.length === 0 ? current : []));
+  }, []);
 
   useEffect(() => {
     // Sin token en la URL se intenta igual: tras una recarga autentica la
@@ -350,6 +396,9 @@ export function useWorkspace(): Workspace {
         }
 
         case 'terminal.opened': {
+          // La de verdad ya esta en la lista: la provisional sobra, y sale
+          // antes de activar nada para que no se dibujen las dos.
+          dropPending(message.requestId);
           if (ownRequests.current.delete(message.requestId)) {
             // Abrir una consola no cambia de pestana: se abre al costado.
             if (message.terminal.kind === 'agent') {
@@ -415,6 +464,7 @@ export function useWorkspace(): Workspace {
             ownRequests.current.delete(message.requestId);
             // La pestana no se abrio: lo que iba a pasar despues, tampoco.
             pendingOpen.current.delete(message.requestId);
+            dropPending(message.requestId);
           }
           break;
 
@@ -454,6 +504,10 @@ export function useWorkspace(): Workspace {
       que un clic con el socket caido tampoco queda esperando.
     */
     const offReopen = connection.onReopen(() => {
+      // La respuesta a un pedido viaja por el socket que lo recibio: con el
+      // socket caido no va a llegar nunca, y la lista que manda el servidor al
+      // conectar ya dice que pestanas hay.
+      dropAllPending();
       setWaking((current) => (current.size === 0 ? current : new Set()));
       if (relaunchPhases.current.size > 0) {
         relaunchPhases.current = new Map();
@@ -469,7 +523,10 @@ export function useWorkspace(): Workspace {
       offReopen();
       connection.close();
     };
-  }, [connection]);
+  }, [connection, dropPending, dropAllPending]);
+
+  // Los plazos de las provisionales no sobreviven al desmontaje.
+  useEffect(() => dropAllPending, [dropAllPending]);
 
   const openTerminal = useCallback(
     (options: OpenTerminalRequest) => {
@@ -478,6 +535,23 @@ export function useWorkspace(): Workspace {
       if (options.onOpened !== undefined) {
         pendingOpen.current.set(requestId, options.onOpened);
       }
+      /*
+        La provisional se anota **antes** de mandar: es lo que hace que el clic
+        conteste en el acto, que es todo el pedido. Sale con `terminal.opened`,
+        con el `error` de este mismo pedido, al reconectar, o por plazo.
+      */
+      setPendingOpens((current) => [
+        ...current,
+        {
+          requestId,
+          cwd: options.cwd,
+          agent: options.agent ?? null,
+          label: options.label ?? '',
+          at: Date.now(),
+        },
+      ]);
+      const timer = setTimeout(() => dropPending(requestId), PENDING_OPEN_TIMEOUT_MS);
+      pendingTimers.current.set(requestId, timer);
       connection.send({
         type: 'terminal.open',
         requestId,
@@ -489,7 +563,7 @@ export function useWorkspace(): Workspace {
         ...(options.agent !== undefined ? { agent: options.agent } : {}),
       });
     },
-    [connection],
+    [connection, dropPending],
   );
 
   const openShell = useCallback(
@@ -619,6 +693,8 @@ export function useWorkspace(): Workspace {
     shellName,
     terminals,
     shells,
+    /** Hito 31: las pedidas que el servidor todavia no confirmo. */
+    pendingOpens,
     activeTerminalId,
     projects,
     indexStatus,

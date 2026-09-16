@@ -30,10 +30,18 @@ import {
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
-import { continueTargets, resumableSession, sessionAgentLabel, sessionAgentView } from './agent-ui.js';
+import {
+  continueTargets,
+  resumableSession,
+  sessionAgentLabel,
+  sessionAgentView,
+  OPEN_BLOCKED_TITLE,
+} from './agent-ui.js';
 import { ContinueButton } from './ContinueButton.js';
 import {
   archiveCandidatesByAgent,
+  projectArchivePlan,
+  projectArchiveText,
   sessionsToArchiveBefore,
   startOfLocalDay,
   type ArchiveCandidates,
@@ -81,6 +89,12 @@ interface SidebarProps {
   disabled: boolean;
   /** Sesiones con una pestana abierta. No se archivan: ver `canArchive`. */
   openSessionIds: Set<string>;
+  /**
+   * Hito 31: las carpetas con una pestana pedida y todavia sin confirmar. Su
+   * `+` queda apagado hasta que llegue, para que el segundo clic no abra una
+   * segunda pestana.
+   */
+  openBlocked: (cwd: string) => boolean;
   /** Sin `agent` decide el servidor: con una sola CLI es lo de siempre. */
   onOpenProject: (cwd: string, agent?: AgentId) => void;
   /** Las CLIs anunciadas: el menu del `+` y las insignias de las filas. */
@@ -168,6 +182,43 @@ function SearchSnippet({ hit }: { hit: GlobalSearchHit }): JSX.Element {
       <mark>{match}</mark>
       {after}
     </>
+  );
+}
+
+/**
+ * La confirmacion de "Archivar proyecto" (hito 31).
+ *
+ * En el sitio y no con `confirm()`, por lo mismo que el resto de la barra: un
+ * dialogo modal bloquea la pagina entera. El numero sale de la misma funcion
+ * que decide que se archiva, asi que lo que dice es exactamente lo que pasa.
+ *
+ * Con **nada** que archivar —todas sus conversaciones tienen pestana abierta—
+ * no se ofrece el boton de confirmar: se explica por que y se deja cerrar.
+ */
+function ProjectArchiveConfirm({
+  project,
+  openSessionIds,
+  onConfirm,
+  onCancel,
+}: {
+  project: ProjectSummary;
+  openSessionIds: ReadonlySet<string>;
+  onConfirm: () => void;
+  onCancel: () => void;
+}): JSX.Element {
+  const plan = projectArchivePlan(project, openSessionIds);
+  return (
+    <div className="project-archive-confirm" role="group">
+      <span className="archive-history-text">{projectArchiveText(plan)}</span>
+      {plan.sessionIds.length > 0 && (
+        <button className="link-button" onClick={onConfirm}>
+          Archivar
+        </button>
+      )}
+      <button className="link-button" onClick={onCancel}>
+        {plan.sessionIds.length > 0 ? 'Cancelar' : 'Cerrar'}
+      </button>
+    </div>
   );
 }
 
@@ -372,6 +423,7 @@ export function Sidebar({
   indexStatus,
   disabled,
   openSessionIds,
+  openBlocked,
   onOpenProject,
   agents,
   offerAgentChoice,
@@ -540,7 +592,8 @@ export function Sidebar({
     archivadas no entraron—. Queda hasta cerrarlo o hasta el siguiente.
   */
   const [lastHistoryArchive, setLastHistoryArchive] = useState<{
-    agent: SessionAgentId;
+    /** De que se archivo, ya resuelto: el nombre de una CLI o el de un proyecto. */
+    what: string;
     sessionIds: string[];
   } | null>(null);
 
@@ -557,9 +610,25 @@ export function Sidebar({
     const ids = sessionsToArchiveBefore(projects, agent, historyCutoff, openSessionIds);
     if (ids.length > 0) {
       onArchive(ids, true);
-      setLastHistoryArchive({ agent, sessionIds: ids });
+      setLastHistoryArchive({ what: sessionAgentLabel(agent, agents), sessionIds: ids });
     }
     setHistoryOpen(false);
+  };
+
+  /*
+    "Archivar proyecto" (hito 31): el mismo archivado, sobre todas las filas
+    visibles de un proyecto. Con la lista de ahora, no con la del render que
+    dibujo la confirmacion: entre una cosa y otra el indice pudo emitir.
+  */
+  const [archivingProject, setArchivingProject] = useState<string | null>(null);
+
+  const archiveProject = (project: ProjectSummary): void => {
+    const plan = projectArchivePlan(project, openSessionIds);
+    if (plan.sessionIds.length > 0) {
+      onArchive(plan.sessionIds, true);
+      setLastHistoryArchive({ what: projectName(project), sessionIds: plan.sessionIds });
+    }
+    setArchivingProject(null);
   };
 
   const undoHistoryArchive = (): void => {
@@ -747,8 +816,7 @@ export function Sidebar({
         <div className="archive-history archive-history-undo" role="status">
           <span className="archive-history-text">
             {lastHistoryArchive.sessionIds.length === 1 ? 'Se archivó' : 'Se archivaron'}{' '}
-            {sessionsText(lastHistoryArchive.sessionIds.length)} de{' '}
-            {sessionAgentLabel(lastHistoryArchive.agent, agents)}
+            {sessionsText(lastHistoryArchive.sessionIds.length)} de {lastHistoryArchive.what}
           </span>
           <button className="link-button" onClick={undoHistoryArchive}>
             Deshacer
@@ -837,6 +905,8 @@ export function Sidebar({
         {!showingSearch && visibleProjects.map((project) => {
           const isOpen = expanded.has(project.key) || filtering;
           const canOpen = !disabled && project.cwdExists;
+          // Una pestana pedida en esta carpeta y todavia sin confirmar.
+          const opening = openBlocked(project.cwd);
 
           return (
             <div className="project" key={project.key}>
@@ -867,6 +937,12 @@ export function Sidebar({
                   apagada y con la carpeta del proyecto borrada: lee del
                   historial o de la copia, y escribe en la carpeta de la copia.
                 */}
+                {/*
+                  Los dos botones ocultos van en un grupo, y el hueco se
+                  descuenta **una vez** en el grupo (hito 31). Con el margen
+                  negativo en cada boton, el segundo caia encima del primero.
+                */}
+                <span className="project-actions">
                 <button
                   className={`icon-button project-action${
                     exportState(project.key) !== 'idle' ? ' project-action-busy' : ''
@@ -878,15 +954,39 @@ export function Sidebar({
                 >
                   <ExportIcon done={exportState(project.key) === 'done'} />
                 </button>
+                {/*
+                  Archivar el proyecto entero (hito 31). Al pasar el mouse, como
+                  exportar y como archivar una fila: no es de todos los dias.
+                  Confirma en el sitio —esconde de una vez todo lo que se ve del
+                  proyecto— y sin `confirm()`, que bloquea la pagina entera.
+                */}
+                <button
+                  className={`icon-button project-action${
+                    archivingProject === project.key ? ' project-action-busy' : ''
+                  }`}
+                  onClick={() =>
+                    setArchivingProject((current) =>
+                      current === project.key ? null : project.key,
+                    )
+                  }
+                  title="Archivar el proyecto: esconde sus conversaciones de la barra. No borra nada"
+                  aria-label="Archivar proyecto"
+                  aria-expanded={archivingProject === project.key}
+                >
+                  <ArchiveIcon out={false} />
+                </button>
+                </span>
                 <AgentSplitButton
                   className="icon-button"
                   text="+"
                   title={
-                    project.cwdExists
-                      ? 'Nueva sesion en este proyecto'
-                      : 'La carpeta ya no existe en disco'
+                    opening
+                      ? OPEN_BLOCKED_TITLE
+                      : project.cwdExists
+                        ? 'Nueva sesion en este proyecto'
+                        : 'La carpeta ya no existe en disco'
                   }
-                  disabled={!canOpen}
+                  disabled={!canOpen || opening}
                   offerAgentChoice={offerAgentChoice}
                   agents={agents}
                   agent={offerAgentChoice ? agentForProject(project) : null}
@@ -898,6 +998,15 @@ export function Sidebar({
                 <div className="project-missing" title={project.cwd}>
                   carpeta no encontrada
                 </div>
+              )}
+
+              {archivingProject === project.key && (
+                <ProjectArchiveConfirm
+                  project={project}
+                  openSessionIds={openSessionIds}
+                  onConfirm={() => archiveProject(project)}
+                  onCancel={() => setArchivingProject(null)}
+                />
               )}
 
               {isOpen && (

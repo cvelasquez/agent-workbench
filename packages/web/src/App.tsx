@@ -18,7 +18,9 @@ import {
   serverClosedBarText,
   sessionResumable,
   shortcutsAgent,
+  openBlockedFor,
   tabBarAgent,
+  OPEN_BLOCKED_TITLE,
 } from './agent-ui.js';
 import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
@@ -127,6 +129,7 @@ export function App(): JSX.Element {
     terminals,
     archiveSessions,
     shells,
+    pendingOpens,
     activeTerminalId,
     projects,
     indexStatus,
@@ -186,6 +189,17 @@ export function App(): JSX.Element {
       offerAgentChoice ? tabBarAgent(terminals, newTabCwd, platform, agents, defaultAgent) : null,
     [offerAgentChoice, terminals, newTabCwd, platform, agents, defaultAgent],
   );
+  /*
+    Hito 31: mientras esa carpeta tiene una pestana en camino, el `+` se apaga
+    y lo dice. Es la otra mitad del pedido —que el segundo clic no abra una
+    segunda pestana "por si el primero no entro"— y vale igual para `Alt+T`,
+    que usa esta misma regla.
+  */
+  const newTabBlocked = useMemo(
+    () => openBlockedFor(pendingOpens, newTabCwd, platform),
+    [pendingOpens, newTabCwd, platform],
+  );
+  const newTabBlockedTitle = newTabBlocked ? OPEN_BLOCKED_TITLE : null;
 
   /*
     Las notas viven aca y no en la barra lateral: la barra se desmonta al
@@ -820,7 +834,9 @@ export function App(): JSX.Element {
       const key = event.key.toLowerCase();
 
       if (key === 't') {
-        if (cliAvailable && defaultCwd.length > 0) {
+        // Bloqueado igual que el `+`: con una pestana en camino en esa
+        // carpeta, el atajo repetido abriria una segunda sin querer.
+        if (cliAvailable && defaultCwd.length > 0 && !newTabBlocked) {
           event.preventDefault();
           event.stopPropagation();
           openTerminal({ cwd: activeTerminal?.cwd ?? defaultCwd });
@@ -868,6 +884,7 @@ export function App(): JSX.Element {
     closeTerminal,
     cycleTab,
     defaultCwd,
+    newTabBlocked,
     openTerminal,
     togglePanel,
   ]);
@@ -1012,6 +1029,7 @@ export function App(): JSX.Element {
             platform={platform}
             onRefresh={refreshIndex}
             openSessionIds={openSessionIds}
+            openBlocked={(cwd) => openBlockedFor(pendingOpens, cwd, platform)}
             onArchive={archiveSessions}
             onHide={toggleSidebar}
             width={sidebarWidth}
@@ -1084,6 +1102,9 @@ export function App(): JSX.Element {
             agents={agents}
             offerAgentChoice={offerAgentChoice}
             newTabAgent={newTabAgent}
+            pendingOpens={pendingOpens}
+            platform={platform}
+            newTabBlockedTitle={newTabBlockedTitle}
           />
 
           <div className="chat-stack">
@@ -1098,8 +1119,10 @@ export function App(): JSX.Element {
                   <button
                     className="primary-button"
                     onClick={() => openTerminal({ cwd: defaultCwd })}
+                    disabled={newTabBlocked}
+                    title={newTabBlockedTitle ?? undefined}
                   >
-                    Nueva sesion en {defaultCwd}
+                    {newTabBlocked ? 'Abriendo…' : `Nueva sesion en ${defaultCwd}`}
                   </button>
                 )}
               </div>

@@ -1,15 +1,15 @@
 /**
- * Los planes que escribio la conversacion de la pestana visible.
+ * Los documentos que escribio la conversacion de la pestana visible.
  *
  * No pide nada al suscribirse: la lista llega sola con la conversacion
- * (`conversation.plans`), porque quien sabe que planes tiene una sesion es el
- * mismo que lee su JSONL. Lo unico que se pide es el **contenido**, y solo
- * cuando alguien abre uno — un plan son diez o quince KB de markdown y no hay
+ * (`conversation.plans`), porque quien sabe que documentos tiene una sesion es
+ * el mismo que lee su JSONL. Lo unico que se pide es el **contenido**, y solo
+ * cuando alguien abre uno — son diez o quince KB de markdown cada uno y no hay
  * razon para traerlos todos por si acaso.
  *
- * Lo que viaja es el nombre del archivo que mando el servidor, nunca una ruta:
- * la carpeta la pone el, y comprueba que el plan sea de esta conversacion antes
- * de abrirlo.
+ * Lo que viaja es la **ref opaca** que mando el servidor, nunca una ruta: la
+ * raiz la pone el, comprueba que el documento sea de esta conversacion y la
+ * resuelve con el guardia de rutas antes de abrirlo (hito 31).
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -20,9 +20,9 @@ export interface PlansView {
   plans: SessionPlan[];
   /** El plan abierto, o null si se esta viendo la lista. */
   open: PlanContent | null;
-  /** Nombre del que se pidio y todavia no llego. */
+  /** Titulo del que se pidio y todavia no llego. La ref no se muestra nunca. */
   loading: string | null;
-  openPlan: (fileName: string) => void;
+  openPlan: (plan: SessionPlan) => void;
   closePlan: () => void;
 }
 
@@ -60,11 +60,12 @@ export function usePlans(connection: AgentConnection, terminalId: TerminalId | n
   }, [connection, terminalId]);
 
   const openPlan = useCallback(
-    (fileName: string) => {
+    (plan: SessionPlan) => {
       if (terminalId === null) return;
-      setLoading(fileName);
+      // El titulo, no la ref: `proj:plans/x.md` no es un encabezado.
+      setLoading(plan.title);
       setOpen(null);
-      connection.send({ type: 'plans.read', terminalId, fileName });
+      connection.send({ type: 'plans.read', terminalId, fileName: plan.fileName });
     },
     [connection, terminalId],
   );

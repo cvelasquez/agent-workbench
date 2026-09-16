@@ -599,14 +599,62 @@ kbd {
 }
 
 /*
+  La pestana provisional (hito 31): pedida y todavia sin confirmar.
+
+  `terminal.opened` no llega hasta que la pty esta viva, y eso puede tardar
+  segundos. Se ve desde el clic, atenuada y sin cruz: no hay nada que cerrar
+  todavia. Conserva el subrayado del color de su proyecto, que es lo que dice
+  donde va a caer.
+*/
+.tab-pending {
+  opacity: 0.62;
+  cursor: default;
+  font-style: italic;
+}
+
+/*
+  El anillo que gira. Ocupa lo mismo que el punto de estado que va a
+  reemplazarlo, asi que la etiqueta no se corre cuando llega la de verdad.
+*/
+.tab-opening {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+}
+
+.tab-opening i {
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1px solid var(--text-dim);
+  border-top-color: var(--accent);
+  animation: tab-opening-spin 0.7s linear infinite;
+}
+
+@keyframes tab-opening-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
   Quien pidio menos movimiento no quiere tres puntos latiendo en la barra. Se
   quedan quietos y siguen diciendo lo mismo: hay tres, no es el punto de
-  "parado".
+  "parado". Y el anillo de la provisional deja de girar: sigue siendo un hueco
+  distinto del punto lleno, que es lo que hay que distinguir.
 */
 @media (prefers-reduced-motion: reduce) {
   .tab-working i {
     animation: none;
     opacity: 1;
+  }
+
+  .tab-opening i {
+    animation: none;
   }
 }
 
@@ -2738,6 +2786,23 @@ kbd {
   max-width: 100%;
 }
 
+/*
+  La carpeta del documento (hito 31). Es lo que distingue dos con el mismo
+  nombre —`plans/plan.md` y `scratchpad/plan.md`— y el unico sitio donde se ve
+  algo de la ruta: la ref no se muestra nunca. Se recorta por la izquierda, que
+  es donde estan los tramos que se repiten.
+*/
+.plan-path {
+  font-size: 10px;
+  color: var(--text-dim);
+  direction: rtl;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 .plan-meta {
   font-size: 10px;
   color: var(--text-dim);
@@ -3834,13 +3899,30 @@ kbd {
   que se paga: con el mouse sobre la fila, el contador queda tapado. Escondido no
   recibe clics, que son del contador y del nombre.
 */
+/*
+  Los botones que solo se ven al pasar el mouse: exportar y archivar el
+  proyecto. **No ocupan lugar en la fila**: el hueco se descuenta con un margen
+  negativo, una sola vez en el grupo (hito 31), y el nombre del proyecto mide lo
+  mismo con ellos y sin ellos. Con el margen en cada boton, el segundo caia
+  encima del primero.
+
+  Lo que se paga: con el mouse sobre la fila, el contador queda tapado.
+  Escondidos no reciben clics, que siguen siendo del nombre y del contador.
+*/
+.project-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  margin-left: -58px;
+}
+
 .project-action {
   opacity: 0;
   pointer-events: none;
   width: 26px;
   min-width: 26px;
   padding: 0;
-  margin-left: -30px;
   background: var(--chrome-alt);
 }
 
@@ -3849,6 +3931,24 @@ kbd {
 .project-action-busy {
   opacity: 1;
   pointer-events: auto;
+}
+
+/*
+  La confirmacion de archivar un proyecto, debajo de su fila. En el sitio y no
+  con `confirm()`, como "Archivar historial" y por lo mismo.
+*/
+.project-archive-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 26px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.project-archive-confirm .archive-history-text {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .project-action-busy {

@@ -14,6 +14,7 @@
  *    cientos de KB.
  */
 
+import path from 'node:path';
 import type {
   ConversationEvent,
   ConversationPart,
@@ -23,6 +24,7 @@ import type {
   MessageUsage,
 } from '@agent-workbench/shared';
 import { TRANSPORT_LIMITS, cut, type EventLimits } from '../transport-limits.js';
+import { scratchRoot } from './paths.js';
 
 /**
  * Envoltorios que escribe la CLI cuando el usuario le da una orden **a ella**.
@@ -588,56 +590,141 @@ export function toConversationEvent(
 }
 
 /**
- * El nombre del archivo de un plan que esta linea nombra, o null.
+ * Las refs de los documentos que esta linea nombra.
  *
- * La CLI escribe los planes del modo plan en `~/.claude/plans/<slug>.md` y los
- * anuncia de **dos** formas distintas. Medido sobre los archivos de esta
- * instalacion, y las dos hacen falta:
+ * Hasta el hito 30 esto era `toPlanFileName` y devolvia como mucho un nombre,
+ * el de un plan de `~/.claude/plans/`. El pedido del usuario que lo cambio es
+ * concreto: su plan estaba en `D:\Mi App\plans\plan-de-sincronizacion.md` —el
+ * agente lo escribio **dentro del proyecto**, que es lo que su `CLAUDE.md`
+ * pide cuando el plan es largo— y la solapa decia que la conversacion no habia
+ * escrito ninguno. Para el panel ese archivo no existia.
  *
- *  1. Una linea `attachment` con `plan_mode` o `plan_mode_exit`, que trae
- *     `planFilePath`. Ocho casos, los ocho con la ruta:
+ * Ahora se reconocen **tres** origenes, y la ref lleva cual (`PlanOrigin`):
  *
- *     ```
- *     {"type":"attachment","attachment":{"type":"plan_mode",
- *       "planFilePath":"C:\\Users\\…\\.claude\\plans\\virtual-chasing-peacock.md",
- *       "planExists":false}}
- *     ```
+ *  1. `cli:<archivo>` — `~/.claude/plans/`. Lo anuncian dos formas distintas,
+ *     y las dos hacen falta. Medido sobre los archivos de esta instalacion:
  *
- *  2. Un `tool_use` de `Write` a esa misma carpeta. Es lo que hizo la sesion
- *     que motivo este panel: **no** tiene ninguna linea `plan_mode`, y mirando
- *     solo la primera forma se habria quedado afuera justo el caso del pedido.
+ *     - una linea `attachment` con `plan_mode` o `plan_mode_exit`, que trae
+ *       `planFilePath` (ocho casos, los ocho con la ruta):
  *
- * Devuelve el **nombre del archivo**, no la ruta: la carpeta la pone el
- * servidor (`plansRoot()`), igual que con cualquier otra ruta que toca la app
- * (CLAUDE.md 2.4). Una ruta de plan que apunte a otro lado no es un plan de la
- * CLI y no se mira.
+ *       ```
+ *       {"type":"attachment","attachment":{"type":"plan_mode",
+ *         "planFilePath":"C:\\Users\\…\\.claude\\plans\\virtual-chasing-peacock.md",
+ *         "planExists":false}}
+ *       ```
+ *
+ *     - un `tool_use` de `Write` a esa misma carpeta. Es lo que hizo la sesion
+ *       que motivo el panel: **no** tiene ninguna linea `plan_mode`.
+ *
+ *  2. `tmp:<relativa>` — un `.md` escrito en la carpeta temporal de **esta**
+ *     sesion (`scratchRoot`). Es donde viven las especificaciones de los hitos
+ *     23 a 25 de este mismo repositorio.
+ *
+ *  3. `proj:<relativa>` — un `.md` escrito dentro del `cwd` de la pestana.
+ *
+ * Tres reglas que no son evidentes:
+ *
+ *  - **Solo `Write`, nunca `Edit`.** Escribir un archivo entero es crear un
+ *    documento; editarlo es trabajar en el proyecto. Si `Edit` contara,
+ *    `CHECKLIST.md`, `README.md` y el propio `CLAUDE.md` aparecerian en la
+ *    solapa cada vez que el agente los toca.
+ *  - **`file_path` puede ser relativo**, y se resuelve contra el `cwd` de la
+ *    sesion antes de decidir en que raiz cae.
+ *  - **Las raices se prueban en orden**: planes, temporal, proyecto. La
+ *    temporal va antes que el proyecto porque un `cwd` que estuviera adentro
+ *    de la temporal haria ambigua la ref, y un documento con dos origenes
+ *    posibles es un documento que se lista dos veces.
+ *
+ * Devuelve **refs**, no rutas: la raiz de cada origen la pone el servidor, y
+ * `plans-store.ts` la vuelve a resolver con el guardia de rutas antes de abrir
+ * nada (CLAUDE.md 2.4).
  */
-export function toPlanFileName(record: Record<string, unknown>): string | null {
+export function toPlanRefs(
+  record: Record<string, unknown>,
+  target: { cwd: string; sessionId: string },
+): string[] {
   const attachment = recordOf(record['attachment']);
   if (attachment !== null) {
     const type = attachment['type'];
     if (type === 'plan_mode' || type === 'plan_mode_exit') {
-      return planFileNameOf(attachment['planFilePath']);
+      const name = planFileNameOf(attachment['planFilePath']);
+      return name === null ? [] : [`cli:${name}`];
     }
   }
 
-  if (record['type'] !== 'assistant') return null;
+  if (record['type'] !== 'assistant') return [];
   const message = recordOf(record['message']);
-  if (message === null) return null;
+  if (message === null) return [];
   const content = message['content'];
-  if (!Array.isArray(content)) return null;
+  if (!Array.isArray(content)) return [];
 
+  const refs: string[] = [];
   for (const block of content) {
     const blockRecord = recordOf(block);
     if (blockRecord === null || blockRecord['type'] !== 'tool_use') continue;
     if (blockRecord['name'] !== 'Write') continue;
     const input = recordOf(blockRecord['input']);
     if (input === null) continue;
-    const name = planFileNameOf(input['file_path']);
-    if (name !== null) return name;
+    const ref = documentRefOf(input['file_path'], target);
+    if (ref !== null && !refs.includes(ref)) refs.push(ref);
   }
 
-  return null;
+  return refs;
+}
+
+/**
+ * La ref de un `.md` escrito por un `Write`, o null.
+ *
+ * Decide **por la forma de la ruta**, sin tocar el disco: el seguidor corre en
+ * cada lectura del JSONL y no puede hacer un `stat` por linea. Lo que existe
+ * de verdad lo dice `describePlans` despues, y lo que resuelve fuera de su
+ * raiz lo para el guardia de rutas al abrirlo.
+ */
+function documentRefOf(
+  value: unknown,
+  target: { cwd: string; sessionId: string },
+): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+
+  const plan = planFileNameOf(value);
+  if (plan !== null) return `cli:${plan}`;
+
+  if (!value.toLowerCase().endsWith('.md')) return null;
+  if (value.includes('\u0000')) return null;
+  if (target.cwd.length === 0) return null;
+
+  // Relativa: es relativa al `cwd` de la sesion, que es donde corre la CLI.
+  const absolute = path.isAbsolute(value) ? value : path.resolve(target.cwd, value);
+
+  if (target.sessionId.length > 0) {
+    const inScratch = relativeInside(scratchRoot(target.cwd, target.sessionId), absolute);
+    if (inScratch !== null) return `tmp:${inScratch}`;
+  }
+
+  const inProject = relativeInside(target.cwd, absolute);
+  return inProject === null ? null : `proj:${inProject}`;
+}
+
+/**
+ * La ruta de `absolute` relativa a `root`, en formato posix, o null si cae
+ * fuera.
+ *
+ * Es una comprobacion **sintactica**, con las mayusculas de Windows tratadas
+ * como las trata el disco. No reemplaza al guardia de rutas: los enlaces los
+ * resuelve `resolveInside` cuando se va a leer de verdad.
+ */
+function relativeInside(root: string, absolute: string): string | null {
+  const relative = path.relative(root, absolute);
+  if (relative.length === 0) return null;
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    if (process.platform !== 'win32') return null;
+    // NTFS no distingue mayusculas: `D:\Mi App` y `d:\mi app` son la misma
+    // carpeta, y `path.relative` las da por distintas.
+    const lower = path.relative(root.toLowerCase(), absolute.toLowerCase());
+    if (lower.length === 0 || lower.startsWith('..') || path.isAbsolute(lower)) return null;
+    return lower.split(path.sep).join('/');
+  }
+  return relative.split(path.sep).join('/');
 }
 
 /**

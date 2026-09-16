@@ -15,6 +15,8 @@
 
 import {
   archiveCandidatesByAgent,
+  projectArchivePlan,
+  projectArchiveText,
   sessionsToArchiveBefore,
   startOfLocalDay,
 } from '../../web/src/archive-history.ts';
@@ -213,6 +215,103 @@ check('sin proyectos, vacio', sessionsToArchiveBefore([], 'opencode', cutoff, op
   check(
     'con una sola CLI tambien hay fila',
     JSON.stringify(single) === JSON.stringify([{ agent: 'opencode', count: 1 }]),
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// "Archivar proyecto" (hito 31)
+// ---------------------------------------------------------------------------
+//
+// Es el mismo archivado sobre todas las filas visibles de un proyecto. Lo que
+// se rompe en silencio es el numero: si contara las ya archivadas, "Deshacer"
+// restauraria filas que el usuario habia escondido a proposito antes; si
+// contara las que tienen pestana abierta, prometeria un numero que el servidor
+// no cumple.
+{
+  const now = Date.now();
+  const full = project('/p', [
+    session('a', 'claude-code', now),
+    session('b', 'codex', now - HOUR),
+    session('c', 'claude-code', now - 2 * HOUR),
+  ]);
+
+  const all = projectArchivePlan(full, new Set());
+  check(
+    'proyecto entero: todas sus sesiones, de todas sus CLIs',
+    JSON.stringify(all) === JSON.stringify({ sessionIds: ['a', 'b', 'c'], blocked: 0 }),
+    JSON.stringify(all),
+  );
+  check(
+    'el texto dice cuantas',
+    projectArchiveText(all) === '\u00bfArchivar las 3 conversaciones?',
+    projectArchiveText(all),
+  );
+
+  const withOpen = projectArchivePlan(full, new Set(['b']));
+  check(
+    'una con pestana abierta queda afuera y se cuenta aparte',
+    JSON.stringify(withOpen) === JSON.stringify({ sessionIds: ['a', 'c'], blocked: 1 }),
+    JSON.stringify(withOpen),
+  );
+  check(
+    'y el texto lo dice',
+    projectArchiveText(withOpen) ===
+      '\u00bfArchivar las 2 conversaciones? Otra tiene una pesta\u00f1a abierta y se queda.',
+    projectArchiveText(withOpen),
+  );
+
+  const withArchived = projectArchivePlan(
+    project('/q', [session('a', 'claude-code', now), session('b', 'claude-code', now, true)]),
+    new Set(),
+  );
+  check(
+    'las ya archivadas no entran: deshacer no puede restaurarlas',
+    JSON.stringify(withArchived) === JSON.stringify({ sessionIds: ['a'], blocked: 0 }),
+    JSON.stringify(withArchived),
+  );
+  check(
+    'con una sola, el texto va en singular',
+    projectArchiveText(withArchived) === '\u00bfArchivar 1 conversaci\u00f3n?',
+  );
+
+  const allOpen = projectArchivePlan(full, new Set(['a', 'b', 'c']));
+  check(
+    'todas con pestana abierta: nada que archivar',
+    JSON.stringify(allOpen) === JSON.stringify({ sessionIds: [], blocked: 3 }),
+    JSON.stringify(allOpen),
+  );
+  check(
+    'y el texto explica por que, en vez de ofrecer archivar cero',
+    projectArchiveText(allOpen) ===
+      'Sus 3 conversaciones tienen una pesta\u00f1a abierta. Cerralas primero.',
+    projectArchiveText(allOpen),
+  );
+  check(
+    'con una sola abierta, en singular',
+    projectArchiveText(
+      projectArchivePlan(project('/r', [session('a', 'codex', now)]), new Set(['a'])),
+    ) === 'Su \u00fanica conversaci\u00f3n tiene una pesta\u00f1a abierta. Cerrala primero.',
+  );
+
+  const already = projectArchivePlan(
+    project('/s', [session('a', 'codex', now, true), session('b', 'codex', now, true)]),
+    new Set(),
+  );
+  check(
+    'un proyecto ya archivado entero no propone nada',
+    JSON.stringify(already) === JSON.stringify({ sessionIds: [], blocked: 0 }),
+    JSON.stringify(already),
+  );
+
+  const repeated = projectArchivePlan(
+    project('/t', [session('a', 'codex', now), session('a', 'claude-code', now)]),
+    new Set(),
+  );
+  check(
+    'un id repetido cuenta una sola vez: el archivo guarda ids a secas',
+    JSON.stringify(repeated.sessionIds) === JSON.stringify(['a']),
+    JSON.stringify(repeated),
   );
 }
 

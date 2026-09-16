@@ -26,7 +26,7 @@ import {
 } from '@agent-workbench/shared';
 import {
   stripFileReference,
-  toPlanFileName,
+  toPlanRefs,
   toConversationEvent,
   toTurnDuration,
   toUserImageAttachment,
@@ -44,6 +44,25 @@ import { ModelVariantRegistry } from './model-variants.js';
  * cien alcanza de sobra: en la instalacion entera hay 39 adjuntos de imagen.
  */
 const MAX_ATTACHMENT_LINKS = 100;
+
+/**
+ * Cuantos documentos se recuerdan por sesion (hito 31).
+ *
+ * Los planes de `~/.claude/plans/` son tres o cuatro; los `.md` que el agente
+ * escribe en el proyecto o en la temporal pueden ser muchos mas, y la solapa
+ * es una lista para leer, no un listado de carpeta.
+ */
+const MAX_PLAN_REFS = 50;
+
+/**
+ * Lo que recibe el seguidor ademas de los topes de transporte.
+ *
+ * `target` es la pestana, y con ella las raices de los documentos (hito 31).
+ * Ausente: solo los planes de `~/.claude/plans/`, como antes del hito.
+ */
+export interface ConversationFollowerOptions extends FollowOptions {
+  target?: { cwd: string; sessionId: string };
+}
 
 export class ConversationFollower implements JsonlLineSink {
   /** La lectura del archivo. Esta clase es su sink. */
@@ -123,14 +142,27 @@ export class ConversationFollower implements JsonlLineSink {
    * `options` (hito 28): sin nada, como siempre. Con `limits` y `maxEvents`, la
    * sesion entera con esos topes, que es como la lee la copia propia.
    */
+  /**
+   * `options.target` es la pestana: de ahi salen las **raices** de los
+   * documentos que la conversacion nombra (hito 31). Sin `cwd` solo se
+   * reconocen los planes de la CLI, que es lo que pasaba antes; sin
+   * `sessionId`, tampoco los de la carpeta temporal.
+   *
+   * Va en las opciones y no como parametro para no correr `installVariants`,
+   * que es posicional y lo pasan los chequeos.
+   */
   constructor(
     filePath: string,
     private readonly installVariants?: ModelVariantRegistry,
-    options: FollowOptions = {},
+    options: ConversationFollowerOptions = {},
   ) {
     this.limits = options.limits ?? TRANSPORT_LIMITS;
+    this.target = options.target ?? { cwd: '', sessionId: '' };
     this.jsonl = new JsonlFollower(filePath, this, { maxEvents: options.maxEvents });
   }
+
+  /** La pestana cuyos documentos se reconocen. Ver el constructor. */
+  private readonly target: { cwd: string; sessionId: string };
 
   /** La ruta que se sigue. Siempre fija: esta CLI la conoce al lanzar. */
   get filePath(): string {
@@ -285,14 +317,20 @@ export class ConversationFollower implements JsonlLineSink {
     }
 
     /*
-      Un plan del modo plan. Tampoco es una tarjeta: el plan se lee en su
-      solapa. La linea que lo nombra sigue su camino normal —puede ser un
-      `Write`, que si es una tarjeta— asi que esto no devuelve.
+      Un documento que la conversacion escribio: el plan del modo plan, o un
+      `.md` que el agente dejo en el proyecto o en la temporal de la sesion
+      (hito 31). Tampoco es una tarjeta: se lee en su solapa. La linea que lo
+      nombra sigue su camino normal —un `Write` si es una tarjeta— asi que esto
+      no devuelve.
     */
-    const planFile = toPlanFileName(record);
-    if (planFile !== null && !this.planFiles.includes(planFile)) {
-      this.planFiles.push(planFile);
-      this.freshPlans.push(planFile);
+    for (const ref of toPlanRefs(record, this.target)) {
+      if (this.planFiles.includes(ref)) continue;
+      // Tope: una conversacion larga que escribe documentos en cada turno no
+      // puede llenar la solapa ni el mensaje del socket. Gana lo primero que
+      // escribio, que es donde suele estar el plan.
+      if (this.planFiles.length >= MAX_PLAN_REFS) break;
+      this.planFiles.push(ref);
+      this.freshPlans.push(ref);
     }
 
     /*
@@ -371,7 +409,7 @@ export class ConversationFollower implements JsonlLineSink {
   private readonly attachmentRoots = new Map<string, string>();
 
   /**
-   * Planes de esta sesion, en el orden en que la conversacion los nombro.
+   * Documentos de esta sesion, en el orden en que la conversacion los nombro.
    *
    * Es una lista y no un Set porque el orden es informacion —el ultimo plan es
    * casi siempre el que interesa— y aun asi no se repiten: la misma sesion

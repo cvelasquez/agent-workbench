@@ -235,9 +235,18 @@ export interface ScannedSession {
   extra: HistoryExtra;
 }
 
+/**
+ * Los documentos markdown que una conversacion escribio.
+ *
+ * Lo que va y viene son **refs opacas** que arma el propio adaptador, nunca
+ * rutas: la raiz de cada una la pone el, y la vuelve a resolver antes de abrir
+ * nada (CLAUDE.md 2.4). Desde el hito 31 recibe ademas la pestana, porque dos
+ * de las tres raices salen de ella: el `cwd` del proyecto y la carpeta temporal
+ * de esa sesion.
+ */
 export interface PlanSource {
-  describe(fileNames: readonly string[]): Promise<SessionPlan[]>;
-  read(fileName: string): Promise<PlanContent | null>;
+  describe(target: { cwd: string; sessionId: string }, refs: readonly string[]): Promise<SessionPlan[]>;
+  read(target: { cwd: string; sessionId: string }, ref: string): Promise<PlanContent | null>;
 }
 
 export interface EventPage {

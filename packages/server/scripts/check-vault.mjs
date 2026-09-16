@@ -558,9 +558,14 @@ const status = (overrides = {}) => ({
     R28-4: con la copia apagada, "Exportar a Markdown" escondido no puede
     reservar su ancho en la fila del proyecto: cada nombre se cortaba unos 30 px
     antes que en el hito 27. Sin un navegador, se hace la cuenta con el CSS: el
-    margen negativo tiene que descontar el ancho del boton y el hueco de la fila,
-    y escondido no puede tapar los clics del contador. Medido ademas en Chrome:
-    el nombre mide lo mismo con el boton y sin el.
+    margen negativo tiene que descontar el ancho de los botones y el hueco de la
+    fila, y escondidos no pueden tapar los clics del contador. Medido ademas en
+    Chrome: el nombre mide lo mismo con el boton y sin el.
+
+    Desde el hito 31 los botones ocultos son **dos** —exportar y archivar el
+    proyecto— y el margen vive una sola vez en el grupo: con uno por boton, el
+    segundo caia encima del primero. La cuenta cuenta los botones del fuente, asi
+    que un tercero sin ajustar el margen falla aca en vez de pasar callado.
   */
   const stylesSource = (await readFile(path.join(webSrc, 'styles.css'), 'utf8')).replace(/\r\n/g, '\n');
   const blockOf = (selectorLine) => {
@@ -572,15 +577,22 @@ const status = (overrides = {}) => ({
     return match === null || match === undefined ? null : Number(match[1]);
   };
   const actionBlock = blockOf('.project-action');
+  const groupBlock = blockOf('.project-actions');
   const shownBlock = blockOf('.project-row:hover .project-action,\n.project-action:focus-visible,\n.project-action-busy');
   const rowGap = pxOf(blockOf('.project-row'), 'gap');
   const actionWidth = pxOf(actionBlock, 'width');
-  const actionMargin = pxOf(actionBlock, 'margin-left');
-  check('1 estilos: exportar escondido no ocupa ancho en la fila del proyecto ni recibe clics; a la vista, si (C9, R28-4)',
-    rowGap !== null && actionWidth !== null && actionMargin !== null && actionWidth + rowGap + actionMargin === 0 &&
+  const groupGap = pxOf(groupBlock, 'gap');
+  const groupMargin = pxOf(groupBlock, 'margin-left');
+  // Cuantos botones ocultos tiene la fila, contados del JSX.
+  const buttons = (sidebarSource.match(/className=\{`icon-button project-action\$\{/g) ?? []).length;
+  const groupWidth =
+    actionWidth === null || groupGap === null ? null : buttons * actionWidth + (buttons - 1) * groupGap;
+  check('1 estilos: los dos botones ocultos no ocupan ancho en la fila del proyecto ni reciben clics; a la vista, si (C9, R28-4, hito 31)',
+    rowGap !== null && actionWidth !== null && groupMargin !== null && groupWidth !== null &&
+    buttons === 2 && groupWidth + rowGap + groupMargin === 0 &&
     (pxOf(actionBlock, 'min-width') ?? 0) <= actionWidth && /\n\s*pointer-events: none;/.test(actionBlock ?? '') &&
     /\n\s*opacity: 1;/.test(shownBlock ?? '') && /\n\s*pointer-events: auto;/.test(shownBlock ?? ''),
-    show({ rowGap, actionWidth, actionMargin, actionBlock, shownBlock }));
+    show({ rowGap, actionWidth, buttons, groupGap, groupWidth, groupMargin, actionBlock, groupBlock, shownBlock }));
 }
 
 // ---------------------------------------------------------------------------

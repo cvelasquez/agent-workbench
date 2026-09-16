@@ -19,7 +19,7 @@
  * descarto dos veces.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type {
   AgentId,
   AgentInfo,
@@ -30,7 +30,13 @@ import type {
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
-import { restingDotTitle, tabBadgeVisible } from './agent-ui.js';
+import {
+  pendingTabPlacements,
+  restingDotTitle,
+  tabBadgeVisible,
+  type PendingOpen,
+  type PendingTabPlacement,
+} from './agent-ui.js';
 import { projectColor } from './project-color.js';
 
 interface TabBarProps {
@@ -51,6 +57,41 @@ interface TabBarProps {
   offerAgentChoice: boolean;
   /** Con que CLI abre el `+` (`tabBarAgent`). Solo cuenta con `offerAgentChoice`. */
   newTabAgent: AgentId | null;
+  /** Hito 31: las pedidas que el servidor todavia no confirmo. */
+  pendingOpens: readonly PendingOpen[];
+  /** El del `hello`. Decide donde cae cada provisional, como en el servidor. */
+  platform: string;
+  /** El titulo del `+` mientras ese proyecto tiene una pestana en camino. */
+  newTabBlockedTitle: string | null;
+}
+
+/**
+ * Una pestana pedida que el servidor todavia no confirmo (hito 31).
+ *
+ * Existe porque `terminal.opened` no llega hasta que la pty esta viva, y eso
+ * puede tardar segundos: sin ninguna senal, el clic no contestaba nada y el
+ * segundo parecia el primero. Se dibuja **en el sitio donde va a caer**
+ * (`pendingTabPlacements`), asi que la de verdad la reemplaza sin saltar.
+ *
+ * No se puede cerrar, arrastrar ni activar: todavia no tiene `terminalId`.
+ * El indicador se dibuja a codigo, como el punto de estado de al lado, y con
+ * `prefers-reduced-motion` deja de moverse.
+ */
+function PendingTab({ placement }: { placement: PendingTabPlacement }): JSX.Element {
+  return (
+    <div
+      className="tab tab-pending"
+      aria-busy="true"
+      title={`${placement.pending.cwd}
+abriendo…`}
+      style={{ '--tab-project-color': projectColor(placement.pending.cwd) } as React.CSSProperties}
+    >
+      <span className="tab-opening" aria-label="abriendo">
+        <i />
+      </span>
+      <span className="tab-label">{placement.label}</span>
+    </div>
+  );
 }
 
 /**
@@ -135,6 +176,9 @@ export function TabBar({
   agents,
   offerAgentChoice,
   newTabAgent,
+  pendingOpens,
+  platform,
+  newTabBlockedTitle,
 }: TabBarProps): JSX.Element {
   const [editingId, setEditingId] = useState<TerminalId | null>(null);
   const [draftLabel, setDraftLabel] = useState('');
@@ -166,15 +210,34 @@ export function TabBar({
     setDragId(null);
   };
 
+  /*
+    Las provisionales se reparten por indice sobre la lista de verdad, con la
+    misma regla con la que el servidor va a insertar la pestana (CLAUDE.md 6.8).
+    `byIndex` agrupa las que caen en el mismo sitio para dibujarlas antes de la
+    pestana que ocupa ese indice — y las que van al final, despues de todas.
+  */
+  const placements = pendingTabPlacements(terminals, pendingOpens, platform);
+  const byIndex = new Map<number, PendingTabPlacement[]>();
+  for (const placement of placements) {
+    const bucket = byIndex.get(placement.index);
+    if (bucket === undefined) byIndex.set(placement.index, [placement]);
+    else bucket.push(placement);
+  }
+  const pendingAt = (index: number): JSX.Element[] =>
+    (byIndex.get(index) ?? []).map((placement) => (
+      <PendingTab key={`pending:${placement.pending.requestId}`} placement={placement} />
+    ));
+
   return (
     <div className="tab-bar">
-      {terminals.map((terminal) => {
+      {terminals.map((terminal, position) => {
         const isActive = terminal.terminalId === activeTerminalId;
         const isEditing = terminal.terminalId === editingId;
 
         return (
+          <React.Fragment key={terminal.terminalId}>
+          {pendingAt(position)}
           <div
-            key={terminal.terminalId}
             className={`tab${isActive ? ' tab-active' : ''}${terminal.alive || terminal.sleeping ? '' : ' tab-dead'}`}
             draggable={!isEditing}
             onDragStart={() => setDragId(terminal.terminalId)}
@@ -227,14 +290,16 @@ export function TabBar({
               </>
             )}
           </div>
+          </React.Fragment>
         );
       })}
+      {pendingAt(terminals.length)}
 
       <AgentSplitButton
         className="tab-new"
         text="+"
-        title="Nueva pestana (Ctrl+T)"
-        disabled={!canOpen}
+        title={newTabBlockedTitle ?? 'Nueva pestana (Ctrl+T)'}
+        disabled={!canOpen || newTabBlockedTitle !== null}
         offerAgentChoice={offerAgentChoice}
         agents={agents}
         agent={newTabAgent}

@@ -222,22 +222,52 @@ export interface MessageUsage {
 }
 
 /**
- * Un plan que esta conversacion escribio.
+ * De donde salio un documento de la conversacion.
  *
- * La CLI deja los planes del modo plan en `~/.claude/plans/<archivo>.md` y los
- * nombra en el JSONL. Lo que viaja es el **nombre del archivo**, nunca la ruta:
- * la carpeta la pone el servidor, que es la regla de siempre para cualquier
- * ruta de esta aplicacion.
+ * Cada origen tiene una **raiz que pone el servidor**, y la ref se resuelve
+ * adentro: `plansRoot()`, el `cwd` de la pestana, y la carpeta temporal de esa
+ * sesion. El cliente nunca nombra una ruta (CLAUDE.md 2.4).
  *
- * Se listan los de **esta** sesion y no la carpeta entera: un plan de otro
- * proyecto en el panel de este es ruido, y el panel esta atado a la pestana
- * como todo lo demas de la columna derecha.
+ *  - `cli-plans`: `~/.claude/plans/`, el plan del modo plan.
+ *  - `project`: un `.md` que el agente escribio dentro del proyecto. Es lo que
+ *    hace el `CLAUDE.md` del usuario cuando el plan es largo.
+ *  - `scratch`: uno de la carpeta temporal de la sesion, fuera del repositorio.
+ */
+export type PlanOrigin = 'cli-plans' | 'project' | 'scratch';
+
+export const PLAN_ORIGINS: readonly PlanOrigin[] = ['cli-plans', 'project', 'scratch'];
+
+/**
+ * Un documento markdown que esta conversacion escribio.
+ *
+ * Hasta el hito 31 era solo el plan del modo plan, que la CLI deja en
+ * `~/.claude/plans/<archivo>.md`. Ahora es tambien **todo `.md` que el agente
+ * escribio con `Write`** dentro del proyecto o en la carpeta temporal de la
+ * sesion: eran justamente los que no se podian abrir desde la app.
+ *
+ * Lo que viaja es una **ref opaca**, nunca una ruta: `cli:<archivo>`,
+ * `proj:<relativa>` o `tmp:<relativa>`. La arma el servidor, y el servidor la
+ * vuelve a validar contra la raiz de su origen antes de abrir nada.
+ *
+ * Se listan los de **esta** sesion y no ninguna carpeta entera: un documento de
+ * otro proyecto en el panel de este es ruido, y el panel esta atado a la
+ * pestana como todo lo demas de la columna derecha.
  */
 export interface SessionPlan {
-  /** Nombre del archivo, con extension. Es el id con el que se lo pide. */
+  /** Ref opaca con la que se lo pide. Ver `PlanOrigin`. */
   fileName: string;
   /** El nombre sin extension. Es lo que se muestra. */
   title: string;
+  /**
+   * De donde salio. Ausente en un servidor anterior al hito 31: ahi todo era
+   * un plan de la CLI, asi que el parser cae a `cli-plans`.
+   */
+  origin: PlanOrigin;
+  /**
+   * La ruta relativa a su raiz, para mostrarla debajo del titulo. `''` para un
+   * plan de la CLI, donde la carpeta no aporta nada.
+   */
+  path: string;
   /**
    * false si el archivo ya no esta en disco.
    *
@@ -635,7 +665,21 @@ export function parseSessionPlan(value: unknown): SessionPlan | null {
     return null;
   }
 
-  return { fileName, title, exists: record['exists'] === true, modifiedAt, sizeBytes };
+  // Un origen que no se entiende no tira la fila: cae al de siempre, como
+  // hacen las capacidades con `NO_CAPABILITIES`.
+  const rawOrigin = record['origin'];
+  const origin = PLAN_ORIGINS.find((candidate) => candidate === rawOrigin) ?? 'cli-plans';
+  const path = asString(record['path']) ?? '';
+
+  return {
+    fileName,
+    title,
+    origin,
+    path,
+    exists: record['exists'] === true,
+    modifiedAt,
+    sizeBytes,
+  };
 }
 
 export function parsePlanContent(value: unknown): PlanContent | null {

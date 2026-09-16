@@ -84,6 +84,11 @@ export interface ConversationSnapshot {
 
 interface Entry {
   sessionId: SessionId;
+  /**
+   * La carpeta de la pestana. Desde el hito 31 la necesitan los documentos: dos
+   * de sus tres raices salen de ella (`PlanSource`).
+   */
+  cwd: string;
   /** De que CLI es la pestana. Filtra los avisos del watcher. */
   agent: AgentId;
   adapter: AgentAdapter;
@@ -326,7 +331,13 @@ export class ConversationHub extends EventEmitter {
       permissionMode: entry.observedMode ?? entry.assumedMode,
       waitingFor: entry.waitingFor,
       openToolCall: entry.openToolCall,
-      plans: plans === null ? [] : await plans.describe(entry.follower.getPlanFiles()),
+      plans:
+        plans === null
+          ? []
+          : await plans.describe(
+              { cwd: entry.cwd, sessionId: entry.sessionId },
+              entry.follower.getPlanFiles(),
+            ),
     };
   }
 
@@ -377,6 +388,7 @@ export class ConversationHub extends EventEmitter {
   ): Entry {
     return {
       sessionId,
+      cwd,
       agent,
       adapter,
       follower: adapter.history.follow({ cwd, sessionId }),
@@ -656,12 +668,14 @@ export class ConversationHub extends EventEmitter {
   }
 
   /**
-   * Contenido de un plan de esta pestana.
+   * Contenido de un documento de esta pestana.
    *
-   * Se comprueba que el plan sea **de esta conversacion** antes de leerlo: el
-   * nombre llega del cliente, y aunque salio de una lista que mando este mismo
-   * servidor, un nombre que nadie nombro no se abre. Es el mismo criterio que
-   * el guardia de rutas del panel de archivos (§6.3).
+   * Se comprueba que sea **de esta conversacion** antes de leerlo: la ref llega
+   * del cliente, y aunque salio de una lista que mando este mismo servidor, una
+   * que nadie nombro no se abre. Es el mismo criterio que el guardia de rutas
+   * del panel de archivos (§6.3), y desde el hito 31 el adaptador aplica ademas
+   * ese guardia de verdad, porque dos de las tres raices son carpetas donde el
+   * usuario escribe.
    */
   async readPlan(terminalId: TerminalId, fileName: string): Promise<PlanContent | null> {
     const entry = this.entries.get(terminalId);
@@ -669,7 +683,7 @@ export class ConversationHub extends EventEmitter {
     const plans = entry.adapter.history.plans;
     if (plans === null) return null;
     if (!entry.follower.getPlanFiles().includes(fileName)) return null;
-    return plans.read(fileName);
+    return plans.read({ cwd: entry.cwd, sessionId: entry.sessionId }, fileName);
   }
 
   /**
@@ -860,7 +874,14 @@ export class ConversationHub extends EventEmitter {
       // Un plan nuevo: la solapa lo muestra sin que nadie tenga que recargar.
       const plans = entry.adapter.history.plans;
       if (result.plans.length > 0 && plans !== null) {
-        this.emit('plans', terminalId, await plans.describe(entry.follower.getPlanFiles()));
+        this.emit(
+          'plans',
+          terminalId,
+          await plans.describe(
+            { cwd: entry.cwd, sessionId: entry.sessionId },
+            entry.follower.getPlanFiles(),
+          ),
+        );
       }
       if (result.parts.length > 0) this.emit('parts', terminalId, result.parts);
 

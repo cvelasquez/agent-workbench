@@ -105,3 +105,76 @@ export function archiveCandidatesByAgent(
     }))
     .filter((candidates) => candidates.count > 0);
 }
+
+/** Que pasaria al archivar un proyecto entero (hito 31). */
+export interface ProjectArchivePlan {
+  /** Los ids que se van a esconder. Vacio: no hay nada que archivar. */
+  sessionIds: string[];
+  /** Cuantas quedan afuera por tener una pestana abierta. */
+  blocked: number;
+}
+
+/**
+ * Las sesiones que esconderia "Archivar proyecto".
+ *
+ * Es el archivado de siempre —esconder, nunca borrar (CLAUDE.md 6.5)— aplicado
+ * a todas las filas visibles de un proyecto de una vez. El caso que lo pide:
+ * una carpeta de pruebas con veinte conversaciones se limpia con veinte
+ * `Ctrl+clic`, o no se limpia.
+ *
+ * **No es un estado nuevo.** No se guarda que el proyecto este archivado: el
+ * proyecto desaparece de la barra porque se queda sin sesiones visibles, y si
+ * manana vuelve a tener una conversacion, vuelve a aparecer con esa sola fila.
+ * Es lo que el usuario eligio frente a un archivado propio del proyecto, que
+ * habria pedido un archivo mas, un mensaje mas del protocolo y una segunda
+ * forma de restaurar.
+ *
+ * Las mismas dos reglas que `sessionsToArchiveBefore`, y por lo mismo:
+ *
+ * - **Las ya archivadas no cuentan**, ni para el numero ni para deshacer: si
+ *   contaran, "Deshacer" restauraria filas que el usuario habia escondido a
+ *   proposito antes.
+ * - **Las que tienen pestana abierta quedan afuera**, porque el servidor
+ *   tampoco las archiva. Se cuentan aparte para poder decirlo en vez de
+ *   prometer un numero que no se cumple.
+ */
+export function projectArchivePlan(
+  project: Pick<ProjectSummary, 'sessions'>,
+  openSessionIds: ReadonlySet<string>,
+): ProjectArchivePlan {
+  const sessionIds = new Set<string>();
+  let blocked = 0;
+  for (const session of project.sessions) {
+    if (session.archived) continue;
+    if (openSessionIds.has(session.sessionId)) {
+      blocked += 1;
+      continue;
+    }
+    sessionIds.add(session.sessionId);
+  }
+  return { sessionIds: [...sessionIds], blocked };
+}
+
+/**
+ * Lo que dice la fila de confirmacion.
+ *
+ * Confirma en el sitio, como "Archivar historial" y por lo mismo: esconde de
+ * una vez todo lo que se ve de un proyecto, y el boton aparece al pasar el
+ * mouse, que es justo donde el mouse pasa sin querer.
+ */
+export function projectArchiveText(plan: ProjectArchivePlan): string {
+  const { sessionIds, blocked } = plan;
+  if (sessionIds.length === 0) {
+    return blocked === 1
+      ? 'Su única conversación tiene una pestaña abierta. Cerrala primero.'
+      : `Sus ${blocked} conversaciones tienen una pestaña abierta. Cerralas primero.`;
+  }
+  const head =
+    sessionIds.length === 1
+      ? '¿Archivar 1 conversación?'
+      : `¿Archivar las ${sessionIds.length} conversaciones?`;
+  if (blocked === 0) return head;
+  return blocked === 1
+    ? `${head} Otra tiene una pestaña abierta y se queda.`
+    : `${head} Otras ${blocked} tienen una pestaña abierta y se quedan.`;
+}

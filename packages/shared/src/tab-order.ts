@@ -13,9 +13,18 @@
  * es el mismo se trabaje con la que se trabaje.
  *
  * Puro y sin disco, para que lo pruebe el chequeo sin cargar `node-pty`.
+ *
+ * **Vive en `shared` desde el hito 31**, y no en el servidor, porque la regla
+ * la necesitan los dos lados: el registro, para insertar la pestana de verdad,
+ * y la barra de pestanas del navegador, para dibujar la **provisional** en el
+ * sitio donde va a caer (CLAUDE.md 6.8). Al final de la barra, la provisional
+ * saltaria de lugar al llegar la de verdad, que es justo el parpadeo que esa
+ * senal viene a sacar. Se movio tal cual: una sola implementacion, y la
+ * posicion no puede discrepar entre lo que se anuncia y lo que pasa.
  */
 
-import { normalizeCwdKey, type TerminalDescriptor, type TerminalId } from '@agent-workbench/shared';
+import { normalizeCwdKey } from './project-key.js';
+import type { TerminalDescriptor, TerminalId } from './models.js';
 
 type Placement = Pick<TerminalDescriptor, 'kind' | 'cwd'>;
 

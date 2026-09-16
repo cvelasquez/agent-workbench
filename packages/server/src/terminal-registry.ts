@@ -14,14 +14,15 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
-import type {
-  AgentId,
-  SessionId,
-  TerminalActivity,
-  TerminalDescriptor,
-  TerminalId,
-  TerminalKind,
-  TerminalOfflineReason,
+import {
+  insertionIndex,
+  type AgentId,
+  type SessionId,
+  type TerminalActivity,
+  type TerminalDescriptor,
+  type TerminalId,
+  type TerminalKind,
+  type TerminalOfflineReason,
 } from '@agent-workbench/shared';
 import type { AgentAdapter, CliLocation, LaunchHook, LaunchPlan } from './agents/adapter.js';
 import {
@@ -34,7 +35,7 @@ import { LaunchHookSlot } from './launch-hook-slot.js';
 import { OutputBuffer } from './output-buffer.js';
 import { PtySession, type LaunchSpec } from './pty-session.js';
 import type { ShellLocation } from './shell-locator.js';
-import { insertionIndex } from './tab-order.js';
+
 import { ActivityBook, wakeActionFor, type ActivityEntry } from './terminal-activity.js';
 import { TerminalOpenError, resolveLaunchPlan } from './terminal-open-error.js';
 import {
@@ -842,7 +843,8 @@ export class TerminalRegistry extends EventEmitter {
    * Con las pestanas encogidas y los nombres recortados, tenerlas desparramadas
    * obliga a leerlas una por una. Agrupar por proyecto es lo que hace que el
    * color del subrayado sirva de algo: los del mismo tono quedan pegados. La
-   * regla vive en `tab-order.ts`.
+   * regla vive en `shared/tab-order.ts`, porque la barra de pestanas del
+   * navegador la necesita para dibujar la pestana provisional en su sitio.
    *
    * El orden manual sigue mandando — esto solo decide donde cae la nueva, y un
    * arrastre posterior la mueve a donde el usuario quiera.
