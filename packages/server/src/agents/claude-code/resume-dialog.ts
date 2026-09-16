@@ -50,7 +50,8 @@
  *
  * Que el usuario deja de ver la opcion "resumir desde un resumen". Es lo que
  * pidio. El aviso de consumo sigue apareciendo un instante en la solapa CLI, y
- * si algun dia molesta, la alternativa esta escrita en `docs/plan-hito-18.md`.
+ * si algun dia molesta, la alternativa esta escrita en
+ * `docs/ref-claude-code.md` (§4.14).
  */
 
 import type { CliStatusWatcher } from './cli-status.js';

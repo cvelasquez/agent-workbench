@@ -22,14 +22,14 @@ que la aplicación lo toque.
 |---|---|
 | **Pestañas** | Varias sesiones vivas a la vez, de cualquiera de las CLIs, cada una en su directorio. Sobreviven a un `F5`: los procesos viven en el servidor, no en la pestaña del navegador. El punto de cada una dice si el agente está trabajando, parado o esperando una respuesta, en las CLIs que publican su estado ([abajo](#varias-clis)). |
 | **Arranque sin gastar nada** | Al abrir la app las pestañas vuelven **dormidas**: se leen enteras y no lanzan ninguna CLI. La abrís con un botón cuando quieras escribirle al agente. |
-| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, y las de las cuatro CLIs juntas bajo cada proyecto, cada una con su insignia. Abrir una la retoma con su CLI, en la misma sesión. **Archivar historial…** esconde de una vez las sesiones de una CLI anteriores a hoy, sin borrar nada, y se deshace. |
+| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, y las de las cuatro CLIs juntas bajo cada proyecto, cada una con su insignia. Abrir una la retoma con su CLI, en la misma sesión. **Archivar historial…** esconde de una vez las sesiones de una CLI anteriores a hoy, y cada proyecto se archiva entero con un botón: sin borrar nada, y las dos cosas se deshacen. |
 | **Conversación** | Los mensajes de la sesión activa, en vivo, con las herramientas plegadas y su resultado adentro. Búsqueda, salto entre resultados, copiado por mensaje y, según la CLI, las preguntas del agente se contestan desde el chat. |
 | **Continuar con…** | Con más de una CLI instalada, una conversación se sigue con otra CLI en la misma carpeta. El agente nuevo arranca de un recorte de los últimos turnos, no del contexto que tenía el anterior. |
 | **Buscar en todo** | Con más de una CLI y algo guardado en la copia propia, el filtro de la barra busca también en el texto de todas las conversaciones guardadas, no sólo en sus títulos. |
 | **Medidor de contexto** | Tokens de la última petición contra la ventana del modelo. Tokens, nunca dinero. |
 | **Cambios** | Rama, adelanto y atraso contra la rama de seguimiento, worktrees, y los archivos tocados con su diff. **Solo lectura.** |
 | **Archivos** | El árbol del directorio de la pestaña, con buscador por nombre y previsualización con resaltado de sintaxis. Menú contextual para copiar rutas, insertarlas como `@ruta` o abrir el archivo con la app del sistema. |
-| **Planes** | Los planes que escribió esa conversación en modo plan, renderizados. |
+| **Planes** | Los documentos que escribió esa conversación, renderizados: los planes del modo plan y también los `.md` que el agente creó dentro del proyecto o en la carpeta temporal de la sesión. Sólo los que la conversación que estás mirando nombró. |
 | **Memoria compartida** | Lo que los agentes aprenden de un proyecto, en `.agents/memory/`, y lo leen y escriben las cuatro CLIs ([abajo](#memoria-compartida)). |
 | **Copia propia** | Opcional. El historial de las cuatro CLIs en una carpeta tuya y en un formato de la aplicación, para no perderlo si una CLI cambia de formato, lo borra o la desinstalás ([abajo](#copia-propia-opcional)). |
 | **Tema** | Claro, oscuro, o el del sistema. |
@@ -251,7 +251,7 @@ importadores de la copia propia, cuando los corrés vos, leen además lo que dic
 
 | CLI | Lee | No abre nunca |
 |---|---|---|
-| Claude Code | de `~/.claude/`: `projects/` (el historial, y la memoria de cada proyecto para importarla), `sessions/` (si la CLI está esperando una respuesta) y `plans/` (sólo los planes que nombró la conversación que estás mirando) | `.credentials.json` ni ningún token |
+| Claude Code | de `~/.claude/`: `projects/` (el historial, y la memoria de cada proyecto para importarla), `sessions/` (si la CLI está esperando una respuesta) y `plans/`. Y para la solapa Planes, los `.md` que la conversación escribió dentro del proyecto o en la carpeta temporal de esa sesión: **sólo los que la conversación que estás mirando nombró**, sin recorrer ninguna carpeta | `.credentials.json` ni ningún token |
 | Codex | de `~/.codex/` (o `CODEX_HOME`): `sessions/` y `archived_sessions/` | `auth.json`, `config.toml` ni sus bases `*.sqlite` |
 | OpenCode | su base `opencode.db`, abierta en sólo lectura, y de ella sólo las tablas de sesiones, mensajes y partes; y su catálogo de modelos, para el tamaño de la ventana | `auth.json`, `opencode.json`, ni las tablas de cuentas, credenciales, permisos y sesiones compartidas |
 | Antigravity CLI | de `~/.gemini/antigravity-cli/`: los transcripts de cada conversación, `history.jsonl`, la última conversación de cada carpeta, de `settings.json` sólo el modelo y la status line, y su índice de conversaciones, de una **copia** temporal; de `~/.gemini/config/projects/`, la carpeta de cada proyecto | la configuración de MCP, su entrada en el llavero del sistema, el contenido de `conversations/`, ni `~/.gemini/antigravity/`, que es su IDE |
@@ -394,8 +394,11 @@ La otra: **el servidor genérico no nombra ninguna CLI.** Lo que sabe de cada un
 —dónde guarda, cómo se lanza, qué se lee y qué no se abre nunca— vive en su
 adaptador, y la interfaz dibuja cada control según lo que esa CLI declara.
 
-[`CLAUDE.md`](CLAUDE.md) tiene el detalle, incluido el formato real del historial
-de cada CLI —que difiere de lo que uno esperaría— y las trampas ya pisadas.
+[`CLAUDE.md`](CLAUDE.md) tiene las reglas y el mapa, y su índice lleva a
+[`docs/`](docs), donde vive el detalle de cada CLI: el formato real de su
+historial —que difiere de lo que uno esperaría—, qué se lee y qué no, y las
+trampas ya pisadas. [`CHECKLIST.md`](CHECKLIST.md) es lo que falta y la deuda
+abierta; [`docs/bitacora.md`](docs/bitacora.md), la crónica hito por hito.
 [`CONTRIBUTING.md`](CONTRIBUTING.md), cómo trabajar en el repositorio. Las
 capturas de este README salen de `pnpm demo:shots`, sobre datos inventados.
 

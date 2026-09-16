@@ -9,10 +9,14 @@ todas existen porque algo salió mal una vez.
 ## Antes de escribir código
 
 Leé [`CLAUDE.md`](CLAUDE.md). No es documentación de cortesía: tiene las reglas
-duras del proyecto y el detalle de las trampas ya pisadas (el esquema real del
-JSONL, por qué `kill('SIGTERM')` tumbaba el servidor en Windows, por qué el
-renderer WebGL está apagado). Un cambio que las ignora se descarta aunque
-funcione.
+duras del proyecto, el mapa del código y un índice de la carpeta [`docs/`](docs)
+que dice qué archivo leer antes de tocar cada zona. Ahí está el detalle de las
+trampas ya pisadas: el esquema real del JSONL de cada CLI, por qué
+`kill('SIGTERM')` tumbaba el servidor en Windows, por qué el renderer WebGL está
+apagado. Un cambio que ignora esas reglas se descarta aunque funcione.
+
+La numeración de las secciones (`§3.2`, `§11.12`) es estable y la citan los
+comentarios del código: al mover texto entre archivos, viaja con él.
 
 ---
 
