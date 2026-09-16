@@ -1,6 +1,6 @@
 {
   "name": "agent-workbench",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Interfaz visual local para las CLIs de agentes de código: Claude Code, Codex, OpenCode y Antigravity CLI",
