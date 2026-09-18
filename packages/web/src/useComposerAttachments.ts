@@ -12,12 +12,22 @@
  *    Pegar un stack trace de 300 lineas dentro de un textarea entierra el
  *    pedido que uno estaba escribiendo.
  *
+ *  - **Un archivo que no es imagen** —un log, un PDF, un .docx— queda como
+ *    ficha con su nombre y su peso (hito 33, §6.21). Viaja como bytes, el
+ *    servidor lo guarda en la carpeta temporal de la pestana y se lo nombra a la
+ *    CLI por ruta. Entra soltandolo, pegandolo o con el boton del clip.
+ *
  * Lo demas —un texto corto— no se toca: lo pega el navegador como siempre. Un
  * pegado que se comporta distinto de lo esperado es peor que uno lento.
  */
 
 import { useCallback, useState } from 'react';
-import { MAX_SUBMIT_IMAGES, MAX_SUBMIT_IMAGE_BYTES } from '@agent-workbench/shared';
+import {
+  MAX_SUBMIT_FILES,
+  MAX_SUBMIT_FILE_BYTES,
+  MAX_SUBMIT_IMAGES,
+  MAX_SUBMIT_IMAGE_BYTES,
+} from '@agent-workbench/shared';
 import { IMAGES_REFUSED_MESSAGE } from './agent-ui.js';
 
 /** A partir de cuantas lineas el texto pegado se pliega. */
@@ -47,6 +57,15 @@ export type Attachment =
       kind: 'text';
       text: string;
       lines: number;
+    }
+  | {
+      id: string;
+      kind: 'file';
+      /** El nombre que eligio el usuario. El servidor arma el suyo con esta pista. */
+      name: string;
+      /** Sin el prefijo `data:`; es lo que viaja por el socket. */
+      base64: string;
+      bytes: number;
     };
 
 export interface ComposerAttachments {
@@ -55,7 +74,7 @@ export interface ComposerAttachments {
   problem: string | null;
   /** true si el evento se consumio: quien llama debe hacer preventDefault. */
   acceptPaste: (data: DataTransfer) => boolean;
-  /** Para arrastrar y soltar. Solo mira imagenes. */
+  /** Para arrastrar y soltar, y para el boton del clip. Imagenes y documentos. */
   acceptFiles: (files: FileList | File[]) => void;
   remove: (id: string) => void;
   /**
@@ -124,27 +143,72 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
     reader.readAsDataURL(file);
   }, [items]);
 
+  const addFile = useCallback((file: File) => {
+    if (items.filter((item) => item.kind === 'file').length >= MAX_SUBMIT_FILES) {
+      setProblem(`Hasta ${MAX_SUBMIT_FILES} archivos por mensaje.`);
+      return;
+    }
+    if (file.size === 0) {
+      setProblem(`"${file.name}" esta vacio.`);
+      return;
+    }
+    if (file.size > MAX_SUBMIT_FILE_BYTES) {
+      setProblem(
+        `"${file.name}" pesa ${Math.round(file.size / 1024 / 1024)} MB; el maximo son ${
+          MAX_SUBMIT_FILE_BYTES / 1024 / 1024
+        } MB.`,
+      );
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') return;
+      const comma = result.indexOf(',');
+      if (comma === -1) return;
+      setItems((current) =>
+        current.filter((item) => item.kind === 'file').length >= MAX_SUBMIT_FILES
+          ? current
+          : [
+              ...current,
+              {
+                id: newId(),
+                kind: 'file',
+                name: file.name.length > 0 ? file.name : 'archivo',
+                base64: result.slice(comma + 1),
+                bytes: file.size,
+              },
+            ],
+      );
+    };
+    // Una carpeta soltada llega como un File que no se puede leer.
+    reader.onerror = () => setProblem(`No se pudo leer "${file.name}".`);
+    reader.readAsDataURL(file);
+  }, [items]);
+
+  /**
+   * Las imagenes por su camino de siempre, y lo demas como documento. Una CLI
+   * que no recibe imagenes las rechaza con su aviso, pero los documentos que
+   * vinieran en la misma tanda entran igual.
+   */
   const acceptFiles = useCallback(
     (files: FileList | File[]) => {
-      const images = Array.from(files).filter((file) => file.type.startsWith('image/'));
-      if (images.length > 0 && !imagesAllowed) {
-        setProblem(IMAGES_REFUSED_MESSAGE);
-        return;
-      }
-      for (const file of images) addImage(file);
+      const all = Array.from(files);
+      const images = all.filter((file) => file.type.startsWith('image/'));
+      const documents = all.filter((file) => !file.type.startsWith('image/'));
+      if (images.length > 0 && !imagesAllowed) setProblem(IMAGES_REFUSED_MESSAGE);
+      else for (const file of images) addImage(file);
+      for (const file of documents) addFile(file);
     },
-    [addImage, imagesAllowed],
+    [addImage, addFile, imagesAllowed],
   );
 
   const acceptPaste = useCallback(
     (data: DataTransfer): boolean => {
-      const images = Array.from(data.files).filter((file) => file.type.startsWith('image/'));
-      if (images.length > 0) {
-        if (!imagesAllowed) {
-          setProblem(IMAGES_REFUSED_MESSAGE);
-          return true;
-        }
-        for (const file of images) addImage(file);
+      // Un archivo copiado en el explorador y pegado aca llega en `files`.
+      if (data.files.length > 0) {
+        acceptFiles(data.files);
         return true;
       }
 
@@ -157,7 +221,7 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
       setItems((current) => [...current, { id: newId(), kind: 'text', text, lines }]);
       return true;
     },
-    [addImage, imagesAllowed],
+    [acceptFiles],
   );
 
   const remove = useCallback((id: string) => {

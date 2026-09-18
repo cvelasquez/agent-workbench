@@ -166,10 +166,31 @@ export interface ClientInputMessage {
 export const MAX_SUBMIT_IMAGE_BYTES = 12 * 1024 * 1024;
 export const MAX_SUBMIT_IMAGES = 8;
 
+/**
+ * Los archivos adjuntos, aparte de las imagenes (hito 33, §6.21). Un PDF o un
+ * log: cualquier documento que el agente pueda abrir por ruta.
+ */
+export const MAX_SUBMIT_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_SUBMIT_FILES = 4;
+
 /** Una imagen pegada en el cuadro de escritura. */
 export interface SubmitImage {
   /** Tipo declarado por el navegador. El servidor comprueba la firma real. */
   mediaType: string;
+  /** Contenido en base64, sin el prefijo `data:`. */
+  data: string;
+}
+
+/**
+ * Un archivo adjunto en el cuadro de escritura (hito 33, §6.21).
+ *
+ * Viajan los bytes y un nombre, nunca una ruta. El nombre es una **pista**: el
+ * servidor lo reduce a letras, numeros, punto, guion y guion bajo antes de
+ * usarlo dentro del nombre que arma el, y la carpeta la pone el (CLAUDE.md 2.4).
+ */
+export interface SubmitFile {
+  /** El nombre del archivo tal como lo eligio el usuario, sin carpeta. */
+  name: string;
   /** Contenido en base64, sin el prefijo `data:`. */
   data: string;
 }
@@ -190,6 +211,12 @@ export interface ClientSubmitMessage {
   text: string;
   /** Imagenes pegadas, en el orden en que se pegaron. */
   images: SubmitImage[];
+  /**
+   * Archivos adjuntos, en el orden en que se agregaron (hito 33). Ausente es
+   * ninguno: un cliente anterior no lo manda y un servidor anterior lo ignora,
+   * asi que el protocolo no cambia de version.
+   */
+  files?: SubmitFile[];
   /** false para dejarlo escrito en el prompt sin enviarlo. */
   send?: boolean;
 }
@@ -1537,6 +1564,15 @@ function parseSubmitImage(value: unknown): SubmitImage | null {
   return mediaType === null || data === null ? null : { mediaType, data };
 }
 
+/** Un archivo adjunto. Solo la forma: el tope y el nombre los decide el servidor. */
+function parseSubmitFile(value: unknown): SubmitFile | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const name = asNonEmptyString(record['name']);
+  const data = asNonEmptyString(record['data']);
+  return name === null || data === null ? null : { name, data };
+}
+
 /**
  * Lo elegido en una pregunta: indices de opciones, o texto propio.
  *
@@ -1580,6 +1616,13 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const images = asArrayOf(record['images'], parseSubmitImage);
       if (terminalId === null || text === null || images === null) return null;
       const message: ClientSubmitMessage = { type: 'agent.submit', terminalId, text, images };
+      // Ausente es ninguno; presente y mal formado invalida el mensaje entero,
+      // como una imagen: mandar el texto sin su adjunto es peor que no mandarlo.
+      if (record['files'] !== undefined) {
+        const files = asArrayOf(record['files'], parseSubmitFile);
+        if (files === null) return null;
+        if (files.length > 0) message.files = files;
+      }
       // Ausente significa enviar: dejarlo escrito es el caso raro.
       if (record['send'] === false) message.send = false;
       return message;

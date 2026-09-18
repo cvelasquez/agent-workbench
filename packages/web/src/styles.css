@@ -932,6 +932,31 @@ kbd {
   color: var(--danger);
 }
 
+.chip-file-label {
+  cursor: default;
+}
+
+.chip-file-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-file-size {
+  color: var(--text-dim);
+}
+
+.composer-attach {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+
+.composer-attach:hover:not(:disabled) {
+  color: var(--accent);
+}
+
 .composer-input {
   width: 100%;
   min-height: 34px;
@@ -941,6 +966,7 @@ kbd {
   border-radius: 6px;
   color: var(--text);
   font: inherit;
+  font-size: calc(13px * var(--thread-scale, 1));
   line-height: 1.5;
   resize: none;
   overflow-y: auto;
@@ -1783,6 +1809,38 @@ kbd {
 }
 
 
+/* ---------- tamano de letra del hilo (hito 33, §6.22) ---------- */
+
+/*
+  Tres pasos, y "chico" es lo de siempre: cada regla del hilo multiplica sus
+  pixeles por `--thread-scale`, que sin valor es 1. "Normal" lleva el texto de
+  12,5 a 14 px, el de la terminal; "grande", a 16.
+
+  La variable se define solo dentro del hilo y del cuadro de escritura. El
+  atributo esta en <html>, pero el Markdown de Planes, Memoria y la
+  previsualizacion usa las mismas clases `.md-*` y no tiene por que crecer.
+*/
+:root[data-thread-font="m"] .conversation-pane,
+:root[data-thread-font="m"] .composer {
+  --thread-scale: 1.12;
+}
+
+:root[data-thread-font="l"] .conversation-pane,
+:root[data-thread-font="l"] .composer {
+  --thread-scale: 1.28;
+}
+
+.thread-font-button {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.thread-font-button .thread-font-big {
+  font-size: 14px;
+}
+
+
 /* ---------- turnos de la conversacion ---------- */
 
 /*
@@ -1871,7 +1929,7 @@ kbd {
   padding: 4px 0;
   border-top: 1px dashed var(--border);
   border-bottom: 1px dashed var(--border);
-  font-size: 12px;
+  font-size: calc(12px * var(--thread-scale, 1));
   text-align: center;
   color: var(--text-dim);
 }
@@ -1931,7 +1989,7 @@ kbd {
 .part-text {
   overflow-wrap: anywhere;
   line-height: 1.55;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--thread-scale, 1));
 }
 
 /* ---------- markdown de las respuestas ---------- */
@@ -1956,21 +2014,21 @@ kbd {
 }
 
 .md-h1 {
-  font-size: 16px;
+  font-size: calc(16px * var(--thread-scale, 1));
 }
 
 .md-h2 {
-  font-size: 14.5px;
+  font-size: calc(14.5px * var(--thread-scale, 1));
 }
 
 .md-h3 {
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--thread-scale, 1));
 }
 
 .md-h4,
 .md-h5,
 .md-h6 {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--thread-scale, 1));
   color: var(--text-dim);
 }
 
@@ -1999,7 +2057,7 @@ kbd {
 
 .md code {
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--thread-scale, 1));
   background: color-mix(in srgb, var(--text) 9%, transparent);
   border-radius: 3px;
   padding: 1px 4px;
@@ -2020,7 +2078,7 @@ kbd {
 .md-code code {
   background: none;
   padding: 0;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--thread-scale, 1));
   line-height: 1.5;
 }
 
@@ -2041,7 +2099,7 @@ kbd {
 
 .md-table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: calc(12px * var(--thread-scale, 1));
 }
 
 .md-table th,
@@ -2063,7 +2121,7 @@ kbd {
 
 .part-truncated {
   color: var(--warning);
-  font-size: 11px;
+  font-size: calc(11px * var(--thread-scale, 1));
 }
 
 .part-text mark,
@@ -2095,7 +2153,7 @@ kbd {
   cursor: pointer;
   list-style: none;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--thread-scale, 1));
   border-radius: 5px;
 }
 
@@ -2145,7 +2203,7 @@ kbd {
   gap: 8px;
   padding: 5px 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: calc(11px * var(--thread-scale, 1));
   list-style: none;
 }
 
@@ -2176,7 +2234,7 @@ kbd {
   border: 1px solid var(--danger);
   border-radius: 3px;
   padding: 0 4px;
-  font-size: 10px;
+  font-size: calc(10px * var(--thread-scale, 1));
 }
 
 .tool-images {
@@ -2190,7 +2248,7 @@ kbd {
 
 .tool-label {
   display: block;
-  font-size: 10px;
+  font-size: calc(10px * var(--thread-scale, 1));
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -2203,7 +2261,7 @@ kbd {
   background: var(--surface);
   border-radius: 4px;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 11px;
+  font-size: calc(11px * var(--thread-scale, 1));
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -3510,7 +3568,7 @@ kbd {
 }
 
 .question-text {
-  font-size: 13px;
+  font-size: calc(13px * var(--thread-scale, 1));
   color: var(--text);
 }
 
@@ -3555,11 +3613,11 @@ kbd {
 }
 
 .question-option-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--thread-scale, 1));
 }
 
 .question-option-desc {
-  font-size: 11px;
+  font-size: calc(11px * var(--thread-scale, 1));
   color: var(--text-dim);
   line-height: 1.4;
 }
@@ -3622,7 +3680,7 @@ kbd {
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--thread-scale, 1));
 }
 
 .question-write-input:focus {

@@ -46,7 +46,14 @@ import { GlobalSearchSlot } from './global-search.js';
 import { deliverWhenReady, prefillReasonFor, type DeliverDeps } from './deliver-when-ready.js';
 import { HANDOFF_DELIVERY_TIMEOUT_MS, continueSession, type ContinueDeps } from './handoff/handoff.js';
 import { InvalidPathError, resolveInside } from './path-guard.js';
-import { PasteImageError, PasteStore, MAX_IMAGES_PER_SUBMIT } from './paste-store.js';
+import { attachmentLine, attachmentReference, textWithAttachments } from './attachments.js';
+import {
+  PasteFileError,
+  PasteImageError,
+  PasteStore,
+  MAX_FILES_PER_SUBMIT,
+  MAX_IMAGES_PER_SUBMIT,
+} from './paste-store.js';
 import {
   ANSWER_INVALID_MESSAGE,
   ANSWER_KEY_INTERVAL_MS,
@@ -668,6 +675,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         */
         case 'agent.submit': {
           const { terminalId, text, images } = message;
+          const files = message.files ?? [];
+          if (files.length > MAX_FILES_PER_SUBMIT) {
+            sendError(
+              socket,
+              'submit-failed',
+              `Se pueden adjuntar hasta ${MAX_FILES_PER_SUBMIT} archivos por mensaje.`,
+            );
+            break;
+          }
           if (images.length > MAX_IMAGES_PER_SUBMIT) {
             sendError(
               socket,
@@ -778,14 +794,42 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 return;
               }
 
-              const pieces = buildSubmissionWrites(text, imagePaths, input, {
+              /*
+                Los archivos adjuntos (hito 33, §6.21), despues de las imagenes
+                y en el mismo turno de la fila. Se nombran por ruta dentro del
+                texto, con la forma que esa CLI ya usa para el transcript de una
+                continuacion (D18): no hace falta una capacidad, las cuatro la
+                declaran.
+              */
+              const attachmentLines: string[] = [];
+              try {
+                for (const file of files) {
+                  const stored = await pasteStore.saveAttachment(terminalId, file.name, file.data);
+                  attachmentLines.push(
+                    attachmentLine(file.name, stored.bytes, attachmentReference(stored.path, input.transcriptReference)),
+                  );
+                }
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                sendError(
+                  socket,
+                  'submit-failed',
+                  error instanceof PasteFileError ? detail : 'No se pudo guardar el archivo adjunto.',
+                  detail,
+                );
+                return;
+              }
+              const fullText = textWithAttachments(text, attachmentLines);
+
+              const pieces = buildSubmissionWrites(fullText, imagePaths, input, {
                 send: message.send !== false,
               });
               // Un cuadro vacio no le manda un Enter a la CLI.
               if (pieces === null) return;
               // Antes de la primera escritura: quien busca la sesion por este
               // texto no puede encontrar el archivo de la CLI antes que el texto.
-              registry.noteSubmitted(terminalId, text);
+              // Con adjuntos es el texto entero: es lo que la CLI va a guardar.
+              registry.noteSubmitted(terminalId, fullText);
               const outcome = await lane.writePieces(
                 pieces,
                 input.pieceGapMs,

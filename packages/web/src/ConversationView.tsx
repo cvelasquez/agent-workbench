@@ -51,6 +51,8 @@ import {
   type ServerClosedBarState,
 } from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
+import { threadFontTitle } from './thread-font.js';
+import type { ThreadFontState } from './useThreadFont.js';
 import { ContinueButton } from './ContinueButton.js';
 import { noticeText } from './conversation-notice.js';
 import { ImageViewer } from './ImageViewer.js';
@@ -328,6 +330,8 @@ interface ConversationViewProps {
   statusLineState?: StatusLineState | null;
   /** Abre el dialogo de la status line desde el medidor. */
   onConfigureStatusLine?: () => void;
+  /** El tamano de letra del hilo y como pasar al siguiente (hito 33, §6.22). */
+  threadFont?: ThreadFontState;
   /**
    * Con que CLIs se puede continuar esta conversacion (hito 29,
    * `continueTargets`). Vacia: no hay `↪` al lado del medidor.
@@ -361,6 +365,7 @@ export function ConversationView({
   serverClosed = null,
   statusLineState = null,
   onConfigureStatusLine,
+  threadFont,
   continueTargets = [],
   continueBlockedReason = null,
   onContinue,
@@ -556,6 +561,22 @@ export function ConversationView({
             blockedReason={continueBlockedReason}
             onPick={onContinue}
           />
+        )}
+        {/*
+          Tres tamanos de letra, y un boton que los rota (hito 33). Va aca y no
+          en la cabecera de la app porque solo cambia el hilo.
+        */}
+        {threadFont !== undefined && (
+          <button
+            className="icon-button thread-font-button"
+            onClick={threadFont.cycle}
+            title={threadFontTitle(threadFont.size)}
+            aria-label={threadFontTitle(threadFont.size)}
+          >
+            <span aria-hidden="true">
+              a<span className="thread-font-big">A</span>
+            </span>
+          </button>
         )}
         <ContextMeter
           usage={usage}

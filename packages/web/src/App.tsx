@@ -47,6 +47,7 @@ import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
 import { THEME_ICON, THEME_LABEL, useTheme } from './useTheme.js';
 import { useNotificationSound } from './useNotificationSound.js';
+import { useThreadFont } from './useThreadFont.js';
 import { soundButtonTitle } from './notification-sound.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
@@ -159,6 +160,7 @@ export function App(): JSX.Element {
 
   const theme = useTheme();
   const sound = useNotificationSound(activity);
+  const threadFont = useThreadFont();
   const activeTerminal = terminals.find((t) => t.terminalId === activeTerminalId) ?? null;
 
   /*
@@ -1140,6 +1142,7 @@ export function App(): JSX.Element {
             ) : (
               <ConversationView
                 view={conversation}
+                threadFont={threadFont}
                 onRewind={activeControls.rewind ? rewind : undefined}
                 questionsAnswerable={activeControls.questionsAnswerable}
                 contextWindowSource={activeControls.contextWindowSource}

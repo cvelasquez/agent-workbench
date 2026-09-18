@@ -272,11 +272,21 @@ export function Composer({
     const images = attachments.items
       .filter((item): item is Extract<Attachment, { kind: 'image' }> => item.kind === 'image')
       .map((item) => ({ mediaType: item.mediaType, data: item.base64 }));
+    const files = attachments.items
+      .filter((item): item is Extract<Attachment, { kind: 'file' }> => item.kind === 'file')
+      .map((item) => ({ name: item.name, data: item.base64 }));
 
     const body = [...folded, text].filter((piece) => piece.trim().length > 0).join('\n\n');
-    if (body.length === 0 && images.length === 0) return;
+    if (body.length === 0 && images.length === 0 && files.length === 0) return;
 
-    connection.send({ type: 'agent.submit', terminalId, text: body, images });
+    // `files` solo viaja si hay: sin adjuntos el mensaje es el de siempre.
+    connection.send({
+      type: 'agent.submit',
+      terminalId,
+      text: body,
+      images,
+      ...(files.length > 0 ? { files } : {}),
+    });
     setText('');
     attachments.clear();
     onSubmitted?.(terminalId);
@@ -311,6 +321,8 @@ export function Composer({
     },
     [attachments],
   );
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const disabled = terminalId === null || !alive;
   const hasSomething = text.trim().length > 0 || attachments.items.length > 0;
@@ -409,6 +421,40 @@ export function Composer({
         donde se busca un atajo cuando de verdad hace falta.
       */}
       <div className="composer-bar">
+        {/*
+          Adjuntar (hito 33, §6.21). El gesto ya existia —soltar o pegar— pero
+          sin un boton no se encuentra. El `<input>` va escondido y se vacia
+          despues de cada eleccion: si no, elegir dos veces el mismo archivo no
+          dispara `change` la segunda.
+        */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(event) => {
+            if (event.target.files !== null) attachments.acceptFiles(event.target.files);
+            event.target.value = '';
+          }}
+        />
+        <button
+          className="icon-button composer-attach"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled}
+          title="Adjuntar un archivo: un log, un PDF, un documento o una imagen"
+          aria-label="Adjuntar un archivo"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path
+              d="M21.4 11.1 12.3 20.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
         {leading}
         <span className="composer-spacer" />
         {controls}
@@ -459,6 +505,22 @@ function AttachmentChip({ item, onRemove }: AttachmentChipProps): JSX.Element {
           <ImageViewer src={item.dataUrl} caption={label} onClose={() => setOpen(false)} />
         )}
       </figure>
+    );
+  }
+
+  if (item.kind === 'file') {
+    // Sin desplegable: un PDF o un .docx no tienen primeras lineas que mostrar.
+    return (
+      <div className="chip chip-text chip-file" title={`${item.name} · ${formatBytes(item.bytes)}`}>
+        <span className="chip-toggle chip-file-label">
+          <span className="chip-icon">▤</span>
+          <span className="chip-file-name">{item.name}</span>
+          <span className="chip-file-size">{formatBytes(item.bytes)}</span>
+        </span>
+        <button className="chip-remove" onClick={onRemove} title="Quitar">
+          ×
+        </button>
+      </div>
     );
   }
 

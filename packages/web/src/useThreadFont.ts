@@ -1,0 +1,45 @@
+/**
+ * La preferencia del tamano de letra del hilo (§6.22).
+ *
+ * Va a `localStorage`, como el tema y el alto del cuadro: es de esta pantalla.
+ * El atributo va en `<html>` y no en el panel porque el cuadro de escritura
+ * escala con el hilo y vive en otro componente; la hoja de estilos solo le da
+ * valor a `--thread-scale` dentro del hilo y del cuadro, asi que el Markdown
+ * de las demas solapas no cambia.
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import {
+  DEFAULT_THREAD_FONT_SIZE,
+  THREAD_FONT_STORAGE_KEY,
+  nextThreadFontSize,
+  parseThreadFontSize,
+  type ThreadFontSize,
+} from './thread-font.js';
+import { readStored, writeStored } from './window-prefs.js';
+
+export interface ThreadFontState {
+  size: ThreadFontSize;
+  /** Pasa al tamano siguiente. */
+  cycle: () => void;
+}
+
+export function useThreadFont(): ThreadFontState {
+  const [size, setSize] = useState<ThreadFontSize>(() =>
+    readStored(THREAD_FONT_STORAGE_KEY, DEFAULT_THREAD_FONT_SIZE, parseThreadFontSize),
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset['threadFont'] = size;
+  }, [size]);
+
+  const cycle = useCallback(() => {
+    setSize((current) => {
+      const next = nextThreadFontSize(current);
+      writeStored(THREAD_FONT_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  return { size, cycle };
+}

@@ -23,11 +23,17 @@
  *    usuario y los bits no hacen nada.
  */
 
-import { MAX_SUBMIT_IMAGES, MAX_SUBMIT_IMAGE_BYTES } from '@agent-workbench/shared';
+import {
+  MAX_SUBMIT_FILES,
+  MAX_SUBMIT_FILE_BYTES,
+  MAX_SUBMIT_IMAGES,
+  MAX_SUBMIT_IMAGE_BYTES,
+} from '@agent-workbench/shared';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { isBlockedExtension, safeFileName } from './attachments.js';
 import { HANDOFF_MAX_BYTES } from './handoff/transcript.js';
 import { detectImageFormat } from './image-signature.js';
 
@@ -45,6 +51,10 @@ export const MAX_IMAGE_BYTES = MAX_SUBMIT_IMAGE_BYTES;
 /** Por envio. Mas que esto no es un mensaje, es una carpeta. */
 export const MAX_IMAGES_PER_SUBMIT = MAX_SUBMIT_IMAGES;
 
+/** Por archivo adjunto y por envio (hito 33, §6.21). */
+export const MAX_FILE_BYTES = MAX_SUBMIT_FILE_BYTES;
+export const MAX_FILES_PER_SUBMIT = MAX_SUBMIT_FILES;
+
 /** Los temporales de arranques anteriores se borran pasado este tiempo. */
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
@@ -59,6 +69,13 @@ export interface StoredImage {
 }
 
 export class PasteImageError extends Error {}
+
+/** Un archivo adjunto guardado: la ruta, el peso y el nombre que le quedo. */
+export interface StoredFile extends StoredImage {
+  name: string;
+}
+
+export class PasteFileError extends Error {}
 
 /**
  * Tope de un texto guardado: el transcript de una continuacion mas un margen
@@ -141,6 +158,42 @@ export class PasteStore {
     const file = path.join(directory, name);
     await writeFile(file, bytes, { mode: FILE_MODE });
     return { path: file, bytes: bytes.length };
+  }
+
+  /**
+   * Guarda un archivo adjunto del cuadro de escritura (hito 33, §6.21).
+   *
+   * Mismas reglas que una imagen, con una diferencia: un documento no tiene una
+   * firma que comprobar, asi que lo que se cuida es el nombre. El cliente manda
+   * una pista y `safeFileName` la reduce a `[A-Za-z0-9._-]`; va **detras** del
+   * prefijo que pone el servidor —`adjunto-<n>-<8 hex>-`—, asi que ni un nombre
+   * reservado de Windows ni un `..` llegan a ser el nombre del archivo. Lo que
+   * el sistema ejecuta con un doble clic no se guarda.
+   */
+  async saveAttachment(terminalId: string, nameHint: string, base64: string): Promise<StoredFile> {
+    const safe = safeFileName(nameHint);
+    if (isBlockedExtension(safe)) {
+      throw new PasteFileError(`No se adjuntan ejecutables: "${safe}".`);
+    }
+
+    const bytes = Buffer.from(base64, 'base64');
+    if (bytes.length === 0) throw new PasteFileError(`"${safe}" llego vacio.`);
+    if (bytes.length > MAX_FILE_BYTES) {
+      throw new PasteFileError(
+        `"${safe}" pesa ${Math.round(bytes.length / 1024 / 1024)} MB; el maximo son ${
+          MAX_FILE_BYTES / 1024 / 1024
+        } MB.`,
+      );
+    }
+
+    const directory = path.join(this.root, safeSegment(terminalId));
+    await mkdir(directory, { recursive: true, mode: DIRECTORY_MODE });
+
+    this.counter += 1;
+    const name = `adjunto-${this.counter}-${randomUUID().slice(0, 8)}-${safe}`;
+    const file = path.join(directory, name);
+    await writeFile(file, bytes, { mode: FILE_MODE });
+    return { path: file, bytes: bytes.length, name };
   }
 
   /** Borra lo de una pestana. Se llama al cerrarla. */

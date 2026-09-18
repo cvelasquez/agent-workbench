@@ -15,10 +15,19 @@
  *    archivos con datos del cliente. Si se le cree al `mediaType` en vez de
  *    mirar los bytes, cualquier cosa aterriza en disco con nombre de imagen.
  *
+ * Y desde el hito 33, dos mas:
+ *
+ *  - **Los archivos adjuntos** (§6.21). No tienen firma que comprobar, asi que
+ *    lo que se cuida es el nombre: que una pista hostil no salga de la carpeta
+ *    de la pestana, que un ejecutable no se guarde, y que la linea del mensaje
+ *    nombre el archivo como lo lee cada CLI.
+ *  - **El tamano de letra del hilo** (§6.22): el ciclo de tres pasos y lo que
+ *    se acepta de `localStorage`. La web no tiene tests; se importa de aca.
+ *
  * Trabaja sobre una carpeta temporal propia.
  */
 
-import { mkdir, readdir, rm, writeFile, utimes } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import {
   buildModeKeys,
@@ -27,7 +36,21 @@ import {
   fileReference,
   sanitizeForPaste,
 } from '../src/pty-input.ts';
-import { PasteImageError, PasteStore } from '../src/paste-store.ts';
+import { MAX_FILE_BYTES, PasteFileError, PasteImageError, PasteStore } from '../src/paste-store.ts';
+import {
+  attachmentLine,
+  attachmentReference,
+  safeFileName,
+  textWithAttachments,
+} from '../src/attachments.ts';
+import { buildSubmissionWrites } from '../src/pty-input.ts';
+import { parseClientMessage } from '@agent-workbench/shared';
+import {
+  DEFAULT_THREAD_FONT_SIZE,
+  nextThreadFontSize,
+  parseThreadFontSize,
+  threadFontTitle,
+} from '../../web/src/thread-font.ts';
 
 const dir = process.argv[2] ?? path.join(process.cwd(), '.check-composer');
 await rm(dir, { recursive: true, force: true });
@@ -415,6 +438,109 @@ check(
   'y tampoco se sale de uno que no esta en el ciclo',
   buildModeKeys('bypassPermissions', 'plan') === null,
 );
+
+// ---------------------------------------------------------------------------
+// Archivos adjuntos (hito 33, §6.21)
+// ---------------------------------------------------------------------------
+
+check('un nombre normal queda, con los espacios como guion bajo', safeFileName('Informe final.docx') === 'Informe_final.docx', safeFileName('Informe final.docx'));
+check('las tildes se van y la letra queda', safeFileName('año-señal.log') === 'ano-senal.log', safeFileName('año-señal.log'));
+check('una ruta pierde la carpeta', safeFileName('..\\..\\Windows\\win.ini') === 'win.ini' && safeFileName('../../etc/passwd') === 'passwd');
+check('sin punto inicial: `.env` no queda oculto', safeFileName('.env') === 'env', safeFileName('.env'));
+check('solo puntos o nada: `archivo`', safeFileName('..') === 'archivo' && safeFileName('') === 'archivo' && safeFileName('¿?') === 'archivo');
+check('comillas, & y | no pasan', /^[A-Za-z0-9._-]+$/.test(safeFileName('a"b&c|d`e$(x).txt')), safeFileName('a"b&c|d`e$(x).txt'));
+{
+  const long = safeFileName(`${'x'.repeat(200)}.pdf`);
+  check('un nombre largo se corta a 60 y conserva la extension', long.length === 60 && long.endsWith('.pdf'), long);
+}
+
+{
+  const store = new PasteStore(path.join(dir, 'adjuntos'));
+  const content = Buffer.from('linea uno\nlinea dos\n', 'utf8');
+  const saved = await store.saveAttachment('terminal-a', 'app server.log', content.toString('base64'));
+  check('nombre adjunto-<n>-<8 hex>-<saneado>', /^adjunto-\d+-[0-9a-f]{8}-app_server\.log$/.test(saved.name), saved.name);
+  check('cae en la carpeta de la pestana', path.dirname(saved.path) === path.join(dir, 'adjuntos', 'terminal-a'), saved.path);
+  check('los bytes son los que llegaron', (await readFile(saved.path)).equals(content) && saved.bytes === content.length);
+
+  // Binario: un PDF de mentira con un NUL adentro. No se toca ni se rechaza.
+  const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.from([0, 1, 2, 255]), Buffer.from('%%EOF')]);
+  const savedPdf = await store.saveAttachment('terminal-a', 'manual.pdf', pdf.toString('base64'));
+  check('un binario se guarda byte por byte', (await readFile(savedPdf.path)).equals(pdf));
+
+  const hostile = await store.saveAttachment('../../fuera', '..\\..\\..\\fuera.txt', content.toString('base64'));
+  check('ni la pestana ni el nombre sacan el archivo de la raiz',
+    hostile.path.startsWith(path.join(dir, 'adjuntos') + path.sep) && path.basename(hostile.path).endsWith('-fuera.txt'), hostile.path);
+
+  const reserved = await store.saveAttachment('terminal-a', 'CON', content.toString('base64'));
+  check('un nombre reservado de Windows queda detras del prefijo', /^adjunto-\d+-[0-9a-f]{8}-CON$/.test(reserved.name), reserved.name);
+
+  for (const name of ['setup.exe', 'x.DLL', 'acceso.lnk', 'raro.txt.exe']) {
+    const error = await store.saveAttachment('terminal-a', name, content.toString('base64')).catch((e) => e);
+    check(`un ejecutable no se guarda: ${name}`, error instanceof PasteFileError, String(error));
+  }
+  const script = await store.saveAttachment('terminal-a', 'deploy.ps1', content.toString('base64'));
+  check('un script es texto y si se guarda', script.name.endsWith('-deploy.ps1'));
+
+  const empty = await store.saveAttachment('terminal-a', 'vacio.txt', '').catch((e) => e);
+  check('vacio se rechaza', empty instanceof PasteFileError);
+  const big = await store
+    .saveAttachment('terminal-a', 'grande.bin', Buffer.alloc(MAX_FILE_BYTES + 1, 65).toString('base64'))
+    .catch((e) => e);
+  check('pasado el tope se rechaza', big instanceof PasteFileError, String(big));
+  const edge = await store.saveAttachment('terminal-a', 'tope.bin', Buffer.alloc(MAX_FILE_BYTES, 65).toString('base64'));
+  check('justo en el tope se guarda', edge.bytes === MAX_FILE_BYTES);
+
+  await store.clearTerminal('terminal-a');
+  check('cerrar la pestana borra sus adjuntos', (await readdir(path.join(dir, 'adjuntos'))).includes('terminal-a') === false);
+}
+
+{
+  const log = 'C:\\t\\adjunto-1-3f2a9c1b-app.log';
+  const docx = 'C:\\t\\adjunto-2-3f2a9c1b-Informe_final.docx';
+  check('texto con at-quoted: @"ruta"', attachmentReference(log, 'at-quoted') === `@"${log}"`);
+  check('PDF con at-quoted: @"ruta"', attachmentReference('C:\\t\\a.PDF', 'at-quoted') === '@"C:\\t\\a.PDF"');
+  check('un .docx va por ruta aunque la CLI tenga @', attachmentReference(docx, 'at-quoted') === `"${docx}"`);
+  check('sin extension va por ruta', attachmentReference('C:\\t\\adjunto-1-ab-LICENSE', 'at-quoted') === '"C:\\t\\adjunto-1-ab-LICENSE"');
+  check('quoted-path: siempre "ruta"', attachmentReference(log, 'quoted-path') === `"${log}"`);
+
+  const line = attachmentLine('app "prod"\n.log', 219_000, `@"${log}"`);
+  check('la linea dice nombre, peso y referencia, sin comillas ni saltos en el nombre',
+    line === `Archivo adjunto (app prod .log, 214 KB): @"${log}"`, line);
+  check('sin nombre lo dice', attachmentLine('\n', 10, '"x"') === 'Archivo adjunto (sin nombre, 10 B): "x"');
+
+  check('sin adjuntos el texto es el de siempre', textWithAttachments('hola', []) === 'hola');
+  check('los adjuntos van antes del texto, uno por linea', textWithAttachments('mira esto', [line, 'otra']) === `${line}\notra\nmira esto`);
+  check('solo adjuntos: sin linea vacia al final', textWithAttachments('  ', [line]) === line);
+
+  // Lo que llega a la pty con Claude Code: una pieza, el pegado entero y el Enter.
+  const pieces = buildSubmissionWrites(textWithAttachments('mira esto', [line]), [], {
+    imageReference: 'at-quoted', pasteMarkers: true,
+  });
+  check('una sola pieza, con la linea del adjunto adentro del pegado',
+    pieces?.length === 1 && pieces[0] === `\x1b[200~${line}\nmira esto\x1b[201~\r`, JSON.stringify(pieces));
+}
+
+{
+  const base = { type: 'agent.submit', terminalId: 't1', text: 'hola', images: [] };
+  const plain = parseClientMessage(JSON.stringify(base));
+  check('sin `files` el mensaje es el de siempre', plain !== null && !('files' in plain));
+  const withFiles = parseClientMessage(JSON.stringify({ ...base, files: [{ name: 'a.log', data: 'QQ==' }] }));
+  check('con `files` llegan nombre y datos', withFiles?.files?.[0]?.name === 'a.log' && withFiles.files[0].data === 'QQ==');
+  check('un `files` vacio no agrega el campo', !('files' in (parseClientMessage(JSON.stringify({ ...base, files: [] })) ?? { files: 1 })));
+  check('un adjunto mal formado invalida el mensaje', parseClientMessage(JSON.stringify({ ...base, files: [{ name: 'a.log' }] })) === null);
+  check('y un `files` que no es lista', parseClientMessage(JSON.stringify({ ...base, files: 'a.log' })) === null);
+}
+
+// ---------------------------------------------------------------------------
+// Tamano de letra del hilo (hito 33, §6.22)
+// ---------------------------------------------------------------------------
+
+check('por defecto, normal', DEFAULT_THREAD_FONT_SIZE === 'm');
+check('el ciclo: chica → normal → grande → chica',
+  nextThreadFontSize('s') === 'm' && nextThreadFontSize('m') === 'l' && nextThreadFontSize('l') === 's');
+check('de lo guardado solo valen los tres', parseThreadFontSize('s') === 's' && parseThreadFontSize('m') === 'm'
+  && parseThreadFontSize('l') === 'l' && parseThreadFontSize('xl') === null && parseThreadFontSize('') === null);
+check('el titulo dice que hay y que pone el clic', threadFontTitle('m') === 'Tamaño de letra: normal (clic: grande)', threadFontTitle('m'));
 
 await rm(dir, { recursive: true, force: true });
 
