@@ -11,7 +11,22 @@ env:
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
 jobs:
+  # The checks run on Windows, the platform they were written for (see ci.yml).
+  checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm check
+
   npm:
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,8 +45,6 @@ jobs:
           PKG=$(node -p "require('./package.json').version")
           test "$TAG" = "$PKG" || { echo "tag $TAG != package.json $PKG"; exit 1; }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm check
       - run: pnpm build:npm
       - run: node .github/scripts/check-tarball.mjs
       # Trusted publishing needs npm >= 11.5.1; Node 22 ships 10.x.
