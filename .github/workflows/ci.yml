@@ -19,7 +19,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        node: ['20', '22']
+        # The app runs on Node 20, but working on the repository needs 22.13+:
+        # pnpm requires it, and the checks use node:sqlite.
+        node: ['22']
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

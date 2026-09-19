@@ -76,6 +76,9 @@ function isPlanFileName(fileName: string): boolean {
   // `basename` desarma cualquier `..`, separador o unidad de Windows: si lo que
   // queda no es identico, la ruta llevaba a otro lado.
   if (path.basename(fileName) !== fileName) return false;
+  // Fuera de Windows `basename` no parte por `\` ni por la unidad: se rechazan
+  // igual, para que el mismo nombre valga lo mismo en toda plataforma.
+  if (path.win32.basename(fileName) !== fileName) return false;
   if (fileName === '.' || fileName === '..') return false;
   return fileName.toLowerCase().endsWith('.md');
 }

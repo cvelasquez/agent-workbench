@@ -82,6 +82,9 @@ before anything else.
 
 ## Before opening a pull request
 
+Working on the repository needs **Node 22.13 or later** (pnpm requires it, and
+the checks use `node:sqlite`), even though the published app runs on Node 20.
+
 ```bash
 pnpm typecheck   # all three packages
 pnpm check       # checks for the JSONL follower, the git parsing and the path guard
