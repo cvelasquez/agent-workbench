@@ -25,9 +25,15 @@ import { t } from './i18n/index.js';
 
 interface FilePreviewViewProps {
   preview: FilePreview;
+  /**
+   * Abre el archivo con la app del sistema. Se ofrece donde la vista previa no
+   * alcanza —un binario, un archivo cortado—: antes el texto mandaba al menu
+   * contextual del arbol, que desde aca ya no se ve.
+   */
+  onOpenWithSystem: () => void;
 }
 
-export function FilePreviewView({ preview }: FilePreviewViewProps): JSX.Element {
+export function FilePreviewView({ preview, onOpenWithSystem }: FilePreviewViewProps): JSX.Element {
   const [html, setHtml] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,8 +65,19 @@ export function FilePreviewView({ preview }: FilePreviewViewProps): JSX.Element 
     [preview.text, preview.binary],
   );
 
+  const openButton = (
+    <button className="primary-button primary-button-small preview-open" onClick={onOpenWithSystem}>
+      {t('files.menu.openWithSystem')}
+    </button>
+  );
+
   if (preview.binary) {
-    return <p className="panel-note">{t('files.preview.binary')}</p>;
+    return (
+      <div className="preview-fallback">
+        <p className="panel-note">{t('files.preview.binary')}</p>
+        {openButton}
+      </div>
+    );
   }
 
   return (
@@ -78,7 +95,12 @@ export function FilePreviewView({ preview }: FilePreviewViewProps): JSX.Element 
         )}
       </div>
 
-      {preview.truncated && <p className="panel-note">{t('files.preview.truncated')}</p>}
+      {preview.truncated && (
+        <div className="preview-fallback">
+          <p className="panel-note">{t('files.preview.truncated')}</p>
+          {openButton}
+        </div>
+      )}
     </div>
   );
 }

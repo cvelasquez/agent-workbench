@@ -50,7 +50,8 @@ import { useNotes } from './useNotes.js';
 import { THEME_ICON, themeTitle, useTheme } from './useTheme.js';
 import { useNotificationSound } from './useNotificationSound.js';
 import { useThreadFont } from './useThreadFont.js';
-import { soundButtonTitle } from './notification-sound.js';
+import { SoundControl } from './SoundControl.js';
+import { NotesPanel } from './NotesPanel.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
 import { useLocale } from './i18n/useLocale.js';
@@ -383,7 +384,17 @@ export function App(): JSX.Element {
     proposito — mirar `git status` en la consola mientras el panel de cambios
     esta escondido es un caso de uso, no un estado invalido.
   */
-  const rightColumnOpen = activeTerminal !== null && (panelVisible || consoleVisible);
+  /*
+    Desde el hito 36 las notas viven al pie de esta columna, y por ellas la
+    columna existe tambien sin ninguna pestana: ahi son lo unico que trae, y la
+    esconde y la devuelve lo mismo de siempre, `Alt+P` y la pestanita. Con una
+    pestana abierta las notas no la sostienen solas: escondidos el panel y la
+    consola se va la columna entera, notas incluidas, que es lo que se pidio.
+  */
+  const rightColumnOpen =
+    activeTerminal !== null ? panelVisible || consoleVisible : panelVisible;
+  /** Ensanchar es para leer la CLI: sin pestana no hay nada que ensanchar. */
+  const columnExpanded = panelExpanded && activeTerminal !== null;
 
   /*
     Las consolas del directorio de la pestana activa.
@@ -944,14 +955,7 @@ export function App(): JSX.Element {
           {THEME_ICON[theme.preference]}
         </button>
         <LocaleMenu />
-        <button
-          className={`icon-button${sound.enabled ? '' : ' icon-button-muted'}`}
-          onClick={sound.toggle}
-          title={soundButtonTitle(sound.enabled)}
-          aria-pressed={sound.enabled}
-        >
-          ♪
-        </button>
+        <SoundControl sound={sound} />
         <button
           className="icon-button"
           onClick={() => setShortcutsVisible(true)}
@@ -1064,37 +1068,7 @@ export function App(): JSX.Element {
             onArchive={archiveSessions}
             onHide={toggleSidebar}
             width={sidebarWidth}
-            notes={notes}
             onNewProject={() => setPickerFor('project')}
-            /*
-              Mandar una nota abre una conversacion **nueva** en el proyecto que
-              se esta mirando, y le pasa la nota entera. El id de la pestana lo
-              asigna el servidor, asi que el envio espera al `terminal.opened`
-              en vez de adivinarlo.
-
-              Con la CLI de la pestana activa, dicha explicitamente, y solo si
-              esa CLI avisa cuando esta lista: el servidor espera esa senal
-              antes de pegar, y sin ella rechaza la nota con la pestana nueva
-              ya abierta y sin que nadie la haya pedido.
-            */
-            onSendNote={
-              activeTerminal === null || !activeControls.noteSendable
-                ? null
-                : (noteId) => {
-                    const cwd = activeTerminal.cwd;
-                    openTerminal({
-                      cwd,
-                      ...(activeTerminal.agent !== null ? { agent: activeTerminal.agent } : {}),
-                      onOpened: (terminal) =>
-                        connection.send({
-                          type: 'notes.send',
-                          noteId,
-                          terminalId: terminal.terminalId,
-                        }),
-                    });
-                  }
-            }
-            sendNoteCwd={activeTerminal?.cwd ?? null}
             vault={vault.status}
             onOpenVault={() => setVaultDialogVisible(true)}
             onOpenVaultSession={(session) => vault.openSession(session.agent, session.sessionId)}
@@ -1120,7 +1094,7 @@ export function App(): JSX.Element {
         )}
 
         <main
-          className={`workspace${panelExpanded && rightColumnOpen ? ' workspace-narrow' : ''}`}
+          className={`workspace${columnExpanded && rightColumnOpen ? ' workspace-narrow' : ''}`}
         >
           <TabBar
             terminals={terminals}
@@ -1275,9 +1249,10 @@ export function App(): JSX.Element {
           enganche y la repintaria entera con el replay cada vez que alguien
           aprieta Alt+P. Colapsada mide 0 px, y de eso se ocupa `TerminalView`,
           que con el contenedor sin caja no mide ni le avisa nada al pty.
+
+          Sin pestana la columna trae solo las notas (hito 36).
         */}
-        {activeTerminal !== null && (
-          <>
+        <>
             {/*
               Escondida la columna, queda una pestanita en el borde para
               devolverla.
@@ -1309,10 +1284,12 @@ export function App(): JSX.Element {
             )}
             <div
               className={`panel-slot${rightColumnOpen ? '' : ' panel-slot-collapsed'}${
-                rightColumnOpen && panelExpanded ? ' panel-slot-expanded' : ''
+                rightColumnOpen && columnExpanded ? ' panel-slot-expanded' : ''
               }`}
-              style={rightColumnOpen && !panelExpanded ? { width: `${panelWidth}px` } : undefined}
+              style={rightColumnOpen && !columnExpanded ? { width: `${panelWidth}px` } : undefined}
             >
+              {activeTerminal !== null && (
+              <>
               <SidePanel
                 tab={shownPanelTab}
                 plansAvailable={activeControls.plansAvailable}
@@ -1419,9 +1396,51 @@ export function App(): JSX.Element {
                   )}
                 </button>
               )}
+              </>
+              )}
+
+              {/*
+                Las notas, al pie de la columna (hito 36). Estaban al pie de la
+                barra de proyectos, que es la columna que mas se esconde; esta
+                es la que casi siempre queda abierta, y una idea que se cruza
+                se anota sin traer nada de vuelta. Siguen sin ser de ninguna
+                pestana: que compartan columna con el panel es por donde se las
+                tiene a mano, no porque sean de el.
+
+                Mandar una nota abre una conversacion **nueva** en el proyecto
+                que se esta mirando, y le pasa la nota entera. El id de la
+                pestana lo asigna el servidor, asi que el envio espera al
+                `terminal.opened` en vez de adivinarlo.
+
+                Con la CLI de la pestana activa, dicha explicitamente, y solo si
+                esa CLI avisa cuando esta lista: el servidor espera esa senal
+                antes de pegar, y sin ella rechaza la nota con la pestana nueva
+                ya abierta y sin que nadie la haya pedido.
+              */}
+              <NotesPanel
+                notes={notes}
+                fill={activeTerminal === null}
+                onSendNote={
+                  activeTerminal === null || !activeControls.noteSendable
+                    ? null
+                    : (noteId) => {
+                        const cwd = activeTerminal.cwd;
+                        openTerminal({
+                          cwd,
+                          ...(activeTerminal.agent !== null ? { agent: activeTerminal.agent } : {}),
+                          onOpened: (terminal) =>
+                            connection.send({
+                              type: 'notes.send',
+                              noteId,
+                              terminalId: terminal.terminalId,
+                            }),
+                        });
+                      }
+                }
+                sendTargetCwd={activeTerminal?.cwd ?? null}
+              />
             </div>
-          </>
-        )}
+        </>
       </div>
 
       {/*

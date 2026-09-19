@@ -66,10 +66,8 @@ import {
   threadQueryFor,
   type SidebarSearchMode,
 } from './global-search-ui.js';
-import { NotesPanel } from './NotesPanel.js';
 import { projectColor } from './project-color.js';
 import type { GlobalSearchApi } from './useGlobalSearch.js';
-import type { NotesApi } from './useNotes.js';
 import type { VaultExported } from './useVault.js';
 import {
   partialMarkText,
@@ -133,17 +131,8 @@ interface SidebarProps {
    * valor de arranque y este lo pisa en cuanto alguien toca el borde.
    */
   width: number;
-  /** Notas sueltas, al pie. No son de ningun proyecto: ver `NotesPanel`. */
-  notes: NotesApi;
   /** Abre el selector de carpetas para empezar un proyecto nuevo. */
   onNewProject: () => void;
-  /**
-   * Manda una nota al agente en una conversacion nueva. null sin pestana, o si
-   * su CLI no avisa cuando esta lista para recibirla.
-   */
-  onSendNote: ((noteId: string) => void) | null;
-  /** El `cwd` donde se abriria esa conversacion. */
-  sendNoteCwd: string | null;
   /**
    * La copia propia (hito 28). null hasta el primer `vault.status`. Apagada, lo
    * unico que se ve de ella es el boton de la cabecera (C9).
@@ -431,10 +420,7 @@ export function Sidebar({
   onArchive,
   onHide,
   width,
-  notes,
   onNewProject,
-  onSendNote,
-  sendNoteCwd,
   vault,
   onOpenVault,
   onOpenVaultSession,
@@ -1138,12 +1124,6 @@ export function Sidebar({
           </button>
         </div>
       )}
-
-      {/*
-        Al pie, debajo de todo: las notas no son de ningun proyecto, y lo que
-        no es de la pestana activa no va en el panel derecho.
-      */}
-      <NotesPanel notes={notes} onSendNote={onSendNote} sendTargetCwd={sendNoteCwd} />
     </aside>
   );
 }

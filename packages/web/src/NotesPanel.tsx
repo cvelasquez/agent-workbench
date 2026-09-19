@@ -1,10 +1,13 @@
 /**
- * Notas sueltas, al pie de la barra lateral.
+ * Notas sueltas, al pie de la columna derecha.
  *
  * Ideas que se anotan mientras se trabaja: no son de ningun proyecto ni de
- * ninguna pestana, y por eso viven abajo de la lista de proyectos y no en el
- * panel derecho, que es de la pestana activa. Se pliegan a una fila cuando no
- * se usan, y abiertas se llevan un alto que se arrastra desde su borde.
+ * ninguna pestana. Hasta el hito 36 vivian al pie de la barra de proyectos,
+ * justamente por eso; se mudaron porque esa barra es la que mas se esconde y
+ * una nota tiene que estar a mano cuando la idea aparece. Se pliegan a una
+ * fila cuando no se usan, y abiertas se llevan un alto que se arrastra desde
+ * su borde. Sin ninguna pestana abierta son lo unico de la columna, y la
+ * llenan (`fill`).
  *
  * Sus solapas son las mismas que las de la consola del panel derecho —la
  * familia `.strip-tab*`— y se pliega igual que ella: el `+` al lado de la
@@ -77,14 +80,22 @@ interface NotesPanelProps {
    * es lo que distingue "no hay pestana" de "esta CLI no puede".
    */
   sendTargetCwd: string | null;
+  /**
+   * Las notas son lo unico de la columna —no hay ninguna pestana—: se llevan
+   * todo el alto y no se pliegan, porque plegadas dejarian una columna vacia
+   * con una fila arriba. La preferencia guardada no se toca.
+   */
+  fill: boolean;
 }
 
 export function NotesPanel({
   notes,
   onSendNote,
   sendTargetCwd,
+  fill,
 }: NotesPanelProps): JSX.Element {
-  const [open, setOpen] = useState(() => readStored(OPEN_KEY) === 'true');
+  const [storedOpen, setOpen] = useState(() => readStored(OPEN_KEY) === 'true');
+  const open = storedOpen || fill;
   const [height, setHeight] = useState(() => {
     const parsed = Number.parseInt(readStored(HEIGHT_KEY) ?? '', 10);
     return Number.isFinite(parsed) ? Math.max(parsed, MIN_HEIGHT) : DEFAULT_HEIGHT;
@@ -197,10 +208,10 @@ export function NotesPanel({
 
   return (
     <section
-      className={`notes${open ? ' notes-open' : ''}`}
-      style={open ? { height: `${height}px` } : undefined}
+      className={`notes${open ? ' notes-open' : ''}${fill ? ' notes-fill' : ''}`}
+      style={open && !fill ? { height: `${height}px` } : undefined}
     >
-      {open && (
+      {open && !fill && (
         <div
           className="notes-resize"
           onPointerDown={onResizePointerDown}
@@ -265,13 +276,15 @@ export function NotesPanel({
             </div>
 
             <span className="strip-spacer" />
-            <button
-              className="icon-button"
-              onClick={toggleOpen}
-              title={t('notes.collapse')}
-            >
-              ▾
-            </button>
+            {!fill && (
+              <button
+                className="icon-button"
+                onClick={toggleOpen}
+                title={t('notes.collapse')}
+              >
+                ▾
+              </button>
+            )}
           </div>
 
           <div className="notes-body">

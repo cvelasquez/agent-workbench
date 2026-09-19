@@ -294,7 +294,9 @@ export function FilesPanel({
         {loadingPreview ? (
           <p className="panel-note">{t('files.readingFile')}</p>
         ) : (
-          preview !== null && <FilePreviewView preview={preview} />
+          preview !== null && (
+            <FilePreviewView preview={preview} onOpenWithSystem={() => onReveal(preview.path)} />
+          )
         )}
         {menu !== null && (
           <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />

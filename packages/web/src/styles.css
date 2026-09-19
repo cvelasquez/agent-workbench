@@ -303,6 +303,61 @@ kbd {
   border-color: var(--accent);
 }
 
+/*
+  El volumen del aviso: una barrita vertical que baja del boton al pasar el
+  mouse, o con el foco adentro para quien llega con el teclado. Va pegada al
+  boton, sin hueco —el relleno de arriba es parte de ella—, porque un pixel de
+  aire entre los dos la cerraria a mitad de camino.
+*/
+.sound-control {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+
+.sound-volume {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: none;
+  padding-top: 4px;
+}
+
+.sound-control:hover .sound-volume,
+.sound-control:focus-within .sound-volume {
+  display: block;
+}
+
+.sound-volume-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--chrome);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.sound-volume-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 16px;
+  height: 96px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.sound-volume-value {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Un interruptor encendido: el ojo del arbol. */
 .icon-button-on {
   color: var(--accent);
@@ -3326,6 +3381,18 @@ kbd {
   min-width: max-content;
 }
 
+/*
+  Lo que la vista previa no puede mostrar —un binario, el resto de un archivo
+  cortado— ofrece abrirlo con la app del sistema, debajo del texto que lo dice.
+*/
+.preview-fallback .panel-note {
+  margin-bottom: 8px;
+}
+
+.preview-open {
+  margin: 0 10px 14px;
+}
+
 /* Resaltado. Los tonos salen de las variables del tema. */
 .hljs-keyword,
 .hljs-selector-tag,
@@ -4252,16 +4319,25 @@ kbd {
   overflow-wrap: anywhere;
 }
 
-/* ---------- notas sueltas, al pie de la barra lateral ---------- */
+/* ---------- notas sueltas, al pie de la columna derecha ---------- */
 
 .notes {
   position: relative;
-  flex: 0 0 auto;
+  /* Se encoge antes de empujar al panel y a la consola fuera de la pantalla:
+     su alto guardado puede venir de una ventana mas alta. */
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   background: var(--chrome);
+}
+
+/* Sin ninguna pestana son lo unico de la columna, y la llenan. */
+.notes-fill {
+  flex: 1 1 auto;
+  border-top: none;
 }
 
 /* El borde superior se arrastra. Es fino, pero se agarra unos px arriba y abajo. */

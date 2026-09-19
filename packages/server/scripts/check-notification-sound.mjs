@@ -12,11 +12,17 @@
 
 import {
   CHIMES,
+  DEFAULT_VOLUME,
   DONE_HOLD_MS,
+  MAX_VOLUME,
+  MIN_VOLUME,
   chimeFor,
+  clampVolume,
   parseStoredSound,
+  parseStoredVolume,
   planChimes,
   soundButtonTitle,
+  volumePercent,
 } from '../../web/src/notification-sound.ts';
 import { setLocale } from '../../web/src/i18n/index.ts';
 
@@ -93,6 +99,21 @@ check('idle → busy no suena', chimeFor('idle', 'busy') === null);
   check('el título del botón dice el estado y qué hace el clic',
     soundButtonTitle(true).includes('activado') && soundButtonTitle(true).includes('silenciar') &&
     soundButtonTitle(false).includes('silenciado') && soundButtonTitle(false).includes('activar'));
+}
+
+// --- 4. El volumen (hito 36) -------------------------------------------------
+{
+  check('el default está dentro del rango y el tope es 0,5',
+    MIN_VOLUME > 0 && MIN_VOLUME < DEFAULT_VOLUME && DEFAULT_VOLUME < MAX_VOLUME && MAX_VOLUME === 0.5);
+  check('el piso no es cero: silenciar es el clic, no la barrita', clampVolume(0) === MIN_VOLUME);
+  check('un volumen de más se acota al tope', clampVolume(3) === MAX_VOLUME && clampVolume(0.3) === 0.3);
+  check('el volumen guardado se lee', parseStoredVolume('0.35') === 0.35);
+  check('uno fuera de rango se acota, no se descarta',
+    parseStoredVolume('9') === MAX_VOLUME && parseStoredVolume('-1') === MIN_VOLUME);
+  check('y uno que no es un número cae al default',
+    parseStoredVolume('alto') === null && parseStoredVolume('') === null && parseStoredVolume('NaN') === null);
+  check('el porcentaje es sobre el tope',
+    volumePercent(MAX_VOLUME) === 100 && volumePercent(DEFAULT_VOLUME) === 40 && volumePercent(99) === 100);
 }
 
 console.log(failures === 0 ? '\nTodo bien.' : `\n${failures} fallo(s).`);

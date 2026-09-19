@@ -123,8 +123,33 @@ export const CHIMES: Readonly<Record<Chime, readonly Note[]>> = {
   ],
 };
 
-/** Volumen máximo de una nota. Bajo a propósito: suave y corto, pidió el usuario. */
-const PEAK_GAIN = 0.12;
+/**
+ * El volumen es el pico de ganancia de una nota, y lo elige el usuario con la
+ * barrita del botón (hito 36). Nació fijo en 0,12 y resultó bajo; el default
+ * subió a 0,2 y el tope es 0,5, para un día en que hay que enterarse sí o sí.
+ * El piso no es cero: silenciar es el clic del botón, no la barrita.
+ */
+export const MIN_VOLUME = 0.02;
+export const MAX_VOLUME = 0.5;
+export const DEFAULT_VOLUME = 0.2;
+export const VOLUME_STORAGE_KEY = 'agent-workbench.sound-volume';
+
+/** Un volumen dentro del rango, venga de donde venga. */
+export function clampVolume(value: number): number {
+  return Math.min(MAX_VOLUME, Math.max(MIN_VOLUME, value));
+}
+
+/** El volumen guardado, acotado al rango, o null si no es un número. */
+export function parseStoredVolume(raw: string): number | null {
+  if (raw.trim().length === 0) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? clampVolume(parsed) : null;
+}
+
+/** El volumen como porcentaje del tope, que es lo que se le muestra al usuario. */
+export function volumePercent(volume: number): number {
+  return Math.round((clampVolume(volume) / MAX_VOLUME) * 100);
+}
 
 /**
  * El sintetizador. Es lo único de este archivo que habla con el navegador.
@@ -136,6 +161,9 @@ const PEAK_GAIN = 0.12;
  */
 export class ChimePlayer {
   private context: AudioContext | null = null;
+
+  /** El pico de ganancia de la próxima nota. Se lee al sonar, no al crear. */
+  volume = DEFAULT_VOLUME;
 
   /** Crea o despierta el contexto. Sólo tiene efecto dentro de un gesto del usuario. */
   unlock(): void {
@@ -162,7 +190,7 @@ export class ChimePlayer {
       const at = start + note.at;
       // Ataque corto y caída exponencial: sin el ataque, el arranque hace clic.
       gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(PEAK_GAIN, at + 0.012);
+      gain.gain.exponentialRampToValueAtTime(clampVolume(this.volume), at + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, at + note.duration);
       oscillator.connect(gain);
       gain.connect(context.destination);
