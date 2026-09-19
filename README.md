@@ -87,8 +87,10 @@ Agent Workbench does **not** bundle or download any CLI: it uses the ones you
 already have in your `PATH`. If it doesn't find any, it tells you so and doesn't
 open sessions.
 
-Tested on Windows 11 with PowerShell, which is the main platform. macOS and
-Linux work the same. On Linux, the `node-pty` dependency doesn't ship a prebuilt
+Developed and used daily on Windows 11 with PowerShell, which is the main
+platform. On macOS and Linux, CI installs the package and starts it on every
+push —server up, a pseudo-terminal spawning a process—, but it sees less daily
+use there: reports are welcome. On Linux, the `node-pty` dependency doesn't ship a prebuilt
 binary and is compiled on install: you need `python3`, `make` and a C++ compiler
 (`build-essential` on Debian and Ubuntu).
 

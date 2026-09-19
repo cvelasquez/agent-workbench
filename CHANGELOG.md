@@ -4,6 +4,22 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## 0.3.1 — 2026-09-19
+
+### Fixed
+
+- **macOS: no tab could start a CLI** (`posix_spawnp failed`). The terminal
+  library ships its helper binary without the executable bit, so the interface
+  loaded but every tab failed to open. The app now repairs it when it starts. It
+  affected every version up to 0.3.0: update and restart.
+
+### Changed
+
+- Every push, and every release before it is uploaded, now installs the package
+  from scratch and starts it on Windows, Linux and macOS, with Node 20 and 22:
+  the server has to come up and a pseudo-terminal has to spawn a process. That
+  test is what found the bug above.
+
 ## 0.3.0 — 2026-09-19
 
 ### Added

@@ -3,30 +3,26 @@ name: Publish
 # Runs on a vX.Y.Z tag. Publishes `dist-npm/` to npm with provenance through
 # trusted publishing (OIDC): npm trusts this repository and this workflow, so
 # there is no long-lived token anywhere. Then it creates the GitHub release.
+#
+# Started by hand (workflow_dispatch) it is a rehearsal: everything runs except
+# the upload, which becomes `npm publish --dry-run`, and no release is created.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 env:
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
 jobs:
-  # The checks run on Windows, the platform they were written for (see ci.yml).
-  checks:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm check
+  # The same gate as every push: types, checks, build, and the package installed
+  # and started on Windows, Linux and macOS. A version that doesn't start
+  # somewhere can't be published. (0.3.0 went out broken on macOS: this is why.)
+  ci:
+    uses: ./.github/workflows/ci.yml
 
   npm:
-    needs: checks
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -40,6 +36,7 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
       - name: Tag matches package.json
+        if: github.ref_type == 'tag'
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(node -p "require('./package.json').version")
@@ -49,9 +46,16 @@ jobs:
       - run: node .github/scripts/check-tarball.mjs
       # Trusted publishing needs npm >= 11.5.1; Node 22 ships 10.x.
       - run: npm install -g npm@latest
-      - run: npm publish --provenance --access public
+      - name: Publish
+        if: github.ref_type == 'tag'
+        run: npm publish --provenance --access public
+        working-directory: dist-npm
+      - name: Rehearsal (nothing is uploaded)
+        if: github.ref_type != 'tag'
+        run: npm publish --dry-run --access public
         working-directory: dist-npm
       - name: GitHub release with the changelog section
+        if: github.ref_type == 'tag'
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           awk -v v="$VERSION" '$0 ~ "^## "v"( |$)" {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md

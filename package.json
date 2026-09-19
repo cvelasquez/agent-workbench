@@ -1,6 +1,6 @@
 {
   "name": "agent-workbench",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Local visual interface for coding-agent CLIs: Claude Code, Codex, OpenCode and Antigravity CLI",

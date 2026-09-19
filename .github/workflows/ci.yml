@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # publish.yml runs this whole workflow as its gate before uploading anything.
+  workflow_call:
 
 # Playwright is only used by the demo screenshots, with the Chrome already on
 # the machine: there is nothing to download here.
