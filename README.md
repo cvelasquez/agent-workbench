@@ -1,7 +1,16 @@
 # Agent Workbench
 
-A local visual interface for coding-agent CLIs. It works with the Claude Code,
-Codex and OpenCode CLIs, and with Antigravity CLI.
+[![npm](https://img.shields.io/npm/v/agent-workbench)](https://www.npmjs.com/package/agent-workbench)
+[![CI](https://github.com/cvelasquez/agent-workbench/actions/workflows/ci.yml/badge.svg)](https://github.com/cvelasquez/agent-workbench/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/npm/l/agent-workbench)](LICENSE)
+
+**One local interface for the Claude Code, Codex, OpenCode and Antigravity
+CLIs.** It uses the CLIs you already have logged in, never touches your
+credentials, and makes no network calls of its own.
+
+```bash
+npx agent-workbench
+```
 
 It doesn't talk to any API. It launches the CLI you already have installed and
 logged in —`claude`, `codex`, `opencode` or `agy`— inside a pseudo-terminal, and
