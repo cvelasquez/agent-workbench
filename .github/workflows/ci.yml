@@ -78,6 +78,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
+          # No pnpm here on purpose: this job only has what a user has.
+          package-manager-cache: false
       - uses: actions/download-artifact@v4
         with:
           name: tarball
