@@ -52,3 +52,35 @@ jobs:
       - run: pnpm build:npm
       - name: Only the built files travel
         run: node .github/scripts/check-tarball.mjs
+      - name: Pack what would be published
+        run: npm pack --pack-destination "$GITHUB_WORKSPACE"
+        working-directory: dist-npm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: agent-workbench-*.tgz
+          if-no-files-found: error
+
+  # The package as a user gets it, on the three systems and on the oldest Node
+  # it promises: it installs (node-pty is downloaded or compiled there), the
+  # pseudo-terminal spawns a process, and the server starts and guards its door.
+  smoke:
+    name: Install and start · Node ${{ matrix.node }} on ${{ matrix.os }}
+    needs: package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball
+      - name: Install the tarball and start the app
+        shell: bash
+        run: node .github/scripts/smoke.mjs agent-workbench-*.tgz
