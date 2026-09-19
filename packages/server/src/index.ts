@@ -18,6 +18,7 @@ import { createAgentRegistry, type AgentRegistry } from './agents/registry.js';
 import { migrateLegacyConfigDir } from './config-dir-migration.js';
 import { ConversationHub } from './conversation-hub.js';
 import { openBrowser } from './open-browser.js';
+import { ensurePtyHelperExecutable } from './pty-helper.js';
 import {
   LOOPBACK_HOST,
   buildTokenCookie,
@@ -243,6 +244,9 @@ async function main(): Promise<void> {
   // Lo que cada CLI encontrada instala en la carpeta de la app: recien ahora,
   // con la carpeta ya en su lugar (A1 del hito 27).
   await agents.prepareAll();
+  // Antes del primer `spawn`: en macOS node-pty llega con su binario auxiliar
+  // sin permiso de ejecucion, y sin esto ninguna pestana abre (`pty-helper.ts`).
+  ensurePtyHelperExecutable();
 
   const store = new WorkspaceStore();
   // Que sesiones escondio el usuario de la barra lateral. Se carga antes del

@@ -7,9 +7,9 @@
  * compiled for this OS and this Node), and then checks the two things that
  * break per platform and that no unit check sees:
  *
- *  1. the pseudo-terminal really spawns a process and its output comes back;
- *  2. the server starts, prints its URL, serves the interface with the token,
- *     and refuses a request without it or from a foreign origin.
+ *  1. the server starts, prints its URL, serves the interface with the token,
+ *     and refuses a request without it or from a foreign origin;
+ *  2. the pseudo-terminal really spawns a process and its output comes back.
  *
  * No agent CLI is needed: without one the app still serves the interface.
  *
@@ -53,44 +53,7 @@ const serverFile = path.join(packageDir, 'dist', 'server.js');
 check('the package installs its server', existsSync(serverFile));
 check('the bin shim exists', existsSync(path.join(appDir, 'node_modules', '.bin', isWindows ? 'agent-workbench.cmd' : 'agent-workbench')));
 
-// ---- 1. the pseudo-terminal -------------------------------------------------
-
-const ptyOutput = await new Promise((resolve) => {
-  let output = '';
-  let settled = false;
-  let child = null;
-  const finish = (value) => {
-    if (settled) return;
-    settled = true;
-    // On Windows the console host outlives the command until the pty is
-    // killed, and it keeps the temp folder busy. No signal: ConPTY takes none.
-    try {
-      child?.kill();
-    } catch {
-      // Already gone.
-    }
-    resolve(value);
-  };
-  try {
-    const pty = createRequire(path.join(packageDir, 'package.json'))('node-pty');
-    // The command stays alive after printing, so the kill below ends a live
-    // process: killing a pty whose process already left makes node-pty's
-    // helper print a harmless but noisy "AttachConsole failed" on Windows.
-    const [file, args] = isWindows ? [process.env.ComSpec ?? 'cmd.exe', ['/k', 'echo pty-ok']] : ['/bin/sh', ['-c', 'echo pty-ok; sleep 30']];
-    child = pty.spawn(file, args, { name: 'xterm-256color', cols: 80, rows: 24, cwd: root, env: process.env });
-    child.onData((data) => {
-      output += data;
-      if (output.includes('pty-ok')) finish(output);
-    });
-    child.onExit(() => setTimeout(() => finish(output), 500));
-    setTimeout(() => finish(`${output}\n(timeout)`), 20_000);
-  } catch (error) {
-    finish(`threw: ${error instanceof Error ? error.message : String(error)}`);
-  }
-});
-check('node-pty spawns a process and returns its output', ptyOutput.includes('pty-ok'), ptyOutput.includes('pty-ok') ? '' : JSON.stringify(ptyOutput.slice(0, 300)));
-
-// ---- 2. the server ----------------------------------------------------------
+// ---- 1. the server ----------------------------------------------------------
 
 const env = {
   ...process.env,
@@ -141,6 +104,48 @@ if (!url.startsWith('http')) {
 
 server.kill();
 await new Promise((resolve) => (server.exitCode === null ? server.once('exit', resolve) : resolve()));
+
+// ---- 2. the pseudo-terminal -------------------------------------------------
+// After the server on purpose: on macOS node-pty ships its `spawn-helper`
+// without the executable bit, and the app repairs it when it starts
+// (`pty-helper.ts`). Spawning here, with the very node-pty the app uses, is what
+// proves that a tab will be able to start a CLI.
+
+const ptyOutput = await new Promise((resolve) => {
+  let output = '';
+  let settled = false;
+  let child = null;
+  const finish = (value) => {
+    if (settled) return;
+    settled = true;
+    // On Windows the console host outlives the command until the pty is
+    // killed, and it keeps the temp folder busy. No signal: ConPTY takes none.
+    try {
+      child?.kill();
+    } catch {
+      // Already gone.
+    }
+    resolve(value);
+  };
+  try {
+    const pty = createRequire(path.join(packageDir, 'package.json'))('node-pty');
+    // The command stays alive after printing, so the kill below ends a live
+    // process: killing a pty whose process already left makes node-pty's
+    // helper print a harmless but noisy "AttachConsole failed" on Windows.
+    const [file, args] = isWindows ? [process.env.ComSpec ?? 'cmd.exe', ['/k', 'echo pty-ok']] : ['/bin/sh', ['-c', 'echo pty-ok; sleep 30']];
+    child = pty.spawn(file, args, { name: 'xterm-256color', cols: 80, rows: 24, cwd: root, env: process.env });
+    child.onData((data) => {
+      output += data;
+      if (output.includes('pty-ok')) finish(output);
+    });
+    child.onExit(() => setTimeout(() => finish(output), 500));
+    setTimeout(() => finish(`${output}\n(timeout)`), 20_000);
+  } catch (error) {
+    finish(`threw: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
+check('node-pty spawns a process and returns its output', ptyOutput.includes('pty-ok'), ptyOutput.includes('pty-ok') ? '' : JSON.stringify(ptyOutput.slice(0, 300)));
+
 // A leftover temp folder isn't a failure of the package, and the cleanup never
 // gets to hold the result: a synchronous rm with retries can wait forever on a
 // folder that Windows still considers busy.
