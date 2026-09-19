@@ -28,6 +28,8 @@ import {
   MAX_SUBMIT_FILE_BYTES,
   MAX_SUBMIT_IMAGES,
   MAX_SUBMIT_IMAGE_BYTES,
+  ServerTextError,
+  serverText,
 } from '@agent-workbench/shared';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -68,14 +70,16 @@ export interface StoredImage {
   bytes: number;
 }
 
-export class PasteImageError extends Error {}
+/** Una imagen que no se guarda. El texto va como clave (§6.23). */
+export class PasteImageError extends ServerTextError {}
 
 /** Un archivo adjunto guardado: la ruta, el peso y el nombre que le quedo. */
 export interface StoredFile extends StoredImage {
   name: string;
 }
 
-export class PasteFileError extends Error {}
+/** Un adjunto que no se guarda. El texto va como clave (§6.23). */
+export class PasteFileError extends ServerTextError {}
 
 /**
  * Tope de un texto guardado: el transcript de una continuacion mas un margen
@@ -106,22 +110,23 @@ export class PasteStore {
   async save(terminalId: string, mediaType: string, base64: string): Promise<StoredImage> {
     const declared = EXTENSIONS.get(mediaType);
     if (declared === undefined) {
-      throw new PasteImageError(`Tipo de imagen no admitido: ${mediaType}`);
+      throw new PasteImageError(serverText('imageTypeUnsupported', { type: mediaType }));
     }
 
     const bytes = Buffer.from(base64, 'base64');
-    if (bytes.length === 0) throw new PasteImageError('La imagen llego vacia.');
+    if (bytes.length === 0) throw new PasteImageError(serverText('imageEmpty'));
     if (bytes.length > MAX_IMAGE_BYTES) {
       throw new PasteImageError(
-        `La imagen pesa ${Math.round(bytes.length / 1024 / 1024)} MB; el maximo son ${
-          MAX_IMAGE_BYTES / 1024 / 1024
-        } MB.`,
+        serverText('imageTooLarge', {
+          size: Math.round(bytes.length / 1024 / 1024),
+          max: MAX_IMAGE_BYTES / 1024 / 1024,
+        }),
       );
     }
 
     const signature = detectImageFormat(bytes);
     if (signature === null) {
-      throw new PasteImageError('El contenido no es una imagen de un formato conocido.');
+      throw new PasteImageError(serverText('imageUnknownFormat'));
     }
 
     // Gana la firma, no lo que dijo el navegador. La extension tiene que
@@ -148,7 +153,7 @@ export class PasteStore {
   async saveText(terminalId: string, baseName: StoredTextKind, content: string): Promise<StoredImage> {
     const bytes = Buffer.from(content, 'utf8');
     if (bytes.length > MAX_TEXT_BYTES) {
-      throw new PasteTextError(`El texto pesa ${bytes.length} bytes; el maximo son ${MAX_TEXT_BYTES}.`);
+      throw new PasteTextError(`The text is ${bytes.length} bytes; the maximum is ${MAX_TEXT_BYTES}.`);
     }
     const directory = path.join(this.root, safeSegment(terminalId));
     await mkdir(directory, { recursive: true, mode: DIRECTORY_MODE });
@@ -173,16 +178,18 @@ export class PasteStore {
   async saveAttachment(terminalId: string, nameHint: string, base64: string): Promise<StoredFile> {
     const safe = safeFileName(nameHint);
     if (isBlockedExtension(safe)) {
-      throw new PasteFileError(`No se adjuntan ejecutables: "${safe}".`);
+      throw new PasteFileError(serverText('attachmentExecutable', { name: safe }));
     }
 
     const bytes = Buffer.from(base64, 'base64');
-    if (bytes.length === 0) throw new PasteFileError(`"${safe}" llego vacio.`);
+    if (bytes.length === 0) throw new PasteFileError(serverText('attachmentEmpty', { name: safe }));
     if (bytes.length > MAX_FILE_BYTES) {
       throw new PasteFileError(
-        `"${safe}" pesa ${Math.round(bytes.length / 1024 / 1024)} MB; el maximo son ${
-          MAX_FILE_BYTES / 1024 / 1024
-        } MB.`,
+        serverText('attachmentTooLarge', {
+          name: safe,
+          size: Math.round(bytes.length / 1024 / 1024),
+          max: MAX_FILE_BYTES / 1024 / 1024,
+        }),
       );
     }
 

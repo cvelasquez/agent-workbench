@@ -128,7 +128,7 @@ export class AntigravitySessionFollower implements SessionFollower {
   get label(): string {
     if (this.jsonl?.filePath !== null && this.jsonl?.filePath !== undefined) return this.jsonl.filePath;
     if (this.paths !== null) return this.paths.full;
-    return 'antigravity:(sin conversacion)';
+    return 'antigravity:(no conversation)';
   }
 
   /** El valor provisional sale de `defaults`: aca no hay nada que preparar. */

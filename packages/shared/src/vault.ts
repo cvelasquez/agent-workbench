@@ -37,6 +37,7 @@ import {
   type ConversationImageSource,
 } from './conversation.js';
 import { SESSION_TITLE_SOURCES, type SessionTitleSource } from './models.js';
+import { parseServerText, parseServerTexts, type ServerText } from './server-text.js';
 import {
   asArrayFiltered,
   asArrayOf,
@@ -46,7 +47,6 @@ import {
   asNonEmptyString,
   asRecord,
   asString,
-  asStringArray,
 } from './validation.js';
 
 export const VAULT_FORMAT = 1;
@@ -176,9 +176,10 @@ export interface VaultAgentMeasure {
   failed: number;
   /**
    * Los motivos distintos de `failed`, para que la medicion diga por que y no
-   * solo cuantas. Pocos: es un texto para mostrar, no un registro.
+   * solo cuantas. Pocos: es un texto para mostrar, no un registro. Como
+   * claves (§6.23).
    */
-  failureReasons: string[];
+  failureReasons: ServerText[];
 }
 
 export interface VaultMeasurement {
@@ -212,7 +213,8 @@ export interface VaultStatus {
   measurement: VaultMeasurement | null;
   /** Carpeta anterior despues de mover, para decirle al usuario que quedo intacta. */
   previousDir: string | null;
-  lastError: string | null;
+  /** Como clave (§6.23). */
+  lastError: ServerText | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +400,7 @@ function parseVaultAgentMeasure(value: unknown): VaultAgentMeasure | null {
   const skippedEmpty = asNonNegativeInt(record['skippedEmpty']);
   const unsupported = asNonNegativeInt(record['unsupported']);
   const failed = asNonNegativeInt(record['failed']);
-  const failureReasons = asStringArray(record['failureReasons']);
+  const failureReasons = parseServerTexts(record['failureReasons']);
   if (
     agent === null ||
     sessions === null ||
@@ -478,7 +480,7 @@ export function parseVaultStatus(value: unknown): VaultStatus | null {
   const lastPassAt = nullable(record['lastPassAt'], asFiniteNumber);
   const measurement = nullable(record['measurement'], parseVaultMeasurement);
   const previousDir = nullable(record['previousDir'], asString);
-  const lastError = nullable(record['lastError'], asString);
+  const lastError = nullable(record['lastError'], parseServerText);
 
   if (
     enabled === null ||

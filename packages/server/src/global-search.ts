@@ -113,7 +113,7 @@ export interface GlobalSearchOptions {
 /** La busqueda se cancelo: otra la reemplazo, o se cerro el socket. No es un fallo. */
 export class GlobalSearchAbortedError extends Error {
   constructor() {
-    super('Búsqueda cancelada.');
+    super('Search cancelled.');
     this.name = 'GlobalSearchAbortedError';
   }
 }

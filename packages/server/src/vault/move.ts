@@ -20,7 +20,7 @@
 import { constants } from 'node:fs';
 import { copyFile, lstat, mkdir, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { normalizeCwdKey } from '@agent-workbench/shared';
+import { normalizeCwdKey, serverText, type ServerText } from '@agent-workbench/shared';
 import { isInsideProtected } from '../directory-picker.js';
 import { isAbsoluteDir } from '../settings-store.js';
 import { temporaryPathFor } from './write.js';
@@ -101,7 +101,7 @@ export type VaultTargetCheck =
   | { kind: 'ok' }
   /** Es la carpeta actual: no hay nada que hacer. */
   | { kind: 'same' }
-  | { kind: 'refused'; message: string };
+  | { kind: 'refused'; text: ServerText };
 
 export interface VaultTargetOptions {
   /** Las carpetas de las CLIs (`agents.protectedDirs()`) y las demas que no se tocan. */
@@ -121,22 +121,22 @@ export interface VaultTargetOptions {
  */
 export function checkVaultTarget(current: string, target: string, options: VaultTargetOptions): VaultTargetCheck {
   if (!isAbsoluteDir(target, options.platform)) {
-    return { kind: 'refused', message: 'La carpeta de la copia tiene que ser una ruta absoluta.' };
+    return { kind: 'refused', text: serverText('vaultTargetNotAbsolute') };
   }
   const isProtected =
     isInsideProtected(target, options.protectedDirs) ||
     options.protectedDirs.some((dir) => isSameOrInside(target, dir, options.platform));
   if (isProtected) {
-    return { kind: 'refused', message: 'Esa carpeta es de una CLI: la copia no se guarda ahí.' };
+    return { kind: 'refused', text: serverText('vaultTargetCliFolder') };
   }
   if (normalizeCwdKey(current, options.platform) === normalizeCwdKey(target, options.platform)) {
     return { kind: 'same' };
   }
   if (isSameOrInside(target, current, options.platform)) {
-    return { kind: 'refused', message: 'La carpeta nueva no puede estar dentro de la copia actual.' };
+    return { kind: 'refused', text: serverText('vaultTargetInsideCurrent') };
   }
   if (isSameOrInside(current, target, options.platform)) {
-    return { kind: 'refused', message: 'La copia actual no puede quedar dentro de la carpeta nueva.' };
+    return { kind: 'refused', text: serverText('vaultCurrentInsideTarget') };
   }
   return { kind: 'ok' };
 }

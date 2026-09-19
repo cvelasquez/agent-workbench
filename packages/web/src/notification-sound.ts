@@ -18,6 +18,7 @@
  */
 
 import type { TerminalActivity, TerminalId } from '@agent-workbench/shared';
+import { t } from './i18n/index.js';
 
 /** `done`: el agente terminó. `attention`: se frenó a esperar un permiso o una respuesta. */
 export type Chime = 'done' | 'attention';
@@ -96,9 +97,7 @@ export function parseStoredSound(raw: string): boolean | null {
 }
 
 export function soundButtonTitle(enabled: boolean): string {
-  return enabled
-    ? 'Sonido de aviso activado — clic para silenciar'
-    : 'Sonido de aviso silenciado — clic para activar';
+  return enabled ? t('sound.on') : t('sound.off');
 }
 
 /** Una nota: frecuencia en Hz, cuándo arranca y cuánto dura, en segundos. */

@@ -112,7 +112,7 @@ export class FileStampSignal {
         try {
           listener(file);
         } catch (error) {
-          console.warn('[antigravity] un aviso de cambio del indice fallo:', error);
+          console.warn('[antigravity] an index change listener failed:', error);
         }
       }
     }

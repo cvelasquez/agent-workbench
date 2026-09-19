@@ -25,19 +25,20 @@
 import { useEffect } from 'react';
 import type { AgentInfo, VaultStatus } from '@agent-workbench/shared';
 import {
-  VAULT_ARCHIVED_TEXT,
-  VAULT_NAME,
-  VAULT_PRIVACY_TEXT,
-  formatBytes,
   vaultActivateOffer,
+  vaultArchivedText,
   vaultChangeDirBlockedReason,
   vaultMeasureBlockedReason,
   vaultMeasureView,
+  vaultName,
   vaultPreviousDirText,
+  vaultPrivacyText,
   vaultSessionsText,
   vaultStateText,
 } from './vault-ui.js';
-import { formatWhen } from './format-when.js';
+import { formatBytes, formatWhen } from './i18n/format.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 interface VaultDialogProps {
   status: VaultStatus | null;
@@ -86,27 +87,27 @@ export function VaultDialog({
       <div
         className="modal vault-modal"
         role="dialog"
-        aria-label={VAULT_NAME}
+        aria-label={vaultName()}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="modal-header">
-          <span className="modal-title">{VAULT_NAME}</span>
+          <span className="modal-title">{vaultName()}</span>
           {status !== null && (
             <span className={`vault-state${status.enabled ? ' vault-state-on' : ''}`}>
               {vaultStateText(status)}
             </span>
           )}
-          <button className="icon-button" onClick={onClose} title="Cerrar (Esc)">
+          <button className="icon-button" onClick={onClose} title={t('common.closeEsc')}>
             ×
           </button>
         </header>
 
         <div className="modal-body">
-          <p className="vault-lead">{VAULT_PRIVACY_TEXT}</p>
-          <p className="modal-hint">{VAULT_ARCHIVED_TEXT}</p>
+          <p className="vault-lead">{vaultPrivacyText()}</p>
+          <p className="modal-hint">{vaultArchivedText()}</p>
 
           {status === null ? (
-            <p className="modal-hint">Esperando el estado del servidor…</p>
+            <p className="modal-hint">{t('vault.dialog.waiting')}</p>
           ) : (
             <VaultDialogBody
               status={status}
@@ -122,7 +123,7 @@ export function VaultDialog({
           {problem !== null && (
             <div className="vault-problem" role="alert">
               <span>{problem}</span>
-              <button className="icon-button" onClick={onDismissProblem} title="Cerrar el aviso">
+              <button className="icon-button" onClick={onDismissProblem} title={t('common.dismissNotice')}>
                 ×
               </button>
             </div>
@@ -162,11 +163,11 @@ function VaultDialogBody({
     <>
       {status.enabled && (
         <>
-          <h3 className="modal-section">En la carpeta</h3>
+          <h3 className="modal-section">{t('vault.dialog.inFolder')}</h3>
           <p className="vault-summary">
             {vaultSessionsText(status.sessions)} · {formatBytes(status.bytes)}
-            {status.lastPassAt !== null && <> · última pasada {formatWhen(status.lastPassAt)}</>}
-            {status.pending > 0 && <> · {status.pending} esperando su minuto de calma</>}
+            {status.lastPassAt !== null && <> · {t('vault.dialog.lastPass', { when: formatWhen(status.lastPassAt) })}</>}
+            {status.pending > 0 && <> · {t('vault.dialog.pendingCalm', { count: status.pending })}</>}
           </p>
         </>
       )}
@@ -175,15 +176,19 @@ function VaultDialogBody({
         <progress className="vault-progress" value={progress.done} max={progress.total} />
       )}
 
-      <h3 className="modal-section">Cuánto ocuparía</h3>
+      <h3 className="modal-section">{t('vault.dialog.sizeSection')}</h3>
       <div className="vault-actions">
         <button
           className="link-button vault-measure"
           onClick={onMeasure}
           disabled={measureBlocked !== null}
-          title={measureBlocked ?? 'Lee el historial entero sin escribir nada, ni la carpeta'}
+          title={measureBlocked ?? t('vault.dialog.measureTitle')}
         >
-          {status.state === 'measuring' ? 'Midiendo…' : view === null ? 'Medir' : 'Medir de nuevo'}
+          {status.state === 'measuring'
+            ? t('vault.state.measuring')
+            : view === null
+              ? t('vault.dialog.measure')
+              : t('vault.dialog.measureAgain')}
         </button>
         {view !== null && <span className="modal-hint">{view.summary}</span>}
       </div>
@@ -194,10 +199,10 @@ function VaultDialogBody({
             <thead>
               <tr>
                 <th>CLI</th>
-                <th>Sesiones</th>
-                <th>Tamaño</th>
-                <th>Imágenes</th>
-                <th title="Las archivadas no se copian">Archivadas</th>
+                <th>{t('vault.dialog.table.sessions')}</th>
+                <th>{t('vault.dialog.table.size')}</th>
+                <th>{t('vault.dialog.table.images')}</th>
+                <th title={t('vault.dialog.table.archivedTitle')}>{t('vault.dialog.table.archived')}</th>
               </tr>
             </thead>
             <tbody>
@@ -214,7 +219,7 @@ function VaultDialogBody({
                 </tr>
               ))}
               <tr>
-                <td>Memoria de {view.memoryProjects === 1 ? '1 proyecto' : `${view.memoryProjects} proyectos`}</td>
+                <td>{t('vault.dialog.table.memory', { count: view.memoryProjects })}</td>
                 <td />
                 <td>{formatBytes(view.memoryBytes)}</td>
                 <td />
@@ -223,7 +228,7 @@ function VaultDialogBody({
             </tbody>
             <tfoot>
               <tr>
-                <td>Total</td>
+                <td>{t('vault.dialog.table.total')}</td>
                 <td>{view.total.sessions}</td>
                 <td>{formatBytes(view.total.bytes)}</td>
                 <td>{view.total.images}</td>
@@ -238,9 +243,9 @@ function VaultDialogBody({
         {offer === 'enabled' && (
           <>
             <button className="link-button" onClick={() => onSetEnabled(false)}>
-              Apagar
+              {t('vault.dialog.turnOff')}
             </button>
-            <span className="modal-hint">Apagarla no borra nada: lo copiado queda en la carpeta.</span>
+            <span className="modal-hint">{t('vault.dialog.turnOffHint')}</span>
           </>
         )}
         {(offer === 'measured' || offer === 'existing') && (
@@ -250,48 +255,50 @@ function VaultDialogBody({
               onClick={() => onSetEnabled(true)}
               title={
                 offer === 'existing'
-                  ? 'La carpeta ya tiene una copia: encenderla la completa'
-                  : 'Copia ahora lo medido y, después, cada sesión que cambie'
+                  ? t('vault.dialog.activateExistingTitle')
+                  : t('vault.dialog.activateMeasuredTitle')
               }
             >
-              Activar
+              {t('vault.dialog.activate')}
             </button>
             <span className="modal-hint">
               {offer === 'existing'
-                ? 'La carpeta ya tiene una copia. Encendida, la completa y la mantiene al día.'
-                : 'Copia todo lo medido y, después, cada sesión que cambie y lleve un minuto en calma.'}
+                ? t('vault.dialog.activateExistingHint')
+                : t('vault.dialog.activateMeasuredHint')}
             </span>
           </>
         )}
         {offer === 'needs-measure' && (
-          <span className="modal-hint">Medí primero cuánto ocuparía: después aparece “Activar”.</span>
+          <span className="modal-hint">
+            {t('vault.dialog.needsMeasure', { activate: t('vault.dialog.activate') })}
+          </span>
         )}
       </div>
 
-      <h3 className="modal-section">Carpeta</h3>
+      <h3 className="modal-section">{t('vault.dialog.folderSection')}</h3>
       <p className="vault-dir" title={status.dir}>
         {status.dir}
       </p>
-      {status.isDefaultDir && <p className="modal-hint">Es la de por defecto, en la carpeta de la app.</p>}
+      {status.isDefaultDir && <p className="modal-hint">{t('vault.dialog.defaultDir')}</p>}
       <div className="vault-actions">
         <button
           className="link-button"
           onClick={onChangeDir}
           disabled={changeDirBlocked !== null}
-          title={changeDirBlocked ?? 'Elegir otra carpeta. Lo copiado se copia allá; esta queda intacta'}
+          title={changeDirBlocked ?? t('vault.dialog.changeDirTitle')}
         >
-          Cambiar carpeta…
+          {t('vault.dialog.changeDir')}
         </button>
-        <button className="link-button" onClick={onReveal} title="Abrir la carpeta con el explorador del sistema">
-          Abrir carpeta
+        <button className="link-button" onClick={onReveal} title={t('vault.dialog.openFolderTitle')}>
+          {t('vault.dialog.openFolder')}
         </button>
       </div>
       {status.previousDir !== null && <p className="modal-hint">{vaultPreviousDirText(status.previousDir)}</p>}
 
       {status.lastError !== null && (
         <>
-          <h3 className="modal-section">Último error</h3>
-          <p className="vault-error">{status.lastError}</p>
+          <h3 className="modal-section">{t('vault.dialog.lastError')}</h3>
+          <p className="vault-error">{serverTextMessage(status.lastError)}</p>
         </>
       )}
     </>

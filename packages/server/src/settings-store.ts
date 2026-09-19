@@ -104,7 +104,7 @@ export function parseAppSettings(
   if (typeof dir === 'string' && isAbsoluteDir(dir, platform)) {
     settings.vault.dir = dir;
   } else if (dir !== null && dir !== undefined) {
-    warn(`[ajustes] la carpeta de la copia ${JSON.stringify(dir)} no es una ruta absoluta: se usa la de por defecto`);
+    warn(`[settings] the local copy folder ${JSON.stringify(dir)} isn't an absolute path: using the default one`);
   }
   settings.vault.toolResultMaxChars = clampToolResultMaxChars(vault['toolResultMaxChars']);
   return settings;
@@ -149,13 +149,13 @@ export class SettingsStore {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      this.log.warn('[ajustes] settings.json no es JSON valido: se usan los valores por defecto');
+      this.log.warn("[settings] settings.json isn't valid JSON: using the defaults");
       this.current = frozen(defaultAppSettings());
       return;
     }
     const settings = parseAppSettings(parsed, this.platform, (message) => this.log.warn(message));
     if (settings === null) {
-      this.log.warn('[ajustes] settings.json es de otra version: se usan los valores por defecto');
+      this.log.warn('[settings] settings.json is from another version: using the defaults');
     }
     this.current = frozen(settings ?? defaultAppSettings());
   }
@@ -176,7 +176,7 @@ export class SettingsStore {
       if (vault.enabled !== undefined) next.vault.enabled = vault.enabled;
       if (vault.dir !== undefined) {
         if (vault.dir !== null && !isAbsoluteDir(vault.dir, this.platform)) {
-          throw new Error(`La carpeta de la copia tiene que ser una ruta absoluta: ${JSON.stringify(vault.dir)}`);
+          throw new Error(`The local copy folder has to be an absolute path: ${JSON.stringify(vault.dir)}`);
         }
         next.vault.dir = vault.dir;
       }

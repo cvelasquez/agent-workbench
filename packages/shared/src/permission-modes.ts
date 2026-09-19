@@ -44,21 +44,9 @@ export const PERMISSION_MODE_CYCLE = ['auto', 'default', 'acceptEdits', 'plan'] 
 
 export type PermissionMode = (typeof PERMISSION_MODE_CYCLE)[number];
 
-/** Como se lee cada modo en el combo. La CLI los nombra en ingles. */
-export const PERMISSION_MODE_LABEL: Record<PermissionMode, string> = {
-  auto: 'Automatico',
-  default: 'Manual',
-  acceptEdits: 'Aceptar ediciones',
-  plan: 'Plan',
-};
-
-/** Una linea para el titulo del combo: que hace cada modo. */
-export const PERMISSION_MODE_HINT: Record<PermissionMode, string> = {
-  auto: 'La CLI decide sola que herramientas usar sin preguntar',
-  default: 'Pregunta antes de cada herramienta que no este permitida',
-  acceptEdits: 'Acepta las ediciones de archivos sin preguntar',
-  plan: 'Investiga y propone un plan, sin tocar nada hasta que lo apruebes',
-};
+// Como se lee cada modo en el combo, y su explicacion, estan en los idiomas de
+// la web (`modeLabel` y `modeHint` de `agent-ui.ts`, §6.23): el servidor no
+// los muestra en ningun lado.
 
 export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === 'string' && (PERMISSION_MODE_CYCLE as readonly string[]).includes(value);

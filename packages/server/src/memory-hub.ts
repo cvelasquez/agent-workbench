@@ -40,7 +40,7 @@ const WATCH_DEBOUNCE_MS = 300;
 /** La pestana no existe, o no tiene directorio contra el cual resolver. */
 export class UnknownTerminalError extends Error {
   constructor() {
-    super('La terminal ya no existe.');
+    super('The terminal no longer exists.');
     this.name = 'UnknownTerminalError';
   }
 }
@@ -221,7 +221,7 @@ export class MemoryHub extends EventEmitter {
   private async dispose(entry: WatchEntry): Promise<void> {
     if (entry.debounceTimer !== null) clearTimeout(entry.debounceTimer);
     this.watches.delete(entry.key);
-    debugLog('memory', `dejo de mirar la memoria de ${entry.cwd}`);
+    debugLog('memory', `stopped watching the memory of ${entry.cwd}`);
     await entry.watcher?.close().catch(() => undefined);
   }
 
@@ -268,7 +268,7 @@ export class MemoryHub extends EventEmitter {
       entry.lastJson = json;
       for (const terminalId of entry.subscribers.keys()) this.emit('status', terminalId, status);
     } catch (error) {
-      console.warn(`[memoria] no se pudo leer el estado de ${entry.cwd}:`, error);
+      console.warn(`[memory] couldn't read the status of ${entry.cwd}:`, error);
     }
   }
 
@@ -276,7 +276,7 @@ export class MemoryHub extends EventEmitter {
     try {
       return await inspectMemory(cwd, this.home);
     } catch (error) {
-      console.warn(`[memoria] no se pudo releer el estado de ${cwd}:`, error);
+      console.warn(`[memory] couldn't reread the status of ${cwd}:`, error);
       return null;
     }
   }

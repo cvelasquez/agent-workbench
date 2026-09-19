@@ -60,7 +60,7 @@ export class CodexSessionFollower implements SessionFollower {
   get label(): string {
     const filePath = this.jsonl.filePath;
     if (filePath !== null) return filePath;
-    return this.sessionId.length > 0 ? `codex:${this.sessionId.slice(0, 8)}` : 'codex:(sin sesion)';
+    return this.sessionId.length > 0 ? `codex:${this.sessionId.slice(0, 8)}` : 'codex:(no session)';
   }
 
   async start(): Promise<void> {

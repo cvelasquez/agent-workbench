@@ -678,7 +678,7 @@ export class SessionIndex extends EventEmitter {
       await mkdir(appConfigDir(), { recursive: true });
       await writeFile(sessionIndexCachePath(), JSON.stringify(this.cache), 'utf8');
     } catch (error) {
-      console.warn('[indice] no se pudo guardar la cache:', error);
+      console.warn("[index] couldn't save the cache:", error);
     }
   }
 
@@ -710,7 +710,7 @@ export class SessionIndex extends EventEmitter {
           try {
             return { items: await source.history.list(), threw: false };
           } catch (error) {
-            console.warn(`[indice] no se pudo listar el historial de ${source.agent}:`, error);
+            console.warn(`[index] couldn't list the history of ${source.agent}:`, error);
             return { items: null, threw: true };
           }
         }),

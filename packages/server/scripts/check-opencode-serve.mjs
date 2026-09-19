@@ -54,6 +54,12 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as es } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'aw-opencode-serve-'));
 const home = path.join(root, 'home');
@@ -317,12 +323,12 @@ const HEX48 = /^[0-9a-f]{48}$/;
   check('O2 ... y el proceso ya no existe', wide.dead);
 
   const silent = await startFailure('silent', { startTimeoutMs: 400 });
-  check('O2 sin linea de escucha en el plazo: ensure rechaza', silent.error instanceof Error && silent.message.includes('no dijo en que puerto'), silent.message);
+  check('O2 sin linea de escucha en el plazo: ensure rechaza', silent.error instanceof Error && silent.message.includes("didn't say which port"), silent.message);
   check('O2 ... y el proceso ya no existe', silent.dead);
 
   const early = await startFailure('early-exit');
   check('O2 salida temprana: el error dice que salio y trae la cola de stderr',
-    early.error instanceof Error && early.message.includes('salio antes de escuchar') && early.message.includes('no se pudo abrir la base'), early.message);
+    early.error instanceof Error && early.message.includes('exited before listening') && early.message.includes('no se pudo abrir la base'), early.message);
   check('O2 ... sin la contrasena: queda ***', HEX48.test(early.password) && !early.message.includes(early.password) && early.message.includes('***'));
 }
 
@@ -523,11 +529,11 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
   check('O5 ... sin tocar el serve: ni ensure ni peticiones',
     ensures === ensuresBefore && (await requestsOf(mainEndpoint)).length === requestsBefore);
 
-  const failing = { ...deps, ensure: () => Promise.reject(new serveProcess.ServeStartError('salio antes de escuchar (codigo 3): ***')) };
+  const failing = { ...deps, ensure: () => Promise.reject(new serveProcess.ServeStartError('exited before listening (code 3): ***')) };
   const pending = launchWithServe(failing, input);
   const failure = await rejectionOf(pending);
   check('O5 un serve que no arranca rechaza con el motivo',
-    pending instanceof Promise && failure instanceof Error && failure.message.startsWith('No se pudo arrancar el servidor de OpenCode: salio antes'), String(failure));
+    pending instanceof Promise && failure instanceof Error && failure.message.startsWith("Couldn't start the OpenCode server: exited before"), String(failure));
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,8 +1227,8 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
 
   const refuse = (over) => pty.submitRefusal({ label: 'OpenCode', approvesPendingOnCycle: false, waitingFor: null, blind: false, openToolCall: false, ...over });
   check('O11 (D12) OpenCode esperando: el cuadro se rechaza con su motivo',
-    refuse({ waitingBlocksSubmit: true, activity: 'waiting' }) === pty.waitingSubmitMessage('OpenCode') &&
-    pty.waitingSubmitMessage('OpenCode') === 'OpenCode esta esperando una respuesta: contestala antes de mandar otro mensaje.');
+    es(refuse({ waitingBlocksSubmit: true, activity: 'waiting' })) === es(pty.waitingSubmitText('OpenCode')) &&
+    es(pty.waitingSubmitText('OpenCode')) === 'OpenCode está esperando una respuesta: contéstala antes de mandar otro mensaje.');
   const passing = ['busy', 'idle', 'offline', 'unknown', null].map((activity) => refuse({ waitingBlocksSubmit: true, activity }));
   check('O11 (D12) trabajando, libre, sin proceso o sin dato: pasa', passing.every((value) => value === null), show(passing));
   check('O11 (D12) sin la capacidad, esperando no bloquea (Claude Code sigue igual)',
@@ -1235,17 +1241,17 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
 
   check('O11 (D12) el cuadro de OpenCode se apaga con el texto de la barra, y con la pregunta en el hilo lo dice',
     ui.pendingApprovalNotice(OPENCODE_CAPABILITIES, 'permission prompt', true) === ui.waitingBarText('permission prompt') &&
-    ui.pendingApprovalNotice(OPENCODE_CAPABILITIES, 'question', true) === 'El agente te hizo una pregunta: respondela en el hilo.');
+    ui.pendingApprovalNotice(OPENCODE_CAPABILITIES, 'question', true) === 'El agente te hizo una pregunta: respóndela en el hilo.');
   check('O11 (D12) sin espera, sin proceso, o con Claude Code: el cuadro no se apaga',
     ui.pendingApprovalNotice(OPENCODE_CAPABILITIES, null, true) === null &&
     ui.pendingApprovalNotice(OPENCODE_CAPABILITIES, 'question', false) === null &&
     ui.pendingApprovalNotice(CLAUDE_CODE_CAPABILITIES, 'permission prompt', true) === null);
 
-  const texts = ['answered', 'not-pending', 'invalid', 'no-free-text'].map(pty.answerFailureMessage);
+  const texts = ['answered', 'not-pending', 'invalid', 'no-free-text'].map(pty.answerFailureText);
   check('O11 respuesta por API: los textos de answer-failed son los de las teclas, y B4 tiene el suyo',
-    texts[0] === null && texts[1] === pty.ANSWER_NOT_PENDING_MESSAGE && texts[1] === 'Esa pregunta ya no esta esperando respuesta.' &&
-    texts[2] === pty.ANSWER_INVALID_MESSAGE && texts[2] === 'La respuesta no corresponde a la pregunta.' &&
-    typeof texts[3] === 'string' && texts[3].includes('no acepta respuesta escrita'), show(texts));
+    texts[0] === null && texts[1] === pty.ANSWER_NOT_PENDING_TEXT && es(texts[1]) === 'Esa pregunta ya no está esperando respuesta.' &&
+    texts[2] === pty.ANSWER_INVALID_TEXT && es(texts[2]) === 'La respuesta no corresponde a la pregunta.' &&
+    texts[3] !== null && es(texts[3]).includes('no acepta respuesta escrita'), show(texts));
 }
 
 // ---------------------------------------------------------------------------
@@ -1516,7 +1522,7 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
     check('O13 la barra lo dice en una frase, con la etiqueta de la CLI, y el boton dice Relanzar',
       ui.serverClosedBarText('OpenCode') === 'El servidor de OpenCode se cerró y esta pestaña quedó sin conexión.' &&
       ui.serverClosedBarText(null) === 'El servidor de la CLI se cerró y esta pestaña quedó sin conexión.' &&
-      ui.SERVER_CLOSED_RELAUNCH_TEXT === 'Relanzar' && ui.SERVER_CLOSED_RELAUNCHING_TEXT === 'Relanzando…');
+      ui.serverClosedRelaunchText() === 'Relanzar' && ui.serverClosedRelaunchingText() === 'Relanzando…');
 
     const phases = new Map([['t', 'waiting-exit'], ['cerrada', 'waiting-exit']]);
     const step1 = ui.advanceRelaunches(phases, [{ terminalId: 't', alive: true }]);

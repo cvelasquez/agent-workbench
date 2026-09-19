@@ -7,8 +7,8 @@
 import { startDemoServer } from './environment.mjs';
 
 const { url, demo, stop } = await startDemoServer({ mode: 'dev', openBrowser: true });
-console.log(`\nDemo corriendo en ${url}`);
-console.log(`Proyectos en ${demo.projectsRoot}. Ctrl+C para terminar.\n`);
+console.log(`\nDemo running at ${url}`);
+console.log(`Projects in ${demo.projectsRoot}. Ctrl+C to stop.\n`);
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {

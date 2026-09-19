@@ -26,6 +26,8 @@
 
 import {
   noticeText,
+  serverText,
+  type ServerText,
   type ConversationEvent,
   type ConversationPart,
   type ConversationQuestionPart,
@@ -68,11 +70,10 @@ const QUESTION_LABEL_CHARS = 200;
 /** Los topes de texto que se prueban, en orden, cuando un solo turno no entra. */
 const TEXT_CHAR_STEPS = [4_000, 2_000, 1_000, 500, 250] as const;
 
-/** Sin turnos no hay nada que continuar. */
-export const HANDOFF_EMPTY_MESSAGE = 'Esa conversación no tiene mensajes que continuar.';
+/** Sin turnos no hay nada que continuar. Va como clave: la frase la arma la web (§6.23). */
+export const HANDOFF_EMPTY_TEXT: ServerText = serverText('handoffEmpty');
 /** Una conversacion cuya CLI no dejo nada legible (hito 27, `no-transcript`). */
-export const HANDOFF_NO_TRANSCRIPT_MESSAGE =
-  'Esa conversación no tiene mensajes que continuar: esa CLI no dejó transcript legible.';
+export const HANDOFF_NO_TRANSCRIPT_TEXT: ServerText = serverText('handoffNoTranscript');
 
 // ---------------------------------------------------------------------------
 // Turnos
@@ -552,7 +553,7 @@ export type TranscriptPlan =
       totalTurnsIsMinimum: boolean;
       lastRequest: string | null;
     }
-  | { ok: false; message: string };
+  | { ok: false; text: ServerText };
 
 /**
  * Turnos, seleccion y documento, o por que no hay continuacion. Es lo que se
@@ -574,7 +575,7 @@ export function planTranscript(input: {
   if (turns.length === 0) {
     return {
       ok: false,
-      message: input.state === 'no-transcript' ? HANDOFF_NO_TRANSCRIPT_MESSAGE : HANDOFF_EMPTY_MESSAGE,
+      text: input.state === 'no-transcript' ? HANDOFF_NO_TRANSCRIPT_TEXT : HANDOFF_EMPTY_TEXT,
     };
   }
   const complete = input.complete ?? true;

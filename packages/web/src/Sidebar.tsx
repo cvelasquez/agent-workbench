@@ -35,7 +35,8 @@ import {
   resumableSession,
   sessionAgentLabel,
   sessionAgentView,
-  OPEN_BLOCKED_TITLE,
+  openBlockedTitle,
+  sessionTitleText,
 } from './agent-ui.js';
 import { ContinueButton } from './ContinueButton.js';
 import {
@@ -46,13 +47,15 @@ import {
   startOfLocalDay,
   type ArchiveCandidates,
 } from './archive-history.js';
-import { formatWhen } from './format-when.js';
+import { formatWhen } from './i18n/format.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 import {
-  GLOBAL_SEARCH_OFF_TEXT,
-  GLOBAL_SEARCH_TOO_SHORT_TEXT,
-  SEARCH_MODE_CONVERSATIONS_TEXT,
-  SEARCH_MODE_CONVERSATIONS_TITLE,
-  SEARCH_MODE_TITLES_TEXT,
+  globalSearchOffText,
+  globalSearchTooShortText,
+  searchModeConversationsText,
+  searchModeConversationsTitle,
+  searchModeTitlesText,
   globalSearchStatusText,
   globalSearchTooShort,
   groupSearchHits,
@@ -69,14 +72,15 @@ import type { GlobalSearchApi } from './useGlobalSearch.js';
 import type { NotesApi } from './useNotes.js';
 import type { VaultExported } from './useVault.js';
 import {
-  PARTIAL_MARK_TEXT,
-  PARTIAL_MARK_TITLE,
-  VAULT_MARK_TEXT,
-  VAULT_MARK_TITLE,
+  partialMarkText,
+  partialMarkTitle,
+  vaultMarkText,
+  vaultMarkTitle,
   exportButtonTitle,
   sessionVaultView,
   vaultButtonTitle,
   vaultLineText,
+  vaultName,
   type ExportButtonState,
 } from './vault-ui.js';
 
@@ -212,11 +216,11 @@ function ProjectArchiveConfirm({
       <span className="archive-history-text">{projectArchiveText(plan)}</span>
       {plan.sessionIds.length > 0 && (
         <button className="link-button" onClick={onConfirm}>
-          Archivar
+          {t('sidebar.action.archive')}
         </button>
       )}
       <button className="link-button" onClick={onCancel}>
-        {plan.sessionIds.length > 0 ? 'Cancelar' : 'Cerrar'}
+        {plan.sessionIds.length > 0 ? t('common.cancel') : t('common.close')}
       </button>
     </div>
   );
@@ -307,11 +311,6 @@ function ExportIcon({ done }: { done: boolean }): JSX.Element {
   );
 }
 
-/** "1 sesion" o "N sesiones". */
-function sessionsText(count: number): string {
-  return `${count} ${count === 1 ? 'sesión' : 'sesiones'}`;
-}
-
 interface ArchiveHistoryPanelProps {
   candidates: readonly ArchiveCandidates[];
   agents: readonly AgentInfo[];
@@ -372,10 +371,10 @@ function ArchiveHistoryPanel({
   }, [anchorRef, onClose]);
 
   return (
-    <div ref={panelRef} className="archive-history" role="region" aria-label="Archivar historial">
+    <div ref={panelRef} className="archive-history" role="region" aria-label={t('sidebar.history.region')}>
       <div className="archive-history-header">
-        <span>Archivar lo anterior a hoy</span>
-        <button className="icon-button" onClick={onClose} title="Cerrar (Esc)">
+        <span>{t('sidebar.history.heading')}</span>
+        <button className="icon-button" onClick={onClose} title={t('common.closeEsc')}>
           ×
         </button>
       </div>
@@ -387,14 +386,13 @@ function ArchiveHistoryPanel({
           return (
             <div key={agent} className="archive-history-row archive-history-confirm">
               <span className="archive-history-text">
-                Se {count === 1 ? 'esconde' : 'esconden'} {sessionsText(count)} de {label}; no se
-                borra nada
+                {t('sidebar.history.confirm', { count, label })}
               </span>
               <button className="link-button" onClick={() => onArchiveAgent(agent)}>
-                Archivar
+                {t('sidebar.action.archive')}
               </button>
               <button className="link-button" onClick={() => setConfirming(null)}>
-                Cancelar
+                {t('common.cancel')}
               </button>
             </div>
           );
@@ -404,12 +402,10 @@ function ArchiveHistoryPanel({
           <div key={agent} className="archive-history-row">
             <span className="archive-history-text">
               <span className="archive-history-agent">{label}</span>
-              <span className="archive-history-count">
-                {sessionsText(count)} {count === 1 ? 'anterior' : 'anteriores'} a hoy
-              </span>
+              <span className="archive-history-count">{t('sidebar.history.count', { count })}</span>
             </span>
             <button className="link-button" onClick={() => setConfirming(agent)}>
-              Archivar
+              {t('sidebar.action.archive')}
             </button>
           </div>
         );
@@ -554,7 +550,7 @@ export function Sidebar({
         if (matchesProject) return { ...project, sessions };
 
         const found = sessions.filter((session) =>
-          session.title.toLowerCase().includes(needle),
+          sessionTitleText(session.title, session.titleSource).toLowerCase().includes(needle),
         );
         return found.length > 0 ? { ...project, sessions: found } : null;
       })
@@ -705,7 +701,7 @@ export function Sidebar({
         <button
           className="icon-button"
           onClick={onNewProject}
-          title="Proyecto nuevo: elegir o crear una carpeta"
+          title={t('sidebar.newProject')}
           disabled={disabled}
         >
           ＋
@@ -713,7 +709,7 @@ export function Sidebar({
         <button
           className="icon-button"
           onClick={onRefresh}
-          title="Reindexar el historial"
+          title={t('sidebar.reindex')}
           disabled={scanning}
         >
           ⟳
@@ -727,11 +723,11 @@ export function Sidebar({
           className={`icon-button${vault?.enabled === true ? ' icon-button-on' : ''}`}
           onClick={onOpenVault}
           title={vaultButtonTitle(vault)}
-          aria-label="Copia propia"
+          aria-label={vaultName()}
         >
           <VaultIcon />
         </button>
-        <button className="icon-button" onClick={onHide} title="Ocultar los proyectos">
+        <button className="icon-button" onClick={onHide} title={t('sidebar.hide')}>
           «
         </button>
       </div>
@@ -741,29 +737,29 @@ export function Sidebar({
         la copia propia (`globalSearchVisible`): si no, ni el hueco.
       */}
       {globalSearch !== null && (
-        <div className="sidebar-search-mode" role="group" aria-label="Dónde buscar">
+        <div className="sidebar-search-mode" role="group" aria-label={t('sidebar.searchMode.label')}>
           <button
             className={`sidebar-search-mode-option${searchMode === 'titles' ? ' is-on' : ''}`}
             aria-pressed={searchMode === 'titles'}
             onClick={() => changeSearchMode('titles')}
-            title="Filtra la lista por nombre de proyecto y título de sesión"
+            title={t('sidebar.searchMode.titlesTitle')}
           >
-            {SEARCH_MODE_TITLES_TEXT}
+            {searchModeTitlesText()}
           </button>
           <button
             className={`sidebar-search-mode-option${searchMode === 'conversations' ? ' is-on' : ''}`}
             aria-pressed={searchMode === 'conversations'}
             onClick={() => changeSearchMode('conversations')}
-            title={SEARCH_MODE_CONVERSATIONS_TITLE}
+            title={searchModeConversationsTitle()}
           >
-            {SEARCH_MODE_CONVERSATIONS_TEXT}
+            {searchModeConversationsText()}
           </button>
         </div>
       )}
 
       {scanning && (
         <div className="sidebar-progress">
-          Indexando {indexStatus.scannedFiles} / {indexStatus.totalFiles}
+          {t('sidebar.indexing', { scanned: indexStatus.scannedFiles, total: indexStatus.totalFiles })}
         </div>
       )}
 
@@ -778,10 +774,11 @@ export function Sidebar({
             <button
               className={`sidebar-archived-toggle${showArchived ? ' is-on' : ''}`}
               onClick={() => setShowArchived((current) => !current)}
-              title="Las archivadas siguen en disco; esto solo las muestra u oculta"
+              title={t('sidebar.archived.toggleTitle')}
             >
-              {showArchived ? 'Ocultar' : 'Ver'} {archivedCount} archivada
-              {archivedCount === 1 ? '' : 's'}
+              {showArchived
+                ? t('sidebar.archived.hide', { count: archivedCount })
+                : t('sidebar.archived.show', { count: archivedCount })}
             </button>
           )}
           {/*
@@ -794,9 +791,9 @@ export function Sidebar({
               className={`link-button sidebar-archive-history${historyOpen ? ' is-on' : ''}`}
               onClick={() => setHistoryOpen((current) => !current)}
               aria-expanded={historyOpen}
-              title="Esconder de una vez las sesiones de una CLI anteriores a hoy. No borra nada"
+              title={t('sidebar.history.buttonTitle')}
             >
-              Archivar historial…
+              {t('sidebar.history.button')}
             </button>
           )}
         </div>
@@ -815,16 +812,18 @@ export function Sidebar({
       {lastHistoryArchive !== null && !historyOpen && (
         <div className="archive-history archive-history-undo" role="status">
           <span className="archive-history-text">
-            {lastHistoryArchive.sessionIds.length === 1 ? 'Se archivó' : 'Se archivaron'}{' '}
-            {sessionsText(lastHistoryArchive.sessionIds.length)} de {lastHistoryArchive.what}
+            {t('sidebar.undo.text', {
+              count: lastHistoryArchive.sessionIds.length,
+              what: lastHistoryArchive.what,
+            })}
           </span>
           <button className="link-button" onClick={undoHistoryArchive}>
-            Deshacer
+            {t('sidebar.action.undo')}
           </button>
           <button
             className="icon-button"
             onClick={() => setLastHistoryArchive(null)}
-            title="Cerrar el aviso; las sesiones siguen archivadas"
+            title={t('sidebar.undo.dismissTitle')}
           >
             ×
           </button>
@@ -838,8 +837,8 @@ export function Sidebar({
           onClick={onOpenVault}
           title={
             vault?.lastError != null
-              ? `Último error: ${vault.lastError}`
-              : 'Ver el estado y la carpeta de la copia propia'
+              ? t('sidebar.vaultLine.lastError', { error: serverTextMessage(vault.lastError) })
+              : t('sidebar.vaultLine.title')
           }
         >
           {vaultLine}
@@ -853,10 +852,10 @@ export function Sidebar({
         */}
         {showingSearch && globalSearch !== null && (
           <div className="search-results">
-            {!globalSearch.vaultEnabled && <p className="search-note">{GLOBAL_SEARCH_OFF_TEXT}</p>}
+            {!globalSearch.vaultEnabled && <p className="search-note">{globalSearchOffText()}</p>}
             <p className={`search-status${globalSearch.error !== null ? ' is-problem' : ''}`} role="status">
               {searchTooShort
-                ? GLOBAL_SEARCH_TOO_SHORT_TEXT
+                ? globalSearchTooShortText()
                 : globalSearchStatusText(globalSearch)}
             </p>
             {!searchTooShort &&
@@ -868,10 +867,10 @@ export function Sidebar({
                     <button
                       className="search-group-title"
                       onClick={() => onOpenSearchHit(lead, groupThreadQuery(group))}
-                      title={group.title}
+                      title={sessionTitleText(group.title)}
                     >
                       <AgentBadge agent={group.agent} agents={agents} />
-                      {group.titleHit !== null ? <SearchSnippet hit={group.titleHit} /> : group.title}
+                      {group.titleHit !== null ? <SearchSnippet hit={group.titleHit} /> : sessionTitleText(group.title)}
                     </button>
                     {group.hits.map((hit) => (
                       <button
@@ -896,9 +895,7 @@ export function Sidebar({
 
         {!showingSearch && visibleProjects.length === 0 && !scanning && (
           <p className="sidebar-empty">
-            {projects.length === 0
-              ? 'No se encontraron proyectos en el historial.'
-              : 'Nada coincide con el filtro.'}
+            {projects.length === 0 ? t('sidebar.empty.noProjects') : t('sidebar.empty.noMatch')}
           </p>
         )}
 
@@ -950,7 +947,7 @@ export function Sidebar({
                   onClick={() => onExportProject(project.key)}
                   disabled={exportState(project.key) === 'exporting'}
                   title={exportButtonTitle(exportState(project.key))}
-                  aria-label="Exportar a Markdown"
+                  aria-label={t('sidebar.project.export')}
                 >
                   <ExportIcon done={exportState(project.key) === 'done'} />
                 </button>
@@ -969,8 +966,8 @@ export function Sidebar({
                       current === project.key ? null : project.key,
                     )
                   }
-                  title="Archivar el proyecto: esconde sus conversaciones de la barra. No borra nada"
-                  aria-label="Archivar proyecto"
+                  title={t('sidebar.project.archiveTitle')}
+                  aria-label={t('sidebar.project.archive')}
                   aria-expanded={archivingProject === project.key}
                 >
                   <ArchiveIcon out={false} />
@@ -981,10 +978,10 @@ export function Sidebar({
                   text="+"
                   title={
                     opening
-                      ? OPEN_BLOCKED_TITLE
+                      ? openBlockedTitle()
                       : project.cwdExists
-                        ? 'Nueva sesion en este proyecto'
-                        : 'La carpeta ya no existe en disco'
+                        ? t('sidebar.project.newSession')
+                        : t('sidebar.project.folderGone')
                   }
                   disabled={!canOpen || opening}
                   offerAgentChoice={offerAgentChoice}
@@ -996,7 +993,7 @@ export function Sidebar({
 
               {!project.cwdExists && (
                 <div className="project-missing" title={project.cwd}>
-                  carpeta no encontrada
+                  {t('sidebar.project.missing')}
                 </div>
               )}
 
@@ -1057,23 +1054,23 @@ export function Sidebar({
                           disabled={!openable}
                           title={
                             vaultView.copy
-                              ? `${session.title}\n${VAULT_MARK_TITLE}`
-                              : (agentView.unavailableTitle ?? session.title)
+                              ? `${sessionTitleText(session.title, session.titleSource)}\n${vaultMarkTitle()}`
+                              : (agentView.unavailableTitle ?? sessionTitleText(session.title, session.titleSource))
                           }
                         >
                           <span className="session-title">
                             {agentView.badge && <AgentBadge agent={session.agent} agents={agents} />}
                             {vaultView.copy && (
-                              <span className="session-vault-mark" title={VAULT_MARK_TITLE}>
-                                {VAULT_MARK_TEXT}
+                              <span className="session-vault-mark" title={vaultMarkTitle()}>
+                                {vaultMarkText()}
                               </span>
                             )}
                             {vaultView.partial && (
-                              <span className="session-partial-mark" title={PARTIAL_MARK_TITLE}>
-                                {PARTIAL_MARK_TEXT}
+                              <span className="session-partial-mark" title={partialMarkTitle()}>
+                                {partialMarkText()}
                               </span>
                             )}
-                            {session.title}
+                            {sessionTitleText(session.title, session.titleSource)}
                           </span>
                           <span className="session-meta">{formatWhen(session.updatedAt)}</span>
                         </button>
@@ -1099,10 +1096,10 @@ export function Sidebar({
                           disabled={blocked}
                           title={
                             session.archived
-                              ? 'Restaurar a la lista'
+                              ? t('sidebar.session.restore')
                               : blocked
-                                ? 'Tiene una pestaña abierta. Cerrala primero.'
-                                : 'Archivar — la esconde de la lista, no borra nada'
+                                ? t('sidebar.session.blocked')
+                                : t('sidebar.session.archive')
                           }
                         >
                           <ArchiveIcon out={session.archived} />
@@ -1125,21 +1122,19 @@ export function Sidebar({
       */}
       {selectedSessions.length > 0 && (
         <div className="sidebar-selection">
-          <span>
-            {selectedSessions.length} seleccionada{selectedSessions.length === 1 ? '' : 's'}
-          </span>
+          <span>{t('sidebar.selection.count', { count: selectedSessions.length })}</span>
           {selectedSessions.some((session) => !session.archived) && (
             <button className="link-button" onClick={() => archiveSelected(true)}>
-              Archivar
+              {t('sidebar.action.archive')}
             </button>
           )}
           {selectedSessions.some((session) => session.archived) && (
             <button className="link-button" onClick={() => archiveSelected(false)}>
-              Restaurar
+              {t('sidebar.action.restore')}
             </button>
           )}
           <button className="link-button" onClick={() => setSelected(new Set())}>
-            Cancelar
+            {t('common.cancel')}
           </button>
         </div>
       )}

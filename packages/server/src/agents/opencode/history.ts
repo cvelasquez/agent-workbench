@@ -128,7 +128,7 @@ export function createOpenCodeHistory(deps: OpenCodeHistoryDeps): HistorySource 
    */
   const sessionRow = (ref: string): SessionRow | undefined => {
     const row = db.get<SessionRow>(OPENCODE_SQL.sessionById, ref);
-    if (db.status() !== 'ok') throw new Error(`la base de OpenCode no se pudo leer (${db.status()})`);
+    if (db.status() !== 'ok') throw new Error(`the OpenCode database couldn't be read (${db.status()})`);
     return row;
   };
 
@@ -146,7 +146,7 @@ export function createOpenCodeHistory(deps: OpenCodeHistoryDeps): HistorySource 
     const defaultTitle = DEFAULT_TITLE_PATTERN.test(row.title);
     const hasMessages = db.get<FoundRow>(OPENCODE_SQL.sessionHasMessages, row.id) !== undefined;
     // Sin la base legible, "sin mensajes" no dice nada: null la sacaria de la barra.
-    if (db.status() !== 'ok') throw new Error(`la base de OpenCode no se pudo leer (${db.status()})`);
+    if (db.status() !== 'ok') throw new Error(`the OpenCode database couldn't be read (${db.status()})`);
     if (!hasMessages) {
       /*
         Hito 29 (D14): cada pestana nueva crea su sesion por API antes de
@@ -165,7 +165,7 @@ export function createOpenCodeHistory(deps: OpenCodeHistoryDeps): HistorySource 
       */
       if (!warnedWithoutMessages) {
         warnedWithoutMessages = true;
-        warn('[opencode] hay sesiones sin filas en la tabla message: su conversacion puede verse vacia. Si pasa con una sesion con mensajes, OpenCode cambio donde los guarda.');
+        warn('[opencode] some sessions have no rows in the message table: their conversation may look empty. If it happens with a session that has messages, OpenCode changed where it stores them.');
       }
     }
 
@@ -228,7 +228,7 @@ export function createOpenCodeHistory(deps: OpenCodeHistoryDeps): HistorySource 
         return rows.map(itemOf);
       } catch (error) {
         // El indice no atrapa: una base ocupada no puede tumbar el escaneo de las demas CLIs.
-        warn(`[opencode] no se pudo listar el historial: ${error instanceof Error ? error.message : String(error)}`);
+        warn(`[opencode] couldn't list the history: ${error instanceof Error ? error.message : String(error)}`);
         return null;
       }
     },

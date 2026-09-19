@@ -34,32 +34,28 @@ import {
   type MemoryStatus,
 } from '@agent-workbench/shared';
 import { CopyPathButton } from './FilesPanel.js';
-import { formatWhen } from './format-when.js';
+import { formatBytes, formatList, formatWhen } from './i18n/format.js';
+import { t, type MessageKey } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
+import { tRich } from './i18n/rich.js';
 import { Markdown } from './Markdown.js';
 import type { MemoryBusy, MemoryView } from './useMemory.js';
 
-function formatSize(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_024 * 1_024) return `${Math.round(bytes / 1_024)} KB`;
-  return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`;
-}
-
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
-const ACTION_LABELS: Record<MemoryChangeAction, string> = {
-  create: 'se crea',
-  'append-block': 'se agrega el bloque al final',
-  'replace-block': 'se reemplaza el bloque',
-  'append-lines': 'se agregan líneas al final',
-  copy: 'se copia',
+const ACTION_KEYS: Record<MemoryChangeAction, MessageKey> = {
+  create: 'memory.action.create',
+  'append-block': 'memory.action.appendBlock',
+  'replace-block': 'memory.action.replaceBlock',
+  'append-lines': 'memory.action.appendLines',
+  copy: 'memory.action.copy',
 };
 
-/** Que CLIs leen cada archivo de instrucciones. Solo para la etiqueta. */
-const FILE_READERS: Record<MemoryInstructionFile, string> = {
-  'AGENTS.md': 'Codex, Antigravity y OpenCode',
-  'CLAUDE.md': 'Claude Code',
+/**
+ * Que CLIs leen cada archivo de instrucciones. Solo para la etiqueta, que las
+ * une con la conjuncion del idioma.
+ */
+const FILE_READERS: Record<MemoryInstructionFile, readonly string[]> = {
+  'AGENTS.md': ['Codex', 'Antigravity', 'OpenCode'],
+  'CLAUDE.md': ['Claude Code'],
 };
 
 /**
@@ -72,9 +68,9 @@ function untouchable(file: MemoryFileState): boolean {
 
 /** Por que no se puede elegir un archivo, para el `title` y el aviso. */
 function untouchableReason(file: MemoryFileState): string | null {
-  if (file.problem === 'outside') return 'Es un enlace que apunta fuera del proyecto';
-  if (file.problem === 'encoding') return 'No está en UTF-8';
-  if (file.brokenBlock) return 'Tiene las marcas del bloque mal formadas';
+  if (file.problem === 'outside') return t('memory.problem.outside');
+  if (file.problem === 'encoding') return t('memory.problem.encoding');
+  if (file.brokenBlock) return t('memory.problem.brokenBlock');
   return null;
 }
 
@@ -131,20 +127,18 @@ function updateNeeded(status: MemoryStatus): string | null {
   const missing = status.files.filter(
     (file) => file.exists && !file.hasBlock && !untouchable(file),
   );
-  const parts: string[] = [];
-  if (outdated.length > 0) {
-    parts.push(
-      `${outdated.map((file) => file.name).join(' y ')} ${
-        outdated.length === 1 ? 'tiene el bloque desactualizado' : 'tienen el bloque desactualizado'
-      }`,
-    );
+  const names = (files: MemoryFileState[]): string => formatList(files.map((file) => file.name));
+  if (outdated.length === 0) {
+    return missing.length === 0 ? null : t('memory.update.missing', { files: names(missing) });
   }
-  if (missing.length > 0) {
-    parts.push(`falta el bloque en ${missing.map((file) => file.name).join(' y ')}`);
+  if (missing.length === 0) {
+    return t('memory.update.outdated', { count: outdated.length, files: names(outdated) });
   }
-  if (parts.length === 0) return null;
-  const text = parts.join('; ');
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+  return t('memory.update.outdatedAndMissing', {
+    count: outdated.length,
+    outdated: names(outdated),
+    missing: names(missing),
+  });
 }
 
 /**
@@ -219,7 +213,7 @@ export function MemoryPanel({ view }: { view: MemoryView }): JSX.Element {
   if (status === null) {
     return (
       <div className="panel-body">
-        <p className="panel-note">{error ?? 'Leyendo la memoria…'}</p>
+        <p className="panel-note">{error ?? t('memory.loading')}</p>
       </div>
     );
   }
@@ -228,13 +222,13 @@ export function MemoryPanel({ view }: { view: MemoryView }): JSX.Element {
     const name = open?.name ?? loading ?? '';
     const title =
       name === MEMORY_INDEX_FILE
-        ? 'Índice'
+        ? t('memory.index')
         : (status.notes.find((note) => note.name === name)?.title ?? name);
     return (
       <div className="panel-body">
         <div className="panel-subhead">
           <button className="link-button" onClick={closeNote}>
-            ← Memoria
+            {t('memory.back')}
           </button>
           <span className="panel-subhead-title" title={name}>
             {title}
@@ -242,13 +236,13 @@ export function MemoryPanel({ view }: { view: MemoryView }): JSX.Element {
         </div>
 
         {open === null ? (
-          <p className="panel-note">Leyendo la nota…</p>
+          <p className="panel-note">{t('memory.note.loading')}</p>
         ) : (
           <div className="panel-scroll">
             <div className="plan-body">
               <Markdown text={withoutFrontmatter(open.text)} localLink={resolveNote} />
             </div>
-            {open.truncated && <p className="panel-note">La nota se cortó por tamaño.</p>}
+            {open.truncated && <p className="panel-note">{t('memory.note.truncated')}</p>}
           </div>
         )}
       </div>
@@ -279,7 +273,11 @@ export function MemoryPanel({ view }: { view: MemoryView }): JSX.Element {
         {(error ?? view.lastResult) !== null && (
           <div className={`memory-message${error !== null ? ' memory-message-error' : ''}`}>
             <span>{error ?? view.lastResult}</span>
-            <button className="link-button" onClick={view.dismissMessage} title="Cerrar el aviso">
+            <button
+              className="link-button"
+              onClick={view.dismissMessage}
+              title={t('common.dismissNotice')}
+            >
               ×
             </button>
           </div>
@@ -287,41 +285,25 @@ export function MemoryPanel({ view }: { view: MemoryView }): JSX.Element {
 
         {status.git.kind === 'error' && (
           <div className="memory-warning">
-            <p className="memory-warning-line">
-              git devolvió un error, así que no se sabe si la memoria está ignorada. Se puede
-              instalar sin tocar <code>.gitignore</code>.
-            </p>
-            <pre className="memory-git-message">{status.git.message}</pre>
+            <p className="memory-warning-line">{tRich('memory.git.errorWarning')}</p>
+            <pre className="memory-git-message">{serverTextMessage(status.git.message)}</pre>
           </div>
         )}
 
         {status.files.filter(untouchable).map((file) => (
           <p key={file.name} className="memory-warning">
-            <code>{file.name}</code>{' '}
-            {file.problem === 'outside' ? (
-              'es un enlace que apunta fuera del proyecto: la app no lo lee ni lo escribe.'
-            ) : file.problem === 'encoding' ? (
-              <>
-                no está en UTF-8 (parece UTF-16, lo que deja <code>&gt;</code> en Windows
-                PowerShell 5.1). Guardalo como UTF-8: la app no lo toca mientras tanto.
-              </>
-            ) : (
-              'tiene las marcas del bloque de memoria mal formadas: una sin su pareja, o el bloque repetido. La app no lo toca hasta que lo arregles a mano.'
-            )}
+            {file.problem === 'outside'
+              ? tRich('memory.problem.outsideWarning', { file: file.name })
+              : file.problem === 'encoding'
+                ? tRich('memory.problem.encodingWarning', { file: file.name })
+                : tRich('memory.problem.brokenBlockWarning', { file: file.name })}
           </p>
         ))}
 
         {!status.installed && (
           <div className="memory-intro">
-            <p>
-              La memoria compartida guarda lo que los agentes aprenden de este proyecto
-              —decisiones, restricciones, trampas ya pisadas— para la próxima sesión.
-            </p>
-            <p>
-              Vive en <code>.agents/memory/</code>: una nota por archivo y un índice,{' '}
-              <code>MEMORY.md</code>. Las cuatro CLIs la leen por un bloque marcado en su archivo
-              de instrucciones. Nada se escribe hasta que confirmes los cambios.
-            </p>
+            <p>{t('memory.intro.what')}</p>
+            <p>{tRich('memory.intro.where')}</p>
           </div>
         )}
 
@@ -332,7 +314,7 @@ export function MemoryPanel({ view }: { view: MemoryView }): JSX.Element {
               className="primary-button primary-button-small"
               onClick={() => setUpdateOpen(true)}
             >
-              Actualizar el puente
+              {t('memory.update.button')}
             </button>
           </div>
         )}
@@ -363,7 +345,7 @@ export function MemoryPanel({ view }: { view: MemoryView }): JSX.Element {
             <PlanReview
               changes={view.planned}
               busy={view.busy}
-              confirmLabel={status.installed ? 'Actualizar' : 'Instalar'}
+              confirmLabel={status.installed ? t('memory.plan.update') : t('memory.plan.install')}
               // Las opciones las guarda el hook con el plan: se instala lo que
               // se previsualizo, aunque el formulario se haya desmontado.
               onConfirm={view.install}
@@ -378,18 +360,15 @@ export function MemoryPanel({ view }: { view: MemoryView }): JSX.Element {
         */}
         {status.installed && status.native.pending > 0 && !showForm && (
           <div className="memory-callout">
-            <span>
-              La memoria propia de Claude Code tiene{' '}
-              {plural(status.native.pending, 'nota que no está', 'notas que no están')} acá.
-            </span>
+            <span>{t('memory.native.pending', { count: status.native.pending })}</span>
             <button
               className="primary-button primary-button-small"
               disabled={view.busy !== null}
               onClick={view.importNative}
             >
               {view.busy === 'import'
-                ? 'Importando…'
-                : `Importar ${plural(status.native.pending, 'nota', 'notas')}`}
+                ? t('memory.native.importing')
+                : t('memory.native.import', { count: status.native.pending })}
             </button>
           </div>
         )}
@@ -427,7 +406,7 @@ function ReachRow({
         <span
           key={entry.agent}
           className={`memory-reach-item${entry.reaches ? ' memory-reach-on' : ''}`}
-          title={`${entry.label}: ${entry.via}`}
+          title={t('memory.reach.title', { label: entry.label, via: serverTextMessage(entry.via) })}
         >
           <span className="memory-reach-mark" aria-hidden="true">
             {entry.reaches ? '✓' : '—'}
@@ -438,7 +417,9 @@ function ReachRow({
             pantalla: sin esto, "Codex" se leia igual llegara o no.
           */}
           <span className="visually-hidden">
-            {entry.reaches ? `: llega por ${entry.via}` : `: no llega, ${entry.via}`}
+            {entry.reaches
+              ? t('memory.reach.reaches', { via: serverTextMessage(entry.via) })
+              : t('memory.reach.doesNotReach', { via: serverTextMessage(entry.via) })}
           </span>
         </span>
       ))}
@@ -446,9 +427,9 @@ function ReachRow({
         <button
           className="link-button memory-reach-adjust"
           onClick={onAdjust}
-          title="Elegir de nuevo los archivos de instrucciones del puente"
+          title={t('memory.reach.adjustTitle')}
         >
-          Ajustar
+          {t('memory.reach.adjust')}
         </button>
       )}
     </div>
@@ -489,7 +470,7 @@ function InstallForm({
 
   return (
     <div className="memory-form">
-      <p className="memory-section-label">Archivos de instrucciones</p>
+      <p className="memory-section-label">{t('memory.form.files')}</p>
       {status.files.map((file) => (
         <label
           key={file.name}
@@ -503,7 +484,7 @@ function InstallForm({
             onChange={(event) => toggleFile(file.name, event.target.checked)}
           />
           <code>{file.name}</code>
-          <span className="memory-option-hint">{FILE_READERS[file.name]}</span>
+          <span className="memory-option-hint">{formatList(FILE_READERS[file.name])}</span>
         </label>
       ))}
 
@@ -517,8 +498,8 @@ function InstallForm({
               checked={options.gitMode === 'ignore'}
               onChange={() => onChange({ ...options, gitMode: 'ignore' })}
             />
-            Ignorar la memoria
-            <span className="memory-option-hint">recomendado</span>
+            {t('memory.git.ignore')}
+            <span className="memory-option-hint">{t('memory.git.ignoreHint')}</span>
           </label>
           <label className="memory-option">
             <input
@@ -527,14 +508,11 @@ function InstallForm({
               checked={options.gitMode === 'version'}
               onChange={() => onChange({ ...options, gitMode: 'version' })}
             />
-            Versionarla
-            <span className="memory-option-hint">para repos privados</span>
+            {t('memory.git.version')}
+            <span className="memory-option-hint">{t('memory.git.versionHint')}</span>
           </label>
           {git.ignored && options.gitMode === 'version' && (
-            <p className="memory-warning">
-              Este repo ya ignora <code>.agents/memory/</code>. Para versionarla hay que sacar esa
-              regla del <code>.gitignore</code> a mano.
-            </p>
+            <p className="memory-warning">{tRich('memory.git.alreadyIgnored')}</p>
           )}
         </>
       )}
@@ -554,14 +532,14 @@ function InstallForm({
               checked={options.gitMode === 'version'}
               onChange={() => onChange({ ...options, gitMode: 'version' })}
             />
-            No tocar <code>.gitignore</code>
-            <span className="memory-option-hint">git devolvió un error</span>
+            {tRich('memory.git.dontTouch')}
+            <span className="memory-option-hint">{t('memory.git.errorHint')}</span>
           </label>
         </>
       )}
 
       {(status.native.pending > 0 || worktree?.mainHasMemory === true) && (
-        <p className="memory-section-label">Notas existentes</p>
+        <p className="memory-section-label">{t('memory.form.existingNotes')}</p>
       )}
       {status.native.pending > 0 && (
         <label className="memory-option">
@@ -570,7 +548,7 @@ function InstallForm({
             checked={options.importNative}
             onChange={(event) => onChange({ ...options, importNative: event.target.checked })}
           />
-          Importar {plural(status.native.pending, 'nota', 'notas')} de la memoria de Claude Code
+          {t('memory.form.importNative', { count: status.native.pending })}
         </label>
       )}
       {worktree?.mainHasMemory === true && (
@@ -582,7 +560,7 @@ function InstallForm({
               onChange({ ...options, copyFromMainWorktree: event.target.checked })
             }
           />
-          Copiar las notas del worktree principal
+          {t('memory.form.copyFromMain')}
         </label>
       )}
 
@@ -593,17 +571,17 @@ function InstallForm({
           onClick={onPlan}
           title={
             options.instructionFiles.length === 0
-              ? 'Elegí al menos un archivo de instrucciones'
+              ? t('memory.form.noFiles')
               : gitBlocked
-                ? 'Con git en error solo se puede instalar sin tocar .gitignore'
+                ? t('memory.git.blocked')
                 : undefined
           }
         >
-          {busy === 'plan' ? 'Calculando…' : 'Ver cambios'}
+          {busy === 'plan' ? t('memory.form.planning') : t('memory.form.preview')}
         </button>
         {onCancel !== null && (
           <button className="link-button" onClick={onCancel} disabled={busy !== null}>
-            Cancelar
+            {t('common.cancel')}
           </button>
         )}
       </div>
@@ -630,17 +608,20 @@ function PlanReview({
   const installing = busy === 'install';
   return (
     <div className="memory-form">
-      <p className="memory-section-label">Cambios</p>
+      <p className="memory-section-label">{t('memory.plan.changes')}</p>
       {changes.length === 0 ? (
-        <p className="memory-empty">No hay nada que cambiar: el puente ya está al día.</p>
+        <p className="memory-empty">{t('memory.plan.nothing')}</p>
       ) : (
         <ul className="memory-change-list">
           {changes.map((change, index) => (
             <li key={`${change.file}-${index}`} className="memory-change">
               <div className="memory-change-head">
                 <code className="memory-change-file">{change.file}</code>
-                <span className="memory-option-hint">{ACTION_LABELS[change.action]}</span>
+                <span className="memory-option-hint">{t(ACTION_KEYS[change.action])}</span>
               </div>
+              {change.copiedFrom !== null && (
+                <p className="memory-option-hint">{t('memory.plan.copiedFrom', { path: change.copiedFrom })}</p>
+              )}
               {change.preview.length > 0 && (
                 <pre className="memory-preview">{change.preview}</pre>
               )}
@@ -655,11 +636,11 @@ function PlanReview({
             disabled={busy !== null}
             onClick={onConfirm}
           >
-            {installing ? 'Escribiendo…' : confirmLabel}
+            {installing ? t('memory.plan.writing') : confirmLabel}
           </button>
         )}
         <button className="link-button" onClick={onCancel} disabled={installing}>
-          {changes.length === 0 ? 'Volver' : 'Cancelar'}
+          {changes.length === 0 ? t('memory.plan.back') : t('common.cancel')}
         </button>
       </div>
     </div>
@@ -677,12 +658,12 @@ function NoteList({
 }): JSX.Element {
   return (
     <>
-      <p className="memory-section-label">Notas</p>
+      <p className="memory-section-label">{t('memory.list.notes')}</p>
       <ul className="plan-list">
         {indexExists && (
           <li>
             <button className="plan-row" onClick={() => onOpen(MEMORY_INDEX_FILE)}>
-              <span className="plan-name">Índice</span>
+              <span className="plan-name">{t('memory.index')}</span>
               <span className="plan-meta">{MEMORY_INDEX_FILE}</span>
             </button>
           </li>
@@ -695,17 +676,14 @@ function NoteList({
                 <span className="memory-note-description">{note.description}</span>
               )}
               <span className="plan-meta">
-                {formatWhen(note.modifiedAt)} · {formatSize(note.sizeBytes)}
+                {formatWhen(note.modifiedAt)} · {formatBytes(note.sizeBytes)}
               </span>
             </button>
           </li>
         ))}
       </ul>
       {notes.length === 0 && (
-        <p className="memory-empty">
-          Todavía no hay notas. Los agentes las guardan acá cuando aprenden algo que sirve en otra
-          sesión.
-        </p>
+        <p className="memory-empty">{t('memory.list.empty')}</p>
       )}
     </>
   );
@@ -725,11 +703,8 @@ function GlobalMemory({ fragments }: { fragments: MemoryGlobalFragment[] }): JSX
 
   return (
     <details className="memory-global">
-      <summary className="memory-global-summary">Memoria global</summary>
-      <p className="memory-empty">
-        Lo que vale para todos tus proyectos va en <code>~/.agents/global.md</code>. La app no lo
-        escribe: cada CLI lo lee si le agregás su fragmento.
-      </p>
+      <summary className="memory-global-summary">{t('memory.global.title')}</summary>
+      <p className="memory-empty">{tRich('memory.global.intro')}</p>
       {fragments.map((fragment) => (
         <div key={fragment.agent} className="memory-fragment">
           <div className="memory-change-head">
@@ -742,13 +717,11 @@ function GlobalMemory({ fragments }: { fragments: MemoryGlobalFragment[] }): JSX
             <pre className="memory-preview">{fragment.text}</pre>
             <CopyPathButton
               className="icon-button"
-              title="Copiar el fragmento"
+              title={t('memory.global.copy')}
               onCopy={() => copy(fragment.text)}
             />
           </div>
-          {fragment.note.length > 0 && (
-            <p className="memory-fragment-note">{withInlineCode(fragment.note)}</p>
-          )}
+          <p className="memory-fragment-note">{withInlineCode(serverTextMessage(fragment.note))}</p>
         </div>
       ))}
     </details>

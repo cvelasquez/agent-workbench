@@ -52,6 +52,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as es } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'aw-search-'));
 const home = path.join(root, 'home');
@@ -514,7 +520,7 @@ const matchingLines = (count, every = 1) =>
   const refused = await service.search('migracion', { includeArchived: false, signal: notAborted() }).then(() => null, (error) => error);
   release();
   await moving;
-  check('S7 durante una mudanza se rechaza con VaultError', refused instanceof VaultError && /mudando/.test(refused.message), show(refused?.message));
+  check('S7 durante una mudanza se rechaza con VaultError', refused instanceof VaultError && /mudando/.test(es(refused.text)), show(refused?.message));
   offService.dispose();
 }
 
@@ -768,7 +774,7 @@ const matchingLines = (count, every = 1) =>
     parseServerMessage(JSON.stringify({ type: 'search.results', result })) === null);
   check('protocolo: truncated ausente es null', parseGlobalSearchResult({ ...result, truncated: undefined })?.truncated === null);
   check('protocolo: search-failed es un codigo conocido', SERVER_ERROR_CODES.includes('search-failed') &&
-    parseServerMessage(JSON.stringify({ type: 'error', code: 'search-failed', message: 'x', requestId: 's1' }))?.code === 'search-failed');
+    parseServerMessage(JSON.stringify({ type: 'error', code: 'search-failed', text: { key: 'searchFailed' }, requestId: 's1' }))?.code === 'search-failed');
 
   const progress = { query: 'migracion', hits: [hit], sessionsScanned: 1, sessionsTotal: 2 };
   const parsedProgress = parseServerMessage(JSON.stringify({ type: 'search.progress', searchId: 's1', progress }));
@@ -849,7 +855,7 @@ const matchingLines = (count, every = 1) =>
       'Sin resultados en 7 sesiones.',
       'Sin resultados en 1 sesión.',
       'Sin resultados.',
-      '6 aciertos en 3 sesiones: son los primeros, afiná la búsqueda para ver el resto.',
+      '6 aciertos en 3 sesiones: son los primeros, afina la búsqueda para ver el resto.',
       'Sin resultados: la búsqueda se cortó a los 30 s y quedaron 3 sesiones sin mirar.',
       null,
     ]), show(statusTexts));

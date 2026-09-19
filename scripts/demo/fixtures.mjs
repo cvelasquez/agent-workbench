@@ -3,7 +3,7 @@
  *
  * Genera, en una carpeta temporal, todo lo que la app lee de la maquina:
  *
- *   <root>/Proyectos/<nombre>       proyectos inventados; uno con git y cambios
+ *   <root>/Projects/<nombre>        proyectos inventados; uno con git y cambios
  *   <home>/.claude/projects/<slug>  sesiones JSONL sinteticas, con el esquema real,
  *                                   y la memoria nativa de un proyecto
  *   <home>/.codex, .local/share/opencode, .gemini/antigravity-cli
@@ -68,7 +68,7 @@ function commit(cwd, message, when) {
 }
 
 // ---------------------------------------------------------------------------
-// tienda-online: contenido de los archivos
+// online-store: contenido de los archivos
 // ---------------------------------------------------------------------------
 const cartProviderBefore = `import { createContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { CartItem } from './types';
@@ -126,9 +126,9 @@ const cartProviderAfter = cartProviderBefore
   useEffect(() => {
     localStorage.setItem('cart', JSON.stringify(items));
   }, [items]);`,
-    `  // Se lee una sola vez, en el inicializador. Si el estado arrancara en [],
-  // el primer efecto pisaria lo guardado antes de haberlo leido: ese era el
-  // bug que vaciaba el carrito en cada recarga.
+    `  // Read once, in the initializer. If the state started out as [], the
+  // first effect would overwrite what was saved before reading it: that was
+  // the bug that emptied the cart on every reload.
   const [items, setItems] = useState<CartItem[]>(() => loadCart());
 
   useEffect(() => {
@@ -141,7 +141,7 @@ import { CartContext } from './CartProvider';
 
 export function useCart() {
   const context = useContext(CartContext);
-  if (context === null) throw new Error('useCart necesita un CartProvider');
+  if (context === null) throw new Error('useCart needs a CartProvider');
   return context;
 }
 `;
@@ -152,12 +152,12 @@ import { CartContext } from './CartProvider';
 export function useCart() {
   const context = useContext(CartContext);
   if (context === null) {
-    throw new Error('useCart se llamo fuera de <CartProvider>. Envolve la app en App.tsx.');
+    throw new Error('useCart was called outside <CartProvider>. Wrap the app in App.tsx.');
   }
   return context;
 }
 
-/** Cantidad total de unidades, para la pastilla del icono del carrito. */
+/** Total number of units, for the badge on the cart icon. */
 export function useCartCount(): number {
   const { items } = useCart();
   return items.reduce((sum, entry) => sum + entry.quantity, 0);
@@ -169,52 +169,52 @@ import { describe, expect, it } from 'vitest';
 import { CartProvider } from '../src/cart/CartProvider';
 import { useCart } from '../src/cart/useCart';
 
-const polera = { productId: 'p-101', name: 'Polera gris', price: 59.9, quantity: 1 };
+const hoodie = { productId: 'p-101', name: 'Gray hoodie', price: 59.9, quantity: 1 };
 
-describe('carrito', () => {
-  it('agrega un producto', () => {
+describe('cart', () => {
+  it('adds a product', () => {
     const { result } = renderHook(() => useCart(), { wrapper: CartProvider });
-    act(() => result.current.add(polera));
+    act(() => result.current.add(hoodie));
     expect(result.current.items).toHaveLength(1);
   });
 
-  it('suma cantidades del mismo producto', () => {
+  it('adds up quantities of the same product', () => {
     const { result } = renderHook(() => useCart(), { wrapper: CartProvider });
-    act(() => result.current.add(polera));
-    act(() => result.current.add({ ...polera, quantity: 2 }));
+    act(() => result.current.add(hoodie));
+    act(() => result.current.add({ ...hoodie, quantity: 2 }));
     expect(result.current.items[0]?.quantity).toBe(3);
   });
 
-  it('calcula el total', () => {
+  it('computes the total', () => {
     const { result } = renderHook(() => useCart(), { wrapper: CartProvider });
-    act(() => result.current.add({ ...polera, quantity: 2 }));
+    act(() => result.current.add({ ...hoodie, quantity: 2 }));
     expect(result.current.total).toBeCloseTo(119.8);
   });
 });
 `;
 
 const cartTestAfter = cartTestBefore.replace(
-  `  it('calcula el total', () => {`,
-  `  it('sobrevive a una recarga', () => {
+  `  it('computes the total', () => {`,
+  `  it('survives a reload', () => {
     const first = renderHook(() => useCart(), { wrapper: CartProvider });
-    act(() => first.result.current.add(polera));
+    act(() => first.result.current.add(hoodie));
     first.unmount();
 
     const second = renderHook(() => useCart(), { wrapper: CartProvider });
-    expect(second.result.current.items).toEqual([polera]);
+    expect(second.result.current.items).toEqual([hoodie]);
   });
 
-  it('ignora un valor guardado corrupto', () => {
-    localStorage.setItem('tienda.cart', '{no es json');
+  it('ignores a corrupted saved value', () => {
+    localStorage.setItem('store.cart', '{not json');
     const { result } = renderHook(() => useCart(), { wrapper: CartProvider });
     expect(result.current.items).toEqual([]);
   });
 
-  it('calcula el total', () => {`,
+  it('computes the total', () => {`,
 );
 
 const packageBefore = `{
-  "name": "tienda-online",
+  "name": "online-store",
   "private": true,
   "version": "0.4.2",
   "type": "module",
@@ -247,9 +247,9 @@ const TIENDA_FILES = {
   'package.json': packageBefore
     .replace('"vite": "^5.4.8"', '"vite": "^5.3.5"')
     .replace('"vitest": "^2.1.2"', '"vitest": "^1.6.0"'),
-  'README.md': `# Tienda online
+  'README.md': `# Online store
 
-Catalogo, carrito y checkout de la tienda. React + Vite, con Vitest para los tests.
+Catalog, cart and checkout for the store. React + Vite, with Vitest for the tests.
 
 \`\`\`
 npm install
@@ -258,10 +258,10 @@ npm run dev
 `,
   '.gitignore': 'node_modules/\ndist/\n.env\n',
   'index.html': `<!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Tienda</title>
+    <title>Store</title>
   </head>
   <body>
     <div id="root"></div>
@@ -333,29 +333,29 @@ import { byCategory, type Category } from './filters';
 
 export function ProductList() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [category, setCategory] = useState<Category | 'todas'>('todas');
+  const [category, setCategory] = useState<Category | 'all'>('all');
   const { add } = useCart();
 
   useEffect(() => {
     void fetchProducts().then(setProducts);
   }, []);
 
-  const visible = category === 'todas' ? products : products.filter(byCategory(category));
+  const visible = category === 'all' ? products : products.filter(byCategory(category));
 
   return (
     <main>
       <select value={category} onChange={(event) => setCategory(event.target.value as Category)}>
-        <option value="todas">Todas</option>
-        <option value="ropa">Ropa</option>
-        <option value="calzado">Calzado</option>
-        <option value="accesorios">Accesorios</option>
+        <option value="all">All</option>
+        <option value="clothing">Clothing</option>
+        <option value="shoes">Shoes</option>
+        <option value="accessories">Accessories</option>
       </select>
       <ul>
         {visible.map((product) => (
           <li key={product.id}>
-            {product.name} — S/ {product.price.toFixed(2)}
+            {product.name} — \${product.price.toFixed(2)}
             <button onClick={() => add({ productId: product.id, name: product.name, price: product.price, quantity: 1 })}>
-              Agregar
+              Add to cart
             </button>
           </li>
         ))}
@@ -366,7 +366,7 @@ export function ProductList() {
 `,
   'src/catalog/filters.ts': `import type { Product } from '../api/client';
 
-export type Category = 'ropa' | 'calzado' | 'accesorios';
+export type Category = 'clothing' | 'shoes' | 'accessories';
 
 export function byCategory(category: Category) {
   return (product: Product) => product.category === category;
@@ -391,11 +391,11 @@ export function Checkout() {
     setStatus('done');
   }
 
-  if (status === 'done') return <p>Pedido confirmado. Te llega un correo con el detalle.</p>;
+  if (status === 'done') return <p>Order confirmed. You will get an email with the details.</p>;
 
   return (
     <section>
-      <h1>Tu pedido</h1>
+      <h1>Your order</h1>
       <ul>
         {items.map((item) => (
           <li key={item.productId}>
@@ -403,9 +403,9 @@ export function Checkout() {
           </li>
         ))}
       </ul>
-      <p>Total: S/ {total.toFixed(2)}</p>
+      <p>Total: \${total.toFixed(2)}</p>
       <button disabled={items.length === 0 || status === 'sending'} onClick={() => void confirm()}>
-        Confirmar
+        Place order
       </button>
     </section>
   );
@@ -417,7 +417,7 @@ export interface Product {
   id: string;
   name: string;
   price: number;
-  category: 'ropa' | 'calzado' | 'accesorios';
+  category: 'clothing' | 'shoes' | 'accessories';
   featured: boolean;
 }
 
@@ -425,7 +425,7 @@ const BASE = import.meta.env.VITE_API_URL ?? '/api';
 
 export async function fetchProducts(): Promise<Product[]> {
   const response = await fetch(\`\${BASE}/products\`);
-  if (!response.ok) throw new Error(\`No se pudo cargar el catalogo (\${response.status})\`);
+  if (!response.ok) throw new Error(\`Could not load the catalog (\${response.status})\`);
   return (await response.json()) as Product[];
 }
 
@@ -435,7 +435,7 @@ export async function createOrder(items: CartItem[]): Promise<{ orderId: string 
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ items }),
   });
-  if (!response.ok) throw new Error(\`El pedido no se pudo crear (\${response.status})\`);
+  if (!response.ok) throw new Error(\`Could not create the order (\${response.status})\`);
   return (await response.json()) as { orderId: string };
 }
 `,
@@ -445,13 +445,13 @@ export async function createOrder(items: CartItem[]): Promise<{ orderId: string 
 const FILTERS_WITH_COMMENT = {
   'src/catalog/filters.ts': `import type { Product } from '../api/client';
 
-export type Category = 'ropa' | 'calzado' | 'accesorios';
+export type Category = 'clothing' | 'shoes' | 'accessories';
 
 export function byCategory(category: Category) {
   return (product: Product) => product.category === category;
 }
 
-/** Los destacados van primero y se limitan a ocho: es lo que entra en la portada. */
+/** Featured products go first, capped at eight: that is what fits on the home page. */
 export function featured(products: Product[]): Product[] {
   return products.filter((product) => product.featured).slice(0, 8);
 }
@@ -464,9 +464,9 @@ const WORKTREE_FILES = {
   'package.json': packageAfter,
   'src/cart/storage.ts': `import type { CartItem } from './types';
 
-const STORAGE_KEY = 'tienda.cart';
+const STORAGE_KEY = 'store.cart';
 
-/** Lo guardado, o un carrito vacio si no hay nada o no se puede leer. */
+/** What was saved, or an empty cart if there is nothing or it cannot be read. */
 export function loadCart(): CartItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -482,7 +482,7 @@ export function saveCart(items: CartItem[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   } catch {
-    // Sin almacenamiento (modo privado, cuota llena): el carrito vive en memoria.
+    // No storage (private mode, quota exceeded): the cart lives in memory.
   }
 }
 
@@ -497,12 +497,12 @@ function isCartItem(value: unknown): value is CartItem {
   );
 }
 `,
-  'docs/decisiones.md': `# Decisiones
+  'docs/decisions.md': `# Decisions
 
-## El carrito vive en localStorage
+## The cart lives in localStorage
 
-Se guarda con la clave \`tienda.cart\`. Un valor corrupto se descarta en silencio:
-un carrito vacio es mejor que una pantalla en blanco.
+It is saved under the \`store.cart\` key. A corrupted value is silently discarded:
+an empty cart is better than a blank screen.
 `,
 };
 
@@ -511,7 +511,7 @@ function simpleProject(ctx, name, readme, files = {}) {
   mkdirSync(dir, { recursive: true });
   write(dir, { 'README.md': readme, '.gitignore': 'node_modules/\nbin/\nobj/\n', ...files });
   git(dir, 'init', '-q', '-b', 'main');
-  commit(dir, 'chore: estructura inicial', ctx.now - 20 * DAY);
+  commit(dir, 'chore: initial project structure', ctx.now - 20 * DAY);
   return dir;
 }
 
@@ -711,7 +711,7 @@ function quick(ctx, cwd, branch, ago, prompt, answer, title) {
 
 /** La conversacion que se ve en la captura principal. */
 const MAIN_STEPS = [
-  { u: 'Antes de tocar nada: contame como esta organizado el carrito y que tests tiene.' },
+  { u: 'Before touching anything: tell me how the cart is organized and what tests it has.' },
   {
     tool: 'Read',
     input: { file_path: 'src/cart/CartProvider.tsx' },
@@ -729,19 +729,19 @@ const MAIN_STEPS = [
       .join('\n'),
   },
   {
-    a: `El carrito son tres archivos en \`src/cart/\`:
+    a: `The cart is three files in \`src/cart/\`:
 
-- **\`CartProvider.tsx\`** — el estado. Un \`useState\` con la lista de items y un contexto que expone \`add\`, \`remove\`, \`clear\` y \`total\`.
-- **\`useCart.ts\`** — el hook que consumen el catálogo y el checkout.
+- **\`CartProvider.tsx\`** — the state. A \`useState\` with the list of items and a context that exposes \`add\`, \`remove\`, \`clear\` and \`total\`.
+- **\`useCart.ts\`** — the hook that the catalog and the checkout consume.
 - **\`types.ts\`** — \`CartItem\`: \`productId\`, \`name\`, \`price\`, \`quantity\`.
 
-Los tests están en \`tests/cart.test.ts\` y son tres: agregar un producto, sumar cantidades del mismo producto y calcular el total. Ninguno cubre lo que pasa al recargar la página.`,
+The tests live in \`tests/cart.test.ts\` and there are three: adding a product, adding up quantities of the same product and computing the total. None of them covers what happens when the page reloads.`,
   },
   { turn: 48_310 },
   {
-    u: 'El carrito se vacía cuando el usuario recarga la página. Revisá `src/cart/` y arreglalo: los productos tienen que sobrevivir a la recarga.',
+    u: 'The cart empties when the user reloads the page. Look at `src/cart/` and fix it: the products have to survive a reload.',
   },
-  { a: 'Voy a ver cómo se guarda el estado antes de tocar nada.' },
+  { a: 'Let me check how the state is saved before touching anything.' },
   {
     tool: 'Grep',
     input: { pattern: 'localStorage|sessionStorage', path: 'src' },
@@ -771,7 +771,7 @@ Los tests están en \`tests/cart.test.ts\` y son tres: agregar un producto, suma
     result: '     1\timport { useState } from \'react\';\n     2\timport { createOrder } from \'../api/client\';\n     3\t…',
   },
   {
-    a: `Encontré la causa. \`CartProvider\` escribe en \`localStorage\` cada vez que cambia el carrito, pero el estado inicial es \`[]\`: al recargar, el primer render **pisa lo guardado con un carrito vacío** antes de haberlo leído.
+    a: `Found the cause. \`CartProvider\` writes to \`localStorage\` every time the cart changes, but the initial state is \`[]\`: on reload, the first render **overwrites what was saved with an empty cart** before it has read it.
 
 \`\`\`tsx
 const [items, setItems] = useState<CartItem[]>([]);
@@ -781,13 +781,13 @@ localStorage.setItem('cart', JSON.stringify(items));
 }, [items]);
 \`\`\`
 
-El arreglo es leer el valor guardado en el inicializador de \`useState\`, y mover la lectura y la escritura a un módulo aparte para que el proveedor no sepa nada de \`localStorage\`. Un valor corrupto se descarta en silencio: un carrito vacío es mejor que una pantalla en blanco.`,
+The fix is to read the saved value in the \`useState\` initializer, and to move reading and writing into a separate module so the provider knows nothing about \`localStorage\`. A corrupted value is silently discarded: an empty cart is better than a blank screen.`,
   },
   {
     tool: 'Write',
     input: {
       file_path: 'src/cart/storage.ts',
-      content: "import type { CartItem } from './types';\n\nconst STORAGE_KEY = 'tienda.cart';\n\nexport function loadCart(): CartItem[] {\n  …\n}\n",
+      content: "import type { CartItem } from './types';\n\nconst STORAGE_KEY = 'store.cart';\n\nexport function loadCart(): CartItem[] {\n  …\n}\n",
     },
     result: 'File created successfully at: src/cart/storage.ts',
   },
@@ -804,15 +804,15 @@ El arreglo es leer el valor guardado en el inicializador de \`useState\`, y move
     tool: 'Edit',
     input: {
       file_path: 'tests/cart.test.ts',
-      old_string: "  it('calcula el total', () => {",
-      new_string: "  it('sobrevive a una recarga', () => {\n    …\n  });\n\n  it('calcula el total', () => {",
+      old_string: "  it('computes the total', () => {",
+      new_string: "  it('survives a reload', () => {\n    …\n  });\n\n  it('computes the total', () => {",
     },
     result: 'The file tests/cart.test.ts has been updated successfully.',
   },
   {
     tool: 'Bash',
-    input: { command: 'npm test -- cart', description: 'Correr los tests del carrito' },
-    result: `> tienda-online@0.4.3 test
+    input: { command: 'npm test -- cart', description: 'Run the cart tests' },
+    result: `> online-store@0.4.3 test
 > vitest run cart
 
  ✓ tests/cart.test.ts (5 tests) 212ms
@@ -822,29 +822,29 @@ El arreglo es leer el valor guardado en el inicializador de \`useState\`, y move
  Duration  1.94s`,
   },
   {
-    a: `Listo. Los cinco tests del carrito pasan, incluidos dos nuevos: uno desmonta el proveedor, lo vuelve a montar y comprueba que los productos siguen ahí; el otro guarda basura en \`localStorage\` y espera un carrito vacío en vez de una excepción.
+    a: `Done. All five cart tests pass, including two new ones: one unmounts the provider, mounts it again and checks that the products are still there; the other saves garbage to \`localStorage\` and expects an empty cart instead of an exception.
 
-Qué cambió:
+What changed:
 
-- \`src/cart/storage.ts\` (nuevo): \`loadCart()\` y \`saveCart()\`, con la clave \`tienda.cart\`.
-- \`src/cart/CartProvider.tsx\`: el estado arranca con \`loadCart()\` en vez de \`[]\`.
-- \`tests/cart.test.ts\`: los dos casos de arriba.
+- \`src/cart/storage.ts\` (new): \`loadCart()\` and \`saveCart()\`, under the \`store.cart\` key.
+- \`src/cart/CartProvider.tsx\`: the state starts with \`loadCart()\` instead of \`[]\`.
+- \`tests/cart.test.ts\`: the two cases above.
 
-Una decisión antes de cerrar:`,
+One decision before wrapping up:`,
   },
   {
     ask: {
-      question: '¿El carrito tiene que sobrevivir también al cerrar el navegador, o solo a la recarga?',
-      header: 'Persistencia',
+      question: 'Should the cart also survive closing the browser, or only a reload?',
+      header: 'Persistence',
       multiSelect: false,
       options: [
         {
-          label: 'También al cerrar el navegador',
-          description: 'localStorage: el carrito queda hasta que el usuario lo vacíe o compre.',
+          label: 'Also after closing the browser',
+          description: 'localStorage: the cart stays until the user empties it or checks out.',
         },
         {
-          label: 'Solo a la recarga',
-          description: 'sessionStorage: se pierde al cerrar la pestaña. Más privado en una computadora compartida.',
+          label: 'Only across reloads',
+          description: 'sessionStorage: it is lost when the tab closes. More private on a shared computer.',
         },
       ],
     },
@@ -858,68 +858,67 @@ Una decisión antes de cerrar:`,
  * el panel lista los de la sesion que se esta mirando. Sin uno en los datos de
  * demo, la solapa sale siempre vacia.
  */
-const DEMO_PLAN_FILE = 'carrito-persistente-storage.md';
-const DEMO_PLAN = `# Plan: que el carrito sobreviva a la recarga
+const DEMO_PLAN_FILE = 'persistent-cart-storage.md';
+const DEMO_PLAN = `# Plan: make the cart survive a reload
 
-## Contexto
+## Context
 
-El carrito vive solo en memoria (\`useState\` en \`CartProvider\`), asi que una
-recarga lo vacia. Paso en produccion con un carrito de nueve productos y el
-usuario lo reporto como "se borro solo".
+The cart lives only in memory (\`useState\` in \`CartProvider\`), so a reload
+empties it. It happened in production with a cart of nine products, and the
+user reported it as "it deleted itself".
 
-## Que se toca
+## What changes
 
-| Archivo | Cambio |
+| File | Change |
 |---|---|
-| \`src/cart/CartProvider.tsx\` | leer el estado inicial de \`localStorage\` |
-| \`src/cart/storage.ts\` | nuevo: leer, escribir y validar lo guardado |
-| \`tests/cart.test.ts\` | dos casos: recarga con items y storage corrupto |
+| \`src/cart/CartProvider.tsx\` | read the initial state from \`localStorage\` |
+| \`src/cart/storage.ts\` | new: read, write and validate what was saved |
+| \`tests/cart.test.ts\` | two cases: reload with items and corrupted storage |
 
-## Decisiones
+## Decisions
 
-- **\`localStorage\` y no una cookie.** El carrito no viaja al servidor en cada
-  peticion y son varios KB; una cookie los mandaria en todas.
-- **Lo guardado se valida al leer.** Un carrito de una version anterior —o
-  editado a mano— no puede romper la portada: si no tiene la forma esperada,
-  se descarta y se arranca vacio.
-- **Se guarda el id y la cantidad, no el producto entero.** El precio y el stock
-  se piden de nuevo al cargar: guardarlos deja al usuario mirando un precio que
-  ya no existe.
+- **\`localStorage\`, not a cookie.** The cart has no reason to reach the server
+  on every request, and it is several KB; a cookie would send it with all of them.
+- **What was saved is validated on read.** A cart from an older version —or
+  edited by hand— cannot break the home page: if it does not have the expected
+  shape, it is discarded and the cart starts empty.
+- **Only the id and the quantity are saved, not the whole product.** Price and
+  stock are fetched again on load: saving them leaves the user looking at a
+  price that no longer exists.
 
-## Lo que queda afuera
+## Out of scope
 
-Sincronizar el carrito entre dispositivos. Eso necesita cuenta de usuario y es
-otro trabajo.
+Syncing the cart across devices. That needs a user account and is a separate
+piece of work.
 `;
 
-/** La memoria nativa de Claude Code de tienda-online: dos notas y su indice. */
+/** La memoria nativa de Claude Code de online-store: dos notas y su indice. */
 const NATIVE_MEMORY = {
-  'MEMORY.md': `- [Precios en soles](precios-en-soles.md) — todo precio se muestra con S/ y dos decimales
-- [Tests del carrito](tests-del-carrito.md) — correr npm test -- cart antes de tocar src/cart
+  'MEMORY.md': `- [Prices in dollars](prices-in-dollars.md) — every price is shown with $ and two decimals
+- [Cart tests](cart-tests.md) — run npm test -- cart before touching src/cart
 `,
-  'precios-en-soles.md': `---
-name: Precios en soles
-description: Todo precio se muestra con S/ y dos decimales, también los descuentos
+  'prices-in-dollars.md': `---
+name: Prices in dollars
+description: Every price is shown with $ and two decimals, discounts included
 ---
 
-El formato vive en \`formatPrice\`. Un precio con descuento se redondea antes de
-mostrarlo: un cliente reclamó por un S/ 59.899999.
+The format lives in \`formatPrice\`. A discounted price is rounded before it is
+shown: a customer complained about a price of $59.899999.
 `,
-  'tests-del-carrito.md': `---
-name: Tests del carrito
-description: Correr npm test -- cart antes de tocar src/cart
+  'cart-tests.md': `---
+name: Cart tests
+description: Run npm test -- cart before touching src/cart
 ---
 
-Los tests del carrito desmontan y vuelven a montar el proveedor para probar la
-recarga. Si fallan después de un cambio en \`storage.ts\`, revisar la clave
-\`tienda.cart\`.
+The cart tests unmount and remount the provider to test a reload. If they fail
+after a change in \`storage.ts\`, check the \`store.cart\` key.
 `,
 };
 
 /**
  * @param {{ root: string, home: string, homeView?: string, bin: string, configDir: string, projectsRoot: string }} dirs
- *   `projectsRoot` es la ruta con la que la app va a ver `<root>/Proyectos`
- *   (`W:\Proyectos` en Windows), y es la que se escribe en el `cwd` del JSONL.
+ *   `projectsRoot` es la ruta con la que la app va a ver `<root>/Projects`
+ *   (`W:\Projects` en Windows), y es la que se escribe en el `cwd` del JSONL.
  *   `homeView`, lo mismo para el home (`W:\home`): la ruta que se escribe dentro
  *   de los archivos. `configDir` es donde se escribe `workspace.json`.
  * @returns {{ mainCwd: string, tabs: Array<{agent: string, cwd: string, sessionId: string, label: string}> }}
@@ -930,7 +929,7 @@ export function buildFixtures(dirs) {
   const homeView = dirs.homeView ?? dirs.home;
   const bin = dirs.bin;
   const now = Date.now();
-  const projectsDir = path.join(root, 'Proyectos');
+  const projectsDir = path.join(root, 'Projects');
   const ctx = { home, now, projectsDir };
 
   for (const dir of [root, home, bin]) rmSync(dir, { recursive: true, force: true });
@@ -969,46 +968,46 @@ export function buildFixtures(dirs) {
     ].join('\r\n'),
   );
 
-  // tienda-online: el proyecto que se ve en los paneles.
-  const tienda = path.join(projectsDir, 'tienda-online');
+  // online-store: el proyecto que se ve en los paneles.
+  const tienda = path.join(projectsDir, 'online-store');
   mkdirSync(tienda, { recursive: true });
   write(tienda, TIENDA_FILES);
   git(tienda, 'init', '-q', '-b', 'main');
-  commit(tienda, 'feat: catalogo con filtro por categoria', now - 9 * DAY);
+  commit(tienda, 'feat: catalog with a category filter', now - 9 * DAY);
   write(tienda, FILTERS_WITH_COMMENT);
-  commit(tienda, 'perf: los destacados se limitan a ocho en la portada', now - 6 * DAY);
+  commit(tienda, 'perf: cap featured products at eight on the home page', now - 6 * DAY);
   write(tienda, { 'package.json': packageBefore });
-  commit(tienda, 'chore: actualizar vite y vitest', now - 3 * DAY);
-  git(tienda, 'checkout', '-q', '-b', 'feat/carrito-persistente');
+  commit(tienda, 'chore: update vite and vitest', now - 3 * DAY);
+  git(tienda, 'checkout', '-q', '-b', 'feat/persistent-cart');
   // Estado del arbol de trabajo: un archivo preparado, dos sin preparar, dos sin seguimiento.
   write(tienda, { 'tests/cart.test.ts': cartTestAfter });
   git(tienda, 'add', 'tests/cart.test.ts');
   write(tienda, WORKTREE_FILES);
 
   // El resto: solo para que la barra lateral tenga con que llenarse.
-  simpleProject(ctx, 'api-facturacion', '# API de facturacion\n\nEmision de comprobantes electronicos.\n', {
+  simpleProject(ctx, 'invoicing-api', '# Invoicing API\n\nIssues electronic invoices.\n', {
     'src/Program.cs': 'var builder = WebApplication.CreateBuilder(args);\nvar app = builder.Build();\napp.MapControllers();\napp.Run();\n',
   });
-  simpleProject(ctx, 'portal-clientes', '# Portal de clientes\n\nAutoservicio: estados de cuenta, tickets y datos de contacto.\n');
-  simpleProject(ctx, 'app-reservas', '# App de reservas\n\nReserva de salas y recordatorios.\n');
-  simpleProject(ctx, 'inventario', '# Inventario\n\nStock, movimientos y valorizacion.\n', {
-    'src/importar.py': 'import openpyxl\n\n\ndef leer_planilla(ruta: str) -> list[dict]:\n    libro = openpyxl.load_workbook(ruta, read_only=True)\n    hoja = libro.active\n    filas = hoja.iter_rows(min_row=2, values_only=True)\n    return [{"sku": f[0], "cantidad": f[1]} for f in filas if f[0]]\n',
+  simpleProject(ctx, 'customer-portal', '# Customer portal\n\nSelf-service: account statements, tickets and contact details.\n');
+  simpleProject(ctx, 'booking-app', '# Booking app\n\nRoom bookings and reminders.\n');
+  simpleProject(ctx, 'inventory', '# Inventory\n\nStock, movements and valuation.\n', {
+    'src/importer.py': 'import openpyxl\n\n\ndef read_sheet(path: str) -> list[dict]:\n    workbook = openpyxl.load_workbook(path, read_only=True)\n    sheet = workbook.active\n    rows = sheet.iter_rows(min_row=2, values_only=True)\n    return [{"sku": r[0], "quantity": r[1]} for r in rows if r[0]]\n',
   });
-  simpleProject(ctx, 'dashboard-ventas', '# Dashboard de ventas\n\nGraficos mensuales y comparacion anual.\n');
+  simpleProject(ctx, 'sales-dashboard', '# Sales dashboard\n\nMonthly charts and year-over-year comparison.\n');
 
-  const TIENDA = path.join(dirs.projectsRoot, 'tienda-online');
-  const FACTURACION = path.join(dirs.projectsRoot, 'api-facturacion');
-  const PORTAL = path.join(dirs.projectsRoot, 'portal-clientes');
-  const RESERVAS = path.join(dirs.projectsRoot, 'app-reservas');
-  const INVENTARIO = path.join(dirs.projectsRoot, 'inventario');
-  const DASHBOARD = path.join(dirs.projectsRoot, 'dashboard-ventas');
+  const TIENDA = path.join(dirs.projectsRoot, 'online-store');
+  const FACTURACION = path.join(dirs.projectsRoot, 'invoicing-api');
+  const PORTAL = path.join(dirs.projectsRoot, 'customer-portal');
+  const RESERVAS = path.join(dirs.projectsRoot, 'booking-app');
+  const INVENTARIO = path.join(dirs.projectsRoot, 'inventory');
+  const DASHBOARD = path.join(dirs.projectsRoot, 'sales-dashboard');
 
   // La conversacion principal.
   const main = session(ctx, {
     cwd: TIENDA,
-    branch: 'feat/carrito-persistente',
+    branch: 'feat/persistent-cart',
     startAt: now - 34 * MIN,
-    title: 'El carrito pierde los productos al recargar',
+    title: 'Cart loses its products on reload',
     contextStart: 21_300,
     steps: MAIN_STEPS,
   });
@@ -1045,36 +1044,36 @@ export function buildFixtures(dirs) {
   */
   utimesSync(mainFile, mainWritten, mainWritten);
 
-  // --- El resto de tienda-online ----------------------------------------------
-  quick(ctx, TIENDA, 'main', 2 * DAY + 3 * HOUR, 'Agregá un filtro por categoría al catálogo, arriba de la lista.', 'Agregué el `<select>` con las tres categorías en `ProductList.tsx` y la función `byCategory` en `filters.ts`. El filtro se aplica en memoria sobre lo que ya bajó del API.');
-  quick(ctx, TIENDA, 'feat/pasarela', 3 * DAY + 5 * HOUR, 'Migrá el checkout a la nueva pasarela de pagos. La documentación está en docs/pasarela.md.', 'Reemplacé el cliente viejo por `PaymentGateway` y dejé el anterior detrás de una variable de entorno para poder volver atrás. Falta probar contra el sandbox con tarjeta real.');
-  quick(ctx, TIENDA, 'main', 5 * DAY + HOUR, 'Escribí tests para el servicio de cupones: porcentaje, monto fijo y cupón vencido.', 'Cinco tests en `tests/coupons.test.ts`. El de cupón vencido encontró un bug: se comparaba la fecha como string.');
-  quick(ctx, TIENDA, 'main', 6 * DAY + 7 * HOUR, 'La consulta de productos destacados tarda dos segundos en la portada. ¿Qué pasa?', 'Se traía el catálogo entero y se filtraba en el navegador. Ahora el API expone `/products?featured=1` y la portada pide solo eso: de 2,1 s a 140 ms.');
-  quick(ctx, TIENDA, 'main', 8 * DAY + 2 * HOUR, 'Revisá la accesibilidad del formulario de registro.', 'Tres problemas: campos sin `label`, error de validación que no se anuncia y contraste insuficiente en el botón deshabilitado. Los tres arreglados.');
-  quick(ctx, TIENDA, 'main', 12 * DAY + 4 * HOUR, 'Actualizá las dependencias y arreglá el build.', 'Vite 5.4 y Vitest 2.1. El build rompía por un `import.meta.env` tipado con `any`; quedó declarado en `vite-env.d.ts`.');
+  // --- El resto de online-store -----------------------------------------------
+  quick(ctx, TIENDA, 'main', 2 * DAY + 3 * HOUR, 'Add a category filter to the catalog, above the list.', 'I added the `<select>` with the three categories in `ProductList.tsx` and the `byCategory` function in `filters.ts`. The filter runs in memory over what the API already returned.');
+  quick(ctx, TIENDA, 'feat/payment-gateway', 3 * DAY + 5 * HOUR, 'Move the checkout to the new payment gateway. The docs are in docs/payment-gateway.md.', 'I replaced the old client with `PaymentGateway` and kept the previous one behind an environment variable so we can roll back. It still needs a run against the sandbox with a real card.');
+  quick(ctx, TIENDA, 'main', 5 * DAY + HOUR, 'Write tests for the coupon service: percentage, fixed amount and expired coupon.', 'Five tests in `tests/coupons.test.ts`. The expired-coupon one found a bug: the date was compared as a string.');
+  quick(ctx, TIENDA, 'main', 6 * DAY + 7 * HOUR, 'The featured products query takes two seconds on the home page. What is going on?', 'It fetched the whole catalog and filtered it in the browser. Now the API exposes `/products?featured=1` and the home page asks only for that: from 2.1 s down to 140 ms.');
+  quick(ctx, TIENDA, 'main', 8 * DAY + 2 * HOUR, 'Review the accessibility of the sign-up form.', 'Three problems: fields without a `label`, a validation error that is never announced and poor contrast on the disabled button. All three are fixed.');
+  quick(ctx, TIENDA, 'main', 12 * DAY + 4 * HOUR, 'Update the dependencies and fix the build.', 'Vite 5.4 and Vitest 2.1. The build broke on an `import.meta.env` typed as `any`; it is now declared in `vite-env.d.ts`.');
 
-  // --- api-facturacion --------------------------------------------------------
-  quick(ctx, FACTURACION, 'main', DAY + 6 * HOUR, 'Generá el PDF de la factura con el logo del cliente arriba a la izquierda.', 'El logo se lee de `clientes.logo_path` y se escala a 140 px de ancho. Si no hay logo, el espacio se deja en blanco para que la numeración no se mueva.');
-  quick(ctx, FACTURACION, 'main', 4 * DAY + 3 * HOUR, 'Cuando SUNAT no responde, el envío falla y no se reintenta. Implementá reintentos con espera exponencial.', 'Tres reintentos: 2, 8 y 32 segundos. Después de eso el comprobante queda en estado `pendiente` y lo levanta el job de la noche.');
-  quick(ctx, FACTURACION, 'main', 9 * DAY + HOUR, 'La numeración correlativa se repite cuando dos facturas se emiten al mismo tiempo.', 'Era una lectura y escritura sin transacción. Ahora el correlativo se toma con `UPDATE … OUTPUT` en una sola sentencia.');
+  // --- invoicing-api ----------------------------------------------------------
+  quick(ctx, FACTURACION, 'main', DAY + 6 * HOUR, 'Generate the invoice PDF with the customer logo in the top left corner.', 'The logo is read from `customers.logo_path` and scaled to 140 px wide. Without a logo, the space is left blank so the numbering does not move.');
+  quick(ctx, FACTURACION, 'main', 4 * DAY + 3 * HOUR, 'When the tax authority API does not respond, the submission fails and is never retried. Add retries with exponential backoff.', 'Three retries: 2, 8 and 32 seconds. After that the invoice stays in the `pending` state and the nightly job picks it up.');
+  quick(ctx, FACTURACION, 'main', 9 * DAY + HOUR, 'Invoice numbers repeat when two invoices are issued at the same time.', 'It was a read and a write without a transaction. Now the next number is taken with `UPDATE … OUTPUT` in a single statement.');
 
-  // --- portal-clientes --------------------------------------------------------
-  quick(ctx, PORTAL, 'main', 3 * HOUR + 12 * MIN, 'Implementá el login con código de un solo uso enviado por correo.', 'Código de seis dígitos, válido diez minutos, un solo intento por minuto. La plantilla del correo está en `templates/login-code.html`.');
-  quick(ctx, PORTAL, 'main', 2 * DAY + 2 * HOUR, 'Los estados de cuenta tienen que poder descargarse en PDF desde el portal.', 'Nuevo endpoint `GET /cuentas/:id/estado.pdf`. Se genera al vuelo y se cachea una hora por cliente.');
-  quick(ctx, PORTAL, 'main', 7 * DAY + 5 * HOUR, 'Armá el panel de tickets de soporte: lista, filtro por estado y detalle.', 'Tres vistas y el filtro en la URL para que se pueda compartir el enlace. Falta el adjunto de archivos, que depende del almacenamiento nuevo.');
+  // --- customer-portal --------------------------------------------------------
+  quick(ctx, PORTAL, 'main', 3 * HOUR + 12 * MIN, 'Implement login with a one-time code sent by email.', 'A six-digit code, valid for ten minutes, one attempt per minute. The email template is in `templates/login-code.html`.');
+  quick(ctx, PORTAL, 'main', 2 * DAY + 2 * HOUR, 'Account statements need to be downloadable as PDF from the portal.', 'New endpoint `GET /accounts/:id/statement.pdf`. It is generated on the fly and cached for an hour per customer.');
+  quick(ctx, PORTAL, 'main', 7 * DAY + 5 * HOUR, 'Build the support tickets panel: list, filter by status and detail.', 'Three views, with the filter in the URL so the link can be shared. File attachments are still missing: they depend on the new storage.');
 
-  // --- app-reservas -----------------------------------------------------------
-  quick(ctx, RESERVAS, 'main', DAY + 4 * HOUR, 'Mostrá un calendario con la disponibilidad de cada sala.', 'Vista semanal con una columna por sala. Los bloques ocupados salen del API y los libres se calculan en el cliente.');
-  quick(ctx, RESERVAS, 'main', 5 * DAY + 2 * HOUR, 'Mandá un recordatorio por WhatsApp un día antes de cada reserva.', 'Job diario a las 9:00 que busca las reservas de mañana y las manda por la plantilla aprobada. Se registra cada envío para no repetirlo.');
+  // --- booking-app ------------------------------------------------------------
+  quick(ctx, RESERVAS, 'main', DAY + 4 * HOUR, 'Show a calendar with the availability of each room.', 'Weekly view with one column per room. Booked slots come from the API and free ones are computed on the client.');
+  quick(ctx, RESERVAS, 'main', 5 * DAY + 2 * HOUR, 'Send an SMS reminder one day before each booking.', 'A daily job at 9:00 looks up the bookings for tomorrow and sends each reminder with the approved template. Every send is logged so it is never repeated.');
 
-  // --- inventario -------------------------------------------------------------
-  quick(ctx, INVENTARIO, 'main', 2 * DAY + 5 * HOUR, 'Alertas por correo cuando un producto baja del stock mínimo.', 'Se dispara al confirmar cada salida. Una alerta por producto por día, para no llenar la casilla.');
-  quick(ctx, INVENTARIO, 'main', 4 * DAY + HOUR, 'Historial de movimientos por producto, con filtro por fechas.', 'Tabla paginada sobre `movimientos`, con índice nuevo por `(producto_id, fecha)`. La consulta bajó de 900 ms a 30 ms.');
-  quick(ctx, INVENTARIO, 'main', 6 * DAY + 3 * HOUR, 'Imprimí el código de barras en la etiqueta del producto.', 'Code 128 con `python-barcode`, en la esquina inferior de la etiqueta de 50×30 mm.');
-  quick(ctx, INVENTARIO, 'main', 10 * DAY + 2 * HOUR, 'Reporte de valorización del inventario a una fecha.', 'Costo promedio ponderado a la fecha elegida. Se exporta a Excel con una hoja por almacén.');
+  // --- inventory --------------------------------------------------------------
+  quick(ctx, INVENTARIO, 'main', 2 * DAY + 5 * HOUR, 'Email alerts when a product drops below the minimum stock.', 'It fires when each outgoing movement is confirmed. One alert per product per day, so the inbox does not fill up.');
+  quick(ctx, INVENTARIO, 'main', 4 * DAY + HOUR, 'Movement history per product, with a date filter.', 'Paginated table over `movements`, with a new index on `(product_id, date)`. The query went from 900 ms to 30 ms.');
+  quick(ctx, INVENTARIO, 'main', 6 * DAY + 3 * HOUR, 'Print the barcode on the product label.', 'Code 128 with `python-barcode`, in the bottom corner of the 50×30 mm label.');
+  quick(ctx, INVENTARIO, 'main', 10 * DAY + 2 * HOUR, 'Inventory valuation report as of a given date.', 'Weighted average cost as of the chosen date. It exports to Excel with one sheet per warehouse.');
 
-  // --- dashboard-ventas -------------------------------------------------------
-  quick(ctx, DASHBOARD, 'main', 3 * DAY + 6 * HOUR, 'Gráfico de ventas por mes con la comparación contra el año anterior.', 'Barras del año actual y línea del anterior, con el mismo eje. Los meses sin datos se dibujan en cero en vez de saltearse.');
+  // --- sales-dashboard --------------------------------------------------------
+  quick(ctx, DASHBOARD, 'main', 3 * DAY + 6 * HOUR, 'Monthly sales chart compared against the previous year.', 'Bars for the current year and a line for the previous one, on the same axis. Months without data are drawn at zero instead of being skipped.');
 
   // --- Las otras tres CLIs, repartidas entre los mismos proyectos -------------
   const { codexTab, openCodeTab, antigravityTab } = buildOtherClis({
@@ -1092,7 +1091,7 @@ export function buildFixtures(dirs) {
   });
 
   /*
-    La memoria nativa de tienda-online, en la carpeta de la CLI: es lo que la
+    La memoria nativa de online-store, en la carpeta de la CLI: es lo que la
     solapa Memoria ofrece importar al instalar la memoria compartida.
   */
   write(path.join(home, '.claude', 'projects', slugFor(TIENDA), 'memory'), NATIVE_MEMORY);
@@ -1104,9 +1103,9 @@ export function buildFixtures(dirs) {
   */
   const tabs = [
     { agent: 'claude-code', cwd: main.cwd, sessionId: main.sessionId, label: main.title },
-    { agent: 'codex', cwd: codexTab.cwd, sessionId: codexTab.sessionId, label: 'Validar el RUC antes de emitir' },
-    { agent: 'opencode', cwd: openCodeTab.cwd, sessionId: openCodeTab.sessionId, label: 'Importar stock desde Excel' },
-    { agent: 'antigravity', cwd: antigravityTab.cwd, sessionId: antigravityTab.sessionId, label: 'Filtro por región en ventas' },
+    { agent: 'codex', cwd: codexTab.cwd, sessionId: codexTab.sessionId, label: 'Validate the tax ID before issuing' },
+    { agent: 'opencode', cwd: openCodeTab.cwd, sessionId: openCodeTab.sessionId, label: 'Import stock from Excel' },
+    { agent: 'antigravity', cwd: antigravityTab.cwd, sessionId: antigravityTab.sessionId, label: 'Region filter for sales' },
   ];
   writeFileSync(
     path.join(dirs.configDir, 'workspace.json'),

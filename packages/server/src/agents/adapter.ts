@@ -33,6 +33,7 @@ import type {
   ImageReferenceStyle,
   PermissionMode,
   PlanContent,
+  ServerText,
   SessionPlan,
   SessionSummary,
   StatusLineSetupInfo,
@@ -603,8 +604,8 @@ export interface AgentAdapter {
   readonly input: AgentInput;
 
   locate(): Promise<CliLocation | null>;
-  /** Texto cuando no esta. */
-  missingMessage(): string;
+  /** Que decir cuando no esta, como clave: la frase la arma la web (§6.23). */
+  missingMessage(): ServerText;
   /**
    * Que se lanza. Puede ser asincrono (hito 29, D23): la CLI que crea la sesion
    * por su API antes de lanzar. El registro lo espera con la entrada marcada

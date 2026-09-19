@@ -21,17 +21,19 @@
 import { useEffect } from 'react';
 import type { AgentInfo } from '@agent-workbench/shared';
 import { AGENT_UI, composerShortcuts, type Shortcut } from './agent-ui.js';
+import { t } from './i18n/index.js';
+import { tRich } from './i18n/rich.js';
 
-const APP_SHORTCUTS: readonly Shortcut[] = [
-  { keys: 'Alt + T', description: 'Nueva pestaña en el directorio de la pestaña actual' },
-  { keys: 'Alt + W', description: 'Cerrar la pestaña activa' },
-  { keys: 'Alt + ← / →', description: 'Pestaña anterior / siguiente (también Alt + RePág / AvPág)' },
-  { keys: 'Alt + P', description: 'Mostrar u ocultar el panel derecho' },
-  {
-    keys: 'Shift + Tab',
-    description: 'Volver a la pestaña anterior (fuera de la terminal: adentro es de la CLI)',
-  },
-];
+/** Los atajos de la app. Una funcion y no una constante: se traducen al leerlos. */
+function appShortcuts(): readonly Shortcut[] {
+  return [
+    { keys: 'Alt + T', description: t('shortcuts.app.newTab') },
+    { keys: 'Alt + W', description: t('shortcuts.app.closeTab') },
+    { keys: 'Alt + ← / →', description: t('shortcuts.app.switchTab') },
+    { keys: 'Alt + P', description: t('shortcuts.app.togglePanel') },
+    { keys: 'Shift + Tab', description: t('shortcuts.app.previousTab') },
+  ];
+}
 
 /*
   Las teclas del cuadro de escritura salen de `composerShortcuts` y las de la
@@ -73,33 +75,29 @@ export function ShortcutsDialog({ agent, onClose }: ShortcutsDialogProps): JSX.E
       <div
         className="modal"
         role="dialog"
-        aria-label="Atajos de teclado"
+        aria-label={t('shortcuts.ariaLabel')}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="modal-header">
-          <span className="modal-title">Atajos</span>
-          <button className="icon-button" onClick={onClose} title="Cerrar">
+          <span className="modal-title">{t('shortcuts.title')}</span>
+          <button className="icon-button" onClick={onClose} title={t('common.close')}>
             ×
           </button>
         </header>
 
         <div className="modal-body">
-          <h3 className="modal-section">De la aplicación</h3>
-          <ShortcutList shortcuts={APP_SHORTCUTS} />
+          <h3 className="modal-section">{t('shortcuts.section.app')}</h3>
+          <ShortcutList shortcuts={appShortcuts()} />
 
-          <h3 className="modal-section">En el cuadro de escritura</h3>
+          <h3 className="modal-section">{t('shortcuts.section.composer')}</h3>
           <ShortcutList
             shortcuts={composerShortcuts(agent !== null && agent.capabilities.imagesByPath !== null)}
           />
 
           {agent !== null && (
             <>
-              <h3 className="modal-section">De la CLI, dentro de la terminal</h3>
-              <p className="modal-hint">
-                Estas las maneja la CLI. La aplicación no las intercepta: le llegan tal cual. En la
-                terminal, el salto de línea sigue siendo <kbd>Ctrl + J</kbd> y la imagen se pega
-                con <kbd>Alt + V</kbd>; el cuadro de escritura es el que tiene las teclas de arriba.
-              </p>
+              <h3 className="modal-section">{t('shortcuts.section.cli')}</h3>
+              <p className="modal-hint">{tRich('shortcuts.cliHint')}</p>
               <ShortcutList shortcuts={AGENT_UI[agent.id].shortcuts} />
               {/* Las teclas que la CLI tiene y que aca no le llegan. */}
               {AGENT_UI[agent.id].shortcutsNote !== null && (
@@ -108,18 +106,9 @@ export function ShortcutsDialog({ agent, onClose }: ShortcutsDialogProps): JSX.E
             </>
           )}
 
-          <p className="modal-hint">
-            <strong>Ctrl+T</strong>, <strong>Ctrl+W</strong> y <strong>Ctrl+Tab</strong> no se
-            pueden usar: el navegador se los queda para sus propias pestañas y el evento nunca
-            llega a la página.
-          </p>
+          <p className="modal-hint">{tRich('shortcuts.browserReserved')}</p>
 
-          <p className="modal-hint">
-            <strong>Alt + número</strong> tampoco se usa, y es a propósito: en Windows, Alt con
-            el teclado numérico es como se escriben los caracteres que no están en el teclado
-            (<kbd>Alt + 164</kbd> = ñ). Interceptarlo rompe la escritura en español. Para
-            cambiar de pestaña están <kbd>Alt + ←</kbd> y <kbd>Alt + →</kbd>.
-          </p>
+          <p className="modal-hint">{tRich('shortcuts.altNumber')}</p>
         </div>
       </div>
     </div>

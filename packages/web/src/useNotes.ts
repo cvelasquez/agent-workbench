@@ -18,6 +18,8 @@ import {
   type ServerMessage,
 } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 export interface NotesApi {
   notes: Note[];
@@ -69,7 +71,7 @@ export function useNotes(connection: AgentConnection): NotesApi {
           break;
 
         case 'error':
-          if (message.code === 'notes-failed') setProblem(message.message);
+          if (message.code === 'notes-failed') setProblem(serverTextMessage(message.text));
           break;
 
         default:
@@ -133,14 +135,16 @@ export function useNotes(connection: AgentConnection): NotesApi {
     (noteId: string, file: File) => {
       const note = notes.find((entry) => entry.noteId === noteId);
       if (note !== undefined && note.images.length >= MAX_NOTE_IMAGES) {
-        setProblem(`Hasta ${MAX_NOTE_IMAGES} imagenes por nota.`);
+        setProblem(t('notes.tooManyImages', { count: MAX_NOTE_IMAGES }));
         return;
       }
       if (file.size > MAX_SUBMIT_IMAGE_BYTES) {
         setProblem(
-          `"${file.name || 'la imagen'}" pesa ${Math.round(file.size / 1024 / 1024)} MB; el maximo son ${
-            MAX_SUBMIT_IMAGE_BYTES / 1024 / 1024
-          } MB.`,
+          t('notes.imageTooBig', {
+            name: file.name || t('notes.imageFallbackName'),
+            size: Math.round(file.size / 1024 / 1024),
+            max: MAX_SUBMIT_IMAGE_BYTES / 1024 / 1024,
+          }),
         );
         return;
       }
@@ -156,7 +160,7 @@ export function useNotes(connection: AgentConnection): NotesApi {
           image: { mediaType: file.type, data: result.slice(comma + 1) },
         });
       };
-      reader.onerror = () => setProblem('No se pudo leer la imagen.');
+      reader.onerror = () => setProblem(t('notes.readFailed'));
       reader.readAsDataURL(file);
     },
     [connection, notes],

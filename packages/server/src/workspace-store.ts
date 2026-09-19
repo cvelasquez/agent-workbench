@@ -164,7 +164,7 @@ function readTab(tab: Record<string, unknown>, missingAgent: AgentId | null): Or
         build la encuentre al volver.
       */
       console.warn(
-        `[workspace] no se restaura la pestana de ${cwd}: CLI desconocida ${JSON.stringify(tab['agent'])}. Se conserva en el archivo.`,
+        `[workspace] the tab of ${cwd} isn't restored: unknown CLI ${JSON.stringify(tab['agent'])}. It's kept in the file.`,
       );
       return { kind: 'foreign', raw: tab };
     }
@@ -307,7 +307,7 @@ export class WorkspaceStore {
       const { rename } = await import('node:fs/promises');
       await rename(temporary, target);
     } catch (error) {
-      console.warn('[workspace] no se pudo guardar el estado:', error);
+      console.warn("[workspace] couldn't save the state:", error);
     }
   }
 }

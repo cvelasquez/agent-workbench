@@ -23,6 +23,7 @@ import {
   asRecord,
   asString,
 } from './validation.js';
+import { parseServerText, type ServerText } from './server-text.js';
 
 /** Carpeta de la memoria, relativa al `cwd` del proyecto. */
 export const MEMORY_DIR = '.agents/memory';
@@ -123,14 +124,14 @@ export type MemoryGitState =
       ignored: boolean;
       worktree: { mainPath: string; mainHasMemory: boolean } | null;
     }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: ServerText };
 
 export interface MemoryAgentReach {
   agent: MemoryAgentId;
   label: string;
   reaches: boolean;
-  /** Texto corto para el `title`: por donde llega, o que le falta. */
-  via: string;
+  /** Texto corto para el `title`: por donde llega, o que le falta. Como clave (§6.23). */
+  via: ServerText;
 }
 
 export interface MemoryNote {
@@ -152,7 +153,8 @@ export interface MemoryGlobalFragment {
   kind: 'line' | 'command' | 'json';
   /** Lo que el usuario copia. */
   text: string;
-  note: string;
+  /** Como clave (§6.23). Los `acentos graves` se dibujan como codigo. */
+  note: ServerText;
 }
 
 export interface MemoryStatus {
@@ -187,6 +189,11 @@ export interface MemoryChange {
   file: string;
   action: MemoryChangeAction;
   preview: string;
+  /**
+   * De donde sale una copia: la ruta del original, que la web muestra como
+   * "Copia de <ruta>" en su idioma (§6.23). null si el cambio no copia nada.
+   */
+  copiedFrom: string | null;
 }
 
 export interface MemoryInstallOptions {
@@ -260,7 +267,7 @@ export function parseMemoryGitState(value: unknown): MemoryGitState | null {
     case 'not-repo':
       return { kind: 'not-repo' };
     case 'error': {
-      const message = asString(record['message']);
+      const message = parseServerText(record['message']);
       return message === null ? null : { kind: 'error', message };
     }
     case 'repo': {
@@ -285,7 +292,7 @@ export function parseMemoryAgentReach(value: unknown): MemoryAgentReach | null {
   const agent = asLiteral(record['agent'], MEMORY_AGENT_IDS);
   const label = asNonEmptyString(record['label']);
   const reaches = asBoolean(record['reaches']);
-  const via = asString(record['via']);
+  const via = parseServerText(record['via']);
   if (agent === null || label === null || reaches === null || via === null) return null;
   return { agent, label, reaches, via };
 }
@@ -320,7 +327,7 @@ export function parseMemoryGlobalFragment(value: unknown): MemoryGlobalFragment 
   const target = asNonEmptyString(record['target']);
   const kind = asLiteral(record['kind'], FRAGMENT_KINDS);
   const text = asNonEmptyString(record['text']);
-  const note = asString(record['note']);
+  const note = parseServerText(record['note']);
   if (
     agent === null ||
     label === null ||
@@ -384,7 +391,9 @@ export function parseMemoryChange(value: unknown): MemoryChange | null {
   const file = asNonEmptyString(record['file']);
   const action = asLiteral(record['action'], MEMORY_CHANGE_ACTIONS);
   const preview = asString(record['preview']);
-  return file === null || action === null || preview === null ? null : { file, action, preview };
+  // Ausente, como en un servidor anterior al hito 34: sin origen que mostrar.
+  const copiedFrom = asString(record['copiedFrom']);
+  return file === null || action === null || preview === null ? null : { file, action, preview, copiedFrom };
 }
 
 const GIT_MODES = ['ignore', 'version'] as const;

@@ -14,6 +14,7 @@ import {
   WS_PATH,
   encodeServerMessage,
   parseClientMessage,
+  serverText,
   type AgentDefaults,
   type ContextUsage,
   type PermissionMode,
@@ -25,7 +26,9 @@ import {
   type MemoryStatus,
   type ProjectSummary,
   type ServerErrorCode,
+  type ServerErrorMessage,
   type ServerMessage,
+  type ServerText,
   type SessionPlan,
   type TerminalActivity,
   type TerminalOfflineReason,
@@ -55,10 +58,10 @@ import {
   MAX_IMAGES_PER_SUBMIT,
 } from './paste-store.js';
 import {
-  ANSWER_INVALID_MESSAGE,
+  ANSWER_INVALID_TEXT,
   ANSWER_KEY_INTERVAL_MS,
-  ANSWER_NOT_PENDING_MESSAGE,
-  answerFailureMessage,
+  ANSWER_NOT_PENDING_TEXT,
+  answerFailureText,
   buildAnswerKeys,
   buildInterruptKeys,
   buildSubmissionWrites,
@@ -181,11 +184,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   const sendError = (
     socket: WebSocket,
     code: ServerErrorCode,
-    message: string,
+    text: ServerText,
     detail?: string,
     requestId?: string,
   ): void => {
-    const payload: ServerMessage = { type: 'error', code, message };
+    // El texto va como clave y la web arma la frase en su idioma (§6.23).
+    const payload: ServerErrorMessage = { type: 'error', code, text };
     if (detail !== undefined) payload.detail = detail;
     if (requestId !== undefined) payload.requestId = requestId;
     send(socket, payload);
@@ -217,14 +221,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   const imageStyleFor = (
     socket: WebSocket,
     terminalId: TerminalId,
-    unsupportedMessage: string,
+    unsupported: ServerText,
   ): ImageReferenceStyle | null => {
     if (registry.get(terminalId) === null) {
-      sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+      sendError(socket, 'unknown-terminal', serverText('terminalGone'));
       return null;
     }
     const style = adapterOf(terminalId)?.input.imageReference ?? null;
-    if (style === null) sendError(socket, 'agent-unsupported', unsupportedMessage);
+    if (style === null) sendError(socket, 'agent-unsupported', unsupported);
     return style;
   };
 
@@ -255,13 +259,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   const writeToTerminal = (socket: WebSocket, terminalId: TerminalId, data: string): boolean => {
     if (registry.write(terminalId, data)) return true;
     if (registry.get(terminalId) === null) {
-      sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+      sendError(socket, 'unknown-terminal', serverText('terminalGone'));
     } else {
-      sendError(
-        socket,
-        'terminal-asleep',
-        'Esta pestaña no tiene la CLI abierta. Abrila para escribirle al agente.',
-      );
+      sendError(socket, 'terminal-asleep', serverText('terminalAsleep'));
     }
     return false;
   };
@@ -493,12 +493,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
    */
   const sendVaultError = (socket: WebSocket, error: unknown): void => {
     if (error instanceof VaultError) {
-      sendError(socket, 'vault-failed', error.message);
+      sendError(socket, 'vault-failed', error.text);
       return;
     }
     const detail = error instanceof Error ? error.message : String(error);
-    console.warn('[copia] un pedido fallo:', detail);
-    sendError(socket, 'vault-failed', 'No se pudo completar la operación de la copia propia.', detail);
+    console.warn('[vault] a request failed:', detail);
+    sendError(socket, 'vault-failed', serverText('vaultFailed'), detail);
   };
 
   // ---- upgrade ----
@@ -519,7 +519,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     if (rejection !== null) {
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       socket.destroy();
-      console.warn(`[seguridad] upgrade rechazado en ${WS_PATH}: ${rejection}`);
+      console.warn(`[security] upgrade rejected on ${WS_PATH}: ${rejection}`);
       return;
     }
 
@@ -568,9 +568,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       return descriptor.cwd;
     };
 
-    const sendPathError = (error: unknown, fallback: string): void => {
+    const sendPathError = (error: unknown, fallback: ServerText): void => {
       if (error instanceof InvalidPathError) {
-        sendError(socket, 'invalid-path', error.message);
+        sendError(socket, 'invalid-path', error.text);
         return;
       }
       sendError(
@@ -583,13 +583,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
     const sendNotesError = (error: unknown): void => {
       if (error instanceof NotesError) {
-        sendError(socket, 'notes-failed', error.message);
+        sendError(socket, 'notes-failed', error.text);
         return;
       }
       sendError(
         socket,
         'internal',
-        'No se pudo guardar la nota.',
+        serverText('noteSaveFailed'),
         error instanceof Error ? error.message : String(error),
       );
     };
@@ -601,18 +601,18 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
      */
     const sendMemoryError = (error: unknown, requestId: string | undefined): void => {
       if (error instanceof UnknownTerminalError) {
-        sendError(socket, 'unknown-terminal', 'La terminal ya no existe.', undefined, requestId);
+        sendError(socket, 'unknown-terminal', serverText('terminalGone'), undefined, requestId);
         return;
       }
       if (error instanceof InvalidPathError) {
-        sendError(socket, 'invalid-path', error.message, undefined, requestId);
+        sendError(socket, 'invalid-path', error.text, undefined, requestId);
         return;
       }
       const detail = error instanceof Error ? error.message : String(error);
       sendError(
         socket,
         'memory-failed',
-        error instanceof MemoryBridgeError ? detail : `No se pudo completar la operación: ${detail}`,
+        error instanceof MemoryBridgeError ? error.text : serverText('operationFailed', { detail }),
         detail,
         requestId,
       );
@@ -648,11 +648,11 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
       const message = parseClientMessage(text);
       if (message === null) {
-        debugLog('socket', `mensaje rechazado: ${text.slice(0, 160)}`);
-        sendError(socket, 'bad-message', 'Mensaje no reconocido por el protocolo.');
+        debugLog('socket', `message rejected: ${text.slice(0, 160)}`);
+        sendError(socket, 'bad-message', serverText('badMessage'));
         return;
       }
-      if (message.type !== 'input') debugLog('socket', `recibido ${message.type}`);
+      if (message.type !== 'input') debugLog('socket', `received ${message.type}`);
 
       switch (message.type) {
         case 'input':
@@ -680,7 +680,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             sendError(
               socket,
               'submit-failed',
-              `Se pueden adjuntar hasta ${MAX_FILES_PER_SUBMIT} archivos por mensaje.`,
+              serverText('filesPerMessage', { max: MAX_FILES_PER_SUBMIT }),
             );
             break;
           }
@@ -688,14 +688,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             sendError(
               socket,
               'submit-failed',
-              `Se pueden adjuntar hasta ${MAX_IMAGES_PER_SUBMIT} imagenes por mensaje.`,
+              serverText('imagesPerMessage', { max: MAX_IMAGES_PER_SUBMIT }),
             );
             break;
           }
           // Sin imagenes no hay nada que comprobar: el texto va igual.
           if (
             images.length > 0 &&
-            imageStyleFor(socket, terminalId, 'Esta CLI no recibe imagenes desde el cuadro de escritura.') === null
+            imageStyleFor(socket, terminalId, serverText('imagesUnsupported')) === null
           ) {
             break;
           }
@@ -771,7 +771,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
           const input = inputOf(terminalId);
           const interrupted = (): void =>
-            sendError(socket, 'submit-failed', 'El mensaje no se termino de mandar: lo corto la interrupcion.');
+            sendError(socket, 'submit-failed', serverText('submitInterrupted'));
           void writeQueue.enqueue(
             terminalId,
             async (lane) => {
@@ -786,9 +786,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 sendError(
                   socket,
                   'submit-failed',
-                  error instanceof PasteImageError
-                    ? detail
-                    : 'No se pudo guardar la imagen pegada.',
+                  error instanceof PasteImageError ? error.text : serverText('pasteImageFailed'),
                   detail,
                 );
                 return;
@@ -814,7 +812,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 sendError(
                   socket,
                   'submit-failed',
-                  error instanceof PasteFileError ? detail : 'No se pudo guardar el archivo adjunto.',
+                  error instanceof PasteFileError ? error.text : serverText('attachmentSaveFailed'),
                   detail,
                 );
                 return;
@@ -843,8 +841,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                   socket,
                   'submit-failed',
                   waitingNow
-                    ? `El mensaje no se termino de mandar: ${submitting?.label ?? 'la CLI'} empezo a esperar una respuesta mientras se escribia. Contestala antes de mandar otro mensaje.`
-                    : `El mensaje no se termino de mandar: ${submitting?.label ?? 'la CLI'} abrio una herramienta mientras se escribia y puede estar pidiendo una aprobacion. Revisa la solapa CLI.`,
+                    ? submitting === null
+                      ? serverText('submitStoppedWaitingNoLabel')
+                      : serverText('submitStoppedWaiting', { label: submitting.label })
+                    : submitting === null
+                      ? serverText('submitStoppedToolNoLabel')
+                      : serverText('submitStoppedTool', { label: submitting.label }),
                 );
               }
             },
@@ -871,7 +873,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             sendError(
               socket,
               'agent-unsupported',
-              'Esta CLI no recibe respuestas desde la conversacion. Contestala en la solapa CLI.',
+              serverText('answersUnsupported'),
             );
             break;
           }
@@ -888,23 +890,23 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           if (channel !== undefined) {
             const descriptor = registry.get(message.terminalId);
             if (descriptor === null) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               break;
             }
             const { terminalId, toolUseId, selections } = message;
             void (async () => {
               try {
-                const failure = answerFailureMessage(
+                const failure = answerFailureText(
                   await channel.answer({ cwd: descriptor.cwd, sessionId: descriptor.sessionId }, toolUseId, selections),
                 );
                 if (failure !== null) sendError(socket, 'answer-failed', failure);
               } catch (error) {
                 const detail = error instanceof Error ? error.message : String(error);
-                debugLog('socket', `respuesta por API en ${terminalId.slice(0, 8)}: ${error instanceof Error ? error.name : 'error'}`);
+                debugLog('socket', `API answer in ${terminalId.slice(0, 8)}: ${error instanceof Error ? error.name : 'error'}`);
                 sendError(
                   socket,
                   'answer-failed',
-                  'No se pudo mandar la respuesta: contestala en la solapa CLI.',
+                  serverText('answerSendFailed'),
                   detail,
                 );
               }
@@ -913,7 +915,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           }
 
           const interruptedAnswer = (): void =>
-            sendError(socket, 'answer-failed', 'La respuesta no se termino de mandar: la corto la interrupcion.');
+            sendError(socket, 'answer-failed', serverText('answerInterrupted'));
           /*
             La comprobacion va dentro del turno de la fila, justo antes de
             escribir: si habia algo mandandose delante, la pregunta pudo
@@ -924,7 +926,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             async (lane) => {
               const pending = conversations.getPendingQuestion(message.terminalId);
               if (pending === null || pending.toolUseId !== message.toolUseId) {
-                sendError(socket, 'answer-failed', ANSWER_NOT_PENDING_MESSAGE);
+                sendError(socket, 'answer-failed', ANSWER_NOT_PENDING_TEXT);
                 return;
               }
 
@@ -936,7 +938,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 message.selections,
               );
               if (keys === null) {
-                sendError(socket, 'answer-failed', ANSWER_INVALID_MESSAGE);
+                sendError(socket, 'answer-failed', ANSWER_INVALID_TEXT);
                 return;
               }
               /*
@@ -973,7 +975,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         */
         case 'agent.mode': {
           if (registry.get(message.terminalId) === null) {
-            sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+            sendError(socket, 'unknown-terminal', serverText('terminalGone'));
             break;
           }
           /*
@@ -984,7 +986,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           */
           const cycle = adapterOf(message.terminalId)?.capabilities.permissionCycle ?? null;
           if (cycle === null) {
-            sendError(socket, 'agent-unsupported', 'Esta CLI no tiene modos de permiso que cambiar desde aca.');
+            sendError(socket, 'agent-unsupported', serverText('modesUnsupported'));
             break;
           }
           /*
@@ -1005,7 +1007,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           });
           if (plan.kind === 'none') break;
           if (plan.kind === 'refused') {
-            sendError(socket, 'mode-failed', plan.message);
+            sendError(socket, 'mode-failed', plan.text);
             break;
           }
           const { keys } = plan;
@@ -1054,7 +1056,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             sendError(
               socket,
               'archive-failed',
-              'Las sesiones con una pestaña abierta no se archivan. Cerrala primero.',
+              serverText('archiveOpenTab'),
             );
           }
           break;
@@ -1103,7 +1105,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             sendError(
               socket,
               'agent-unsupported',
-              'Este servidor no sabe lanzar esa CLI.',
+              serverText('agentUnknown'),
               message.unsupportedAgent,
               message.requestId,
             );
@@ -1127,12 +1129,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               });
             } catch (error) {
               if (error instanceof TerminalOpenError) {
-                sendError(socket, error.code, error.message, error.detail, message.requestId);
+                sendError(socket, error.code, error.text, error.detail, message.requestId);
               } else {
                 sendError(
                   socket,
                   'internal',
-                  'No se pudo abrir la pestana.',
+                  serverText('tabOpenFailed'),
                   error instanceof Error ? error.message : String(error),
                   message.requestId,
                 );
@@ -1158,16 +1160,16 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             try {
               const descriptor = await registry.wake(message.terminalId);
               if (descriptor === null && !existed) {
-                sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+                sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               }
             } catch (error) {
               if (error instanceof TerminalOpenError) {
-                sendError(socket, error.code, error.message, error.detail);
+                sendError(socket, error.code, error.text, error.detail);
               } else {
                 sendError(
                   socket,
                   'internal',
-                  'No se pudo abrir la CLI de la pestaña.',
+                  serverText('cliOpenFailed'),
                   error instanceof Error ? error.message : String(error),
                 );
               }
@@ -1178,7 +1180,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
         case 'terminal.close':
           if (!dropTab(message.terminalId)) {
-            sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+            sendError(socket, 'unknown-terminal', serverText('terminalGone'));
           } else {
             subscriptions.delete(message.terminalId);
             gitSubscriptions.delete(message.terminalId);
@@ -1189,7 +1191,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'terminal.attach': {
           const attached = registry.attach(message.terminalId, listener);
           if (attached === null) {
-            sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+            sendError(socket, 'unknown-terminal', serverText('terminalGone'));
             break;
           }
           send(socket, {
@@ -1209,7 +1211,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
         case 'terminal.rename':
           if (!registry.rename(message.terminalId, message.label)) {
-            sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+            sendError(socket, 'unknown-terminal', serverText('terminalGone'));
           }
           break;
 
@@ -1247,7 +1249,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
             const snapshot = await conversations.subscribe(message.terminalId);
             if (snapshot === null) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               return;
             }
             subscriptions.add(message.terminalId);
@@ -1287,7 +1289,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               .readPlan(message.terminalId, message.fileName)
               .catch(() => null);
             if (plan === null) {
-              sendError(socket, 'read-failed', 'No se pudo leer el plan.');
+              sendError(socket, 'read-failed', serverText('planReadFailed'));
               return;
             }
             send(socket, { type: 'plans.content', terminalId: message.terminalId, plan });
@@ -1329,7 +1331,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             message.limit,
           );
           if (page === null) {
-            sendError(socket, 'unknown-terminal', 'Esa conversacion ya no se esta siguiendo.');
+            sendError(socket, 'unknown-terminal', serverText('conversationNotFollowed'));
             break;
           }
           send(socket, {
@@ -1351,7 +1353,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             }
             const status = await repos.subscribe(message.terminalId);
             if (status === null) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               return;
             }
             gitSubscriptions.add(message.terminalId);
@@ -1468,7 +1470,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             .read(message.terminalId, message.name)
             .then((note) => {
               if (note === null) {
-                sendError(socket, 'memory-failed', 'Esa nota ya no existe.', undefined, message.requestId);
+                sendError(socket, 'memory-failed', serverText('memoryNoteGone'), undefined, message.requestId);
                 return;
               }
               send(
@@ -1486,7 +1488,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           void (async () => {
             const status = repos.getStatus(message.terminalId);
             if (status === null || status.state !== 'ready') {
-              sendError(socket, 'read-failed', 'Todavia no se conoce el estado del repositorio.');
+              sendError(socket, 'read-failed', serverText('gitStatusUnknown'));
               return;
             }
             try {
@@ -1504,7 +1506,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               });
               send(socket, { type: 'git.diff', terminalId: message.terminalId, diff });
             } catch (error) {
-              sendPathError(error, 'No se pudo leer el diff.');
+              sendPathError(error, serverText('diffReadFailed'));
             }
           })();
           break;
@@ -1513,7 +1515,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           void (async () => {
             const cwd = cwdOf(message.terminalId);
             if (cwd === null) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               return;
             }
             try {
@@ -1522,7 +1524,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               });
               send(socket, { type: 'files.listing', terminalId: message.terminalId, listing });
             } catch (error) {
-              sendPathError(error, 'No se pudo leer el directorio.');
+              sendPathError(error, serverText('dirReadFailed'));
             }
           })();
           break;
@@ -1537,7 +1539,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           void (async () => {
             const cwd = cwdOf(message.terminalId);
             if (cwd === null) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               return;
             }
             try {
@@ -1546,7 +1548,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               });
               send(socket, { type: 'files.results', terminalId: message.terminalId, result });
             } catch (error) {
-              sendPathError(error, 'No se pudo buscar en el directorio.');
+              sendPathError(error, serverText('dirSearchFailed'));
             }
           })();
           break;
@@ -1555,14 +1557,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           void (async () => {
             const cwd = cwdOf(message.terminalId);
             if (cwd === null) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               return;
             }
             try {
               const preview = await readPreview(cwd, message.path);
               send(socket, { type: 'files.preview', terminalId: message.terminalId, preview });
             } catch (error) {
-              sendPathError(error, 'No se pudo leer el archivo.');
+              sendPathError(error, serverText('fileReadFailed'));
             }
           })();
           break;
@@ -1571,13 +1573,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           void (async () => {
             const cwd = cwdOf(message.terminalId);
             if (cwd === null) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               return;
             }
             try {
               revealPath(await resolveInside(cwd, message.path, { mustExist: true }));
             } catch (error) {
-              sendPathError(error, 'No se pudo abrir la ruta.');
+              sendPathError(error, serverText('pathOpenFailed'));
             }
           })();
           break;
@@ -1692,9 +1694,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               sendError(
                 socket,
                 'picker-failed',
-                error instanceof DirectoryPickerError
-                  ? error.message
-                  : 'No se pudo listar esa carpeta.',
+                error instanceof DirectoryPickerError ? error.text : serverText('pickerListFailed'),
                 error instanceof Error ? error.message : String(error),
               );
             }
@@ -1746,21 +1746,21 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           void (async () => {
             const descriptor = registry.get(message.terminalId);
             if (descriptor === null) {
-              sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'));
               return;
             }
             if (descriptor.kind !== 'agent' || descriptor.sessionId.length === 0) {
-              sendError(socket, 'submit-failed', 'Esa pestana no tiene un agente al que mandarle la nota.');
+              sendError(socket, 'submit-failed', serverText('noteNoAgent'));
               return;
             }
 
             const note = await notes.readForSubmit(message.noteId);
             if (note === null) {
-              sendError(socket, 'submit-failed', 'La nota ya no existe.');
+              sendError(socket, 'submit-failed', serverText('noteGone'));
               return;
             }
             if (note.text.trim().length === 0 && note.images.length === 0) {
-              sendError(socket, 'submit-failed', 'La nota esta vacia.');
+              sendError(socket, 'submit-failed', serverText('noteEmpty'));
               return;
             }
 
@@ -1790,26 +1790,26 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               case 'refused':
                 return;
               case 'gone':
-                sendError(socket, 'unknown-terminal', 'La terminal ya no existe.');
+                sendError(socket, 'unknown-terminal', serverText('terminalGone'));
                 return;
               case 'no-agent':
               case 'no-session':
-                sendError(socket, 'submit-failed', 'Esa pestana no tiene un agente al que mandarle la nota.');
+                sendError(socket, 'submit-failed', serverText('noteNoAgent'));
                 return;
               case 'no-ready-signal':
-                sendError(socket, 'agent-unsupported', 'Esta CLI no avisa cuando esta lista; la nota no se mando.');
+                sendError(socket, 'agent-unsupported', serverText('noteNoReadySignal'));
                 return;
               case 'no-images':
-                sendError(socket, 'agent-unsupported', 'Esta CLI no recibe imagenes; la nota no se mando.');
+                sendError(socket, 'agent-unsupported', serverText('noteImagesUnsupported'));
                 return;
               case 'not-ready':
-                sendError(socket, 'submit-failed', 'La CLI de esa pestana no llego a arrancar; la nota no se mando.');
+                sendError(socket, 'submit-failed', serverText('noteCliNotStarted'));
                 return;
               case 'image-failed':
-                sendError(socket, 'submit-failed', 'No se pudo adjuntar una imagen de la nota.', outcome.detail);
+                sendError(socket, 'submit-failed', serverText('noteImageFailed'), outcome.detail);
                 return;
               case 'interrupted':
-                sendError(socket, 'submit-failed', 'La nota no se termino de mandar: la corto la interrupcion.');
+                sendError(socket, 'submit-failed', serverText('noteInterrupted'));
                 return;
             }
           })();
@@ -1834,7 +1834,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             sendError(
               socket,
               'agent-unsupported',
-              'Este servidor no sabe lanzar esa CLI.',
+              serverText('agentUnknown'),
               message.unsupportedAgent,
               message.requestId,
             );
@@ -1844,19 +1844,24 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           void (async () => {
             let outcome;
             try {
-              outcome = await continueSession(continueDeps, { agent: message.agent, sessionId: message.sessionId, target });
+              outcome = await continueSession(continueDeps, {
+                agent: message.agent,
+                sessionId: message.sessionId,
+                target,
+                ...(message.label !== undefined ? { label: message.label } : {}),
+              });
             } catch (error) {
               sendError(
                 socket,
                 'continue-failed',
-                'No se pudo armar la continuación.',
+                serverText('continueFailed'),
                 error instanceof Error ? error.message : String(error),
                 requestId,
               );
               return;
             }
             if (!outcome.ok) {
-              sendError(socket, outcome.code, outcome.message, outcome.detail, requestId);
+              sendError(socket, outcome.code, outcome.text, outcome.detail, requestId);
               return;
             }
 
@@ -1878,7 +1883,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             });
             const reason = prefillReasonFor(delivered);
             if (reason !== null) {
-              debugLog('continuar', `no se mando sola a ${terminalId.slice(0, 8)}: ${delivered.kind}`);
+              debugLog('continue', `not sent on its own to ${terminalId.slice(0, 8)}: ${delivered.kind}`);
               send(socket, { type: 'composer.prefill', terminalId, text: outcome.message, reason });
             }
           })();
@@ -1914,7 +1919,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               sendError(
                 socket,
                 'search-failed',
-                error instanceof VaultError ? error.message : 'No se pudo buscar en la copia propia.',
+                error instanceof VaultError ? error.text : serverText('searchFailed'),
                 detail,
                 searchId,
               );

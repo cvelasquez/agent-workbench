@@ -12,7 +12,7 @@
  *
  * Todo con la forma que lee cada adaptador y con textos inventados, igual que
  * las sesiones de Claude Code. Las rutas son las del `projectsRoot` que ve la
- * app (`W:\Proyectos` en Windows). Las CLIs simuladas contestan `--version` y
+ * app (`W:\Projects` en Windows). Las CLIs simuladas contestan `--version` y
  * se quedan esperando: ninguna pestana de las capturas se lanza, y si alguien
  * despierta una en `pnpm demo` no pasa nada.
  */
@@ -107,7 +107,7 @@ function codexRollout(codexHome, { cwd, startAt, steps, model = 'gpt-5.5', effor
     cli_version: '0.154.0',
     source: 'cli',
     model_provider: 'openai',
-    base_instructions: { text: 'Instrucciones de base.' },
+    base_instructions: { text: 'Base instructions.' },
     history_mode: 'paginated',
   });
   const turnStart = at;
@@ -356,7 +356,7 @@ function openCodeSession({ cwd, startAt, title, steps }) {
 
 function writeOpenCodeBase(home, sessions) {
   if (DatabaseSync === null) {
-    console.warn('[demo] este Node no trae node:sqlite: la demo sale sin historial de OpenCode.');
+    console.warn('[demo] this Node has no node:sqlite: the demo runs without OpenCode history.');
     return;
   }
   const dataDir = path.join(home, '.local', 'share', 'opencode');
@@ -490,29 +490,29 @@ export function buildOtherClis({ home, bin, now, projects }) {
     cwd: projects.facturacion,
     startAt: now - 62 * MIN,
     steps: [
-      { u: 'Validá el RUC antes de emitir el comprobante: once dígitos y dígito verificador.' },
+      { u: 'Validate the tax ID before issuing the invoice: eleven digits and a valid check digit.' },
       {
-        cmd: 'rg -n "Ruc" src',
-        output: 'Exit code: 0\nWall time: 0.3 seconds\nOutput:\nsrc/Comprobantes/EmisorService.cs:41:        var ruc = request.Cliente.Ruc;\nsrc/Comprobantes/ComprobanteRequest.cs:12:    public string Ruc { get; init; } = "";\n',
+        cmd: 'rg -n "TaxId" src',
+        output: 'Exit code: 0\nWall time: 0.3 seconds\nOutput:\nsrc/Invoices/InvoiceIssuer.cs:41:        var taxId = request.Customer.TaxId;\nsrc/Invoices/InvoiceRequest.cs:12:    public string TaxId { get; init; } = "";\n',
       },
       {
-        cmd: 'Get-Content src/Comprobantes/EmisorService.cs -TotalCount 60',
-        output: 'Exit code: 0\nWall time: 0.2 seconds\nOutput:\nnamespace Facturacion.Comprobantes;\n\npublic sealed class EmisorService\n{\n    …\n',
+        cmd: 'Get-Content src/Invoices/InvoiceIssuer.cs -TotalCount 60',
+        output: 'Exit code: 0\nWall time: 0.2 seconds\nOutput:\nnamespace Invoicing.Invoices;\n\npublic sealed class InvoiceIssuer\n{\n    …\n',
       },
       {
-        patch: '*** Begin Patch\n*** Add File: src/Comprobantes/RucValidator.cs\n+namespace Facturacion.Comprobantes;\n+\n+public static class RucValidator\n+{\n+    private static readonly int[] Pesos = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];\n+\n+    public static bool EsValido(string ruc) { … }\n+}\n*** End Patch\n',
-        output: 'Success. Updated the following files:\nA src/Comprobantes/RucValidator.cs\n',
+        patch: '*** Begin Patch\n*** Add File: src/Invoices/TaxIdValidator.cs\n+namespace Invoicing.Invoices;\n+\n+public static class TaxIdValidator\n+{\n+    private static readonly int[] Weights = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];\n+\n+    public static bool IsValid(string taxId) { … }\n+}\n*** End Patch\n',
+        output: 'Success. Updated the following files:\nA src/Invoices/TaxIdValidator.cs\n',
       },
       {
-        patch: '*** Begin Patch\n*** Update File: src/Comprobantes/EmisorService.cs\n@@\n-        var ruc = request.Cliente.Ruc;\n+        var ruc = request.Cliente.Ruc;\n+        if (!RucValidator.EsValido(ruc)) throw new ComprobanteInvalidoException("RUC invalido");\n*** End Patch\n',
-        output: 'Success. Updated the following files:\nM src/Comprobantes/EmisorService.cs\n',
+        patch: '*** Begin Patch\n*** Update File: src/Invoices/InvoiceIssuer.cs\n@@\n-        var taxId = request.Customer.TaxId;\n+        var taxId = request.Customer.TaxId;\n+        if (!TaxIdValidator.IsValid(taxId)) throw new InvalidInvoiceException("Invalid tax ID");\n*** End Patch\n',
+        output: 'Success. Updated the following files:\nM src/Invoices/InvoiceIssuer.cs\n',
       },
       {
-        cmd: 'dotnet test --filter RucValidator',
-        output: 'Exit code: 0\nWall time: 9.8 seconds\nOutput:\nCorrectas! - Con error: 0, Superado: 12, Omitido: 0, Total: 12\n',
+        cmd: 'dotnet test --filter TaxIdValidator',
+        output: 'Exit code: 0\nWall time: 9.8 seconds\nOutput:\nPassed!  - Failed:     0, Passed:    12, Skipped:     0, Total:    12\n',
       },
       {
-        a: 'Agregué `RucValidator` con el algoritmo del módulo 11 y lo llamé en `EmisorService` antes de armar el comprobante: un RUC inválido corta la emisión con `ComprobanteInvalidoException` y no llega a SUNAT.\n\nLos doce casos de prueba pasan, incluidos RUC de persona natural (10) y de empresa (20), uno con diez dígitos y uno con el dígito verificador cambiado.',
+        a: 'I added `TaxIdValidator` with the mod-11 algorithm and call it in `InvoiceIssuer` before building the invoice: an invalid tax ID stops issuance with `InvalidInvoiceException` and never reaches the tax authority.\n\nAll twelve test cases pass, including individual and company IDs, one with only ten digits and one with a wrong check digit.',
       },
     ],
   });
@@ -520,7 +520,7 @@ export function buildOtherClis({ home, bin, now, projects }) {
     cwd: projects.portal,
     startAt: now - DAY - 5 * HOUR,
     steps: [
-      { u: 'El login con código falla cuando el correo tiene mayúsculas. Encontrá por qué.' },
+      { u: 'Login with a code fails when the email has uppercase letters. Find out why.' },
       {
         cmd: 'rg -n "email" src/auth',
         output: 'Exit code: 0\nWall time: 0.2 seconds\nOutput:\nsrc/auth/login-code.ts:18:  const user = await users.findByEmail(input.email);\nsrc/auth/send-code.ts:9:  const email = input.email.trim().toLowerCase();\n',
@@ -530,7 +530,7 @@ export function buildOtherClis({ home, bin, now, projects }) {
         output: 'Success. Updated the following files:\nM src/auth/login-code.ts\n',
       },
       {
-        a: 'El código se guardaba con el correo en minúsculas, pero al validarlo se buscaba con el correo tal como lo escribió el usuario. Ahora las dos puntas lo normalizan igual.',
+        a: 'The code was stored with the email in lowercase, but validation looked it up with the email exactly as the user typed it. Now both ends normalize it the same way.',
       },
     ],
   });
@@ -539,25 +539,25 @@ export function buildOtherClis({ home, bin, now, projects }) {
     openCodeSession({
       cwd: projects.reservas,
       startAt: now - 2 * DAY - 7 * HOUR,
-      title: 'Evitar reservas superpuestas de una sala',
+      title: 'Prevent overlapping bookings of a room',
       steps: [
-        { u: 'Dos reservas de la misma sala se pueden superponer. Agregá la validación en el API.' },
-        { tool: 'grep', input: { pattern: 'crearReserva', include: '*.ts' }, output: 'src/reservas/servicio.ts:\n  Line 22: export async function crearReserva(datos: NuevaReserva) {' },
-        { tool: 'read', input: { filePath: 'src/reservas/servicio.ts' }, output: '<file>\n00022| export async function crearReserva(datos: NuevaReserva) {\n00023|   return db.reservas.insert(datos);\n00024| }\n</file>', last: true },
-        { a: 'La reserva se insertaba sin mirar las demás. Agregué una consulta que busca otra reserva de la misma sala cuyo rango se cruce con el nuevo, y si la hay devuelve 409 con la reserva que choca.' },
+        { u: 'Two bookings of the same room can overlap. Add the check to the API.' },
+        { tool: 'grep', input: { pattern: 'createBooking', include: '*.ts' }, output: 'src/bookings/service.ts:\n  Line 22: export async function createBooking(data: NewBooking) {' },
+        { tool: 'read', input: { filePath: 'src/bookings/service.ts' }, output: '<file>\n00022| export async function createBooking(data: NewBooking) {\n00023|   return db.bookings.insert(data);\n00024| }\n</file>', last: true },
+        { a: 'The booking was inserted without looking at the others. I added a query that looks for another booking of the same room whose time range overlaps the new one, and if there is one it returns 409 with the conflicting booking.' },
       ],
     }),
     openCodeSession({
       cwd: projects.inventario,
       startAt: now - 47 * MIN,
-      title: 'Importar stock desde Excel',
+      title: 'Import stock from Excel',
       steps: [
-        { u: 'Importá el stock desde una planilla de Excel. La primera fila son los encabezados.' },
-        { tool: 'read', input: { filePath: 'src/importar.py' }, output: '<file>\n00001| import openpyxl\n00002| \n00003| \n00004| def leer_planilla(ruta: str) -> list[dict]:\n</file>' },
-        { tool: 'glob', input: { pattern: 'tests/**/*.py' }, output: 'tests/test_movimientos.py' },
-        { tool: 'edit', input: { filePath: 'src/importar.py', oldString: 'def leer_planilla', newString: 'def importar_stock' }, output: 'Edit applied successfully.' },
-        { tool: 'bash', input: { command: 'pytest tests -q', description: 'Correr los tests' }, output: '....                                                         [100%]\n4 passed in 0.62s', last: true },
-        { a: 'La importación valida que cada SKU exista antes de tocar el stock y al final muestra un resumen: filas leídas, aplicadas y rechazadas, con el motivo de cada rechazo. Los cuatro tests pasan, incluido uno con una planilla que trae un SKU desconocido.' },
+        { u: 'Import the stock from an Excel spreadsheet. The first row holds the headers.' },
+        { tool: 'read', input: { filePath: 'src/importer.py' }, output: '<file>\n00001| import openpyxl\n00002| \n00003| \n00004| def read_sheet(path: str) -> list[dict]:\n</file>' },
+        { tool: 'glob', input: { pattern: 'tests/**/*.py' }, output: 'tests/test_movements.py' },
+        { tool: 'edit', input: { filePath: 'src/importer.py', oldString: 'def read_sheet', newString: 'def import_stock' }, output: 'Edit applied successfully.' },
+        { tool: 'bash', input: { command: 'pytest tests -q', description: 'Run the tests' }, output: '....                                                         [100%]\n4 passed in 0.62s', last: true },
+        { a: 'The import checks that every SKU exists before touching the stock, and at the end shows a summary: rows read, applied and rejected, with the reason for each rejection. All four tests pass, including one with a spreadsheet that has an unknown SKU.' },
       ],
     }),
   ];
@@ -568,33 +568,33 @@ export function buildOtherClis({ home, bin, now, projects }) {
       cwd: projects.dashboard,
       startAt: now - 25 * MIN,
       steps: [
-        { u: 'Agregá un filtro por región al gráfico de ventas mensuales.' },
+        { u: 'Add a region filter to the monthly sales chart.' },
         {
           call: 'view_file',
-          args: { AbsolutePath: `${projects.dashboard.replace(/\\/g, '/')}/src/graficos/VentasMensuales.tsx`, toolAction: 'Viewing file', toolSummary: 'View chart' },
-          output: 'File Path: `src/graficos/VentasMensuales.tsx`\nTotal Lines: 48\n1: export function VentasMensuales({ datos }: Props) {\n',
+          args: { AbsolutePath: `${projects.dashboard.replace(/\\/g, '/')}/src/charts/MonthlySales.tsx`, toolAction: 'Viewing file', toolSummary: 'View chart' },
+          output: 'File Path: `src/charts/MonthlySales.tsx`\nTotal Lines: 48\n1: export function MonthlySales({ data }: Props) {\n',
         },
         {
           call: 'run_command',
-          args: { CommandLine: 'npm test -- graficos', Cwd: projects.dashboard, WaitMsBeforeAsync: 5000, toolAction: 'Running tests', toolSummary: 'Run chart tests' },
+          args: { CommandLine: 'npm test -- charts', Cwd: projects.dashboard, WaitMsBeforeAsync: 5000, toolAction: 'Running tests', toolSummary: 'Run chart tests' },
           output: 'The command completed successfully.\nOutput:\n Test Files  2 passed (2)\n      Tests  9 passed (9)\n',
         },
-        { a: 'Listo: el gráfico tiene un selector de región arriba a la derecha y la región elegida viaja en la URL, así el enlace se puede compartir. "Todas" suma las regiones como antes, y los nueve tests de los gráficos pasan.' },
+        { a: 'Done: the chart has a region picker in the top right corner, and the chosen region travels in the URL, so the link can be shared. "All" adds up the regions as before, and all nine chart tests pass.' },
       ],
     },
     {
       cwd: projects.tienda,
       startAt: now - 4 * DAY - 2 * HOUR,
       steps: [
-        { u: 'Revisá que los precios del catálogo se muestren siempre con dos decimales.' },
+        { u: 'Make sure catalog prices are always shown with two decimals.' },
         {
           call: 'run_command',
           args: { CommandLine: 'git grep -n "toFixed" src', Cwd: projects.tienda, WaitMsBeforeAsync: 5000, toolAction: 'Searching', toolSummary: 'Search price formatting' },
-          output: 'The command completed successfully.\nOutput:\nsrc/catalog/ProductList.tsx:22: S/ {product.price.toFixed(2)}\nsrc/checkout/Checkout.tsx:27: Total: S/ {total.toFixed(2)}\n',
+          output: 'The command completed successfully.\nOutput:\nsrc/catalog/ProductList.tsx:22: ${product.price.toFixed(2)}\nsrc/checkout/Checkout.tsx:27: Total: ${total.toFixed(2)}\n',
         },
-        { a: 'Los dos lugares ya usan `toFixed(2)`. Lo que fallaba era el precio con descuento, que se calculaba y se mostraba sin redondear.' },
-        { u: 'Pasalo a una función `formatPrice` y usala en los tres lugares.' },
-        { a: 'Hecho: `formatPrice` vive en `src/format.ts` y la usan el catálogo, el checkout y el precio con descuento.' },
+        { a: 'Both places already use `toFixed(2)`. What was failing was the discounted price, which was computed and shown without rounding.' },
+        { u: 'Move it into a `formatPrice` function and use it in all three places.' },
+        { a: 'Done: `formatPrice` lives in `src/format.ts`, and the catalog, the checkout and the discounted price all use it.' },
       ],
     },
   ]);

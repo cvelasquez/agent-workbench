@@ -20,6 +20,11 @@ import {
   sessionsToArchiveBefore,
   startOfLocalDay,
 } from '../../web/src/archive-history.ts';
+import { setLocale } from '../../web/src/i18n/index.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 let failures = 0;
 const check = (label, ok, extra = '') => {
@@ -284,14 +289,14 @@ check('sin proyectos, vacio', sessionsToArchiveBefore([], 'opencode', cutoff, op
   check(
     'y el texto explica por que, en vez de ofrecer archivar cero',
     projectArchiveText(allOpen) ===
-      'Sus 3 conversaciones tienen una pesta\u00f1a abierta. Cerralas primero.',
+      'Sus 3 conversaciones tienen una pesta\u00f1a abierta. Ci\u00e9rralas primero.',
     projectArchiveText(allOpen),
   );
   check(
     'con una sola abierta, en singular',
     projectArchiveText(
       projectArchivePlan(project('/r', [session('a', 'codex', now)]), new Set(['a'])),
-    ) === 'Su \u00fanica conversaci\u00f3n tiene una pesta\u00f1a abierta. Cerrala primero.',
+    ) === 'Su \u00fanica conversaci\u00f3n tiene una pesta\u00f1a abierta. Ci\u00e9rrala primero.',
   );
 
   const already = projectArchivePlan(

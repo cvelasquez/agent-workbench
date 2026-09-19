@@ -118,7 +118,7 @@ export class DbChangeSignal {
       try {
         listener();
       } catch (error) {
-        console.warn('[opencode] un aviso de cambio de la base fallo:', error);
+        console.warn('[opencode] a database change listener failed:', error);
       }
     }
   }

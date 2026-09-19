@@ -135,9 +135,10 @@ import {
   type GlobalSearchResult,
 } from './search.js';
 import { isVaultSessionId, parseVaultStatus, type VaultStatus } from './vault.js';
+import { parseServerText, type ServerText } from './server-text.js';
 
 /** Se incrementa cuando el contrato cambia de forma incompatible. */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /** Ruta del WebSocket. El resto del servidor sirve la UI. */
 export const WS_PATH = '/ws';
@@ -792,7 +793,16 @@ interface ClientContinueSessionBase {
    */
   agent: SessionAgentId;
   sessionId: SessionId;
+  /**
+   * La etiqueta de la pestana nueva, ya en el idioma de la ventana (hito 34,
+   * D12): el servidor no sabe cual es. Es lo mismo que un `terminal.rename`: un
+   * texto que solo se muestra. Sin ella, la del servidor.
+   */
+  label?: string;
 }
+
+/** Tope de la etiqueta de una continuacion: una linea, lo que entra en una pestana. */
+export const CONTINUE_LABEL_MAX_CHARS = 120;
 
 export type ClientContinueSessionMessage =
   | (ClientContinueSessionBase & {
@@ -1473,8 +1483,8 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
 export interface ServerErrorMessage {
   type: 'error';
   code: ServerErrorCode;
-  /** Texto para mostrar al usuario. */
-  message: string;
+  /** Lo que se le muestra al usuario, como clave: la web arma la frase en su idioma (§6.23). */
+  text: ServerText;
   /** Para la consola del navegador. */
   detail?: string;
   /** Presente si el error responde a una peticion concreta. */
@@ -1946,7 +1956,15 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const agent = asLiteral(record['agent'], SESSION_AGENT_IDS);
       const sessionId = asNonEmptyString(record['sessionId']);
       if (requestId === null || agent === null || sessionId === null) return null;
-      const base = { type: 'session.continue' as const, requestId, agent, sessionId };
+      const rawLabel = asString(record['label']);
+      const label = rawLabel === null ? '' : rawLabel.replace(/\s+/g, ' ').trim().slice(0, CONTINUE_LABEL_MAX_CHARS);
+      const base = {
+        type: 'session.continue' as const,
+        requestId,
+        agent,
+        sessionId,
+        ...(label.length > 0 ? { label } : {}),
+      };
 
       // Como `terminal.open`: un destino desconocido se conserva para
       // rechazarlo con `agent-unsupported`, no para abrir otra CLI en su lugar.
@@ -2410,10 +2428,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return searchId === null || result === null ? null : { type: 'search.results', searchId, result };
     }
     case 'error': {
-      const message = asString(record['message']);
-      if (message === null) return null;
+      const text = parseServerText(record['text']);
+      if (text === null) return null;
       const code = asLiteral(record['code'], SERVER_ERROR_CODES) ?? 'internal';
-      const parsed: ServerErrorMessage = { type: 'error', code, message };
+      const parsed: ServerErrorMessage = { type: 'error', code, text };
       const detail = asString(record['detail']);
       if (detail !== null) parsed.detail = detail;
       const requestId = asNonEmptyString(record['requestId']);

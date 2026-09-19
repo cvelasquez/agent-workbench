@@ -426,7 +426,7 @@ export class OpenCodeServeStatus implements StatusSource {
       }
       ok = true;
     } catch (error) {
-      debugLog('opencode-serve', `la foto del estado fallo: ${error instanceof Error ? error.name : 'error'}`);
+      debugLog('opencode-serve', `the status snapshot failed: ${error instanceof Error ? error.name : 'error'}`);
     } finally {
       if (this.snapshots.get(directory) === current) this.snapshots.delete(directory);
     }

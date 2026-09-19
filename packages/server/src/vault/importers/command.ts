@@ -30,15 +30,15 @@ import { planAntigravityRescue, RescueError, rescuedSessionFiles } from './antig
 import { GEMINI_SKIP_TEXT, GEMINI_UNKNOWN_GROUP, geminiSessionFiles, planGeminiCliImport, type GeminiSkipReason } from './gemini-cli.js';
 
 export const VAULT_IMPORT_USAGE = [
-  'Uso:',
-  '  pnpm vault:import gemini-cli      [--cwd <ruta>]... [--write]',
-  '  pnpm vault:import antigravity-ide --workspace <ruta> [--write]',
+  'Usage:',
+  '  pnpm vault:import gemini-cli      [--cwd <path>]... [--write]',
+  '  pnpm vault:import antigravity-ide --workspace <path> [--write]',
   '',
-  'Sin --write no escribe nada: dice qué importaría.',
-  '  gemini-cli       los chats de ~/.gemini/tmp/*/chats. --cwd nombra una carpeta donde se usó',
-  '                   Gemini CLI, para ubicar sus chats en ese proyecto (se puede repetir).',
-  '  antigravity-ide  lo legible de las conversaciones del IDE de esa carpeta: la ficha de cada',
-  '                   una y sus documentos .md. El contenido de la conversación no se puede leer.',
+  'Without --write nothing is written: it says what it would import.',
+  '  gemini-cli       the chats in ~/.gemini/tmp/*/chats. --cwd names a folder where Gemini CLI',
+  '                   was used, to place its chats in that project (can be repeated).',
+  '  antigravity-ide  what is readable from the IDE conversations of that folder: the summary of',
+  "                   each one and its .md documents. The conversation content can't be read.",
 ].join('\n');
 
 export type VaultImporterName = 'gemini-cli' | 'antigravity-ide';
@@ -68,12 +68,12 @@ export type ParsedImportArgs =
 /** Los argumentos, validados. Pura. */
 export function parseImportArgs(argv: readonly string[], platform: string): ParsedImportArgs {
   const args = argv[0] === '--' ? argv.slice(1) : [...argv];
-  if (args.length === 0) return { kind: 'error', message: 'Falta el importador.' };
+  if (args.length === 0) return { kind: 'error', message: 'The importer is missing.' };
   if (args.includes('--help') || args.includes('-h')) return { kind: 'help' };
 
   const [importer, ...rest] = args;
   if (importer !== 'gemini-cli' && importer !== 'antigravity-ide') {
-    return { kind: 'error', message: `Importador desconocido: ${JSON.stringify(importer)}.` };
+    return { kind: 'error', message: `Unknown importer: ${JSON.stringify(importer)}.` };
   }
 
   const cwds: string[] = [];
@@ -86,7 +86,7 @@ export function parseImportArgs(argv: readonly string[], platform: string): Pars
       continue;
     }
     const match = /^(--cwd|--workspace)(?:=(.*))?$/s.exec(token);
-    if (match === null) return { kind: 'error', message: `Argumento desconocido: ${JSON.stringify(token)}.` };
+    if (match === null) return { kind: 'error', message: `Unknown argument: ${JSON.stringify(token)}.` };
     const flag = match[1];
     let value = match[2];
     if (value === undefined) {
@@ -94,23 +94,23 @@ export function parseImportArgs(argv: readonly string[], platform: string): Pars
       position += 1;
     }
     if (value === undefined || value.length === 0 || value.startsWith('--')) {
-      return { kind: 'error', message: `${flag} necesita una ruta.` };
+      return { kind: 'error', message: `${flag} needs a path.` };
     }
     if (platform === 'win32') value = collapseBackslashes(value);
     if (!isAbsoluteDir(value, platform)) {
-      return { kind: 'error', message: `${flag} tiene que ser una ruta absoluta: ${JSON.stringify(value)}.` };
+      return { kind: 'error', message: `${flag} has to be an absolute path: ${JSON.stringify(value)}.` };
     }
     if (flag === '--cwd') {
-      if (importer !== 'gemini-cli') return { kind: 'error', message: '--cwd es sólo para gemini-cli.' };
+      if (importer !== 'gemini-cli') return { kind: 'error', message: '--cwd is only for gemini-cli.' };
       cwds.push(value);
     } else {
-      if (importer !== 'antigravity-ide') return { kind: 'error', message: '--workspace es sólo para antigravity-ide.' };
-      if (workspace !== null) return { kind: 'error', message: '--workspace va una sola vez.' };
+      if (importer !== 'antigravity-ide') return { kind: 'error', message: '--workspace is only for antigravity-ide.' };
+      if (workspace !== null) return { kind: 'error', message: '--workspace can only be given once.' };
       workspace = value;
     }
   }
   if (importer === 'antigravity-ide' && workspace === null) {
-    return { kind: 'error', message: 'antigravity-ide necesita --workspace <ruta>: la carpeta del proyecto.' };
+    return { kind: 'error', message: 'antigravity-ide needs --workspace <path>: the project folder.' };
   }
   return { kind: 'run', importer, cwds, workspace, write };
 }
@@ -129,10 +129,11 @@ export interface VaultImportContext {
   sqlite?: () => SqliteLoad;
 }
 
+/** El dia local como AAAA-MM-DD: la salida es en ingles, y ahi 11-02 se lee como noviembre (hito 34, D19). */
 function formatDay(ms: number): string {
   const date = new Date(ms);
   const pad = (value: number): string => String(value).padStart(2, '0');
-  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 const bytesOf = (sessions: readonly SerializedSession[]): number =>
@@ -143,7 +144,7 @@ const plural = (count: number, one: string, many: string): string => `${count} $
 /** Escribe las sesiones y dice cuantas. Una sesion cuya copia es de un formato mas nuevo no se pisa (D15). */
 async function writeAll(dir: string, sessions: readonly SerializedSession[], context: VaultImportContext): Promise<void> {
   if (sessions.length === 0) {
-    context.out('No hay nada que escribir.');
+    context.out('There is nothing to write.');
     return;
   }
   const catalog = new VaultCatalog();
@@ -158,11 +159,11 @@ async function writeAll(dir: string, sessions: readonly SerializedSession[], con
     await writeSessionFile(dir, session);
     written += 1;
   }
-  context.out(`Escritas ${plural(written, 'sesión', 'sesiones')} en ${path.join(dir, 'sessions', sessions[0]?.header.agent ?? '')}.`);
+  context.out(`Wrote ${plural(written, 'session', 'sessions')} to ${path.join(dir, 'sessions', sessions[0]?.header.agent ?? '')}.`);
   if (foreign > 0) {
-    context.out(`${foreign === 1 ? 'No se pisó' : 'No se pisaron'} ${plural(foreign, 'sesión', 'sesiones')}: su copia es de un formato más nuevo que esta versión.`);
+    context.out(`Didn't overwrite ${plural(foreign, 'session', 'sessions')}: ${foreign === 1 ? 'its copy is' : 'their copies are'} in a newer format than this version.`);
   }
-  context.out('Si la app está abierta, ⟳ Reindexar las muestra.');
+  context.out('If the app is open, ⟳ Reindex shows them.');
 }
 
 /** Corre un importador. Devuelve el codigo de salida: 0 bien, 1 fallo, 2 uso incorrecto. */
@@ -197,13 +198,13 @@ export async function runVaultImport(argv: readonly string[], context: VaultImpo
       });
       sessions = geminiSessionFiles(plan, now);
       const unknown = plan.chats.length - plan.matchedCwd;
-      context.out(`Gemini CLI, chats de ${path.join(geminiHome, 'tmp')}`);
-      context.out(`  Encontrados: ${plan.found}`);
-      context.out(`  A importar: ${plan.chats.length} (${bytesOf(sessions)} bytes)`);
-      context.out(`    con carpeta casada: ${plan.matchedCwd}`);
-      context.out(`    sin carpeta: ${unknown}${unknown > 0 ? ` (van a "${GEMINI_UNKNOWN_GROUP}")` : ''}`);
+      context.out(`Gemini CLI, chats in ${path.join(geminiHome, 'tmp')}`);
+      context.out(`  Found: ${plan.found}`);
+      context.out(`  To import: ${plan.chats.length} (${bytesOf(sessions)} bytes)`);
+      context.out(`    with a matched folder: ${plan.matchedCwd}`);
+      context.out(`    without a folder: ${unknown}${unknown > 0 ? ` (they go to "${GEMINI_UNKNOWN_GROUP}")` : ''}`);
       const skipped = Object.entries(plan.skipped) as [GeminiSkipReason, number][];
-      context.out(`  Saltados: ${skipped.reduce((sum, [, count]) => sum + count, 0)}`);
+      context.out(`  Skipped: ${skipped.reduce((sum, [, count]) => sum + count, 0)}`);
       for (const [reason, count] of skipped) context.out(`    ${count}: ${GEMINI_SKIP_TEXT[reason]}`);
     } else {
       const workspace = parsed.workspace ?? '';
@@ -216,23 +217,23 @@ export async function runVaultImport(argv: readonly string[], context: VaultImpo
         ...(context.sqlite === undefined ? {} : { sqlite: context.sqlite }),
       });
       sessions = rescuedSessionFiles(plan, now);
-      context.out(`Antigravity IDE, conversaciones de ${workspace}`);
-      const range = plan.range === null ? 'sin fechas' : `del ${formatDay(plan.range.from)} al ${formatDay(plan.range.to)}`;
-      context.out(`  Conversaciones: ${plan.conversations.length}, con ${plan.steps} pasos, ${range}`);
-      context.out(`  Documentos: ${plan.documents} (${plan.documentBytes} bytes) en ${plural(plan.conversationsWithDocuments, 'conversación', 'conversaciones')}`);
-      context.out(`  Filas del IDE de otras carpetas: ${plan.otherRows} (no se tocan)`);
-      if (plan.invalidIds > 0) context.out(`  Saltadas por un id que no se puede guardar: ${plan.invalidIds}`);
-      context.out(`  A escribir: ${plural(sessions.length, 'sesión parcial', 'sesiones parciales')} (${bytesOf(sessions)} bytes)`);
+      context.out(`Antigravity IDE, conversations of ${workspace}`);
+      const range = plan.range === null ? 'no dates' : `from ${formatDay(plan.range.from)} to ${formatDay(plan.range.to)}`;
+      context.out(`  Conversations: ${plan.conversations.length}, with ${plan.steps} steps, ${range}`);
+      context.out(`  Documents: ${plan.documents} (${plan.documentBytes} bytes) in ${plural(plan.conversationsWithDocuments, 'conversation', 'conversations')}`);
+      context.out(`  IDE rows from other folders: ${plan.otherRows} (not touched)`);
+      if (plan.invalidIds > 0) context.out(`  Skipped for an id that can't be saved: ${plan.invalidIds}`);
+      context.out(`  To write: ${plural(sessions.length, 'partial session', 'partial sessions')} (${bytesOf(sessions)} bytes)`);
     }
 
     if (!parsed.write) {
-      context.out(`En seco: no se escribió nada. Con --write se escriben en ${dir}.`);
+      context.out(`Dry run: nothing was written. With --write they're written to ${dir}.`);
       return 0;
     }
     await writeAll(dir, sessions, context);
     return 0;
   } catch (error) {
-    context.err(error instanceof RescueError ? error.message : `Falló la importación: ${error instanceof Error ? error.message : String(error)}`);
+    context.err(error instanceof RescueError ? error.message : `The import failed: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
 }

@@ -281,7 +281,7 @@ export class LogWatcher {
         if (lines !== null) this.take(lines);
       }
       if (this.reader?.exhausted === true && !this.disposed) {
-        this.warn(`[antigravity] el log de ${label} paso 256 MB; dejo de seguirlo`);
+        this.warn(`[antigravity] the log of ${label} went over 256 MB; stopped following it`);
         this.mode = 'stopped';
       }
     } catch {
@@ -292,7 +292,7 @@ export class LogWatcher {
   private async search(label: string): Promise<void> {
     const { launchedAt, pid } = this.options;
     if (this.now() - launchedAt > (this.options.fallbackWindowMs ?? FALLBACK_WINDOW_MS)) {
-      this.warn(`[antigravity] no pude descubrir la conversacion de ${label}`);
+      this.warn(`[antigravity] couldn't discover the conversation of ${label}`);
       this.mode = 'stopped';
       return;
     }
@@ -335,7 +335,7 @@ export class LogWatcher {
       try {
         this.options.onConversation(id);
       } catch (error) {
-        console.warn('[antigravity] el aviso de conversacion nueva fallo:', error);
+        console.warn('[antigravity] the new conversation listener failed:', error);
       }
     }
   }

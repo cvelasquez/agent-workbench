@@ -24,37 +24,46 @@
  * sin JSX.
  */
 
+import { t, type MessageKey } from './i18n/index.js';
+
 export interface ToolCategory {
   key: string;
   names: readonly string[];
-  label: string;
+  /** El resumen de una tanda: "3 comandos de consola", con su plural (§6.23). */
+  run: MessageKey;
 }
 
 export const TOOL_CATEGORIES: readonly ToolCategory[] = [
   {
     key: 'shell',
     names: ['Bash', 'PowerShell', 'BashOutput', 'KillShell', 'shell_command', 'bash'],
-    label: 'comandos de consola',
+    run: 'tools.run.shell',
   },
-  { key: 'read', names: ['Read', 'NotebookRead', 'read'], label: 'archivos leidos' },
-  { key: 'find', names: ['Glob', 'Grep', 'LS', 'grep', 'glob', 'list'], label: 'busquedas en el proyecto' },
+  { key: 'read', names: ['Read', 'NotebookRead', 'read'], run: 'tools.run.read' },
+  { key: 'find', names: ['Glob', 'Grep', 'LS', 'grep', 'glob', 'list'], run: 'tools.run.find' },
   {
     key: 'edit',
     names: ['Edit', 'Write', 'NotebookEdit', 'MultiEdit', 'apply_patch', 'edit', 'write'],
-    label: 'ediciones',
+    run: 'tools.run.edit',
   },
   {
     key: 'web',
     names: ['WebSearch', 'WebFetch', 'ToolSearch', 'webfetch', 'websearch', 'codesearch'],
-    label: 'busquedas',
+    run: 'tools.run.web',
   },
-  { key: 'agent', names: ['Task', 'Agent', 'task'], label: 'subagentes' },
-  { key: 'todo', names: ['TodoWrite', 'update_plan', 'todowrite', 'todoread'], label: 'listas de tareas' },
+  { key: 'agent', names: ['Task', 'Agent', 'task'], run: 'tools.run.agent' },
+  { key: 'todo', names: ['TodoWrite', 'update_plan', 'todowrite', 'todoread'], run: 'tools.run.todo' },
 ];
 
-export function toolCategory(name: string): { key: string; label: string | null } {
+export function toolCategory(name: string): { key: string; known: boolean } {
   const found = TOOL_CATEGORIES.find((entry) => entry.names.includes(name));
   // Sin categoria conocida, la clave es el nombre: dos llamadas seguidas a la
   // misma herramienta siguen siendo una tanda, y el resumen las nombra.
-  return found === undefined ? { key: `name:${name}`, label: null } : found;
+  return found === undefined ? { key: `name:${name}`, known: false } : { key: found.key, known: true };
+}
+
+/** "3 comandos de consola", o "3 llamadas a mcp__x" para una sin categoria. */
+export function toolRunSummary(key: string, count: number, firstName: string): string {
+  const found = TOOL_CATEGORIES.find((entry) => entry.key === key);
+  return found === undefined ? t('tools.run.callsTo', { count, name: firstName }) : t(found.run, { count });
 }

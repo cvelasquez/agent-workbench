@@ -31,8 +31,11 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import {
   IMPORTED_AGENT_LABELS,
+  ServerTextError,
   isImportedAgentId,
   normalizeCwdKey,
+  serverText,
+  type ServerText,
   type ConversationEvent,
   type GlobalSearchResult,
   type IndexStatus,
@@ -78,13 +81,8 @@ import {
 /** Minimo entre dos `vault.status`. */
 export const STATUS_INTERVAL_MS = 500;
 
-/** Un pedido que no se pudo cumplir, con un texto para mostrarle al usuario tal cual. */
-export class VaultError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'VaultError';
-  }
-}
+/** Un pedido que no se pudo cumplir. El texto va como clave: la frase la arma la web (§6.23). */
+export class VaultError extends ServerTextError {}
 
 const REAL_TIMERS: VaultWriterTimers = {
   set: (run, ms) => {
@@ -132,8 +130,15 @@ const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(reso
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-function busyMessage(error: VaultBusyError): string {
-  return `${error.message} Probá de nuevo cuando termine.`;
+function busyText(error: VaultBusyError): ServerText {
+  switch (error.activity) {
+    case 'measuring':
+      return serverText('vaultBusyMeasuring');
+    case 'moving':
+      return serverText('vaultBusyMoving');
+    default:
+      return serverText('vaultBusyWriting');
+  }
 }
 
 async function collect(lines: AsyncIterable<VaultBodyLine>): Promise<VaultBodyLine[]> {
@@ -261,12 +266,12 @@ export class VaultService {
   /** La pasada en seco (§7.4). Lanza `VaultError` si hay algo en curso o el indice no termino. */
   async measure(): Promise<VaultMeasurement> {
     if (this.options.index.getStatus().state !== 'ready') {
-      throw new VaultError('Todavía se está leyendo el historial. Medí cuando termine.');
+      throw new VaultError(serverText('vaultIndexNotReady'));
     }
     try {
       return await this.writer.measure();
     } catch (error) {
-      if (error instanceof VaultBusyError) throw new VaultError(busyMessage(error));
+      if (error instanceof VaultBusyError) throw new VaultError(busyText(error));
       throw error;
     }
   }
@@ -299,7 +304,7 @@ export class VaultService {
   /** Muda la copia a donde esta parado un selector de carpetas de quien la pide. */
   async setDirFromPicker(pickers: VaultDirPicker, pickerId: string): Promise<void> {
     const target = pickers.currentPath(pickerId);
-    if (target === null) throw new VaultError('Ese selector ya no está abierto.');
+    if (target === null) throw new VaultError(serverText('pickerClosed'));
     await this.setDir(target);
   }
 
@@ -313,12 +318,12 @@ export class VaultService {
     const current = this.dir();
     const protectedDirs = [...agents.protectedDirs(), path.join(this.options.homeDir ?? homedir(), '.gemini')];
     const check = checkVaultTarget(current, target, { protectedDirs, platform });
-    if (check.kind === 'refused') throw new VaultError(check.message);
+    if (check.kind === 'refused') throw new VaultError(check.text);
     if (check.kind === 'same') return;
 
     try {
       await this.writer.exclusive('moving', async () => {
-        if (!(await canWriteInto(target))) throw new VaultError('No se puede escribir en esa carpeta.');
+        if (!(await canWriteInto(target))) throw new VaultError(serverText('vaultCannotWrite'));
         const hadCopy = await stat(vaultMarkerFile(current)).then(
           () => true,
           () => false,
@@ -330,9 +335,9 @@ export class VaultService {
         await catalog.load(this.dir());
       });
     } catch (error) {
-      if (error instanceof VaultBusyError) throw new VaultError(busyMessage(error));
+      if (error instanceof VaultBusyError) throw new VaultError(busyText(error));
       if (error instanceof VaultError) throw error;
-      throw new VaultError(`No se pudo mudar la copia: ${messageOf(error)}`);
+      throw new VaultError(serverText('vaultMoveFailed', { detail: messageOf(error) }));
     } finally {
       this.scheduleStatus();
     }
@@ -361,7 +366,7 @@ export class VaultService {
       (info) => info.isDirectory(),
       () => false,
     );
-    if (!isFolder) throw new VaultError('Todavía no hay copia.');
+    if (!isFolder) throw new VaultError(serverText('vaultNoCopyYet'));
     this.openWithSystem(dir);
   }
 
@@ -373,7 +378,7 @@ export class VaultService {
     this.refuseWhileMoving();
     const { catalog } = this.options;
     const header = catalog.header(agent, sessionId);
-    if (header === null) throw new VaultError('Esa sesión no está en la copia.');
+    if (header === null) throw new VaultError(serverText('vaultSessionMissing'));
     const dir = this.activeDir();
 
     const lines = await collect(catalog.readBody(agent, sessionId));
@@ -479,7 +484,7 @@ export class VaultService {
   async exportProject(projectKey: string): Promise<VaultExportResult> {
     this.refuseWhileMoving();
     const project = this.options.index.getProjects().find((candidate) => candidate.key === projectKey);
-    if (project === undefined) throw new VaultError('Ese proyecto ya no está en la barra.');
+    if (project === undefined) throw new VaultError(serverText('vaultProjectGone'));
 
     const folder = projectExportDirFor(this.activeDir(), project, this.options.platform);
     await mkdir(folder, { recursive: true });
@@ -492,7 +497,7 @@ export class VaultService {
       try {
         text = await this.renderForExport(summary);
       } catch (error) {
-        this.log.warn(`[copia] no se pudo exportar ${summary.agent}/${summary.sessionId}: ${messageOf(error)}`);
+        this.log.warn(`[vault] couldn't export ${summary.agent}/${summary.sessionId}: ${messageOf(error)}`);
         text = null;
       }
       if (text === null) {
@@ -523,7 +528,7 @@ export class VaultService {
 
   private refuseWhileMoving(): void {
     if (this.writer.snapshot().activity === 'moving') {
-      throw new VaultError('La copia se está mudando de carpeta. Probá de nuevo cuando termine.');
+      throw new VaultError(serverText('vaultMoving'));
     }
   }
 
@@ -662,7 +667,7 @@ export class VaultService {
       try {
         listener(status);
       } catch (error) {
-        this.log.warn('[copia] un oyente del estado lanzo:', error);
+        this.log.warn('[vault] a status listener threw:', error);
       }
     }
   }

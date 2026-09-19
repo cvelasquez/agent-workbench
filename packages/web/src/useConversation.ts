@@ -23,6 +23,8 @@ import {
   type TerminalId,
 } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 /** Sin configuracion leida todavia. El combo muestra "sin datos". */
 const NO_DEFAULTS: AgentDefaults = { model: null, effort: null, contextWindow: null };
@@ -436,7 +438,7 @@ export function useConversation(
               delete rest[toolUseId];
               return { ...current, [terminalId]: rest };
             });
-            fail(terminalId, toolUseId, message.message);
+            fail(terminalId, toolUseId, serverTextMessage(message.text));
           }
           break;
         }
@@ -517,11 +519,7 @@ export function useConversation(
           delete rest[toolUseId];
           return { ...current, [terminalId]: rest };
         });
-        fail(
-          terminalId,
-          toolUseId,
-          'La CLI no confirmo esta respuesta. Probá de nuevo, o contestá en la solapa CLI.',
-        );
+        fail(terminalId, toolUseId, t('conversation.answerUnconfirmed'));
       }, ANSWER_CONFIRM_MS);
       timers.current.set(toolUseId, timer);
     },

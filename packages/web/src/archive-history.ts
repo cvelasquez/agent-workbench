@@ -11,6 +11,7 @@
  */
 
 import type { AgentId, ProjectSummary, SessionAgentId } from '@agent-workbench/shared';
+import { t } from './i18n/index.js';
 
 /**
  * La medianoche local del dia de `nowMs`.
@@ -164,17 +165,8 @@ export function projectArchivePlan(
  */
 export function projectArchiveText(plan: ProjectArchivePlan): string {
   const { sessionIds, blocked } = plan;
-  if (sessionIds.length === 0) {
-    return blocked === 1
-      ? 'Su única conversación tiene una pestaña abierta. Cerrala primero.'
-      : `Sus ${blocked} conversaciones tienen una pestaña abierta. Cerralas primero.`;
-  }
-  const head =
-    sessionIds.length === 1
-      ? '¿Archivar 1 conversación?'
-      : `¿Archivar las ${sessionIds.length} conversaciones?`;
-  if (blocked === 0) return head;
-  return blocked === 1
-    ? `${head} Otra tiene una pestaña abierta y se queda.`
-    : `${head} Otras ${blocked} tienen una pestaña abierta y se quedan.`;
+  if (sessionIds.length === 0) return t('archive.allBlocked', { count: blocked });
+  const confirm = t('archive.confirm', { count: sessionIds.length });
+  if (blocked === 0) return confirm;
+  return t('archive.withBlocked', { confirm, blocked: t('archive.blockedStays', { count: blocked }) });
 }

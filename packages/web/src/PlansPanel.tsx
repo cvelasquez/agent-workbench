@@ -23,15 +23,11 @@
  */
 
 import type { SessionPlan } from '@agent-workbench/shared';
-import { formatWhen } from './format-when.js';
+import { formatBytes, formatWhen } from './i18n/format.js';
+import { t } from './i18n/index.js';
+import { tRich } from './i18n/rich.js';
 import { Markdown } from './Markdown.js';
 import type { PlansView } from './usePlans.js';
-
-function formatSize(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_024 * 1_024) return `${Math.round(bytes / 1_024)} KB`;
-  return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`;
-}
 
 /** El primer encabezado del plan, que casi siempre dice de que se trata. */
 function headingOf(text: string): string | null {
@@ -55,7 +51,7 @@ export function PlansPanel({ view }: { view: PlansView }): JSX.Element {
       <div className="panel-body">
         <div className="panel-subhead">
           <button className="link-button" onClick={closePlan}>
-            ← Planes
+            ← {t('plans.backToList')}
           </button>
           <span className="panel-subhead-title" title={openPath ?? undefined}>
             {title}
@@ -63,14 +59,14 @@ export function PlansPanel({ view }: { view: PlansView }): JSX.Element {
         </div>
 
         {open === null ? (
-          <p className="panel-note">Leyendo el plan…</p>
+          <p className="panel-note">{t('plans.loading')}</p>
         ) : (
           <div className="panel-scroll">
             <div className="plan-body">
               <Markdown text={open.text} />
             </div>
             {open.truncated && (
-              <p className="panel-note">El plan se cortó por tamaño.</p>
+              <p className="panel-note">{t('plans.truncated')}</p>
             )}
           </div>
         )}
@@ -82,11 +78,7 @@ export function PlansPanel({ view }: { view: PlansView }): JSX.Element {
     <div className="panel-body">
       <div className="panel-scroll">
         {plans.length === 0 ? (
-          <p className="panel-note">
-            Esta conversación todavía no escribió ningún documento. Aparecen acá los
-            planes del modo plan y los <code>.md</code> que el agente guarda en el
-            proyecto o en su carpeta temporal.
-          </p>
+          <p className="panel-note">{tRich('plans.empty')}</p>
         ) : (
           <ul className="plan-list">
             {[...plans].reverse().map((plan) => (
@@ -115,10 +107,10 @@ function PlanRow({ plan, onOpen }: { plan: SessionPlan; onOpen: () => void }): J
 
   if (!plan.exists) {
     return (
-      <li className="plan-row plan-row-missing" title={where ?? 'El archivo ya no está en disco'}>
+      <li className="plan-row plan-row-missing" title={where ?? t('plans.missingTitle')}>
         <span className="plan-name">{plan.title}</span>
         {where !== null && <span className="plan-path">{where}</span>}
-        <span className="plan-meta">ya no está</span>
+        <span className="plan-meta">{t('plans.missing')}</span>
       </li>
     );
   }
@@ -129,7 +121,7 @@ function PlanRow({ plan, onOpen }: { plan: SessionPlan; onOpen: () => void }): J
         <span className="plan-name">{plan.title}</span>
         {where !== null && <span className="plan-path">{where}</span>}
         <span className="plan-meta">
-          {formatWhen(plan.modifiedAt)} · {formatSize(plan.sizeBytes)}
+          {formatWhen(plan.modifiedAt)} · {formatBytes(plan.sizeBytes)}
         </span>
       </button>
     </li>

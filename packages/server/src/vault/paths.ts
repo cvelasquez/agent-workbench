@@ -59,12 +59,12 @@ function isSessionAgentId(value: string): value is SessionAgentId {
  * de un importador: se comprueba igual, en el unico lugar que arma la ruta.
  */
 function assertSessionKey(agent: string, sessionId: string): void {
-  if (!isSessionAgentId(agent)) throw new Error(`Fuente desconocida para la copia: ${JSON.stringify(agent)}`);
-  if (!isSafeSessionId(sessionId)) throw new Error(`Id de sesion que no se copia: ${JSON.stringify(sessionId)}`);
+  if (!isSessionAgentId(agent)) throw new Error(`Unknown source for the local copy: ${JSON.stringify(agent)}`);
+  if (!isSafeSessionId(sessionId)) throw new Error(`Session id that isn't copied: ${JSON.stringify(sessionId)}`);
 }
 
 export function agentSessionsDir(dir: string, agent: SessionAgentId): string {
-  if (!isSessionAgentId(agent)) throw new Error(`Fuente desconocida para la copia: ${JSON.stringify(agent)}`);
+  if (!isSessionAgentId(agent)) throw new Error(`Unknown source for the local copy: ${JSON.stringify(agent)}`);
   return path.join(sessionsRoot(dir), agent);
 }
 
@@ -80,7 +80,7 @@ export function assetsDir(dir: string, agent: SessionAgentId, sessionId: string)
 
 /** Un asset de una sesion. Lanza si el nombre no es el de un hash: vendria de disco, no de nosotros. */
 export function assetFile(dir: string, agent: SessionAgentId, sessionId: string, asset: string): string {
-  if (!VAULT_ASSET_NAME_PATTERN.test(asset)) throw new Error(`Nombre de asset invalido: ${JSON.stringify(asset)}`);
+  if (!VAULT_ASSET_NAME_PATTERN.test(asset)) throw new Error(`Invalid asset name: ${JSON.stringify(asset)}`);
   return path.join(assetsDir(dir, agent, sessionId), asset);
 }
 

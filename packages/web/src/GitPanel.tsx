@@ -14,6 +14,9 @@
 
 import type { GitChangeKind, GitFileChange, GitStatus } from '@agent-workbench/shared';
 import { DiffView } from './DiffView.js';
+import { t, type MessageKey } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
+import { tRich } from './i18n/rich.js';
 import type { GitView } from './useGit.js';
 
 /** Letra que se muestra en el cuadradito de cada archivo. */
@@ -28,22 +31,22 @@ const KIND_BADGE: Readonly<Record<GitChangeKind, string>> = {
   conflict: '!',
 };
 
-const KIND_TITLE: Readonly<Record<GitChangeKind, string>> = {
-  added: 'agregado',
-  modified: 'modificado',
-  deleted: 'borrado',
-  renamed: 'renombrado',
-  copied: 'copiado',
-  'type-changed': 'cambio de tipo',
-  untracked: 'sin seguimiento',
-  conflict: 'en conflicto',
+const KIND_TITLE: Readonly<Record<GitChangeKind, MessageKey>> = {
+  added: 'git.kind.added',
+  modified: 'git.kind.modified',
+  deleted: 'git.kind.deleted',
+  renamed: 'git.kind.renamed',
+  copied: 'git.kind.copied',
+  'type-changed': 'git.kind.typeChanged',
+  untracked: 'git.kind.untracked',
+  conflict: 'git.kind.conflict',
 };
 
-const GROUPS: readonly { stage: GitFileChange['stage']; title: string; hint: string }[] = [
-  { stage: 'conflict', title: 'En conflicto', hint: 'Hay que resolverlos antes de seguir' },
-  { stage: 'staged', title: 'Preparado', hint: 'Ya pasó por git add' },
-  { stage: 'unstaged', title: 'Sin preparar', hint: 'Modificado en el árbol de trabajo' },
-  { stage: 'untracked', title: 'Sin seguimiento', hint: 'Archivos nuevos que git no conoce' },
+const GROUPS: readonly { stage: GitFileChange['stage']; title: MessageKey; hint: MessageKey }[] = [
+  { stage: 'conflict', title: 'git.group.conflict', hint: 'git.group.conflictHint' },
+  { stage: 'staged', title: 'git.group.staged', hint: 'git.group.stagedHint' },
+  { stage: 'unstaged', title: 'git.group.unstaged', hint: 'git.group.unstagedHint' },
+  { stage: 'untracked', title: 'git.group.untracked', hint: 'git.group.untrackedHint' },
 ];
 
 /**
@@ -74,17 +77,18 @@ function Headline({ status }: HeadlineProps): JSX.Element {
   return (
     <div className="git-headline">
       <span className="git-branch" title={status.repoRoot}>
-        {status.branch ?? `HEAD desprendido${status.head !== null ? ` @ ${status.head}` : ''}`}
+        {status.branch ??
+          (status.head !== null ? t('git.detachedAt', { head: status.head }) : t('git.detached'))}
       </span>
 
       {status.upstream !== null && (
-        <span className="git-upstream" title={`Rama de seguimiento: ${status.upstream}`}>
+        <span className="git-upstream" title={t('git.upstreamTitle', { upstream: status.upstream })}>
           {status.upstream}
         </span>
       )}
 
       {(status.ahead > 0 || status.behind > 0) && (
-        <span className="git-ab" title="Commits de diferencia con la rama de seguimiento">
+        <span className="git-ab" title={t('git.aheadBehindTitle')}>
           {status.ahead > 0 && <span className="git-ahead">↑{status.ahead}</span>}
           {status.behind > 0 && <span className="git-behind">↓{status.behind}</span>}
         </span>
@@ -105,17 +109,17 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
       <div className="panel-body">
         <div className="panel-subhead">
           <button className="link-button" onClick={closeDiff}>
-            ← Cambios
+            ← {t('git.backToChanges')}
           </button>
           {diff !== null && (
             <span className="panel-subhead-title" title={diff.path}>
               {splitPath(diff.path).name}
-              {diff.staged && <span className="panel-tagline"> preparado</span>}
+              {diff.staged && <span className="panel-tagline"> {t('git.stagedTag')}</span>}
             </span>
           )}
         </div>
         {loadingDiff ? (
-          <p className="panel-note">Leyendo el diff…</p>
+          <p className="panel-note">{t('git.readingDiff')}</p>
         ) : (
           diff !== null && <DiffView diff={diff} />
         )}
@@ -126,9 +130,7 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
   if (status.state !== 'ready') {
     return (
       <div className="panel-body">
-        <p className="panel-note">
-          {status.message ?? 'Todavía no se conoce el estado del repositorio.'}
-        </p>
+        <p className="panel-note">{status.message === null ? t('git.unknownState') : serverTextMessage(status.message)}</p>
       </div>
     );
   }
@@ -139,15 +141,13 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
     <div className="panel-body">
       <div className="panel-subhead">
         <Headline status={status} />
-        <button className="icon-button" onClick={refresh} title="Releer el estado ahora">
+        <button className="icon-button" onClick={refresh} title={t('git.refresh')}>
           ⟳
         </button>
       </div>
 
       <div className="panel-scroll">
-        {status.changes.length === 0 && (
-          <p className="panel-note">El árbol de trabajo está limpio.</p>
-        )}
+        {status.changes.length === 0 && <p className="panel-note">{t('git.clean')}</p>}
 
         {GROUPS.map((group) => {
           const changes = status.changes.filter((change) => change.stage === group.stage);
@@ -155,8 +155,8 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
 
           return (
             <section className="git-group" key={group.stage}>
-              <h3 className="git-group-title" title={group.hint}>
-                {group.title}
+              <h3 className="git-group-title" title={t(group.hint)}>
+                {t(group.title)}
                 <span className="git-group-count">{changes.length}</span>
               </h3>
               <ul className="git-list">
@@ -166,14 +166,14 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
                     change.oldPath !== null
                       ? `${change.oldPath} → ${change.path}`
                       : isDirectory
-                        ? `${change.path} — carpeta nueva; su contenido se ve en Archivos`
+                        ? t('git.newFolderTitle', { path: change.path })
                         : change.path;
 
                   const contenido = (
                     <>
                       <span
                         className={`git-badge git-badge-${change.kind}`}
-                        title={KIND_TITLE[change.kind]}
+                        title={t(KIND_TITLE[change.kind])}
                       >
                         {KIND_BADGE[change.kind]}
                       </span>
@@ -213,12 +213,7 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
           );
         })}
 
-        {status.truncated && (
-          <p className="panel-note">
-            Hay más cambios de los que se muestran. Suele significar que falta una regla en{' '}
-            <code>.gitignore</code>.
-          </p>
-        )}
+        {status.truncated && <p className="panel-note">{tRich('git.truncated')}</p>}
 
         {otherWorktrees.length > 0 && (
           <section className="git-group">
@@ -227,15 +222,17 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
               perder de vista en cual esta parada la pestana, y ahi se le pide
               al agente que edite el arbol equivocado.
             */}
-            <h3 className="git-group-title" title="Otros árboles de trabajo de este repositorio">
-              Otros worktrees
+            <h3 className="git-group-title" title={t('git.worktrees.headingTitle')}>
+              {t('git.worktrees.heading')}
               <span className="git-group-count">{otherWorktrees.length}</span>
             </h3>
             <ul className="git-list">
               {otherWorktrees.map((worktree) => (
                 <li key={worktree.path}>
                   <div className="git-worktree" title={worktree.path}>
-                    <span className="git-worktree-branch">{worktree.branch ?? 'detached'}</span>
+                    <span className="git-worktree-branch">
+                      {worktree.branch ?? t('git.worktrees.detached')}
+                    </span>
                     <span className="git-worktree-path">{worktree.path}</span>
                   </div>
                 </li>

@@ -110,7 +110,7 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
       path.basename(filePath).toLowerCase() === `${this.sessionId.toLowerCase()}.jsonl`
     ) {
       console.warn(
-        `[conversacion] la sesion ${this.sessionId.slice(0, 8)} escribio en ${filePath}, no en la ruta calculada; me mudo ahi.`,
+        `[conversation] session ${this.sessionId.slice(0, 8)} wrote to ${filePath}, not to the computed path; moving there.`,
       );
       // Sin registro de variantes, igual que antes de mudarse aca (D11); con los topes que se pidieron.
       this.inner = new ConversationFollower(filePath, undefined, {

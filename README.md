@@ -1,413 +1,418 @@
 # Agent Workbench
 
-Una interfaz visual local para las CLIs de agentes de código. Funciona con la
-CLI de Claude Code, con la de Codex, con la de OpenCode y con Antigravity CLI.
+A local visual interface for coding-agent CLIs. It works with the Claude Code,
+Codex and OpenCode CLIs, and with Antigravity CLI.
 
-No habla con ninguna API. Lanza la CLI que ya tenés instalada y logueada
-—`claude`, `codex`, `opencode` o `agy`— dentro de una pseudo-terminal, y le
-agrega alrededor lo que una terminal sola no da: pestañas, historial navegable,
-la conversación como tarjetas, un medidor de contexto, el estado de git y un
-árbol de archivos.
+It doesn't talk to any API. It launches the CLI you already have installed and
+logged in —`claude`, `codex`, `opencode` or `agy`— inside a pseudo-terminal, and
+adds around it what a terminal alone doesn't give you: tabs, browsable history,
+the conversation as cards, a context meter, git status and a file tree.
 
-La terminal sigue siendo la terminal. Todo lo que escribís le llega a la CLI sin
-que la aplicación lo toque.
+The terminal is still the terminal. Everything you type reaches the CLI without
+the app touching it.
 
-![La conversación al centro; alrededor, los proyectos con su historial, las pestañas de las cuatro CLIs y el árbol de archivos](docs/captura-conversacion.png)
+![The conversation in the center; around it, the projects with their history, the tabs of the four CLIs and the file tree](docs/captura-conversacion.png)
 
 ---
 
-## Qué hace
+## What it does
 
 | | |
 |---|---|
-| **Pestañas** | Varias sesiones vivas a la vez, de cualquiera de las CLIs, cada una en su directorio. Sobreviven a un `F5`: los procesos viven en el servidor, no en la pestaña del navegador. El punto de cada una dice si el agente está trabajando, parado o esperando una respuesta, en las CLIs que publican su estado ([abajo](#varias-clis)). |
-| **Arranque sin gastar nada** | Al abrir la app las pestañas vuelven **dormidas**: se leen enteras y no lanzan ninguna CLI. La abrís con un botón cuando quieras escribirle al agente. |
-| **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, con filtro, y las de las cuatro CLIs juntas bajo cada proyecto, cada una con su insignia. Abrir una la retoma con su CLI, en la misma sesión. **Archivar historial…** esconde de una vez las sesiones de una CLI anteriores a hoy, y cada proyecto se archiva entero con un botón: sin borrar nada, y las dos cosas se deshacen. |
-| **Conversación** | Los mensajes de la sesión activa, en vivo, con las herramientas plegadas y su resultado adentro. Búsqueda, salto entre resultados, copiado por mensaje y, según la CLI, las preguntas del agente se contestan desde el chat. |
-| **Continuar con…** | Con más de una CLI instalada, una conversación se sigue con otra CLI en la misma carpeta. El agente nuevo arranca de un recorte de los últimos turnos, no del contexto que tenía el anterior. |
-| **Buscar en todo** | Con más de una CLI y algo guardado en la copia propia, el filtro de la barra busca también en el texto de todas las conversaciones guardadas, no sólo en sus títulos. |
-| **Medidor de contexto** | Tokens de la última petición contra la ventana del modelo. Tokens, nunca dinero. |
-| **Cambios** | Rama, adelanto y atraso contra la rama de seguimiento, worktrees, y los archivos tocados con su diff. **Solo lectura.** |
-| **Archivos** | El árbol del directorio de la pestaña, con buscador por nombre y previsualización con resaltado de sintaxis. Menú contextual para copiar rutas, insertarlas como `@ruta` o abrir el archivo con la app del sistema. |
-| **Planes** | Los documentos que escribió esa conversación, renderizados: los planes del modo plan y también los `.md` que el agente creó dentro del proyecto o en la carpeta temporal de la sesión. Sólo los que la conversación que estás mirando nombró. |
-| **Memoria compartida** | Lo que los agentes aprenden de un proyecto, en `.agents/memory/`, y lo leen y escriben las cuatro CLIs ([abajo](#memoria-compartida)). |
-| **Copia propia** | Opcional. El historial de las cuatro CLIs en una carpeta tuya y en un formato de la aplicación, para no perderlo si una CLI cambia de formato, lo borra o la desinstalás ([abajo](#copia-propia-opcional)). |
-| **Tema** | Claro, oscuro, o el del sistema. |
+| **Tabs** | Several live sessions at once, from any of the CLIs, each in its own directory. They survive an `F5`: the processes live on the server, not in the browser tab. Each tab's dot tells you whether the agent is working, idle or waiting for an answer, on the CLIs that publish their status ([below](#multiple-clis)). |
+| **Zero-cost startup** | When you open the app, tabs come back as **sleeping tabs**: you can read them in full, and they don't launch any CLI. You open the CLI with a button when you want to write to the agent. |
+| **History** | Your projects and past conversations in the sidebar, with a filter, and those of all four CLIs together under each project, each with its badge. Opening one resumes it with its CLI, in the same session. **Archive history…** hides a CLI's sessions from before today in one go, and each project can be archived whole with one button: nothing is deleted, and both can be undone. |
+| **Conversation** | The active session's messages, live, with tool calls collapsed and their results inside. Search, jump between matches, copy any message and, depending on the CLI, answer the agent's questions from the chat. |
+| **Continue with…** | With more than one CLI installed, a conversation can be continued with another CLI in the same folder. The new agent starts from a transcript of the last turns, not from the context the previous one had. |
+| **Search everything** | With more than one CLI and something saved in the local copy, the sidebar filter also searches the text of every saved conversation, not just their titles. |
+| **Context meter** | Tokens from the last request against the model's context window. Tokens, never money. |
+| **Changes** | Branch, ahead and behind against the upstream branch, worktrees, and the changed files with their diff. **Read-only.** |
+| **Files** | The tree of the tab's directory, with search by name and a preview with syntax highlighting. A context menu to copy paths, insert them as `@path` or open the file with the system's default app. |
+| **Plans** | The documents written by that conversation, rendered: the plans from plan mode, and also the `.md` files the agent created inside the project or in the session's temp folder. Only those named by the conversation you're viewing. |
+| **Shared memory** | What agents learn about a project, in `.agents/memory/`, read and written by all four CLIs ([below](#shared-memory)). |
+| **Local copy** | Optional. The history of all four CLIs in a folder of yours, in the app's own format, so you don't lose it if a CLI changes its format, deletes it, or you uninstall the CLI ([below](#local-copy-optional)). |
+| **Nine languages** | The interface in English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français and Deutsch. It follows the browser's language and can be changed from the header, without reloading. |
+| **Theme** | Light, dark, or the system's. |
 
 <p>
-  <img src="docs/captura-cambios.png" width="49%" alt="El panel de cambios: rama y archivos tocados, por grupo">
-  <img src="docs/captura-diff.png" width="49%" alt="El diff de uno de esos archivos, en el mismo panel">
+  <img src="docs/captura-cambios.png" width="49%" alt="The Changes panel: branch and changed files, by group">
+  <img src="docs/captura-diff.png" width="49%" alt="The diff of one of those files, in the same panel">
 </p>
 
-### Varias CLIs
+### Multiple CLIs
 
-Con más de una CLI instalada, cada sesión de la barra y cada pestaña lleva la
-insignia de su CLI, y el `+` de nueva pestaña abre con la que usaste en ese
-proyecto; su flecha te deja elegir otra. Con una sola, no ves nada de esto.
+With more than one CLI installed, every session in the sidebar and every tab
+carries its CLI's badge, and the new-tab `+` opens with the one you used in that
+project; its arrow lets you pick another. With just one, you see none of this.
 
-<img src="docs/captura-clis.png" width="45%" alt="La barra de proyectos con sesiones de varias CLIs, cada una con su insignia, y el menú del + con las cuatro CLIs y sus versiones">
+<img src="docs/captura-clis.png" width="45%" alt="The projects sidebar with sessions from several CLIs, each with its badge, and the + menu with the four CLIs and their versions">
 
-**No todas las CLIs dan lo mismo.** Claude Code deja en sus archivos todo lo que
-la aplicación necesita. Codex deja el historial y los tokens del medidor, pero no
-su estado, ni los permisos pendientes, ni sus preguntas, ni el modelo: su punto
-dice que no se sabe, no hay aviso de "esperando" y las preguntas se contestan en
-su terminal. Con OpenCode, la aplicación arranca un servidor local de OpenCode
-cuando abrís una pestaña, y de ahí salen su estado, el aviso de que espera un
-permiso y las preguntas que se contestan desde el chat. Antigravity CLI publica
-su estado y sus tokens sólo si configurás su status line
-([abajo](#antigravity-cli-estado-y-medidor-opcional)).
+**Not every CLI exposes the same things.** Claude Code leaves everything the app
+needs in its files. Codex leaves the history and the meter's tokens, but not its
+status, its pending permissions, its questions or the model: its dot says the
+status is unknown, there's no "waiting" notice and questions are answered in its
+terminal. With OpenCode, the app starts a local OpenCode server when you open a
+tab, and that's where its status, the notice that it's waiting for a permission
+and the questions you answer from the chat come from. Antigravity CLI publishes
+its status and tokens only if you configure its status line
+([below](#antigravity-cli-status-and-meter-optional)).
 
 ---
 
-## Requisitos
+## Requirements
 
 | | |
 |---|---|
-| **Node.js** | 20 o superior. **Para ver el historial de OpenCode y los títulos de Antigravity CLI, 22.13 o posterior**: se leen con el SQLite que trae Node desde esa versión. Con uno anterior todo lo demás funciona igual; el arranque avisa lo de OpenCode, y Antigravity CLI lista sus conversaciones sin los títulos ni las carpetas de su índice |
-| **git** | para el panel de cambios; el resto funciona sin él |
-| **Al menos una CLI** | instalada y con sesión iniciada (tabla de abajo) |
+| **Node.js** | 20 or later. **To see the OpenCode history and the Antigravity CLI titles, 22.13 or later**: they're read with the SQLite that Node ships since that version. With an older one everything else works the same; the startup output warns about OpenCode, and Antigravity CLI lists its conversations without the titles or folders from its index |
+| **git** | for the Changes panel; everything else works without it |
+| **At least one CLI** | installed and logged in (table below) |
 
-| CLI | Comando | Instalación |
+| CLI | Command | Installation |
 |---|---|---|
-| Claude Code | `claude` | [guía de instalación](https://docs.claude.com/en/docs/claude-code/setup) |
-| Codex | `codex` | [guía](https://learn.chatgpt.com/docs/codex/cli) |
-| OpenCode | `opencode` | [documentación](https://opencode.ai/docs/) |
-| Antigravity CLI | `agy` | [guía](https://antigravity.google/docs/cli/getting-started). Para su estado y su medidor, además, `node` en el `PATH` de la CLI |
+| Claude Code | `claude` | [installation guide](https://docs.claude.com/en/docs/claude-code/setup) |
+| Codex | `codex` | [guide](https://learn.chatgpt.com/docs/codex/cli) |
+| OpenCode | `opencode` | [documentation](https://opencode.ai/docs/) |
+| Antigravity CLI | `agy` | [guide](https://antigravity.google/docs/cli/getting-started). For its status and meter, also `node` in the CLI's `PATH` |
 
-Agent Workbench **no** incluye ninguna CLI ni la descarga: usa las que ya tenés
-en el `PATH`. Si no encuentra ninguna, te lo dice y no abre sesiones.
+Agent Workbench does **not** bundle or download any CLI: it uses the ones you
+already have in your `PATH`. If it doesn't find any, it tells you so and doesn't
+open sessions.
 
-Probado sobre Windows 11 con PowerShell, que es la plataforma principal.
-macOS y Linux funcionan igual. En Linux, la dependencia `node-pty` no trae
-binario precompilado y se compila al instalar: hacen falta `python3`, `make` y
-un compilador de C++ (`build-essential` en Debian y Ubuntu).
+Tested on Windows 11 with PowerShell, which is the main platform. macOS and
+Linux work the same. On Linux, the `node-pty` dependency doesn't ship a prebuilt
+binary and is compiled on install: you need `python3`, `make` and a C++ compiler
+(`build-essential` on Debian and Ubuntu).
 
 ---
 
-## Instalar
+## Install
 
 ```bash
 npm install -g agent-workbench
 ```
 
-Después, parado en el proyecto en el que quieras trabajar:
+Then, from the folder of the project you want to work on:
 
 ```bash
 agent-workbench
 ```
 
-Para probarlo una vez sin instalarlo, `npx agent-workbench` — baja unos 60 MB
-cada vez que la caché de npm está fría, casi todo del binario de la terminal.
-Para uso diario conviene la instalación global.
+To try it once without installing it, `npx agent-workbench` — it downloads about
+60 MB whenever the npm cache is cold, mostly the terminal's native binary. For
+daily use, the global install is the better choice.
 
-El servidor imprime una URL con un token y la abre en el navegador:
+The server prints a URL with a token and opens it in the browser:
 
 ```
   URL          http://127.0.0.1:52341/?token=…
 ```
 
-Esa URL es la única forma de entrar. El token es distinto en cada arranque, y el
-servidor escucha solo en `127.0.0.1`.
+That URL is the only way in. The token is different on every start, and the
+server listens only on `127.0.0.1`.
 
-### Memoria compartida
+### Shared memory
 
-Cada CLI guarda lo que aprende de un proyecto en su propia carpeta, y las demás
-no lo ven. La solapa **Memoria** instala un puente para que las cuatro usen la
-misma: notas en `.agents/memory/` del proyecto, que cada CLI lee y escribe
-—desde acá o desde su propia terminal— a través de `AGENTS.md` y `CLAUDE.md`.
+Each CLI keeps what it learns about a project in its own folder, and the others
+can't see it. The **Memory** tab installs a bridge so all four use the same one:
+notes in the project's `.agents/memory/`, which each CLI reads and writes —from
+here or from its own terminal— through `AGENTS.md` and `CLAUDE.md`.
 
-**Ver cambios** muestra archivo por archivo qué se va a escribir, y nada se toca
-hasta que confirmás. Al instalar importa la memoria que ya tenía Claude Code de
-ese proyecto. La memoria global de cada CLI no la escribe la aplicación: te da
-el fragmento para que lo pegues vos.
+**Preview changes** shows, file by file, what will be written, and nothing is
+touched until you confirm. Installing imports the memory Claude Code already had
+for that project. The app doesn't write each CLI's global memory: it gives you
+the snippet to paste yourself.
 
-<img src="docs/captura-memoria.png" width="70%" alt="La solapa Memoria con el puente instalado para las cuatro CLIs y las notas importadas">
+<img src="docs/captura-memoria.png" width="70%" alt="The Memory tab with the bridge installed for the four CLIs and the imported notes">
 
-### Antigravity CLI: estado y medidor (opcional)
+### Antigravity CLI: status and meter (optional)
 
-Antigravity CLI no deja en ningún archivo si está trabajando, esperando que
-autorices una herramienta o libre, ni cuántos tokens lleva: eso lo publica sólo
-por su *status line*. Sin configurarla, sus pestañas funcionan igual —historial,
-conversación, modo, modelo— pero el punto de la pestaña dice que no se sabe y el
-medidor queda sin medir. Para activarlo:
+Antigravity CLI doesn't record in any file whether it's working, waiting for you
+to authorize a tool or idle, nor how many tokens it has used: it only publishes
+that through its *status line*. Without it configured, its tabs work the same
+—history, conversation, mode, model— but the tab's dot says the status is
+unknown and the meter stays empty. To turn it on:
 
-1. Abrí una pestaña de Antigravity y tocá **Configurar**, al lado del medidor.
-2. Copiá la línea que muestra el diálogo y fusionala con lo que ya tenga
-   `~/.gemini/antigravity-cli/settings.json`. La aplicación no toca ese archivo:
-   lo editás vos.
-3. El diálogo pasa a **Configurada** solo en un par de segundos, o con
-   **Comprobar**.
+1. Open an Antigravity tab and click **Configure**, next to the meter.
+2. Copy the line the dialog shows and merge it into whatever
+   `~/.gemini/antigravity-cli/settings.json` already has. The app doesn't touch
+   that file: you edit it.
+3. The dialog switches to **Configured** on its own within a couple of seconds,
+   or with **Check**.
 
-La línea corre un script que la aplicación deja en su propia carpeta. Guarda sólo
-el estado, el modo, el modelo y los tokens de cada conversación, en esa misma
-carpeta; no guarda tu email, tu cuota, tu plan ni el costo, que la CLI también le
-pasa, y no imprime nada, así que la línea propia de la CLI queda como está. Una
-vez puesta, la corre **toda** sesión de `agy`, también las que abras fuera de la
-aplicación, y necesita `node` en el `PATH`. En Windows la línea entra a la
-carpeta del script en vez de nombrarlo entre comillas: la CLI la ejecuta con
-`cmd /c`, y ninguna comilla le llega viva a `node`.
+The line runs a script the app keeps in its own folder. It saves only each
+conversation's status, mode, model and tokens, in that same folder; it doesn't
+save your email, quota, plan or cost, which the CLI also passes to it, and it
+prints nothing, so the CLI's own status line stays as it is. Once set, **every**
+`agy` session runs it, including those you open outside the app, and it needs
+`node` in the `PATH`. On Windows the line changes into the script's folder
+instead of naming the script in quotes: the CLI runs it with `cmd /c`, and no
+quote reaches `node` intact.
 
-### Copia propia (opcional)
+### Local copy (optional)
 
-El historial de cada conversación es de su CLI, en su formato, y una CLI puede
-cambiarlo, podarlo o dejar de existir. La copia propia guarda lo mismo que ese
-historial —mensajes, entradas y resultados de herramientas, imágenes y la memoria
-de cada proyecto— en una carpeta tuya, en archivos que se leen sin la
-aplicación. **Arranca apagada.** El botón de la copia, en la cabecera de la barra
-de proyectos, abre un diálogo: primero **Medir** te dice cuánto ocuparía por CLI,
-sin escribir nada, y después **Activar** la enciende. Encendida, copia todo lo
-que la barra lista y no está archivado, y cada sesión que cambia la vuelve a
-copiar un minuto después de que quede quieta. Las archivadas no se copian, y
-archivar no borra lo ya copiado: la aplicación nunca borra nada de esa carpeta.
+Each conversation's history belongs to its CLI, in its format, and a CLI can
+change it, prune it or cease to exist. The local copy keeps the same as that
+history —messages, tool inputs and results, images and each project's memory—
+in a folder of yours, in files you can read without the app. **It's off by
+default.** The local copy button, in the header of the projects sidebar, opens a
+dialog: first **Measure** tells you how much space it would take per CLI,
+without writing anything, and then **Turn on** enables it. Once on, it copies
+everything the sidebar lists that isn't archived, and copies each session that
+changes again a minute after it goes quiet. Archived sessions aren't copied, and
+archiving doesn't delete what was already copied: the app never deletes anything
+from that folder.
 
-Lo que la CLI ya no tiene sigue en la barra, marcado como copia, y se abre en
-Markdown; cada proyecto se exporta a Markdown. Y con la copia encendida y más de
-una CLI, el filtro de la barra ofrece **En conversaciones**: busca en el texto de
-todo lo copiado, de todas las CLIs.
+Whatever the CLI no longer has stays in the sidebar, marked as a copy, and opens
+in Markdown; each project can be exported to Markdown. And with the copy on and
+more than one CLI, the sidebar filter offers **In conversations**: it searches
+the text of everything copied, from every CLI.
 
-<img src="docs/captura-buscador.png" width="40%" alt="El buscador en conversaciones: un acierto en una sesión de cada CLI, con su fragmento">
+<img src="docs/captura-buscador.png" width="40%" alt="Search in conversations: a match in one session of each CLI, with its snippet">
 
-Por defecto va dentro de la carpeta de configuración de la aplicación
-(`%APPDATA%\agent-workbench\vault` en Windows). **Cambiar carpeta…** la copia
-entera a otra —una sincronizada, otra unidad— sin pisar nada, y la anterior queda
-como estaba. Si la ponés en una carpeta sincronizada o en un repositorio, lo que
-guarda viaja con ella.
+By default it lives inside the app's configuration folder
+(`%APPDATA%\agent-workbench\vault` on Windows). **Change folder…** copies all of
+it to another one —a synced folder, another drive— without overwriting anything,
+and the previous one stays as it was. If you put it in a synced folder or in a
+repository, what it keeps travels with it.
 
-Dos importadores de un solo uso traen historial de herramientas que la
-aplicación no lee. Se corren desde el código ([abajo](#desde-el-código)) y **no
-escriben nada sin `--write`**: sin él, dicen qué importarían.
+Two one-off importers bring in history from tools the app doesn't read. They run
+from source ([below](#from-source)) and **write nothing without `--write`**:
+without it, they tell you what they would import.
 
-- `pnpm vault:import gemini-cli [--cwd <carpeta>]` — los chats que quedaron de
-  Gemini CLI; `--cwd` nombra la carpeta donde lo usabas, para ubicarlos en su
-  proyecto.
-- `pnpm vault:import antigravity-ide --workspace <carpeta>` — lo legible de las
-  conversaciones del IDE de Antigravity en esa carpeta: la ficha de cada una y
-  sus documentos `.md`. El contenido de la conversación está cifrado y queda
-  marcada como historial parcial.
+- `pnpm vault:import gemini-cli [--cwd <folder>]` — the chats left over from
+  Gemini CLI; `--cwd` names the folder where you used it, to place them in their
+  project.
+- `pnpm vault:import antigravity-ide --workspace <folder>` — whatever is
+  readable from the Antigravity IDE conversations in that folder: each one's
+  summary and its `.md` documents. The conversation content is encrypted, so it
+  is marked as partial history.
 
 ---
 
-## Desde el código
+## From source
 
-Para trabajar en la aplicación, o si preferís no instalar nada global:
+To work on the app, or if you'd rather not install anything globally:
 
 ```bash
 corepack enable pnpm
 pnpm install
-pnpm dev       # Vite con recarga en caliente
+pnpm dev       # Vite with hot reload
 ```
 
 ```bash
-pnpm build     # compila la interfaz una vez
-pnpm start     # la sirve ya compilada, sin Vite
+pnpm build     # builds the interface once
+pnpm start     # serves the built interface, without Vite
 ```
 
-### Arranque de un clic en Windows
+### One-click start on Windows
 
 ```bash
 pnpm package
 ```
 
-Compila la interfaz y deja un **`Agent Workbench.cmd`** en la raíz. Doble clic y
-listo: instala lo que falte, compila si hace falta y abre el navegador. Es un
-archivo de texto de veinte líneas; se puede leer entero antes de ejecutarlo.
+It builds the interface and leaves an **`Agent Workbench.cmd`** in the root.
+Double-click it and you're done: it installs whatever is missing, builds if
+needed and opens the browser. It's a twenty-line text file; you can read all of
+it before running it.
 
 ---
 
-## Atajos
+## Keyboard shortcuts
 
-`Alt+T` nueva pestaña · `Alt+W` cerrar · `Alt+←/→` (o `Alt+RePág/AvPág`)
-cambiar de pestaña · `Alt+P` mostrar u ocultar el panel derecho · `Shift+Tab`,
-fuera de la terminal, volver a la pestaña anterior.
+`Alt+T` new tab · `Alt+W` close · `Alt+←/→` (or `Alt+PgUp/PgDn`) switch tabs ·
+`Alt+P` show or hide the right panel · `Shift+Tab`, outside the terminal, go
+back to the previous tab.
 
-El botón `?` de la barra superior los lista todos, junto con los de la CLI de la
-pestaña.
+The `?` button in the top bar lists them all, along with the shortcuts of the
+tab's CLI.
 
-**Por qué `Alt` y no `Ctrl`:** el navegador se queda con `Ctrl+T`, `Ctrl+W` y
-`Ctrl+Tab` para sus propias pestañas y el evento nunca llega a la página. No es
-algo que se arregle con `preventDefault`: no hay evento que prevenir.
+**Why `Alt` and not `Ctrl`:** the browser keeps `Ctrl+T`, `Ctrl+W` and
+`Ctrl+Tab` for its own tabs and the event never reaches the page. It's not
+something `preventDefault` can fix: there's no event to prevent.
 
-La aplicación captura exactamente esas combinaciones y ninguna más. `Shift+Tab`
-sólo cuando el foco no está en la terminal, porque adentro es la tecla con la que
-la CLI cambia de modo. Todo lo demás —`Esc`, `Esc Esc`, `Ctrl+C`, `Ctrl+R`,
-`Ctrl+O`, las flechas y sobre todo `Alt+V`, que es el pegado de imágenes— le
-llega intacto a la CLI.
+The app captures exactly those combinations and no others. `Shift+Tab` only
+when focus isn't on the terminal, because inside it's the key the CLI uses to
+switch modes. Everything else —`Esc`, `Esc Esc`, `Ctrl+C`, `Ctrl+R`, `Ctrl+O`,
+the arrow keys and above all `Alt+V`, which pastes images— reaches the CLI
+untouched.
 
 ---
 
-## Qué hace la aplicación con tus datos
+## What the app does with your data
 
-Nada sale de tu máquina. Sin telemetría, sin analítica, sin ninguna llamada de
-red saliente. La excepción es la propia CLI trabajando: la que abrís en una
-pestaña, y el servidor de OpenCode de abajo, hablan con el proveedor del modelo
-como lo harían abiertas a mano.
+Nothing leaves your machine. No telemetry, no analytics, no outgoing network
+calls at all. The exception is the CLI itself at work: the one you open in a
+tab, and the OpenCode server described below, talk to the model provider just
+as they would if you opened them by hand.
 
-**Nunca toca tus credenciales.** No hay login en la interfaz: si no iniciaste
-sesión, lo hacés dentro de la terminal de la CLI y la aplicación ni se entera.
+**It never touches your credentials.** There's no login in the interface: if
+you aren't logged in, you log in inside the CLI's terminal and the app doesn't
+even notice.
 
-**De cada CLI lee sólo esto, y en su carpeta no escribe nada.** Los
-importadores de la copia propia, cuando los corrés vos, leen además lo que dice
-[su sección](#copia-propia-opcional).
+**From each CLI it reads only this, and it writes nothing in the CLI's
+folder.** The local copy importers, when you run them, also read what
+[their section](#local-copy-optional) says.
 
-| CLI | Lee | No abre nunca |
+| CLI | Reads | Never opens |
 |---|---|---|
-| Claude Code | de `~/.claude/`: `projects/` (el historial, y la memoria de cada proyecto para importarla), `sessions/` (si la CLI está esperando una respuesta) y `plans/`. Y para la solapa Planes, los `.md` que la conversación escribió dentro del proyecto o en la carpeta temporal de esa sesión: **sólo los que la conversación que estás mirando nombró**, sin recorrer ninguna carpeta | `.credentials.json` ni ningún token |
-| Codex | de `~/.codex/` (o `CODEX_HOME`): `sessions/` y `archived_sessions/` | `auth.json`, `config.toml` ni sus bases `*.sqlite` |
-| OpenCode | su base `opencode.db`, abierta en sólo lectura, y de ella sólo las tablas de sesiones, mensajes y partes; y su catálogo de modelos, para el tamaño de la ventana | `auth.json`, `opencode.json`, ni las tablas de cuentas, credenciales, permisos y sesiones compartidas |
-| Antigravity CLI | de `~/.gemini/antigravity-cli/`: los transcripts de cada conversación, `history.jsonl`, la última conversación de cada carpeta, de `settings.json` sólo el modelo y la status line, y su índice de conversaciones, de una **copia** temporal; de `~/.gemini/config/projects/`, la carpeta de cada proyecto | la configuración de MCP, su entrada en el llavero del sistema, el contenido de `conversations/`, ni `~/.gemini/antigravity/`, que es su IDE |
+| Claude Code | from `~/.claude/`: `projects/` (the history, and each project's memory, to import it), `sessions/` (whether the CLI is waiting for an answer) and `plans/`. And for the Plans tab, the `.md` files the conversation wrote inside the project or in that session's temp folder: **only those named by the conversation you're viewing**, without walking any folder | `.credentials.json` or any token |
+| Codex | from `~/.codex/` (or `CODEX_HOME`): `sessions/` and `archived_sessions/` | `auth.json`, `config.toml` or its `*.sqlite` databases |
+| OpenCode | its `opencode.db` database, opened read-only, and from it only the sessions, messages and parts tables; and its model catalog, for the context window size | `auth.json`, `opencode.json`, or the accounts, credentials, permissions and shared-sessions tables |
+| Antigravity CLI | from `~/.gemini/antigravity-cli/`: each conversation's transcripts, `history.jsonl`, the last conversation of each folder, from `settings.json` only the model and the status line, and its conversation index, from a temporary **copy**; from `~/.gemini/config/projects/`, each project's folder | the MCP configuration, its entry in the system keychain, the contents of `conversations/`, or `~/.gemini/antigravity/`, which is its IDE |
 
-Tres huellas que conviene saber:
+Three footprints worth knowing about:
 
-- **Leer la base de OpenCode** hace lo que SQLite hace con cualquier lector: crea
-  sus archivos `-wal` y `-shm` si faltan y le cambia la fecha a `-shm`. Para
-  leerla nunca corre un comando de OpenCode.
-- **Si el log propio de una pestaña de Antigravity no aparece**, lee los
-  `log/cli-*.log` de la CLI, que traen tus mensajes y el email de la cuenta, sólo
-  para encontrar el id de la conversación y sin guardar ninguna línea.
-- **Con OpenCode, la aplicación corre su servidor local**, `opencode serve`: uno
-  solo, desde que abrís la primera pestaña de OpenCode hasta cinco minutos
-  después de cerrar la última, o hasta que cerrás la aplicación. Escucha en
-  `127.0.0.1`, con un puerto efímero y una contraseña distinta en cada arranque,
-  aunque tu configuración de OpenCode diga otra cosa. La aplicación le pide sólo
-  el estado de las sesiones, los permisos y preguntas pendientes, crear una
-  sesión, contestar una pregunta y cortar una sesión: nada de tu configuración ni
-  de tus cuentas.
+- **Reading the OpenCode database** does what SQLite does with any reader: it
+  creates its `-wal` and `-shm` files if they're missing and updates the
+  timestamp of `-shm`. It never runs an OpenCode command to read it.
+- **If an Antigravity tab's own log doesn't show up**, it reads the CLI's
+  `log/cli-*.log` files, which contain your messages and the account's email,
+  only to find the conversation id, and without keeping any line.
+- **With OpenCode, the app runs its local server**, `opencode serve`: just one,
+  from when you open the first OpenCode tab until five minutes after you close
+  the last one, or until you close the app. It listens on `127.0.0.1`, with an
+  ephemeral port and a different password on every start, even if your OpenCode
+  configuration says otherwise. The app only asks it for the sessions' status,
+  pending permissions and questions, to create a session, to answer a question
+  and to abort a session: nothing about your configuration or your accounts.
 
-**No agrega variables de autenticación** al entorno de las CLIs que lanza. El
-entorno se hereda tal cual, con dos excepciones: **quita**
-`CLAUDE_CODE_CHILD_SESSION` —que apaga el guardado del historial— y te avisa con
-un cartel cuando lo hace; y al servidor de OpenCode le **agrega** una sola
-variable, `OPENCODE_SERVER_PASSWORD`, con esa contraseña de cada arranque. No es
-la de ninguna cuenta, y la variable no llega a ninguna pestaña: cada pestaña de
-OpenCode recibe la contraseña en su línea de comando (`attach --password`), donde
-la ven los demás procesos de tu usuario. Sólo sirve para ese servidor y deja de
-valer al cerrar la aplicación.
+**It adds no authentication variables** to the environment of the CLIs it
+launches. The environment is inherited as is, with two exceptions: it
+**removes** `CLAUDE_CODE_CHILD_SESSION` —which turns off history saving— and
+tells you with a banner when it does; and it **adds** a single variable to the
+OpenCode server, `OPENCODE_SERVER_PASSWORD`, holding that per-start password. It
+isn't any account's password, and the variable doesn't reach any tab: each
+OpenCode tab gets the password on its command line (`attach --password`), where
+other processes running as your user can see it. It only works for that server
+and stops being valid when you close the app.
 
-**Lo que escribe la aplicación:**
+**What the app writes:**
 
-- **En su propio directorio de configuración:** las pestañas abiertas, la caché
-  del índice, las notas, las sesiones archivadas, el script de la status line de
-  Antigravity y, si la encendés, la copia propia (o en la carpeta que elijas).
-- **En la carpeta temporal:** las imágenes que pegás; el log de cada pestaña de
-  Antigravity, que trae tus mensajes, con permisos sólo tuyos y borrado en el
-  primer arranque pasadas 24 horas; y el transcript de una conversación que
-  continuás en otra CLI, que se borra al cerrar esa pestaña o a las 24 horas.
-- **En tus proyectos, una sola cosa y sólo si confirmás:** la memoria
-  compartida. Se limita a `.agents/memory/`, a lo que está entre sus marcas en
-  `AGENTS.md` y `CLAUDE.md`, y a unas líneas al final de `.gitignore`.
+- **In its own configuration directory:** the open tabs, the index cache, the
+  notes, the archived sessions, the Antigravity status line script and, if you
+  turn it on, the local copy (or in the folder you choose).
+- **In the temp folder:** the images you paste; each Antigravity tab's log,
+  which contains your messages, readable only by you and deleted on the first
+  start once it's more than 24 hours old; and the transcript of a conversation
+  you continue in another CLI, deleted when you close that tab or after 24
+  hours.
+- **In your projects, one thing only, and only if you confirm:** the shared
+  memory. It's limited to `.agents/memory/`, to what's between its markers in
+  `AGENTS.md` and `CLAUDE.md`, and to a few lines at the end of `.gitignore`.
 
-**El servidor escucha solo en `127.0.0.1`**, en un puerto efímero, con un token
-aleatorio por arranque que exigen el WebSocket y todas las rutas HTTP, y rechaza
-peticiones cuyo `Origin` no sea el propio.
+**The server listens only on `127.0.0.1`**, on an ephemeral port, with a random
+per-start token that the WebSocket and every HTTP route require, and it rejects
+requests whose `Origin` isn't its own.
 
-**El panel de git es de solo lectura.** No hay commit, stage ni push. Con un
-agente editando archivos, un botón que escribe historia es exactamente lo que
-después nadie sabe quién disparó.
+**The git panel is read-only.** No commit, stage or push. With an agent editing
+files, a button that writes history is exactly the kind of thing where, later,
+nobody knows who pressed it.
 
-![Un archivo del árbol, previsualizado con resaltado de sintaxis](docs/captura-archivos.png)
+![A file from the tree, previewed with syntax highlighting](docs/captura-archivos.png)
 
 ---
 
-## Si algo falla
+## Troubleshooting
 
-**"No se encontró el comando `claude` en el PATH"**, seguido de "También
-funciona con: …" — la aplicación no encontró ninguna de las cuatro CLIs en el
-`PATH` del proceso que la corre. Comprobalo con `where claude` (o `which claude`),
-y lo mismo con `codex`, `opencode` o `agy`. Las CLIs se buscan al arrancar: si
-instalaste una con la aplicación abierta, volvé a arrancarla.
+**The "claude" command wasn't found in the PATH**, followed by "Also works
+with: …" — the app didn't find any of the four CLIs in the `PATH` of the process
+running it. Check with `where claude` (or `which claude`), and the same with
+`codex`, `opencode` or `agy`. CLIs are looked up at startup: if you installed
+one while the app was open, restart it.
 
-**No aparece el historial de OpenCode.** Mirá la línea `Historial` del arranque.
-Si dice que esa versión de Node no trae `node:sqlite`, actualizá Node a la 22.13
-o posterior. Si no hay línea, no encontró la base: está en
-`~/.local/share/opencode/opencode.db`, o donde diga `OPENCODE_DB` o
-`XDG_DATA_HOME`.
+**The OpenCode history doesn't show up.** Look at the `History` line in the
+startup output. If it says that Node version doesn't include `node:sqlite`,
+update Node to 22.13 or later. If there's no such line, it didn't find the
+database: it's at `~/.local/share/opencode/opencode.db`, or wherever
+`OPENCODE_DB` or `XDG_DATA_HOME` points.
 
-**Una pestaña de OpenCode no abre y dice "No se pudo arrancar el servidor de
-OpenCode".** La pestaña se engancha a un `opencode serve` que la aplicación
-lanza, y el motivo va después de los dos puntos. Si no queda claro, abrí
-`opencode` en una terminal común: si tampoco arranca, el problema es de esa
-instalación de OpenCode.
+**An OpenCode tab won't open and says "Couldn't start the OpenCode server".**
+The tab attaches to an `opencode serve` the app launches, and the reason comes
+after the colon. If it isn't clear, open `opencode` in a regular terminal: if it
+doesn't start there either, the problem is with that OpenCode installation.
 
-**Una pestaña de OpenCode dice que el servidor se cerró.** El `opencode serve`
-terminó y la terminal de la pestaña quedó sin conexión. **Relanzar**, en la misma
-barra, abre otro servidor y vuelve a enganchar la pestaña a la misma sesión.
+**An OpenCode tab says the server closed.** The `opencode serve` process ended
+and the tab's terminal was left without a connection. **Relaunch**, in the same
+bar, starts another server and reattaches the tab to the same session.
 
-**Una pestaña de Antigravity no muestra su estado ni el medidor.** Mirá la línea
-`Status line` del arranque, debajo de la CLI: si dice que no está configurada, o
-que hay otra, seguí los pasos de
-[arriba](#antigravity-cli-estado-y-medidor-opcional). Si la configuraste y la
-terminal de la CLI muestra `Statusline Error`, lo más probable es que `node` no
-esté en el `PATH` de esa sesión. Mientras la línea no publique nada, la pestaña
-se trata como si no la hubieras configurado.
+**An Antigravity tab doesn't show its status or the meter.** Look at the
+`Status line` entry in the startup output, under the CLI: if it says it isn't
+configured, or that there's another one, follow the steps
+[above](#antigravity-cli-status-and-meter-optional). If you configured it and
+the CLI's terminal shows `Statusline Error`, `node` is most likely not in that
+session's `PATH`. Until the line publishes anything, the tab is treated as if
+you hadn't configured it.
 
-**`node-pty` no compila al instalar.** Es un módulo nativo. Normalmente baja un
-binario precompilado y no hace falta nada; si tu combinación de Node y
-plataforma no tiene uno, hay que compilarlo:
+**`node-pty` doesn't compile on install.** It's a native module. It usually
+downloads a prebuilt binary and nothing else is needed; if your combination of
+Node and platform doesn't have one, it has to be compiled:
 
-- **Windows:** Visual Studio Build Tools con la carga de trabajo *Desarrollo
-  para el escritorio con C++*, y Python 3.
-  `npm install --global windows-build-tools` ya no se mantiene: instalá los
-  Build Tools desde el instalador de Visual Studio.
+- **Windows:** Visual Studio Build Tools with the *Desktop development with C++*
+  workload, and Python 3.
+  `npm install --global windows-build-tools` is no longer maintained: install
+  the Build Tools from the Visual Studio installer.
 - **macOS:** `xcode-select --install`.
-- **Linux:** `build-essential` y `python3`.
+- **Linux:** `build-essential` and `python3`.
 
-**La terminal se queda en blanco.** El renderer por defecto es canvas a
-propósito: con el addon WebGL la pestaña se congela en Windows 11 + Chrome
-aunque los datos lleguen. Si querés probarlo igual, agregá `?renderer=webgl` a
-la URL.
+**The terminal stays blank.** The default renderer is canvas on purpose: with
+the WebGL addon the tab freezes on Windows 11 + Chrome even though the data
+arrives. If you want to try it anyway, add `?renderer=webgl` to the URL.
 
-**Un cartel dice que se quitó `CLAUDE_CODE_CHILD_SESSION`.** Pasa cuando
-arrancás la aplicación desde adentro de una sesión de la CLI de Claude Code. Esa
-variable apaga el guardado del historial, y sin historial no hay conversación ni
-medidor. La aplicación la quita y te avisa. En uso normal —una terminal común—
-ni aparece.
+**A banner says `CLAUDE_CODE_CHILD_SESSION` was removed.** It happens when you
+start the app from inside a Claude Code CLI session. That variable turns off
+history saving, and without history there's no conversation or meter. The app
+removes it and lets you know. In normal use —a regular terminal— it never shows
+up.
 
-**El panel de cambios dice que la carpeta no es un repositorio git** y sí lo es.
-Fijate que `git` esté en el `PATH`. Si el mensaje es otro, es el error que
-devolvió git, tal cual.
+**The Changes panel says the folder isn't a git repository** and it is one.
+Make sure `git` is in the `PATH`. If the message is a different one, it's the
+error git returned, verbatim.
 
 ---
 
-## Cómo está hecho
+## How it's built
 
-Monorepo con pnpm, TypeScript en todo.
+A pnpm monorepo, TypeScript throughout.
 
 ```
 packages/
-  server/    Node, Express, ws, node-pty, chokidar — sirve la interfaz y hospeda las pty
-    src/agents/   un adaptador por CLI: lo único del servidor que conoce a cada una
+  server/    Node, Express, ws, node-pty, chokidar — serves the interface and hosts the ptys
+    src/agents/   one adapter per CLI: the only part of the server that knows each one
   web/       Vite, React, xterm.js, highlight.js
-  shared/    los tipos del protocolo, sin `any` en los bordes
+  shared/    the protocol types, with no `any` at the edges
 ```
 
-Un solo proceso sirve la interfaz y el WebSocket en el mismo puerto: con un
-único origen, el chequeo de `Origin` y el token funcionan igual en desarrollo y
-en producción, sin excepciones que después nadie se acuerda de sacar.
+A single process serves the interface and the WebSocket on the same port: with
+a single origin, the `Origin` check and the token work the same in development
+and in production, with no exceptions that nobody remembers to remove later.
 
-La decisión de arquitectura que ordena el resto: **las pty viven en un registro
-del servidor y el WebSocket es solo transporte.** Si el proceso muriera con el
-socket, un `Ctrl+R` sin querer borraría la sesión de trabajo. Cada terminal
-guarda un buffer de su salida reciente para repintar la pantalla cuando el
-cliente vuelve.
+The architectural decision that shapes the rest: **the ptys live in a server
+registry and the WebSocket is just transport.** If the process died with the
+socket, an accidental `Ctrl+R` would wipe out the working session. Each terminal
+keeps a buffer of its recent output to repaint the screen when the client comes
+back.
 
-La otra: **el servidor genérico no nombra ninguna CLI.** Lo que sabe de cada una
-—dónde guarda, cómo se lanza, qué se lee y qué no se abre nunca— vive en su
-adaptador, y la interfaz dibuja cada control según lo que esa CLI declara.
+The other one: **the generic server doesn't name any CLI.** What it knows about
+each one —where it stores things, how it's launched, what is read and what is
+never opened— lives in its adapter, and the interface draws each control based
+on what that CLI declares.
 
-[`CLAUDE.md`](CLAUDE.md) tiene las reglas y el mapa, y su índice lleva a
-[`docs/`](docs), donde vive el detalle de cada CLI: el formato real de su
-historial —que difiere de lo que uno esperaría—, qué se lee y qué no, y las
-trampas ya pisadas. [`CHECKLIST.md`](CHECKLIST.md) es lo que falta y la deuda
-abierta; [`docs/bitacora.md`](docs/bitacora.md), la crónica hito por hito.
-[`CONTRIBUTING.md`](CONTRIBUTING.md), cómo trabajar en el repositorio. Las
-capturas de este README salen de `pnpm demo:shots`, sobre datos inventados.
+[`CLAUDE.md`](CLAUDE.md) has the rules and the map, and its index leads to
+[`docs/`](docs), where the detail of each CLI lives: the real format of its
+history —which differs from what you'd expect—, what is read and what isn't,
+and the pitfalls already hit. [`CHECKLIST.md`](CHECKLIST.md) is what's pending
+and the open debt; [`docs/bitacora.md`](docs/bitacora.md), the
+milestone-by-milestone log. These internal docs are in Spanish, like the code
+comments. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers how to work on the
+repository. The screenshots in this README come from `pnpm demo:shots`, on
+made-up data.
 
 ---
 
-## Licencia
+## License
 
-MIT. Ver [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE).
 
-Agent Workbench es un proyecto independiente. Funciona con las CLIs de Claude
-Code, de Codex, de OpenCode y de Antigravity, pero no está afiliado a Anthropic,
-a OpenAI, a los autores de OpenCode ni a Google, ni respaldado por ellos.
+Agent Workbench is an independent project. It works with the Claude Code,
+Codex, OpenCode and Antigravity CLIs, but it is not affiliated with or endorsed
+by Anthropic, OpenAI, the OpenCode authors or Google.

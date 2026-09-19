@@ -10,6 +10,8 @@
  * `--thread-scale`, asi que en "chico" salen los mismos pixeles de antes.
  */
 
+import { t, type MessageKey } from './i18n/index.js';
+
 export type ThreadFontSize = 's' | 'm' | 'l';
 
 export const THREAD_FONT_SIZES: readonly ThreadFontSize[] = ['s', 'm', 'l'];
@@ -18,11 +20,16 @@ export const DEFAULT_THREAD_FONT_SIZE: ThreadFontSize = 'm';
 
 export const THREAD_FONT_STORAGE_KEY = 'agent-workbench.thread-font';
 
-export const THREAD_FONT_LABEL: Readonly<Record<ThreadFontSize, string>> = {
-  s: 'chica',
-  m: 'normal',
-  l: 'grande',
+const THREAD_FONT_KEYS: Readonly<Record<ThreadFontSize, MessageKey>> = {
+  s: 'threadFont.size.s',
+  m: 'threadFont.size.m',
+  l: 'threadFont.size.l',
 };
+
+/** Como se lee cada paso: chica, normal, grande. */
+export function threadFontLabel(size: ThreadFontSize): string {
+  return t(THREAD_FONT_KEYS[size]);
+}
 
 /** El paso siguiente del ciclo; del ultimo vuelve al primero. */
 export function nextThreadFontSize(current: ThreadFontSize): ThreadFontSize {
@@ -37,5 +44,5 @@ export function parseThreadFontSize(raw: string): ThreadFontSize | null {
 
 /** El titulo del boton: que hay puesto y que pone el clic. */
 export function threadFontTitle(current: ThreadFontSize): string {
-  return `Tamaño de letra: ${THREAD_FONT_LABEL[current]} (clic: ${THREAD_FONT_LABEL[nextThreadFontSize(current)]})`;
+  return t('threadFont.title', { current: threadFontLabel(current), next: threadFontLabel(nextThreadFontSize(current)) });
 }

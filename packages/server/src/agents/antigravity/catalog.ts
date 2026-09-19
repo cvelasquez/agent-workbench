@@ -463,7 +463,7 @@ export class AntigravityCatalog {
     if (signature.db.size > CATALOG_LIMITS.summariesBytes) {
       this.summaries = new Map();
       this.summariesStamp = signature.key;
-      this.warnOnce(signature.key, `el indice de conversaciones pesa mas de ${CATALOG_LIMITS.summariesBytes / 1024 / 1024} MB; no se lee.`);
+      this.warnOnce(signature.key, `the conversation index is over ${CATALOG_LIMITS.summariesBytes / 1024 / 1024} MB; it isn't read.`);
       return;
     }
     const sqlite = this.sqlite();
@@ -503,7 +503,7 @@ export class AntigravityCatalog {
       this.summariesStamp = copied.key;
     } catch (error) {
       // Base a mitad de escritura, esquema que cambio: se conserva lo anterior.
-      this.warnOnce(signature.key, `no pude leer el indice de conversaciones: ${error instanceof Error ? error.message : String(error)}`);
+      this.warnOnce(signature.key, `couldn't read the conversation index: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }).catch(() => undefined);
     }

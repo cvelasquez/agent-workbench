@@ -1715,6 +1715,16 @@ kbd {
   color: var(--text-dim);
 }
 
+/*
+  El boton de la barra no se parte en dos lineas: con textos mas largos que el
+  espanol ("CLI öffnen") se partia, porque el texto de al lado se lleva el ancho.
+  Si falta lugar, se achica la frase, que si puede ir en dos lineas.
+*/
+.conversation-waiting .primary-button-small {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .primary-button-small {
   /* El margen del boton grande es para el estado vacio, donde va debajo de un
      parrafo. En una barra de una linea lo descoloca. */
@@ -3334,6 +3344,21 @@ kbd {
 .context-menu-item:hover {
   background: var(--hover);
   color: var(--accent);
+}
+
+/* La columna de la marca de un menú de opciones: siempre ocupa su ancho, para
+   que los textos queden alineados con la marca o sin ella. */
+.context-menu-check {
+  display: inline-block;
+  width: 16px;
+  color: var(--accent);
+}
+
+/* El botón de idioma de la cabecera: dos letras, no un símbolo. */
+.locale-button {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 /* ---------- menu de CLIs ---------- */

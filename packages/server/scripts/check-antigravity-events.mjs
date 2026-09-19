@@ -56,6 +56,12 @@
 import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as es } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'aw-agy-'));
 const home = path.join(root, 'home');
@@ -1165,7 +1171,7 @@ function insertSummaries(db, rows) {
   check('5 base ilegible: changedRefs no lanza y no cambia nada', same(await history.changedRefs(summariesFile), []));
   check('5 base ilegible: se conserva el titulo que se sabia', catalog.get(ID.add).summary?.title === 'Ordenar Notas Del Proyecto');
   await history.changedRefs(summariesFile);
-  check('5 base ilegible: un solo aviso aunque se relea', warnings.length === 1 && warnings[0].startsWith('[antigravity] no pude leer el indice'), show(warnings));
+  check('5 base ilegible: un solo aviso aunque se relea', warnings.length === 1 && warnings[0].startsWith("[antigravity] couldn't read the conversation index"), show(warnings));
   check('5 base ilegible: la copia temporal no quedo', ((await listing(catalogTempDir())) ?? []).length === 0);
 
   // Sin node:sqlite: el catalogo sigue con las otras fuentes.
@@ -1765,7 +1771,7 @@ const statusRecord = (id, over = {}) => ({
   grace.dispose();
   const lost = new LogWatcher({ logPath: null, pid: 1, launchedAt: 0, initialId: null, onConversation: () => undefined, logRoot: () => logRoot, now: () => 61_000, warn: (m) => graceWarnings.push(m), label: 'tabperdida' });
   await lost.poll();
-  check('7 sin candidato a los 60 s: avisa una vez y deja de buscar', lost.source === 'stopped' && graceWarnings.some((m) => m.includes('no pude descubrir la conversacion de tabperdida')), show(graceWarnings));
+  check('7 sin candidato a los 60 s: avisa una vez y deja de buscar', lost.source === 'stopped' && graceWarnings.some((m) => m.includes("couldn't discover the conversation of tabperdida")), show(graceWarnings));
   lost.dispose();
 
   // Topes.
@@ -1821,7 +1827,7 @@ const statusRecord = (id, over = {}) => ({
     adapter.installUrl === 'https://antigravity.google/docs/cli/getting-started');
   check('8 AGENT_IDS lo nombra, al final, y la memoria lo conoce',
     shared.AGENT_IDS.at(-1) === 'antigravity' && shared.MEMORY_AGENT_IDS.includes('antigravity'));
-  check('8 el texto de ausencia nombra agy y la guia', adapter.missingMessage().includes('"agy"') && adapter.missingMessage().includes(adapter.installUrl));
+  check('8 el texto de ausencia nombra agy y la guia', es(adapter.missingMessage()).includes('"agy"') && es(adapter.missingMessage()).includes(adapter.installUrl));
   check('8 el log de las pestanas va a la temporal, bajo cli-logs y nunca bajo log (P0-10)',
     logDir === path.join(os.tmpdir(), 'agent-workbench', 'cli-logs') && path.basename(logDir) !== 'log');
 
@@ -2101,7 +2107,7 @@ function createCodexLikeAdapter() {
 // ---------------------------------------------------------------------------
 
 const ptyInput = await import('../src/pty-input.ts');
-const { buildModeKeys, planModeChange, MODE_PENDING_CONFIRMATION_MESSAGE } = ptyInput;
+const { buildModeKeys, planModeChange, MODE_PENDING_CONFIRMATION_TEXT } = ptyInput;
 const SHIFT_TAB = '\x1b[Z';
 const agyCycle = ANTIGRAVITY_BASE_CAPABILITIES.permissionCycle;
 const claudeCycle = { modes: shared.PERMISSION_MODE_CYCLE, launchMode: 'auto', keyLabel: 'shift+tab', approvesPendingOnCycle: false };
@@ -2120,27 +2126,27 @@ const claudeCycle = { modes: shared.PERMISSION_MODE_CYCLE, launchMode: 'auto', k
   check('D16 Antigravity sin nada pendiente: las pulsaciones de su ciclo',
     same(plan(agyCycle, 'acceptEdits', 'default', null), { kind: 'keys', keys: [SHIFT_TAB, SHIFT_TAB] }));
   check('D16 Antigravity con un permiso pendiente: rechazado sin teclas',
-    same(plan(agyCycle, 'acceptEdits', 'plan', 'permission prompt'), { kind: 'refused', reason: 'pending-confirmation', message: MODE_PENDING_CONFIRMATION_MESSAGE }));
+    same(plan(agyCycle, 'acceptEdits', 'plan', 'permission prompt'), { kind: 'refused', reason: 'pending-confirmation', text: MODE_PENDING_CONFIRMATION_TEXT }));
   check('D16 cualquier espera cuenta, no solo el permiso', plan(agyCycle, 'plan', 'default', 'dialog open').kind === 'refused');
   check('D16 pedir el modo en el que ya esta no escribe ni se rechaza', same(plan(agyCycle, 'plan', 'plan', 'permission prompt'), { kind: 'none' }));
   const unreachable = plan(agyCycle, 'acceptEdits', 'auto', null);
   check('D16 un destino fuera del ciclo: rechazado con la tecla de la CLI',
-    unreachable.kind === 'refused' && unreachable.reason === 'unreachable' && unreachable.message.includes('shift+tab'), show(unreachable));
+    unreachable.kind === 'refused' && unreachable.reason === 'unreachable' && es(unreachable.text).includes('shift+tab'), show(unreachable));
   check('D16 Claude Code con un permiso pendiente cambia igual que siempre (su tecla no aprueba)',
     same(plan(claudeCycle, 'auto', 'plan', 'permission prompt'), { kind: 'keys', keys: [SHIFT_TAB, SHIFT_TAB, SHIFT_TAB] }));
   const claudeUnreachable = plan(claudeCycle, 'auto', 'bypassPermissions', null);
   check('D16 Claude Code: el mensaje de destino imposible es el de antes',
     claudeUnreachable.kind === 'refused' &&
-    claudeUnreachable.message === 'No se puede llegar a ese modo desde el actual. Cambialo con shift+tab en la solapa CLI.', show(claudeUnreachable));
+    es(claudeUnreachable.text) === 'No se puede llegar a ese modo desde el actual. Cámbialo con shift+tab en la solapa CLI.', show(claudeUnreachable));
 
   // El rechazo de un envio del cuadro, antes de encolar.
   const { submitRefusal } = ptyInput;
   const refuse = (over) => submitRefusal({ label: 'Antigravity CLI', approvesPendingOnCycle: true, waitingFor: null, blind: false, openToolCall: false, ...over });
   check('R27-1 envio: status line activa sin registro (ciega) y una llamada abierta -> rechazado',
-    refuse({ blind: true, openToolCall: true }) === 'Antigravity CLI tiene una herramienta sin resultado: puede estar pidiendo una aprobacion. Contestala en la solapa CLI.');
+    es(refuse({ blind: true, openToolCall: true })) === 'Antigravity CLI tiene una herramienta sin resultado: puede estar pidiendo una aprobación. Contéstala en la solapa CLI.');
   check('R27-2 envio: la CLI dice que espera un permiso -> rechazado aunque vea su estado',
-    refuse({ waitingFor: 'permission prompt' })?.includes('esperando que autorices una herramienta') === true &&
-    refuse({ waitingFor: 'dialog open' })?.includes('esperando una respuesta') === true);
+    es(refuse({ waitingFor: 'permission prompt' })).includes('esperando que autorices una herramienta') &&
+    es(refuse({ waitingFor: 'dialog open' })).includes('esperando una respuesta'));
   check('R27-2 envio: sin espera ni llamada abierta a ciegas -> pasa',
     refuse({}) === null && refuse({ openToolCall: true }) === null && refuse({ blind: true }) === null);
   const claudeRefuse = (over) => submitRefusal({ label: 'Claude Code', approvesPendingOnCycle: false, waitingFor: null, blind: false, openToolCall: false, ...over });
@@ -2148,7 +2154,7 @@ const claudeCycle = { modes: shared.PERMISSION_MODE_CYCLE, launchMode: 'auto', k
     claudeRefuse({ waitingFor: 'permission prompt' }) === null);
   const codexRefuse = (over) => submitRefusal({ label: 'Codex', approvesPendingOnCycle: false, waitingFor: null, blind: true, openToolCall: false, ...over });
   check('A1 envio: una CLI sin fuente con la llamada abierta, el mismo texto del hito 25',
-    codexRefuse({ openToolCall: true }) === 'Codex tiene una herramienta sin resultado: puede estar pidiendo una aprobacion. Contestala en la solapa CLI.' &&
+    es(codexRefuse({ openToolCall: true })) === 'Codex tiene una herramienta sin resultado: puede estar pidiendo una aprobación. Contéstala en la solapa CLI.' &&
     codexRefuse({}) === null);
 }
 
@@ -2373,8 +2379,8 @@ const claudeCycle = { modes: shared.PERMISSION_MODE_CYCLE, launchMode: 'auto', k
   // R27-2: con la CLI diciendo que espera, un Enter aprobaria. Claude Code igual que antes.
   check('R27-2 web: Antigravity esperando un permiso -> Enviar apagado con el texto de la barra',
     ui.pendingApprovalNotice(agyActive, 'permission prompt', true) === ui.waitingBarText('permission prompt') &&
-    ui.waitingBarText('permission prompt') === 'La CLI esta esperando que autorices una herramienta.' &&
-    ui.pendingApprovalNotice(agyActive, 'dialog open', true) === 'La CLI esta esperando una respuesta tuya.');
+    ui.waitingBarText('permission prompt') === 'La CLI está esperando que autorices una herramienta.' &&
+    ui.pendingApprovalNotice(agyActive, 'dialog open', true) === 'La CLI está esperando una respuesta tuya.');
   check('R27-2 web: sin espera, sin CLI viva o con Claude Code esperando -> null',
     ui.pendingApprovalNotice(agyActive, null, true) === null && ui.pendingApprovalNotice(agyActive, 'permission prompt', false) === null &&
     ui.pendingApprovalNotice(claudeCaps, 'permission prompt', true) === null);
@@ -2385,12 +2391,12 @@ const claudeCycle = { modes: shared.PERMISSION_MODE_CYCLE, launchMode: 'auto', k
   const stateTexts = shared.STATUS_LINE_STATES.map((state) => ui.statusLineStateText(state));
   check('8 el dialogo nombra cada estado distinto', new Set(stateTexts).size === stateTexts.length && ui.statusLineStateText('active') === 'Configurada' &&
     ui.statusLineStateText('other-command').includes('reemplaza'), show(stateTexts));
-  check('8 el dialogo explica por que no hay fragmento', ui.STATUS_LINE_NO_FRAGMENT.includes('cmd /c'));
-  check('D15 el hilo de una conversacion sin transcript lo dice', ui.NO_TRANSCRIPT_TEXT.includes('transcript') && ui.NO_TRANSCRIPT_TEXT.includes('reanudar'));
+  check('8 el dialogo explica por que no hay fragmento', ui.statusLineNoFragmentText().includes('cmd /c'));
+  check('D15 el hilo de una conversacion sin transcript lo dice', ui.noTranscriptText().includes('transcript') && ui.noTranscriptText().includes('reanudar'));
 
   check('R10 solo Antigravity avisa que /model queda como predeterminado',
-    ui.modelChoiceNote('antigravity').includes('predeterminado') && ui.modelChoiceNote('claude-code') === '' &&
-    ui.modelChoiceNote('codex') === '' && ui.modelChoiceNote('opencode') === '' && ui.modelChoiceNote(null) === '');
+    ui.savesModelChoiceFor('antigravity') === true && ui.savesModelChoiceFor('claude-code') === false &&
+    ui.savesModelChoiceFor('codex') === false && ui.savesModelChoiceFor('opencode') === false && ui.savesModelChoiceFor(null) === false);
 
   // Lo que el cliente recibe cuando cambia la configuracion: la lista con la status line nueva.
   const agyInfo = (state) => ({

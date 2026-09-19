@@ -81,11 +81,11 @@ export interface GeminiImportOptions {
 export type GeminiSkipReason = 'only-notices' | 'too-large' | 'unreadable' | 'invalid-session-id' | 'duplicate';
 
 export const GEMINI_SKIP_TEXT: Readonly<Record<GeminiSkipReason, string>> = {
-  'only-notices': 'sólo avisos, sin ningún mensaje del usuario',
-  'too-large': `pesan más de ${GEMINI_CHAT_MAX_BYTES / 1024 / 1024} MB`,
-  unreadable: 'no son un chat legible (JSON inválido o sin la forma esperada)',
-  'invalid-session-id': 'sin un sessionId que se pueda guardar',
-  duplicate: 'el mismo sessionId en otro archivo más nuevo',
+  'only-notices': 'only notices, no message from the user',
+  'too-large': `over ${GEMINI_CHAT_MAX_BYTES / 1024 / 1024} MB`,
+  unreadable: 'not a readable chat (invalid JSON or not the expected shape)',
+  'invalid-session-id': 'no sessionId that can be saved',
+  duplicate: 'the same sessionId in another, newer file',
 };
 
 export interface GeminiImportedChat {

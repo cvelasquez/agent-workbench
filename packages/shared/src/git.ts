@@ -22,6 +22,7 @@ import {
   asRecord,
   asString,
 } from './validation.js';
+import { parseServerText, type ServerText } from './server-text.js';
 
 /** En que area vive el cambio. Un mismo archivo puede aparecer en dos. */
 export type GitChangeStage = 'staged' | 'unstaged' | 'untracked' | 'conflict';
@@ -88,8 +89,8 @@ export const GIT_STATES: readonly GitState[] = ['ready', 'not-a-repo', 'git-miss
 
 export interface GitStatus {
   state: GitState;
-  /** Texto para mostrar cuando `state` no es `ready`. */
-  message: string | null;
+  /** Texto para mostrar cuando `state` no es `ready`, como clave (§6.23). */
+  message: ServerText | null;
   /** Raiz del repo. Cadena vacia si no hay. */
   repoRoot: string;
   /** null con HEAD desprendido. */
@@ -152,8 +153,8 @@ export interface GitDiff {
   /** true si se corto por tamano. */
   truncated: boolean;
   binary: boolean;
-  /** Explicacion cuando no hay lineas que mostrar. */
-  message: string | null;
+  /** Explicacion cuando no hay lineas que mostrar, como clave (§6.23). */
+  message: ServerText | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +213,7 @@ export function parseGitStatus(value: unknown): GitStatus | null {
 
   return {
     state,
-    message: asString(record['message']),
+    message: parseServerText(record['message']),
     repoRoot,
     branch: asString(record['branch']),
     head: asString(record['head']),
@@ -257,6 +258,6 @@ export function parseGitDiff(value: unknown): GitDiff | null {
     lines,
     truncated: record['truncated'] === true,
     binary: record['binary'] === true,
-    message: asString(record['message']),
+    message: parseServerText(record['message']),
   };
 }

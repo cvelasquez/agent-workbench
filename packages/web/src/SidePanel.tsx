@@ -20,6 +20,7 @@ import type { GitStatus } from '@agent-workbench/shared';
 import { visiblePanelTabs } from './agent-ui.js';
 import { FilesPanel } from './FilesPanel.js';
 import { GitPanel } from './GitPanel.js';
+import { t, type MessageKey } from './i18n/index.js';
 import { MemoryPanel } from './MemoryPanel.js';
 import { PlansPanel } from './PlansPanel.js';
 import type { FilesView } from './useFiles.js';
@@ -29,12 +30,12 @@ import type { PlansView } from './usePlans.js';
 
 export type PanelTab = 'cli' | 'git' | 'files' | 'plans' | 'memory';
 
-export const PANEL_TABS: readonly { id: PanelTab; label: string }[] = [
-  { id: 'cli', label: 'CLI' },
-  { id: 'git', label: 'Cambios' },
-  { id: 'files', label: 'Archivos' },
-  { id: 'plans', label: 'Planes' },
-  { id: 'memory', label: 'Memoria' },
+export const PANEL_TABS: readonly { id: PanelTab; labelKey: MessageKey }[] = [
+  { id: 'cli', labelKey: 'panel.tab.cli' },
+  { id: 'git', labelKey: 'panel.tab.git' },
+  { id: 'files', labelKey: 'panel.tab.files' },
+  { id: 'plans', labelKey: 'panel.tab.plans' },
+  { id: 'memory', labelKey: 'panel.tab.memory' },
 ];
 
 /** Cuantos archivos tocados mostrar en la pastilla de la pestana "Cambios". */
@@ -125,15 +126,11 @@ export function SidePanel({
         <button
           className="icon-button"
           onClick={onToggleExpanded}
-          title={
-            expanded
-              ? 'Devolver la columna a su ancho'
-              : 'Ensanchar la columna — la interfaz de la CLI necesita ancho para dibujar diffs y tablas'
-          }
+          title={expanded ? t('panel.restoreWidth') : t('panel.widen')}
         >
           {expanded ? '⇥' : '⇤'}
         </button>
-        <button className="icon-button" onClick={onHide} title="Ocultar el panel (Alt+P)">
+        <button className="icon-button" onClick={onHide} title={t('panel.hide')}>
           ×
         </button>
       </header>
@@ -144,14 +141,14 @@ export function SidePanel({
             key={entry.id}
             className={`side-panel-tab${entry.id === tab ? ' side-panel-tab-active' : ''}`}
             onClick={() => onTabChange(entry.id)}
-            title={entry.label}
+            title={t(entry.labelKey)}
           >
             {/*
               La etiqueta va aparte para poder recortarla: con cinco solapas y
               la columna en su minimo, las solapas se encogen en vez de empujar
               la ultima fuera del panel.
             */}
-            <span className="side-panel-tab-label">{entry.label}</span>
+            <span className="side-panel-tab-label">{t(entry.labelKey)}</span>
             {entry.id === 'git' && changes > 0 && (
               <span className="side-panel-badge">{changes}</span>
             )}
@@ -168,7 +165,7 @@ export function SidePanel({
               enterarse tarde.
             */}
             {entry.id === 'cli' && cliUnseen && tab !== 'cli' && (
-              <span className="side-panel-dot" title="La CLI escribio algo" />
+              <span className="side-panel-dot" title={t('panel.cliUnseen')} />
             )}
           </button>
         ))}

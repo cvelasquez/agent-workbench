@@ -96,10 +96,21 @@ function resolveDefaultCwd(): string {
  * El token llega por query la primera vez (la URL que abrimos) y despues por
  * cookie, porque los assets del SPA no pueden llevarlo en la URL.
  */
+/*
+  Las respuestas de texto del servidor no pasan por la web, asi que no hay
+  idioma elegido: van en ingles, el idioma por defecto, y en espanol, el de
+  siempre (hito 34, D13).
+*/
+const ORIGIN_REFUSED_TEXT = 'Origin not allowed.\nOrigen no permitido.';
+const TOKEN_MISSING_TEXT =
+  'The session token is missing. Open the URL the server printed at startup.\n' +
+  'Falta el token de sesión. Abre la URL que imprimió el servidor al arrancar.';
+const NOT_FOUND_TEXT = 'Not found.\nNo encontrado.';
+
 function createAuthMiddleware(port: number, token: string) {
   return (request: Request, response: Response, next: NextFunction): void => {
     if (!hasValidHost(request, port) || !hasValidOrigin(request, port)) {
-      response.status(403).type('text/plain').send('Origen no permitido.');
+      response.status(403).type('text/plain').send(ORIGIN_REFUSED_TEXT);
       return;
     }
 
@@ -108,7 +119,7 @@ function createAuthMiddleware(port: number, token: string) {
       response
         .status(401)
         .type('text/plain')
-        .send('Falta el token de sesion. Abri la URL que imprimio el servidor al arrancar.');
+        .send(TOKEN_MISSING_TEXT);
       return;
     }
 
@@ -158,15 +169,15 @@ function mountBuiltUi(app: express.Express): () => Promise<void> {
   const indexHtml = path.join(webDist, 'index.html');
   if (!existsSync(indexHtml)) {
     throw new Error(
-      `No hay interfaz compilada en ${webDist}.
-Corre "pnpm build" antes de "pnpm start", o usa "pnpm dev".`,
+      `There's no compiled interface in ${webDist}.
+Run "pnpm build" before "pnpm start", or use "pnpm dev".`,
     );
   }
 
   app.use(express.static(webDist, { index: false, maxAge: 0 }));
   app.get(/.*/, (request: Request, response: Response) => {
     if (LOOKS_LIKE_FILE.test(request.path)) {
-      response.status(404).type('text/plain').send('No encontrado.');
+      response.status(404).type('text/plain').send(NOT_FOUND_TEXT);
       return;
     }
     response.sendFile(indexHtml);
@@ -193,8 +204,8 @@ function describeStartup(
   console.log('  Agent Workbench');
   console.log(line);
   console.log(`  URL          ${url}`);
-  console.log(`  Modo         ${isProduction ? 'produccion (interfaz compilada)' : 'desarrollo'}`);
-  console.log(`  Directorio   ${cwd}`);
+  console.log(`  Mode         ${isProduction ? 'production (compiled interface)' : 'development'}`);
+  console.log(`  Directory    ${cwd}`);
   const startupAgents = agentList.map((info) => ({
     id: info.id,
     label: info.label,
@@ -206,12 +217,12 @@ function describeStartup(
     statusLine: info.statusLine?.state ?? null,
   }));
   for (const agentLine of startupAgentLines(startupAgents)) console.log(agentLine);
-  console.log(`  Consola      ${shell === null ? 'no encontrada' : shell.file}`);
+  console.log(`  Console      ${shell === null ? 'not found' : shell.file}`);
   if (agentList.some((info) => info.environmentNotice === 'child-session-marker')) {
     console.log('');
-    console.log('  Nota: este proceso heredo CLAUDE_CODE_CHILD_SESSION, que apaga el');
-    console.log('  guardado del historial. Se quita del entorno de las pestanas para');
-    console.log('  que el historial y la vista de conversacion funcionen igual.');
+    console.log('  Note: this process inherited CLAUDE_CODE_CHILD_SESSION, which turns off');
+    console.log('  saving the history. It is removed from the tabs\' environment so the');
+    console.log('  history and the conversation view work the same.');
   }
   console.log(`${line}\n`);
 }
@@ -228,7 +239,7 @@ async function main(): Promise<void> {
   // Antes de que nadie lea la configuracion: si quedo en el directorio del
   // nombre viejo, se mueve al nuevo (ver `config-dir-migration.ts`).
   const movedFrom = await migrateLegacyConfigDir();
-  if (movedFrom !== null) console.log(`Configuracion movida de ${movedFrom} a ${appConfigDir()}`);
+  if (movedFrom !== null) console.log(`Configuration moved from ${movedFrom} to ${appConfigDir()}`);
   // Lo que cada CLI encontrada instala en la carpeta de la app: recien ahora,
   // con la carpeta ya en su lugar (A1 del hito 27).
   await agents.prepareAll();
@@ -292,7 +303,7 @@ async function main(): Promise<void> {
 
   const address = httpServer.address();
   if (address === null || typeof address === 'string') {
-    throw new Error('No se pudo determinar el puerto asignado.');
+    throw new Error("Couldn't determine the assigned port.");
   }
   const { port } = address;
 
@@ -342,7 +353,7 @@ async function main(): Promise<void> {
     void store.load().then((state) => {
       if (state.tabs.length === 0 && state.foreignTabs.length === 0) return;
       if (agents.anyAvailable()) {
-        console.log(`Restaurando ${state.tabs.length} pestana(s) del arranque anterior...`);
+        console.log(`Restoring ${state.tabs.length} tab(s) from the previous run...`);
       }
       return registry.restore(state);
     });
@@ -357,7 +368,7 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log('\nCerrando Agent Workbench...');
+    console.log('\nClosing Agent Workbench...');
 
     stopWatching();
     detachSocket();
@@ -399,6 +410,6 @@ main().catch((error: unknown) => {
       : typeof error === 'object' && error !== null
         ? JSON.stringify(error, Object.getOwnPropertyNames(error))
         : String(error);
-  console.error(`Agent Workbench no pudo arrancar:\n${detail}`);
+  console.error(`Agent Workbench couldn't start:\n${detail}`);
   process.exit(1);
 });

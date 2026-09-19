@@ -24,7 +24,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { noteTitle, type Note, type NoteImage } from '@agent-workbench/shared';
 import { noteSendTitle } from './agent-ui.js';
-import { formatWhen } from './format-when.js';
+import { formatBytes, formatWhen } from './i18n/format.js';
+import { t } from './i18n/index.js';
+import { tRich } from './i18n/rich.js';
 import type { NotesApi } from './useNotes.js';
 
 const OPEN_KEY = 'agent-workbench.notes-open';
@@ -48,6 +50,18 @@ function writeStored(key: string, value: string): void {
   } catch {
     // Sin persistencia se sigue igual: es una preferencia, no un dato.
   }
+}
+
+/**
+ * El titulo de la solapa. Los respaldos de `noteTitle` ("Nota", "Imagen")
+ * vienen en espanol de `shared`: los de una nota sin texto salen de aca, en el
+ * idioma de la app.
+ */
+function tabTitle(note: Note): string {
+  if (note.text.trim().length === 0) {
+    return note.images.length > 0 ? t('notes.imageOnly') : t('notes.untitled');
+  }
+  return noteTitle(note);
 }
 
 interface NotesPanelProps {
@@ -193,7 +207,7 @@ export function NotesPanel({
           onPointerMove={onResizePointerMove}
           onPointerUp={onResizePointerUp}
           onPointerCancel={onResizePointerUp}
-          title="Arrastrar para cambiar el alto"
+          title={t('notes.resize')}
         />
       )}
 
@@ -207,10 +221,10 @@ export function NotesPanel({
         <button
           className="strip-collapsed"
           onClick={toggleOpen}
-          title="Desplegar las notas"
+          title={t('notes.expand')}
         >
           <span className="strip-collapsed-arrow">▸</span>
-          <span>Notas</span>
+          <span>{t('notes.name')}</span>
           {count > 0 && <span className="strip-collapsed-count">{count}</span>}
         </button>
       ) : (
@@ -219,7 +233,7 @@ export function NotesPanel({
             <div className="strip-tabs" role="tablist">
               {notes.notes.map((note) => {
                 const isActive = note.noteId === active?.noteId;
-                const title = noteTitle(note);
+                const title = tabTitle(note);
                 return (
                   <div
                     key={note.noteId}
@@ -237,7 +251,7 @@ export function NotesPanel({
                     <button
                       className="strip-tab-close"
                       onClick={() => requestClose(note)}
-                      title="Cerrar la nota. Se borra, con sus imagenes"
+                      title={t('notes.closeNote')}
                     >
                       ×
                     </button>
@@ -245,7 +259,7 @@ export function NotesPanel({
                 );
               })}
 
-              <button className="strip-tab-new" onClick={createNote} title="Nueva nota">
+              <button className="strip-tab-new" onClick={createNote} title={t('notes.new')}>
                 +
               </button>
             </div>
@@ -254,7 +268,7 @@ export function NotesPanel({
             <button
               className="icon-button"
               onClick={toggleOpen}
-              title="Plegar. Las notas no se pierden: cerrarlas es la × de cada solapa"
+              title={t('notes.collapse')}
             >
               ▾
             </button>
@@ -262,10 +276,7 @@ export function NotesPanel({
 
           <div className="notes-body">
             {count === 0 || active === null ? (
-              <p className="notes-empty">
-                Sin notas. El <b>+</b> abre una; sirven para anotar una idea sin salir de lo
-                que estas haciendo.
-              </p>
+              <p className="notes-empty">{tRich('notes.empty')}</p>
             ) : (
               <NoteEditor
                 key={active.noteId}
@@ -285,11 +296,11 @@ export function NotesPanel({
       )}
 
       {lightbox !== null && (
-        <div className="notes-lightbox" onClick={() => setLightbox(null)} title="Clic para cerrar">
+        <div className="notes-lightbox" onClick={() => setLightbox(null)} title={t('notes.lightboxClose')}>
           {typeof lightboxSrc === 'string' ? (
-            <img src={lightboxSrc} alt="imagen de la nota" />
+            <img src={lightboxSrc} alt={t('notes.imageAlt')} />
           ) : (
-            <span className="notes-lightbox-missing">la imagen no esta disponible</span>
+            <span className="notes-lightbox-missing">{t('notes.imageUnavailable')}</span>
           )}
         </div>
       )}
@@ -420,12 +431,12 @@ function NoteEditor({
     >
       {closing && (
         <div className="note-closing">
-          <span>Cerrar esta nota la borra, con sus imagenes.</span>
+          <span>{t('notes.closeConfirm')}</span>
           <button className="link-button link-danger" onClick={onConfirmClose}>
-            Cerrar
+            {t('common.close')}
           </button>
           <button className="link-button" onClick={onCancelClose}>
-            Cancelar
+            {t('common.cancel')}
           </button>
         </div>
       )}
@@ -433,7 +444,7 @@ function NoteEditor({
       {notes.problem !== null && (
         <div className="composer-problem">
           <span>{notes.problem}</span>
-          <button className="icon-button" onClick={notes.dismissProblem} title="Cerrar">
+          <button className="icon-button" onClick={notes.dismissProblem} title={t('common.close')}>
             ×
           </button>
         </div>
@@ -443,7 +454,7 @@ function NoteEditor({
         ref={textareaRef}
         className="note-input"
         value={note.text}
-        placeholder="Anota una idea. Las imagenes se pegan o se arrastran aca."
+        placeholder={t('notes.placeholder')}
         onChange={(event) => notes.updateText(note.noteId, event.target.value)}
         onPaste={onPaste}
         spellCheck={false}
@@ -481,7 +492,7 @@ function NoteEditor({
         >
           <SendIcon />
         </button>
-        <label className="icon-button note-attach" title="Adjuntar una imagen desde un archivo">
+        <label className="icon-button note-attach" title={t('notes.attach')}>
           <ClipIcon />
           <input
             type="file"
@@ -516,19 +527,13 @@ function NoteThumb({ image, src, onRequest, onOpen, onRemove }: NoteThumbProps):
   return (
     <figure className="chip chip-image note-thumb" title={formatBytes(image.bytes)}>
       {typeof src === 'string' ? (
-        <img src={src} alt="imagen de la nota" onClick={onOpen} />
+        <img src={src} alt={t('notes.imageAlt')} onClick={onOpen} />
       ) : (
-        <span className="note-thumb-placeholder">{src === null ? 'no esta' : '…'}</span>
+        <span className="note-thumb-placeholder">{src === null ? t('notes.thumbMissing') : '…'}</span>
       )}
-      <button className="chip-remove" onClick={onRemove} title="Quitar la imagen">
+      <button className="chip-remove" onClick={onRemove} title={t('notes.removeImage')}>
         ×
       </button>
     </figure>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }

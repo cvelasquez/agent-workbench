@@ -107,15 +107,15 @@ export function assertDemoPath(bin, pathValue, options = {}) {
   for (const command of AGENT_COMMANDS) {
     const found = findInPath(command, pathValue, options);
     if (found === null) {
-      throw new Error(`La demo no encontro la CLI simulada ${command} en ${bin}. No se arranca: las capturas saldrian sin esa CLI.`);
+      throw new Error(`The demo didn't find the simulated CLI ${command} in ${bin}. Not starting: the screenshots would miss that CLI.`);
     }
     if (!isInside(bin, found)) {
-      throw new Error(`La demo encontro ${command} en ${path.dirname(found)}, fuera de la carpeta de las simuladas. No se arranca: saldria la CLI de verdad en las capturas.`);
+      throw new Error(`The demo found ${command} in ${path.dirname(found)}, outside the simulated CLIs' folder. Not starting: the real CLI would show in the screenshots.`);
     }
   }
   for (const command of REQUIRED_COMMANDS) {
     if (findInPath(command, pathValue, options) === null) {
-      throw new Error(`La demo no encuentra ${command} en el PATH filtrado: quedo en una carpeta junto a un comando de agente. Las capturas del panel de cambios saldrian rotas.`);
+      throw new Error(`The demo can't find ${command} in the filtered PATH: it sits in a folder next to an agent command. The Changes panel screenshots would come out broken.`);
     }
   }
 }
@@ -181,25 +181,26 @@ export function assertOnlySimulatedAgents(availableAgents, expected = SIMULATED_
   const wanted = [...expected].sort();
   if (availableAgents.length === wanted.length && seen.length === wanted.length && seen.every((id, index) => id === wanted[index])) return;
   const shown = availableAgents.length === 0 ? 'ninguna CLI' : availableAgents.join(', ');
-  throw new Error(`La demo vio ${shown} en vez de las simuladas (${wanted.join(', ')}). No se capturan.`);
+  throw new Error(`The demo saw ${shown} instead of the simulated CLIs (${wanted.join(', ')}). No screenshots taken.`);
 }
 
 /**
- * true si el servidor ya imprimio el bloque de arranque entero. `Consola` es la
+ * true si el servidor ya imprimio el bloque de arranque entero. `Console` es la
  * ultima linea que no depende de nada, y va despues de las de las CLIs y del
- * historial: esperar solo `CLIs disponibles` podia dejar afuera la del
- * historial, que llega en otro trozo de la salida.
+ * historial: esperar solo `Available CLIs` podia dejar afuera la del
+ * historial, que llega en otro trozo de la salida. Desde el hito 34 la consola
+ * del servidor esta en ingles (D19).
  */
 export function startupBlockComplete(output) {
-  return /^\s*Consola\s/m.test(output);
+  return /^\s*Console\s/m.test(output);
 }
 
-/** Las lineas `Historial` del arranque: una base que el servidor va a leer. */
+/** Las lineas `History` del arranque: una base que el servidor va a leer. */
 export function historyLinesFromStartup(output) {
   return output
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => /^Historial\b/.test(line));
+    .filter((line) => /^History\b/.test(line));
 }
 
 /**
@@ -210,27 +211,27 @@ export function historyLinesFromStartup(output) {
  * sin `node:sqlite`, que dejaria a OpenCode fuera de las capturas— tambien
  * lanza.
  *
- * La linea es `Historial <ruta> (solo lectura)`, o `Historial (<CLI>) <ruta>…`
+ * La linea es `History <ruta> (read-only)`, o `History (<CLI>) <ruta>…`
  * si esa CLI no se encontro.
  */
 export function assertDemoHistory(historyLines, home, platform = process.platform) {
   const fold = (value) => (platform === 'win32' ? value.replace(/\//g, '\\').toLowerCase() : value);
   const prefix = fold(home.endsWith(platform === 'win32' ? '\\' : '/') ? home : `${home}${platform === 'win32' ? '\\' : '/'}`);
   const foreign = historyLines.filter((line) => {
-    const note = line.replace(/^Historial(?:\s+\([^)]*\))?\s+/, '');
+    const note = line.replace(/^History(?:\s+\([^)]*\))?\s+/, '');
     return !fold(note).startsWith(prefix);
   });
   if (foreign.length === 0) return;
-  throw new Error(`La demo va a leer un historial fuera de su home (${foreign.join(' | ')}). No se capturan: saldria en las imagenes.`);
+  throw new Error(`The demo would read a history outside its home (${foreign.join(' | ')}). No screenshots taken: it would show in the images.`);
 }
 
 /**
- * Los ids de la linea `CLIs disponibles` que imprime el servidor al arrancar,
+ * Los ids de la linea `Available CLIs` que imprime el servidor al arrancar,
  * o null si todavia no la imprimio.
  */
 export function availableAgentsFromStartup(output) {
-  const match = /^\s*CLIs disponibles\s+(.+?)\s*$/m.exec(output);
+  const match = /^\s*Available CLIs\s+(.+?)\s*$/m.exec(output);
   if (match === null) return null;
   const value = match[1];
-  return value === 'ninguna' ? [] : value.split(',').map((id) => id.trim()).filter((id) => id.length > 0);
+  return value === 'none' ? [] : value.split(',').map((id) => id.trim()).filter((id) => id.length > 0);
 }

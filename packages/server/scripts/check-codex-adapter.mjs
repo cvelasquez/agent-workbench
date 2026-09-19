@@ -44,6 +44,12 @@
 import { appendFile, mkdir, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as es } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'aw-codex-'));
 const home = path.join(root, 'home');
@@ -1097,7 +1103,7 @@ async function waitFor(condition, timeoutMs = 5000) {
   await empty.start();
   await empty.poll();
   check('C10 sessionId vacio: waiting, label sin sesion y noticeChange siempre false',
-    empty.getState() === 'waiting' && empty.label === 'codex:(sin sesion)' && empty.noticeChange(file) === false &&
+    empty.getState() === 'waiting' && empty.label === 'codex:(no session)' && empty.noticeChange(file) === false &&
     empty.noticeChange(watchedFile) === false);
 }
 
@@ -1235,15 +1241,15 @@ async function waitFor(condition, timeoutMs = 5000) {
   const d2 = pickPendingTab(cand({ createdAt: 7_000 }), pair);
   check('C13 (d) rollout despues de la segunda: la segunda, segura', d2?.terminalId === 'nueva' && d2.uncertain === false, show(d2));
   const e = pickPendingTab(cand({ createdAt: 2_000 }), [tab('vieja', 0), tab('nueva', 800)]);
-  check('C13 (e) dos lanzamientos a 800 ms: la mas nueva y dudosa', e?.terminalId === 'nueva' && e.uncertain === true && /1,5 s/.test(e.reason ?? ''), show(e));
+  check('C13 (e) dos lanzamientos a 800 ms: la mas nueva y dudosa', e?.terminalId === 'nueva' && e.uncertain === true && /1\.5 s/.test(e.reason ?? ''), show(e));
   const f = pickPendingTab(cand({ createdAt: 7_000 }), [tab('vieja', 0, { submitted: ['hola'] }), tab('nueva', 5_000)]);
   check('C13 (f) el texto casa con la mas vieja: la mas vieja, confirmada', f?.terminalId === 'vieja' && f.confirmedByText === true && f.uncertain === false, show(f));
   const g = pickPendingTab(cand({ firstText: 'otra cosa' }), [tab('t1', 9_000, { submitted: ['hola'] })]);
-  check('C13 (g) la elegida mando otro texto: elegida y dudosa', g?.terminalId === 't1' && g.uncertain === true && /primer mensaje/.test(g.reason ?? ''), show(g));
+  check('C13 (g) la elegida mando otro texto: elegida y dudosa', g?.terminalId === 't1' && g.uncertain === true && /first message/.test(g.reason ?? ''), show(g));
   const twice = pickPendingTab(cand({ createdAt: 7_000 }), [tab('vieja', 0, { submitted: ['hola'] }), tab('nueva', 5_000, { submitted: ['hola'] })]);
   check('C13 dos pestanas mandaron el mismo texto: la mas nueva y dudosa', twice?.terminalId === 'nueva' && twice.uncertain === true && twice.confirmedByText === true);
   const h = pickPendingTab(cand({ firstText: null }), [tab('t1', 9_000)], [{ terminalId: 'casada', cwdKey: key('D:\\Mi App') }]);
-  check('C13 (M4) otra pestana ya casada en el mismo proyecto: dudosa', h?.terminalId === 't1' && h.uncertain === true && /otra pestana/.test(h.reason ?? ''), show(h));
+  check('C13 (M4) otra pestana ya casada en el mismo proyecto: dudosa', h?.terminalId === 't1' && h.uncertain === true && /another Codex tab/.test(h.reason ?? ''), show(h));
   const h2 = pickPendingTab(cand({}), [tab('t1', 9_000)], [{ terminalId: 'casada', cwdKey: key('D:\\Otra') }]);
   check('C13 (M4) casada en otro proyecto: segura', h2?.uncertain === false);
   const h3 = pickPendingTab(cand({}), [tab('t1', 9_000, { submitted: ['hola'] })], [{ terminalId: 'casada', cwdKey: key('D:\\Mi App') }]);
@@ -1287,7 +1293,7 @@ async function waitFor(condition, timeoutMs = 5000) {
   await appendFile(fileA, userPair(T0 + 1_002, 'algo'));
   const second = await captureWarnings(() => discovery.scanOnce());
   check('C14 completada: se asigna a la primera', reports.at(-1) === `tab-a=${did(4)}`, show(reports));
-  check('C14 con la segunda ya casada en el mismo proyecto: avisa (M4)', second.length === 1 && second[0].includes('otra pestana'), second.join(' | '));
+  check('C14 con la segunda ya casada en el mismo proyecto: avisa (M4)', second.length === 1 && second[0].includes('another Codex tab'), second.join(' | '));
   check('C14 sin pendientes el sondeo para', discovery.pendingCount() === 0 && !discovery.isPolling());
 
   // M2: 40 lineas sin user_message -> se casa sin texto en vez de esperar para siempre.
@@ -1332,7 +1338,7 @@ async function waitFor(condition, timeoutMs = 5000) {
   await writeDisc(did(10), sessionMeta({ id: did(10), createdAt: clock - 5_000, cwd: cwdK }) + userPair(clock - 4_999, 'mensaje 6'), clock - 5_000);
   const texts = await captureWarnings(() => discovery.scanOnce());
   check('C14 un texto mas viejo que los ultimos cinco ya no confirma: avisa',
-    reports.includes(`tab-j=${did(9)}`) && texts.some((w) => w.includes('primer mensaje')), texts.join(' | '));
+    reports.includes(`tab-j=${did(9)}`) && texts.some((w) => w.includes('first message')), texts.join(' | '));
   check('C14 el ultimo si confirma: sin aviso para esa', reports.includes(`tab-k=${did(10)}`) && texts.length === 1, texts.join(' | '));
 
   // Pasada final al salir el proceso.
@@ -1390,7 +1396,7 @@ async function waitFor(condition, timeoutMs = 5000) {
   await writeNew(20, T0 + 5_000, 'desde la reanudada');
   const warned = await captureWarnings(() => discovery.scanOnce());
   check('C14 (M4) un /new en la reanudada y viva: se asigna, pero avisa',
-    same(reports, [`tab-b=${did(20)}`]) && warned.length === 1 && warned[0].includes('otra pestana'), show([reports, warned]));
+    same(reports, [`tab-b=${did(20)}`]) && warned.length === 1 && warned[0].includes('another Codex tab'), show([reports, warned]));
 
   // Al salir su proceso deja de contar; B tambien se cierra.
   live.onExit();
@@ -1409,7 +1415,7 @@ async function waitFor(condition, timeoutMs = 5000) {
   await writeNew(22, T0 + 22_000, 'tras relanzar');
   const relaunched = await captureWarnings(() => discovery.scanOnce());
   check('C14 (M4) cancelar el gancho viejo no suelta al del lanzamiento nuevo',
-    reports.at(-1) === `tab-f=${did(22)}` && relaunched.length === 1 && relaunched[0].includes('otra pestana'), show([reports, relaunched]));
+    reports.at(-1) === `tab-f=${did(22)}` && relaunched.length === 1 && relaunched[0].includes('another Codex tab'), show([reports, relaunched]));
   newer.cancel();
   discovery.dispose();
 }
@@ -2194,7 +2200,7 @@ const throwsOn = (run) => {
     show(adapter.input));
   check('E1 lo que se escribe coincide con lo que se le promete a la interfaz',
     adapter.input.imageReference === adapter.capabilities.imagesByPath);
-  const missing = adapter.missingMessage();
+  const missing = es(adapter.missingMessage());
   check('E1 el texto de ausencia nombra el comando y la guia', missing.includes('"codex"') && missing.includes(CODEX_INSTALL_URL), missing);
 
   const id = cid(90);
@@ -2276,7 +2282,8 @@ const throwsOn = (run) => {
   check('E1 sin ninguna instalada, ninguna por defecto', registry.defaultAgent() === null);
   const codexInfo = registry.list().find((info) => info.id === 'codex');
   check('E1 hello: codex ausente con su texto y sus capacidades',
-    codexInfo !== undefined && codexInfo.available === false && codexInfo.missingMessage?.includes(CODEX_INSTALL_URL) === true &&
+    codexInfo !== undefined && codexInfo.available === false && codexInfo.missingMessage !== null &&
+    es(codexInfo.missingMessage).includes(CODEX_INSTALL_URL) &&
     same(codexInfo.capabilities, registry.adapter('codex').capabilities), show(codexInfo));
   const parsedInfo = shared.parseAgentInfo(JSON.parse(JSON.stringify(codexInfo)));
   check('E1 hello: el cliente la lee entera', parsedInfo !== null && same(parsedInfo.capabilities, codexInfo.capabilities), show(parsedInfo));
@@ -2301,30 +2308,32 @@ const throwsOn = (run) => {
   const { startupAgentLines, AVAILABLE_AGENTS_LABEL } = await import('../src/startup-summary.ts');
   const claude = (over = {}) => ({ id: 'claude-code', label: 'Claude Code', version: '2.1.270', resolvedPath: '/bin/claude', missingMessage: null, ...over });
   const codex = (over = {}) => ({ id: 'codex', label: 'Codex', version: 'codex-cli 0.154.0', resolvedPath: '/bin/codex', missingMessage: null, ...over });
-  const claudeMissing = claude({ version: null, resolvedPath: null, missingMessage: 'falta claude' });
-  const codexMissing = codex({ version: null, resolvedPath: null, missingMessage: 'falta codex' });
+  const raw = (text) => ({ key: 'raw', params: { text } });
+  const claudeMissing = claude({ version: null, resolvedPath: null, missingMessage: raw('falta claude') });
+  const codexMissing = codex({ version: null, resolvedPath: null, missingMessage: raw('falta codex') });
 
-  const legacyAvailable = ['  CLI          2.1.270', '  Binario      /bin/claude'];
+  // La consola del servidor esta en ingles desde el hito 34 (D19).
+  const legacyAvailable = ['  CLI          2.1.270', '  Binary       /bin/claude'];
   check('A6 claude-code sola: las lineas de siempre y la de disponibles',
-    same(startupAgentLines([claude()]), ['  CLIs disponibles  claude-code', ...legacyAvailable]), show(startupAgentLines([claude()])));
+    same(startupAgentLines([claude()]), ['  Available CLIs  claude-code', ...legacyAvailable]), show(startupAgentLines([claude()])));
   const withoutCodex = startupAgentLines([claude(), codexMissing]);
   check('A6 claude-code instalada y codex no: identico a claude-code sola, sin nombrar codex',
     same(withoutCodex, startupAgentLines([claude()])) && !withoutCodex.join('\n').toLowerCase().includes('codex'), show(withoutCodex));
   check('A6 codex sola: sus lineas sin etiqueta',
-    same(startupAgentLines([claudeMissing, codex()]), ['  CLIs disponibles  codex', '  CLI          codex-cli 0.154.0', '  Binario      /bin/codex']),
+    same(startupAgentLines([claudeMissing, codex()]), ['  Available CLIs  codex', '  CLI          codex-cli 0.154.0', '  Binary       /bin/codex']),
     show(startupAgentLines([claudeMissing, codex()])));
   check('A6 las dos: una linea por cada una, con su nombre',
     same(startupAgentLines([claude(), codex({ version: null })]), [
-      '  CLIs disponibles  claude-code, codex',
-      '  CLI (Claude Code)  2.1.270', '  Binario      /bin/claude',
-      '  CLI (Codex)  version desconocida', '  Binario      /bin/codex',
+      '  Available CLIs  claude-code, codex',
+      '  CLI (Claude Code)  2.1.270', '  Binary       /bin/claude',
+      '  CLI (Codex)  unknown version', '  Binary       /bin/codex',
     ]), show(startupAgentLines([claude(), codex({ version: null })])));
   check('A6 ninguna: el texto de la primera y las demas por nombre',
     same(startupAgentLines([claudeMissing, codexMissing]), [
-      '  CLIs disponibles  ninguna', '  CLI          NO ENCONTRADA', '', '  falta claude', '  Tambien funciona con: Codex',
+      '  Available CLIs  none', '  CLI          NOT FOUND', '', '  falta claude', '  Also works with: Codex',
     ]), show(startupAgentLines([claudeMissing, codexMissing])));
   check('A6 ninguna con una sola registrada: lo de siempre, sin "tambien"',
-    same(startupAgentLines([claudeMissing]), ['  CLIs disponibles  ninguna', '  CLI          NO ENCONTRADA', '', '  falta claude']),
+    same(startupAgentLines([claudeMissing]), ['  Available CLIs  none', '  CLI          NOT FOUND', '', '  falta claude']),
     show(startupAgentLines([claudeMissing])));
   check('A6 la linea de disponibles empieza con su rotulo', startupAgentLines([claude()])[0].trim().startsWith(AVAILABLE_AGENTS_LABEL));
 
@@ -2333,7 +2342,7 @@ const throwsOn = (run) => {
   const claudeText = registry.adapter('claude-code').missingMessage();
   const none = summarizeAgents(registry.list(), true);
   check('A6 cartel sin ninguna: el de claude-code de siempre y "tambien funciona con: Codex, OpenCode, Antigravity CLI"',
-    none.cliAvailable === false && none.cliMissingMessage === `${claudeText}\nTambien funciona con: Codex, OpenCode, Antigravity CLI`, show(none));
+    none.cliAvailable === false && none.cliMissingMessage === `${es(claudeText)}\nTambién funciona con: Codex, OpenCode, Antigravity CLI`, show(none));
   registry.get('claude-code').location = { resolvedPath: '/bin/claude', file: '/bin/claude', prefixArgs: [], version: '2.1.270' };
   const onlyClaude = summarizeAgents(registry.list(), true);
   const alone = new AgentRegistry([createClaudeCodeAdapter()]);
@@ -2395,12 +2404,13 @@ const throwsOn = (run) => {
       return error.message;
     }
   };
-  check('M7 si codex resuelve a uno de verdad no arranca, y dice donde', /encontro codex en/.test(rejection([nodeDir, bin, gitDir].join(delimiter))),
+  // Los mensajes de la demo estan en ingles desde el hito 34 (D19).
+  check('M7 si codex resuelve a uno de verdad no arranca, y dice donde', /found codex in/.test(rejection([nodeDir, bin, gitDir].join(delimiter))),
     rejection([nodeDir, bin, gitDir].join(delimiter)));
-  check('M7 si agy resuelve a uno de verdad no arranca', /encontro agy/.test(rejection([agyDir, bin, gitDir].join(delimiter))));
-  check('M7 si claude resuelve fuera de las simuladas no arranca', /simulada/.test(rejection([realClaudeDir, bin, gitDir].join(delimiter))));
+  check('M7 si agy resuelve a uno de verdad no arranca', /found agy/.test(rejection([agyDir, bin, gitDir].join(delimiter))));
+  check('M7 si claude resuelve fuera de las simuladas no arranca', /simulated/.test(rejection([realClaudeDir, bin, gitDir].join(delimiter))));
   check('M7 si falta una simulada no arranca: la captura saldria sin esa CLI',
-    /no encontro la CLI simulada codex/.test(rejection([onlyClaudeBin, gitDir].join(delimiter), onlyClaudeBin)),
+    /didn't find the simulated CLI codex/.test(rejection([onlyClaudeBin, gitDir].join(delimiter), onlyClaudeBin)),
     rejection([onlyClaudeBin, gitDir].join(delimiter), onlyClaudeBin));
   check('M7 sin git no arranca', /git/.test(rejection([bin, emptyDir].join(delimiter))));
 
@@ -2426,7 +2436,7 @@ const throwsOn = (run) => {
   ])].join('\n');
   check('M7 la demo lee la linea de disponibles que imprime el servidor', same(demo.availableAgentsFromStartup(startup), ['claude-code', 'codex']));
   check('M7 sin la linea todavia: null', demo.availableAgentsFromStartup('  URL          http://127.0.0.1:1/') === null);
-  check('M7 ninguna: lista vacia', same(demo.availableAgentsFromStartup('  CLIs disponibles  ninguna\n'), []));
+  check('M7 ninguna: lista vacia', same(demo.availableAgentsFromStartup('  Available CLIs  none\n'), []));
   const four = ['claude-code', 'codex', 'opencode', 'antigravity'];
   check('M7 las capturas solo con las cuatro simuladas, en cualquier orden',
     same(demo.SIMULATED_AGENT_IDS, four) &&
@@ -2468,7 +2478,7 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
 
 // W1. Las tandas de herramientas conocen los nombres de Codex, sin tocar los de Claude Code.
 {
-  const { TOOL_CATEGORIES, toolCategory } = await import('../../web/src/tool-categories.ts');
+  const { TOOL_CATEGORIES, toolCategory, toolRunSummary } = await import('../../web/src/tool-categories.ts');
   const before = {
     shell: ['Bash', 'PowerShell', 'BashOutput', 'KillShell'], read: ['Read', 'NotebookRead'], find: ['Glob', 'Grep', 'LS'],
     edit: ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'], web: ['WebSearch', 'WebFetch', 'ToolSearch'], agent: ['Task', 'Agent'],
@@ -2482,11 +2492,12 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
   ]));
   check('W1 las categorias de Claude Code siguen exactamente iguales', same(kept, before), show(kept));
   check('W1 shell_command es un comando de consola',
-    toolCategory('shell_command').key === 'shell' && toolCategory('shell_command').label === 'comandos de consola');
+    toolCategory('shell_command').key === 'shell' && toolRunSummary('shell', 3, 'shell_command') === '3 comandos de consola');
   check('W1 apply_patch es una edicion y update_plan una lista de tareas',
     toolCategory('apply_patch').key === 'edit' && toolCategory('update_plan').key === 'todo');
   check('W1 un nombre desconocido se agrupa por nombre y sin etiqueta',
-    same(toolCategory('mcp__x__y'), { key: 'name:mcp__x__y', label: null }));
+    same(toolCategory('mcp__x__y'), { key: 'name:mcp__x__y', known: false }) &&
+    toolRunSummary('name:mcp__x__y', 2, 'mcp__x__y') === '2 llamadas a mcp__x__y');
 }
 
 // W2. La CLI del ultimo trabajo en un proyecto: la regla de Alt+T.
@@ -2562,7 +2573,7 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
     !webUi.discoveringSession('claude-code', '', fixed) && !webUi.discoveringSession(null, '', CODEX_CAPABILITIES));
   const notice = webUi.openToolCallNotice(CODEX_CAPABILITIES, true, 'Codex', true);
   check('W6 llamada abierta en una CLI sin estado: el motivo, con su nombre',
-    notice === 'Codex tiene una herramienta sin resultado: puede estar pidiendo una aprobación. Contestala en la solapa CLI.', String(notice));
+    notice === 'Codex tiene una herramienta sin resultado: puede estar pidiendo una aprobación. Contéstala en la solapa CLI.', String(notice));
   check('W6 sin llamada, sin proceso o con una CLI que publica su estado: nada',
     webUi.openToolCallNotice(CODEX_CAPABILITIES, false, 'Codex', true) === null &&
     webUi.openToolCallNotice(CODEX_CAPABILITIES, true, 'Codex', false) === null &&

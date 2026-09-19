@@ -24,6 +24,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DirectoryPickerListing, ServerMessage } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 interface FolderPickerProps {
   connection: AgentConnection;
@@ -70,7 +72,7 @@ export function FolderPicker({
       // Un error del selector se muestra en el dialogo y no en la barra de
       // arriba: pasa aca adentro y aca es donde se lo mira.
       if (message.type === 'error' && message.code === 'picker-failed') {
-        setProblem(message.message);
+        setProblem(serverTextMessage(message.text));
       }
     });
 
@@ -135,13 +137,13 @@ export function FolderPicker({
       >
         <header className="modal-header">
           <span className="modal-title">{title}</span>
-          <button className="icon-button" onClick={onClose} title="Cerrar">
+          <button className="icon-button" onClick={onClose} title={t('common.close')}>
             ×
           </button>
         </header>
 
         {listing === null ? (
-          <p className="panel-note">Leyendo el disco...</p>
+          <p className="panel-note">{t('picker.loading')}</p>
         ) : (
           <>
             <div className="picker-roots">
@@ -150,7 +152,7 @@ export function FolderPicker({
                   key={root}
                   className="picker-root"
                   onClick={() => goToRoot(index)}
-                  title={`Ir a ${root}`}
+                  title={t('picker.goTo', { root })}
                 >
                   {root}
                 </button>
@@ -165,12 +167,12 @@ export function FolderPicker({
             <div className="picker-list">
               {listing.canGoUp && (
                 <button className="picker-entry picker-up" onClick={() => enter('..')}>
-                  ‹ carpeta superior
+                  ‹ {t('picker.up')}
                 </button>
               )}
 
               {listing.entries.length === 0 && !listing.canGoUp && (
-                <p className="panel-note">No hay subcarpetas aca.</p>
+                <p className="panel-note">{t('picker.empty')}</p>
               )}
 
               {listing.entries.map((name) => (
@@ -179,11 +181,7 @@ export function FolderPicker({
                 </button>
               ))}
 
-              {listing.truncated && (
-                <p className="panel-note">
-                  Hay mas subcarpetas de las que entran en la lista. Entra a una para acotar.
-                </p>
-              )}
+              {listing.truncated && <p className="panel-note">{t('picker.truncated')}</p>}
             </div>
 
             {problem !== null && <p className="picker-problem">{problem}</p>}
@@ -195,7 +193,7 @@ export function FolderPicker({
                     ref={createRef}
                     className="picker-create-input"
                     value={draftName}
-                    placeholder="Nombre de la carpeta"
+                    placeholder={t('picker.newFolderName')}
                     onChange={(event) => setDraftName(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') createFolder();
@@ -209,15 +207,15 @@ export function FolderPicker({
                     spellCheck={false}
                   />
                   <button className="link-button" onClick={createFolder}>
-                    Crear
+                    {t('picker.create')}
                   </button>
                   <button className="link-button" onClick={() => setCreating(false)}>
-                    Cancelar
+                    {t('common.cancel')}
                   </button>
                 </div>
               ) : (
                 <button className="link-button" onClick={() => setCreating(true)}>
-                  Crear una carpeta aca
+                  {t('picker.createHere')}
                 </button>
               )}
 

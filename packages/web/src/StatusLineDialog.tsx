@@ -26,7 +26,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { StatusLineSetupInfo } from '@agent-workbench/shared';
-import { STATUS_LINE_NO_FRAGMENT, statusLineStateText } from './agent-ui.js';
+import { statusLineNoFragmentText, statusLineStateText } from './agent-ui.js';
+import { t } from './i18n/index.js';
+import { tRich } from './i18n/rich.js';
 
 /** Cuanto dura el tilde de "copiado". Como el del arbol de archivos. */
 const COPIED_MS = 1_000;
@@ -99,18 +101,19 @@ export function StatusLineDialog({
   };
 
   const active = info.state === 'active';
+  const title = t('statusLine.title', { agent: agentLabel });
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal"
         role="dialog"
-        aria-label={`Status line de ${agentLabel}`}
+        aria-label={title}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="modal-header">
-          <span className="modal-title">Status line de {agentLabel}</span>
-          <button className="icon-button" onClick={onClose} title="Cerrar">
+          <span className="modal-title">{title}</span>
+          <button className="icon-button" onClick={onClose} title={t('common.close')}>
             ×
           </button>
         </header>
@@ -120,56 +123,41 @@ export function StatusLineDialog({
             {statusLineStateText(info.state)}
           </p>
 
-          <p className="modal-hint">
-            Con la status line configurada, las pestañas de esta CLI muestran su estado, la barra
-            de “esperando” cuando pide permiso para una herramienta, y el medidor de contexto con
-            la ventana exacta. Sin ella no hay forma de saberlo: la CLI no lo deja en ningún otro
-            archivo.
-          </p>
+          <p className="modal-hint">{t('statusLine.benefit')}</p>
 
-          <h3 className="modal-section">La línea</h3>
+          <h3 className="modal-section">{t('statusLine.lineSection')}</h3>
           {info.fragment === null ? (
-            <p className="modal-hint">{STATUS_LINE_NO_FRAGMENT}</p>
+            <p className="modal-hint">{statusLineNoFragmentText()}</p>
           ) : (
             <>
-              <p className="modal-hint">
-                Fusionala con lo que ya tiene el archivo de abajo, sin reemplazarlo: si ya tiene
-                llaves, agregá solo la clave <kbd>statusLine</kbd>.
-              </p>
+              <p className="modal-hint">{tRich('statusLine.mergeHint')}</p>
               <div className="status-line-fragment">
                 <pre className="tool-pre">{info.fragment}</pre>
                 <button
                   className="link-button"
                   onClick={() => copy(info.fragment ?? '')}
-                  title="Copiar la línea al portapapeles"
+                  title={t('statusLine.copyTitle')}
                 >
-                  {copied ? '✓ Copiada' : 'Copiar'}
+                  {copied ? <>✓ {t('statusLine.copied')}</> : t('statusLine.copy')}
                 </button>
               </div>
             </>
           )}
 
-          <h3 className="modal-section">Dónde</h3>
+          <h3 className="modal-section">{t('statusLine.whereSection')}</h3>
           <p className="status-line-path">{info.settingsPath}</p>
-          <p className="modal-hint">La app no toca ese archivo: lo editás vos.</p>
+          <p className="modal-hint">{t('statusLine.whereHint')}</p>
 
-          <h3 className="modal-section">Qué hace el script</h3>
-          <p className="modal-hint">
-            Guarda sólo estado, modelo y tokens de cada conversación, en la carpeta de la app. No
-            guarda tu email, tu cuota ni el costo, que la CLI también le pasa, y no imprime nada:
-            la línea propia de la CLI queda como está.
-          </p>
+          <h3 className="modal-section">{t('statusLine.scriptSection')}</h3>
+          <p className="modal-hint">{t('statusLine.scriptHint')}</p>
           <p className="status-line-path">{info.scriptPath}</p>
-          <p className="modal-hint">
-            Con la línea puesta lo corre toda sesión de la CLI, también las que abras fuera de la
-            app, y necesita <kbd>node</kbd> en el PATH.
-          </p>
+          <p className="modal-hint">{tRich('statusLine.runsEverywhere')}</p>
 
           <div className="status-line-actions">
             <button className="primary-button" onClick={check} disabled={checking}>
-              {checking ? 'Comprobando…' : 'Comprobar'}
+              {checking ? t('statusLine.checking') : t('statusLine.check')}
             </button>
-            <span className="modal-hint">También se entera sola en un par de segundos.</span>
+            <span className="modal-hint">{t('statusLine.checkHint')}</span>
           </div>
         </div>
       </div>

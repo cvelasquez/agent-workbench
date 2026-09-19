@@ -33,10 +33,10 @@ export function revealPath(absolutePath: string): void {
   try {
     const child = spawn(command, args, { stdio: 'ignore', detached: true, windowsHide: true });
     child.on('error', (error) => {
-      console.warn('[archivos] no se pudo abrir la ruta:', error.message);
+      console.warn("[files] couldn't open the path:", error.message);
     });
     child.unref();
   } catch (error) {
-    console.warn('[archivos] no se pudo abrir la ruta:', error);
+    console.warn("[files] couldn't open the path:", error);
   }
 }

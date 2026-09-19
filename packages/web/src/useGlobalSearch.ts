@@ -19,6 +19,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GlobalSearchResult, ServerMessage } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
 import { mergeSearchProgress } from './global-search-ui.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 export interface GlobalSearchApi {
   /** true hasta el resultado final, aunque ya haya aciertos a la vista. */
@@ -59,7 +61,7 @@ export function useGlobalSearch(connection: AgentConnection): GlobalSearchApi {
           current.current = null;
           if (message.detail !== undefined) console.error('[servidor]', message.detail);
           setResult(null);
-          setError(message.message);
+          setError(serverTextMessage(message.text));
           setSearching(false);
           break;
         default:
@@ -72,7 +74,7 @@ export function useGlobalSearch(connection: AgentConnection): GlobalSearchApi {
       if (current.current === null) return;
       current.current = null;
       setSearching(false);
-      setError('Se cortó la conexión con el servidor: volvé a buscar.');
+      setError(t('searchHook.connectionLost'));
     });
     return () => {
       offMessage();

@@ -17,6 +17,8 @@ import {
   type AgentInfo,
   type EnvironmentNoticeId,
 } from '@agent-workbench/shared';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 export interface AgentSummary {
   /**
@@ -46,11 +48,7 @@ export interface AgentSummary {
  * tiene ese servidor ni que sabe hacer; se dice que hay que reiniciarlo.
  */
 export function outdatedServerMessage(serverProtocolVersion: number): string {
-  return (
-    `El servidor que esta corriendo es de una version anterior a esta pagina ` +
-    `(protocolo ${serverProtocolVersion}, esta pagina usa el ${PROTOCOL_VERSION}). ` +
-    `Reinicialo y recarga la pagina.`
-  );
+  return t('summary.outdatedServer', { server: serverProtocolVersion, page: PROTOCOL_VERSION });
 }
 
 /**
@@ -64,8 +62,9 @@ export function outdatedServerMessage(serverProtocolVersion: number): string {
 function missingCliMessage(agents: readonly AgentInfo[]): string | null {
   const [first, ...others] = agents;
   if (first === undefined || first.missingMessage === null) return null;
-  if (others.length === 0) return first.missingMessage;
-  return `${first.missingMessage}\nTambien funciona con: ${others.map((agent) => agent.label).join(', ')}`;
+  const missing = serverTextMessage(first.missingMessage);
+  if (others.length === 0) return missing;
+  return `${missing}\n${t('summary.alsoWorksWith', { names: others.map((agent) => agent.label).join(', ') })}`;
 }
 
 /**
@@ -94,6 +93,19 @@ export function summarizeAgents(
       cliAvailable: false,
       cliVersion: null,
       cliMissingMessage: outdatedServerMessage(serverProtocolVersion),
+      environmentNotice: null,
+    };
+  }
+  /*
+    Al reves (hito 34, D11): la pagina quedo abierta de antes y el servidor ya
+    es el nuevo. Sus mensajes pueden tener otra forma —los errores dejaron de
+    traer la frase armada—, y sin esto se perderian callados.
+  */
+  if (helloReceived && serverProtocolVersion > PROTOCOL_VERSION) {
+    return {
+      cliAvailable: false,
+      cliVersion: null,
+      cliMissingMessage: t('summary.newerServer', { server: serverProtocolVersion, page: PROTOCOL_VERSION }),
       environmentNotice: null,
     };
   }

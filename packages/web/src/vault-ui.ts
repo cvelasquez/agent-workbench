@@ -9,6 +9,9 @@
  * cambia** salvo el boton de la cabecera. `vaultLineText` da null apagada y
  * `sessionVaultView` no marca nada en una fila nativa, que son todas mientras la
  * copia no escribio ni se importo nada.
+ *
+ * Los textos salen de `t()` (§6.23), al pedirlos: por eso son funciones y no
+ * constantes. Los tamanos y las duraciones, de `i18n/format.ts`.
  */
 
 import type {
@@ -20,47 +23,44 @@ import type {
   VaultStatus,
 } from '@agent-workbench/shared';
 import { sessionAgentLabel } from './agent-ui.js';
-import { formatWhen } from './format-when.js';
+import { formatRoughDuration, formatWhen } from './i18n/format.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 /** El nombre en la interfaz. En el codigo es `vault`. */
-export const VAULT_NAME = 'Copia propia';
+export function vaultName(): string {
+  return t('vault.name');
+}
 
 /** Lo primero que dice el dialogo: que guarda y adonde puede viajar. */
-export const VAULT_PRIVACY_TEXT =
-  'Guarda lo mismo que el historial de cada CLI —mensajes, entradas y resultados de herramientas, imágenes— en una carpeta tuya. Si la ponés en una carpeta sincronizada o en un repositorio, eso viaja con ella.';
+export function vaultPrivacyText(): string {
+  return t('vault.privacy');
+}
 
 /** Lo que no hace, dicho antes de encenderla (R3). */
-export const VAULT_ARCHIVED_TEXT =
-  'Las sesiones archivadas no se copian, y archivar una ya copiada no borra su copia. La app nunca borra nada de esta carpeta.';
+export function vaultArchivedText(): string {
+  return t('vault.archived');
+}
 
-export const VAULT_MARK_TEXT = 'copia';
-export const VAULT_MARK_TITLE =
-  'El historial de la CLI ya no tiene esta sesión. Se abre la copia propia, en Markdown.';
-export const PARTIAL_MARK_TEXT = 'parcial';
-export const PARTIAL_MARK_TITLE =
-  'Sólo se rescató la ficha y los documentos: el contenido de la conversación está cifrado.';
+export function vaultMarkText(): string {
+  return t('vault.mark.copy');
+}
+
+export function vaultMarkTitle(): string {
+  return t('vault.mark.copyTitle');
+}
+
+export function partialMarkText(): string {
+  return t('vault.mark.partial');
+}
+
+export function partialMarkTitle(): string {
+  return t('vault.mark.partialTitle');
+}
 
 /** "1 sesión" o "N sesiones". */
 export function vaultSessionsText(count: number): string {
-  return `${count} ${count === 1 ? 'sesión' : 'sesiones'}`;
-}
-
-/** Tamaño para mostrar, con la misma forma que los paneles de archivos y notas. */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 1_024) return `${Math.max(0, Math.round(bytes) || 0)} B`;
-  if (bytes < 1_024 * 1_024) return `${Math.round(bytes / 1_024)} KB`;
-  if (bytes < 1_024 * 1_024 * 1_024) return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`;
-  return `${(bytes / (1_024 * 1_024 * 1_024)).toFixed(2)} GB`;
-}
-
-/** Cuanto tardo algo: "menos de 1 s", "12 s", "3 min 5 s". */
-export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 1_000) return 'menos de 1 s';
-  const seconds = Math.round(ms / 1_000);
-  if (seconds < 60) return `${seconds} s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
+  return t('vault.sessions', { count });
 }
 
 /** true mientras el servidor esta haciendo algo que no deja empezar otra cosa. */
@@ -68,21 +68,22 @@ export function vaultBusy(state: VaultState): boolean {
   return state === 'measuring' || state === 'writing' || state === 'moving';
 }
 
-function progressSuffix(status: Pick<VaultStatus, 'progress'>): string {
-  return status.progress === null ? '' : ` ${status.progress.done} / ${status.progress.total}`;
-}
-
 /** El estado en una palabra o dos, para la cabecera del dialogo. */
 export function vaultStateText(status: Pick<VaultStatus, 'enabled' | 'state' | 'progress'>): string {
+  const progress = status.progress;
   switch (status.state) {
     case 'measuring':
-      return `Midiendo…${progressSuffix(status)}`;
+      return progress === null
+        ? t('vault.state.measuring')
+        : t('vault.state.measuringProgress', { done: progress.done, total: progress.total });
     case 'writing':
-      return `Copiando…${progressSuffix(status)}`;
+      return progress === null
+        ? t('vault.state.writing')
+        : t('vault.state.writingProgress', { done: progress.done, total: progress.total });
     case 'moving':
-      return 'Mudando de carpeta…';
+      return t('vault.state.moving');
     default:
-      return status.enabled ? 'Encendida' : 'Apagada';
+      return status.enabled ? t('vault.state.on') : t('vault.state.off');
   }
 }
 
@@ -95,28 +96,28 @@ export function vaultStateText(status: Pick<VaultStatus, 'enabled' | 'state' | '
  */
 export function vaultLineText(status: VaultStatus | null): string | null {
   if (status === null || !status.enabled) return null;
-  const parts = [VAULT_NAME, vaultSessionsText(status.sessions)];
+  const parts = [vaultName(), vaultSessionsText(status.sessions)];
   if (status.state === 'writing') {
     parts.push(
-      status.progress === null ? 'copiando' : `copiando ${status.progress.done} / ${status.progress.total}`,
+      status.progress === null
+        ? t('vault.line.copying')
+        : t('vault.line.copyingProgress', { done: status.progress.done, total: status.progress.total }),
     );
   } else if (status.state === 'moving') {
-    parts.push('mudando de carpeta');
+    parts.push(t('vault.line.moving'));
   } else if (status.state === 'measuring') {
-    parts.push('midiendo');
+    parts.push(t('vault.line.measuring'));
   } else {
-    parts.push(status.lastPassAt === null ? 'sin copiar todavía' : formatWhen(status.lastPassAt));
+    parts.push(status.lastPassAt === null ? t('vault.line.neverCopied') : formatWhen(status.lastPassAt));
   }
-  if (status.pending > 0) parts.push(`${status.pending} esperando`);
+  if (status.pending > 0) parts.push(t('vault.line.pending', { count: status.pending }));
   return parts.join(' · ');
 }
 
 /** El titulo del boton de la cabecera. */
 export function vaultButtonTitle(status: VaultStatus | null): string {
-  if (status === null) return VAULT_NAME;
-  return status.enabled
-    ? `${VAULT_NAME}: encendida. Ver el estado y la carpeta`
-    : `${VAULT_NAME}: apagada. Configurar`;
+  if (status === null) return vaultName();
+  return status.enabled ? t('vault.button.on') : t('vault.button.off');
 }
 
 /**
@@ -144,18 +145,18 @@ export function vaultActivateOffer(status: VaultStatus): VaultActivateOffer {
 
 /** Por que "Medir" no se puede apretar, o null si se puede. */
 export function vaultMeasureBlockedReason(status: VaultStatus, indexReady: boolean): string | null {
-  if (vaultBusy(status.state)) return 'Hay una operación de la copia en curso. Esperá a que termine.';
-  if (!indexReady) return 'Todavía se está leyendo el historial. Medí cuando termine.';
+  if (vaultBusy(status.state)) return t('vault.busy');
+  if (!indexReady) return t('vault.indexNotReady');
   return null;
 }
 
 /** Por que "Cambiar carpeta…" no se puede apretar, o null si se puede. */
 export function vaultChangeDirBlockedReason(status: VaultStatus): string | null {
-  return vaultBusy(status.state) ? 'Hay una operación de la copia en curso. Esperá a que termine.' : null;
+  return vaultBusy(status.state) ? t('vault.busy') : null;
 }
 
 export function vaultPreviousDirText(previousDir: string): string {
-  return `La carpeta anterior quedó intacta: ${previousDir}`;
+  return t('vault.previousDir', { dir: previousDir });
 }
 
 /** Una fila de la tabla de la medicion. */
@@ -181,21 +182,20 @@ export interface VaultMeasureView {
   summary: string;
 }
 
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
 /** Lo que una CLI no copia y por que: vacias, sin lectura entera y fallidas. */
 export function vaultMeasureNote(row: VaultAgentMeasure): string | null {
   const parts: string[] = [];
-  if (row.skippedEmpty > 0) parts.push(plural(row.skippedEmpty, 'vacía', 'vacías'));
+  if (row.skippedEmpty > 0) parts.push(t('vault.note.empty', { count: row.skippedEmpty }));
   // La fuente no declara `wholeRead` (C7): leerla recortaria en silencio.
-  if (row.unsupported > 0) parts.push(`${row.unsupported} sin lectura completa`);
+  if (row.unsupported > 0) parts.push(t('vault.note.unsupported', { count: row.unsupported }));
   if (row.failed > 0) {
-    const reasons = row.failureReasons.length > 0 ? ` (${row.failureReasons.join('; ')})` : '';
-    parts.push(`${plural(row.failed, 'fallida', 'fallidas')}${reasons}`);
+    parts.push(
+      row.failureReasons.length > 0
+        ? t('vault.note.failedWithReasons', { count: row.failed, reasons: row.failureReasons.map(serverTextMessage).join('; ') })
+        : t('vault.note.failed', { count: row.failed }),
+    );
   }
-  return parts.length === 0 ? null : `No se copian: ${parts.join(' · ')}`;
+  return parts.length === 0 ? null : t('vault.note.notCopied', { parts: parts.join(' · ') });
 }
 
 export function vaultMeasureView(measurement: VaultMeasurement, agents: readonly AgentInfo[]): VaultMeasureView {
@@ -226,7 +226,10 @@ export function vaultMeasureView(measurement: VaultMeasurement, agents: readonly
     memoryProjects: measurement.memoryProjects,
     memoryBytes: measurement.memoryBytes,
     total,
-    summary: `Medido ${when.length > 0 ? `${when}, ` : ''}en ${formatDuration(measurement.durationMs)}`,
+    summary:
+      when.length > 0
+        ? t('vault.measure.summary', { when, duration: formatRoughDuration(measurement.durationMs) })
+        : t('vault.measure.summaryNoWhen', { duration: formatRoughDuration(measurement.durationMs) }),
   };
 }
 
@@ -248,10 +251,10 @@ export type ExportButtonState = 'idle' | 'exporting' | 'done';
 export function exportButtonTitle(state: ExportButtonState): string {
   switch (state) {
     case 'exporting':
-      return 'Exportando a Markdown…';
+      return t('vault.export.exporting');
     case 'done':
-      return 'Exportado: se abrió la carpeta';
+      return t('vault.export.done');
     default:
-      return 'Exportar a Markdown las sesiones de este proyecto';
+      return t('vault.export.idle');
   }
 }

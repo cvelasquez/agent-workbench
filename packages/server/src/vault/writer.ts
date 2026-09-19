@@ -47,6 +47,8 @@ import path from 'node:path';
 import {
   SESSION_AGENT_IDS,
   isVaultSessionId,
+  serverText,
+  type ServerText,
   type AgentId,
   type ProjectSummary,
   type VaultAgentMeasure,
@@ -77,23 +79,24 @@ export const CALM_MS = 60_000;
 export const PASS_DEBOUNCE_MS = 5_000;
 /** Un temporal propio mas viejo que esto quedo de un proceso que murio: se borra. */
 export const TEMP_MAX_AGE_MS = 60 * 60 * 1000;
-/** Motivo de un fallo cuando el origen no se encontro (C6). */
-export const ORIGIN_NOT_FOUND = 'no se encontró el origen';
+/** Motivo de un fallo cuando el origen no se encontro (C6). Los motivos van como clave (§6.23). */
+export const ORIGIN_NOT_FOUND: ServerText = serverText('vaultReasonOriginMissing');
 /** Motivo cuando en la copia ya hay una version de la sesion de un formato mas nuevo (D15). */
-export const FOREIGN_FORMAT = 'la copia que ya está es de un formato más nuevo';
+export const FOREIGN_FORMAT: ServerText = serverText('vaultReasonNewerFormat');
 /** Motivo de un id que no puede ser un nombre de archivo. */
-export const UNSAFE_SESSION_ID = 'id de sesión que no se puede copiar';
+export const UNSAFE_SESSION_ID: ServerText = serverText('vaultReasonUnsafeId');
 /** Lo que se contesta a quien quiere encender la copia sin haberla medido nunca (C18). */
-export const MEASURE_FIRST_MESSAGE = 'Medí primero cuánto ocuparía.';
+export const MEASURE_FIRST_TEXT: ServerText = serverText('vaultMeasureFirst');
 
 const PROGRESS_EVERY = 10;
 const MAX_FAILURE_REASONS = 5;
 /** `<nombre>.<pid>.<aleatorio de 12 hex>.tmp`: la forma de `temporaryPathFor`. Nada mas se borra. */
 const OWN_TEMP_FILE = /\.\d+\.[0-9a-f]{12}\.tmp$/;
 
+/** Algo en curso no deja empezar otra cosa. El servicio lo pasa al usuario como `VaultError`. */
 export class VaultBusyError extends Error {
-  constructor(activity: VaultActivity) {
-    super(`La copia está ocupada (${activity}).`);
+  constructor(readonly activity: VaultActivity) {
+    super(`The local copy is busy (${activity}).`);
     this.name = 'VaultBusyError';
   }
 }
@@ -152,7 +155,7 @@ export interface VaultPassReport {
   skippedEmpty: number;
   unsupported: number;
   failed: number;
-  failureReasons: string[];
+  failureReasons: ServerText[];
   memoryFiles: number;
   memoryBytes: number;
   /** El motivo si la pasada se corto (disco lleno). */
@@ -167,7 +170,7 @@ export interface VaultWriterSnapshot {
   pending: number;
   /** Vive en memoria hasta que el servidor se apaga. */
   measurement: VaultMeasurement | null;
-  lastError: string | null;
+  lastError: ServerText | null;
   lastPass: VaultPassReport | null;
 }
 
@@ -216,8 +219,9 @@ function isNoSpace(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOSPC';
 }
 
-function addReason(reasons: string[], reason: string): void {
-  if (reasons.length < MAX_FAILURE_REASONS && !reasons.includes(reason)) reasons.push(reason);
+function addReason(reasons: ServerText[], reason: ServerText): void {
+  const same = JSON.stringify(reason);
+  if (reasons.length < MAX_FAILURE_REASONS && !reasons.some((known) => JSON.stringify(known) === same)) reasons.push(reason);
 }
 
 function emptyMeasure(agent: AgentId): VaultAgentMeasure {
@@ -246,8 +250,8 @@ function emptyMeasure(agent: AgentId): VaultAgentMeasure {
  * midio. La web decide "Activar" con la misma cuenta (`VaultStatus.passSessions`).
  * Apagarla no pasa por aca.
  */
-export function enableRefusal(hasMeasurement: boolean, passSessions: number): string | null {
-  return hasMeasurement || passSessions > 0 ? null : MEASURE_FIRST_MESSAGE;
+export function enableRefusal(hasMeasurement: boolean, passSessions: number): ServerText | null {
+  return hasMeasurement || passSessions > 0 ? null : MEASURE_FIRST_TEXT;
 }
 
 /** Los topes de la copia (D4): texto y entrada enteros, resultados hasta el ajuste. */
@@ -284,7 +288,7 @@ export class VaultWriter {
   private lastPassAt: number | null = null;
   private pending = 0;
   private measurement: VaultMeasurement | null = null;
-  private lastError: string | null = null;
+  private lastError: ServerText | null = null;
   private lastPass: VaultPassReport | null = null;
 
   private passQueued = false;
@@ -360,7 +364,7 @@ export class VaultWriter {
     }
     const dir = this.options.catalog.getDir();
     if (dir === null) {
-      this.lastError = 'La copia no está cargada.';
+      this.lastError = serverText('vaultNotLoaded');
       this.emit();
       return null;
     }
@@ -424,7 +428,7 @@ export class VaultWriter {
       try {
         listener();
       } catch (error) {
-        this.log.warn('[copia] un oyente del escritor lanzo:', error);
+        this.log.warn('[vault] a writer listener threw:', error);
       }
     }
   }
@@ -503,7 +507,7 @@ export class VaultWriter {
       memoryBytes: 0,
       aborted: null,
     };
-    let thrown: string | null = null;
+    let thrown: ServerText | null = null;
     let calmDue: number | null = null;
 
     const { candidates, archived } = this.candidates();
@@ -556,14 +560,14 @@ export class VaultWriter {
         const message = messageOf(error);
         if (isNoSpace(error)) {
           report.aborted = message;
-          thrown = `Disco lleno: la pasada se corto (${message})`;
-          this.log.warn(`[copia] ${thrown}`);
+          thrown = serverText('vaultDiskFull', { detail: message });
+          this.log.warn(`[vault] disk full: the pass stopped (${message})`);
           break;
         }
         report.failed += 1;
-        addReason(report.failureReasons, message);
-        thrown = `${agent}/${sessionId}: ${message}`;
-        this.log.warn(`[copia] no se pudo copiar ${thrown}`);
+        addReason(report.failureReasons, serverText('raw', { text: message }));
+        thrown = serverText('vaultSessionFailed', { agent, session: sessionId, detail: message });
+        this.log.warn(`[vault] couldn't copy ${agent}/${sessionId}: ${message}`);
       }
       this.setProgress(position + 1, candidates.length);
       await nextTurn();
@@ -578,8 +582,8 @@ export class VaultWriter {
           report.memoryBytes += copied.bytes;
         } catch (error) {
           const message = messageOf(error);
-          thrown = `memoria de ${project.cwd}: ${message}`;
-          this.log.warn(`[copia] no se pudo copiar la ${thrown}`);
+          thrown = serverText('vaultMemoryFailed', { cwd: project.cwd, detail: message });
+          this.log.warn(`[vault] couldn't copy the memory of ${project.cwd}: ${message}`);
           if (isNoSpace(error)) {
             report.aborted = message;
             break;
@@ -646,7 +650,7 @@ export class VaultWriter {
     if (catalog.hasForeignFormat(agent, sessionId)) {
       if (!this.warnedForeign.has(key)) {
         this.warnedForeign.add(key);
-        this.log.warn(`[copia] ${key}: la copia en disco es de un formato mas nuevo; no se pisa`);
+        this.log.warn(`[vault] ${key}: the copy on disk is in a newer format; it isn't overwritten`);
       }
       return { kind: 'foreign' };
     }
@@ -715,7 +719,7 @@ export class VaultWriter {
           if (loaded !== null) images.set(keyOfImage, { kind: 'loaded', data: Buffer.from(loaded.data, 'base64') });
         } catch (error) {
           // Una imagen ilegible queda sin asset; no se lleva la sesion.
-          this.log.warn(`[copia] ${whole.label}: no se pudo leer una imagen: ${messageOf(error)}`);
+          this.log.warn(`[vault] ${whole.label}: couldn't read an image: ${messageOf(error)}`);
         }
       }
     }
@@ -831,7 +835,7 @@ export class VaultWriter {
 
   private async measureOne(candidate: Candidate, row: VaultAgentMeasure): Promise<void> {
     const { session, history } = candidate;
-    const failed = (reason: string): void => {
+    const failed = (reason: ServerText): void => {
       row.failed += 1;
       addReason(row.failureReasons, reason);
     };
@@ -867,7 +871,7 @@ export class VaultWriter {
       row.images += read.serialized.assets.size;
       for (const bytes of read.serialized.assets.values()) row.imageBytes += bytes.length;
     } catch (error) {
-      failed(messageOf(error));
+      failed(serverText('raw', { text: messageOf(error) }));
     }
   }
 

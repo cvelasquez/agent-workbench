@@ -22,12 +22,11 @@
  */
 
 import {
-  PERMISSION_MODE_LABEL,
   isPermissionMode,
   type PermissionCycleCapability,
   type PermissionMode,
 } from '@agent-workbench/shared';
-import { modeChangeBlocked, modeControlTitle, shownMode } from './agent-ui.js';
+import { modeChangeBlocked, modeControlTitle, modeLabel, shownMode } from './agent-ui.js';
 
 interface ModeControlProps {
   /** Modo observado en el archivo, o null si todavia no lo dijo. */
@@ -83,7 +82,7 @@ export function ModeControl({
     >
       {cycle.modes.map((entry) => (
         <option key={entry} value={entry}>
-          {PERMISSION_MODE_LABEL[entry]}
+          {modeLabel(entry)}
         </option>
       ))}
     </select>

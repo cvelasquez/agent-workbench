@@ -155,9 +155,9 @@ async function copyDatabase(source: string, copyDir: string): Promise<string> {
   for (let attempt = 1; attempt <= COPY_ATTEMPTS; attempt += 1) {
     const db = await stampOf(source);
     const wal = await stampOf(`${source}-wal`);
-    if (db === null) throw new RescueError(`No está ${source}.`);
+    if (db === null) throw new RescueError(`${source} doesn't exist.`);
     if (db.size + (wal?.size ?? 0) > RESCUE_DB_MAX_BYTES) {
-      throw new RescueError(`${source} pesa más de ${RESCUE_DB_MAX_BYTES / 1024 / 1024} MB: no se copia.`);
+      throw new RescueError(`${source} is over ${RESCUE_DB_MAX_BYTES / 1024 / 1024} MB: it isn't copied.`);
     }
     try {
       await rm(`${copy}-wal`, { force: true });
@@ -190,10 +190,10 @@ function queryRescue(
   const db = new sqlite.DatabaseSync(copy, { readOnly: true });
   try {
     const columns = new Set(db.prepare(COLUMNS_SQL).all().map((row) => String(row['name'])));
-    if (columns.size === 0) throw new RescueError('La base no tiene la tabla conversation_summaries.');
+    if (columns.size === 0) throw new RescueError("The database doesn't have the conversation_summaries table.");
     const missing = REQUIRED_COLUMNS.find((column) => !columns.has(column));
     if (missing !== undefined) {
-      throw new RescueError(`A conversation_summaries le falta la columna ${missing}: el formato cambió y el rescate no corre.`);
+      throw new RescueError(`conversation_summaries is missing the column ${missing}: the format changed and the rescue doesn't run.`);
     }
 
     const wanted = normalizeCwdKey(workspace, platform);
@@ -290,7 +290,7 @@ export async function planAntigravityRescue(options: RescueOptions): Promise<Res
   if ('unavailable' in sqlite) throw new RescueError(sqliteUnavailableText('Antigravity IDE'));
 
   const source = path.join(options.geminiHome, 'antigravity-cli', 'conversation_summaries.db');
-  if ((await stampOf(source)) === null) throw new RescueError(`No está ${source}.`);
+  if ((await stampOf(source)) === null) throw new RescueError(`${source} doesn't exist.`);
 
   const tempRoot = options.tempRoot ?? path.join(tmpdir(), 'agent-workbench');
   const copyDir = path.join(tempRoot, `rescue-${randomUUID()}`);

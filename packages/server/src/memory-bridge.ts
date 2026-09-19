@@ -50,7 +50,9 @@ import {
   MEMORY_INDEX_FILE,
   MEMORY_INDEX_TEMPLATE,
   MEMORY_INSTRUCTION_FILES,
+  ServerTextError,
   memoryBlock,
+  serverText,
   type MemoryAgentReach,
   type MemoryChange,
   type MemoryChangeAction,
@@ -63,17 +65,13 @@ import {
   type MemoryNote,
   type MemoryNoteContent,
   type MemoryStatus,
+  type ServerText,
 } from '@agent-workbench/shared';
 import { InvalidPathError, resolveInside } from './path-guard.js';
 import { projectSlugFor } from './agents/claude-code/paths.js';
 
-/** Un fallo que se le explica al usuario tal cual. */
-export class MemoryBridgeError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'MemoryBridgeError';
-  }
-}
+/** Un fallo que se le explica al usuario. El texto va como clave: la frase la arma la web (§6.23). */
+export class MemoryBridgeError extends ServerTextError {}
 
 /** Tope de notas que viajan en el estado. Mas que esto no es una memoria. */
 const MAX_LISTED_NOTES = 500;
@@ -171,7 +169,7 @@ export async function importNativeMemory(
 ): Promise<{ copied: string[]; skipped: string[] }> {
   await assertMemoryDirInside(cwd);
   if (!(await isDirectory(path.join(cwd, MEMORY_DIR)))) {
-    throw new MemoryBridgeError('Instalá el puente primero: falta la carpeta .agents/memory.');
+    throw new MemoryBridgeError(serverText('memoryNotInstalled'));
   }
 
   const plan = new PlanBuilder(cwd);
@@ -193,7 +191,7 @@ export async function importNativeMemory(
  */
 export async function readMemoryNote(cwd: string, name: string): Promise<MemoryNoteContent | null> {
   if (!isNoteName(name)) {
-    throw new InvalidPathError('Ese nombre no es una nota de la memoria.');
+    throw new InvalidPathError(serverText('memoryNoteName'));
   }
   const absolute = await resolveInside(cwd, `${MEMORY_DIR}/${name}`);
 
@@ -239,6 +237,8 @@ interface PlannedFile {
   content: Buffer;
   action: MemoryChangeAction;
   preview: string[];
+  /** El original de una copia, para que la web diga de donde sale (§6.23). */
+  copiedFrom: string | null;
   /** Donde se escribe: el destino real si el archivo existe y es un enlace. */
   target: string | null;
 }
@@ -275,14 +275,17 @@ class PlanBuilder {
     content: Buffer,
     action: MemoryChangeAction,
     preview: string,
+    copiedFrom: string | null = null,
   ): void {
     const planned = this.files.get(rel);
     if (planned !== undefined) {
       planned.content = content;
-      planned.preview.push(preview);
+      if (preview.length > 0) planned.preview.push(preview);
+      planned.copiedFrom ??= copiedFrom;
       return;
     }
-    this.files.set(rel, { rel, original, content, action, preview: [preview], target: null });
+    const previews = preview.length > 0 ? [preview] : [];
+    this.files.set(rel, { rel, original, content, action, preview: previews, copiedFrom, target: null });
   }
 
   /** Nombres de nota que habria en la carpeta, en minusculas. */
@@ -304,6 +307,7 @@ class PlanBuilder {
       file: file.rel,
       action: file.action,
       preview: file.preview.join('\n'),
+      copiedFrom: file.copiedFrom,
     }));
   }
 
@@ -336,16 +340,12 @@ class PlanBuilder {
       const target = await realpath(absolute);
       const info = await stat(target);
       if (info.nlink > 1) {
-        throw new MemoryBridgeError(
-          `${file.rel} tiene enlaces duros: la app no lo modifica, porque escribirlo cortaria el enlace. Agregá el bloque a mano.`,
-        );
+        throw new MemoryBridgeError(serverText('memoryHardLinks', { file: file.rel }));
       }
       const key = process.platform === 'win32' ? target.toLowerCase() : target;
       const other = seen.get(key);
       if (other !== undefined) {
-        throw new MemoryBridgeError(
-          `${other} y ${file.rel} son el mismo archivo (un enlace). Elegí uno solo.`,
-        );
+        throw new MemoryBridgeError(serverText('memorySameFile', { other, file: file.rel }));
       }
       seen.set(key, file.rel);
       file.target = target;
@@ -366,7 +366,7 @@ class PlanBuilder {
       await mkdir(path.join(this.cwd, MEMORY_DIR), { recursive: true });
     }
     for (const file of pending) {
-      if (file.target === null) throw new Error(`Plan sin validar: ${file.rel}`);
+      if (file.target === null) throw new Error(`Unvalidated plan: ${file.rel}`);
       await writeAtomic(file.target, file.content, file.original === null);
     }
   }
@@ -379,7 +379,7 @@ async function buildInstallPlan(
 ): Promise<PlanBuilder> {
   await assertMemoryDirInside(cwd);
   if (options.instructionFiles.length === 0) {
-    throw new MemoryBridgeError('Elegí al menos un archivo de instrucciones.');
+    throw new MemoryBridgeError(serverText('memoryChooseFile'));
   }
 
   const { state: git, main } = await readGit(cwd);
@@ -406,7 +406,7 @@ async function buildInstallPlan(
         : await existingInside(source.root, `${source.memoryRel}/${MEMORY_INDEX_FILE}`, 'file');
     const mainIndex = mainIndexPath === null ? null : await readIfFile(mainIndexPath, INDEX_REL);
     if (mainIndex !== null && mainIndexPath !== null) {
-      plan.put(INDEX_REL, null, mainIndex, 'copy', `Copia de ${mainIndexPath}`);
+      plan.put(INDEX_REL, null, mainIndex, 'copy', '', mainIndexPath);
     } else {
       plan.put(
         INDEX_REL,
@@ -427,7 +427,7 @@ async function buildInstallPlan(
       if (notePath === null) continue;
       const content = await readIfFile(notePath, name);
       if (content === null) continue;
-      plan.put(`${MEMORY_DIR}/${name}`, null, content, 'copy', `Copia de ${notePath}`);
+      plan.put(`${MEMORY_DIR}/${name}`, null, content, 'copy', '', notePath);
     }
   }
 
@@ -449,9 +449,7 @@ async function buildInstallPlan(
     assertUtf8(name, current);
     const scan = scanBlock(current);
     if (scan.brokenBlock) {
-      throw new MemoryBridgeError(
-        `${name} tiene las marcas del bloque de memoria mal formadas (una sin su pareja, o el bloque repetido). Arreglalo a mano: la app no toca ese archivo mientras tanto.`,
-      );
+      throw new MemoryBridgeError(serverText('memoryBrokenBlock', { file: name }));
     }
     const eol = dominantEol(current);
     if (!scan.hasBlock) {
@@ -469,9 +467,7 @@ async function buildInstallPlan(
   // 5. `.gitignore`, solo en un repo y solo si se eligio ignorar.
   if (options.gitMode === 'ignore') {
     if (git.kind === 'error') {
-      throw new MemoryBridgeError(
-        `No se pudo consultar git (${git.message}). Sin eso no se sabe si hay que tocar .gitignore.`,
-      );
+      throw new MemoryBridgeError(serverText('memoryGitFailed', { detail: git.message }));
     }
     if (git.kind === 'repo') {
       const wanted: string[] = [];
@@ -543,7 +539,7 @@ async function planNativeImport(
         if (existing !== null && !existing.equals(content)) skipped.push(name);
         continue;
       }
-      plan.put(`${MEMORY_DIR}/${name}`, null, content, 'copy', `Copia de ${path.join(folder, name)}`);
+      plan.put(`${MEMORY_DIR}/${name}`, null, content, 'copy', '', path.join(folder, name));
       copied.push(name);
     }
   }
@@ -745,9 +741,7 @@ function isUtf8Compatible(content: Buffer): boolean {
  */
 function assertUtf8(rel: string, content: Buffer): void {
   if (isUtf8Compatible(content)) return;
-  throw new MemoryBridgeError(
-    `${rel} no está en UTF-8 (parece UTF-16, lo que deja \`>\` en Windows PowerShell 5.1). Guardalo como UTF-8: la app no lo toca mientras tanto.`,
-  );
+  throw new MemoryBridgeError(serverText('memoryNotUtf8', { file: rel }));
 }
 
 function isBlockCurrent(content: Buffer, scan: BlockScan, name: MemoryInstructionFile): boolean {
@@ -864,9 +858,9 @@ async function inspectInstructionFile(
 }
 
 /** Por que un archivo con problema no cuenta, en pocas palabras. */
-function problemText(file: MemoryFileState): string | null {
-  if (file.problem === 'outside') return `${file.name} apunta fuera del proyecto`;
-  if (file.problem === 'encoding') return `${file.name} no está en UTF-8`;
+function problemText(file: MemoryFileState): ServerText | null {
+  if (file.problem === 'outside') return serverText('memoryViaOutside', { file: file.name });
+  if (file.problem === 'encoding') return serverText('memoryViaEncoding', { file: file.name });
   return null;
 }
 
@@ -879,15 +873,15 @@ function computeReach(
   const agents = files.find((file) => file.name === 'AGENTS.md');
   const claude = files.find((file) => file.name === 'CLAUDE.md');
   const missing = !folderExists
-    ? 'falta la carpeta .agents/memory'
+    ? serverText('memoryViaNoFolder')
     : !indexExists
-      ? 'falta .agents/memory/MEMORY.md'
+      ? serverText('memoryViaNoIndex')
       : null;
 
   const entry = (
     agent: MemoryAgentReach['agent'],
     reaches: boolean,
-    via: string,
+    via: ServerText,
   ): MemoryAgentReach => ({
     agent,
     label: MEMORY_AGENT_LABELS[agent],
@@ -900,24 +894,26 @@ function computeReach(
   const agentsProblem = agents === undefined ? null : problemText(agents);
   const claudeProblem = claude === undefined ? null : problemText(claude);
   const viaAgents = agentsHasBlock
-    ? 'AGENTS.md'
-    : (agentsProblem ?? 'falta el bloque en AGENTS.md');
+    ? serverText('memoryViaFile', { file: 'AGENTS.md' })
+    : (agentsProblem ?? serverText('memoryViaNoBlock', { file: 'AGENTS.md' }));
 
-  let openCode: { reaches: boolean; via: string };
-  if (agentsHasBlock) openCode = { reaches: true, via: 'AGENTS.md' };
+  let openCode: { reaches: boolean; via: ServerText };
+  if (agentsHasBlock) openCode = { reaches: true, via: serverText('memoryViaFile', { file: 'AGENTS.md' }) };
   else if (agents?.exists !== true && claudeHasBlock) {
-    openCode = { reaches: true, via: 'CLAUDE.md (respaldo)' };
+    openCode = { reaches: true, via: serverText('memoryViaFallback') };
   } else if (agents?.exists === true) {
     openCode = { reaches: false, via: viaAgents };
   } else {
-    openCode = { reaches: false, via: 'falta el bloque en AGENTS.md o en CLAUDE.md' };
+    openCode = { reaches: false, via: serverText('memoryViaNoBlockEither') };
   }
 
   return [
     entry(
       'claude-code',
       claudeHasBlock,
-      claudeHasBlock ? 'CLAUDE.md' : (claudeProblem ?? 'falta el bloque en CLAUDE.md'),
+      claudeHasBlock
+        ? serverText('memoryViaFile', { file: 'CLAUDE.md' })
+        : (claudeProblem ?? serverText('memoryViaNoBlock', { file: 'CLAUDE.md' })),
     ),
     entry('codex', agentsHasBlock, viaAgents),
     entry('antigravity', agentsHasBlock, viaAgents),
@@ -1047,7 +1043,9 @@ function buildGlobalFragments(home: string): MemoryGlobalFragment[] {
   // "El destino no tiene que existir" se leia como "no hace falta que exista",
   // y `mklink /H` y `ln` fallan justo si existe. Y `global.md` tiene que
   // existir antes, o fallan por el otro lado.
-  const hardLinkNote = `Enlace duro${windows ? ', en cmd' : ''}. \`~/${GLOBAL_MEMORY_RELATIVE}\` tiene que existir antes, y el archivo de la CLI no: si ya existe, pasá lo que tenga a \`global.md\` y borralo. Si tu editor guarda reemplazando el archivo, el enlace se corta: en ese caso copiá el contenido.`;
+  const hardLinkNote = windows
+    ? serverText('memoryNoteHardLinkCmd', { path: GLOBAL_MEMORY_RELATIVE })
+    : serverText('memoryNoteHardLink', { path: GLOBAL_MEMORY_RELATIVE });
 
   const codexTarget = path.join(home, '.codex', 'AGENTS.md');
   const geminiTarget = path.join(home, '.gemini', 'GEMINI.md');
@@ -1060,7 +1058,7 @@ function buildGlobalFragments(home: string): MemoryGlobalFragment[] {
       target: path.join(home, '.claude', 'CLAUDE.md'),
       kind: 'line',
       text: `@~/${GLOBAL_MEMORY_RELATIVE}`,
-      note: 'Agregá esta línea al final. Claude Code importa el archivo al arrancar.',
+      note: serverText('memoryNoteClaude'),
     },
     {
       agent: 'codex',
@@ -1084,7 +1082,7 @@ function buildGlobalFragments(home: string): MemoryGlobalFragment[] {
       target: path.join(home, '.config', 'opencode', 'opencode.json'),
       kind: 'json',
       text: `"instructions": ["${homeSlashes}/${GLOBAL_MEMORY_RELATIVE}"]`,
-      note: 'Dentro del objeto raíz. Ruta absoluta: OpenCode no expande `~` en esta clave (sin verificar).',
+      note: serverText('memoryNoteOpenCode'),
     },
   ];
 }
@@ -1095,7 +1093,7 @@ function buildGlobalFragments(home: string): MemoryGlobalFragment[] {
 
 type GitOutcome =
   | { kind: 'ran'; code: number; stdout: string; stderr: string }
-  | { kind: 'spawn-failed'; message: string };
+  | { kind: 'spawn-failed'; text: ServerText };
 
 /**
  * Corre git para leer. Solo `rev-parse` y `check-ignore`: este archivo no le
@@ -1122,7 +1120,7 @@ function runGit(cwd: string, args: readonly string[]): Promise<GitOutcome> {
         }
         resolve({
           kind: 'spawn-failed',
-          message: code === 'ENOENT' ? 'No se encontró git en el PATH.' : error.message,
+          text: code === 'ENOENT' ? serverText('gitNotFound') : serverText('raw', { text: error.message }),
         });
       },
     );
@@ -1141,23 +1139,27 @@ interface GitReading {
 }
 
 async function readGit(cwd: string): Promise<GitReading> {
-  const fail = (message: string): GitReading => ({ state: { kind: 'error', message }, main: null });
+  const fail = (message: ServerText): GitReading => ({ state: { kind: 'error', message }, main: null });
   const result = await runGit(cwd, ['rev-parse', '--show-toplevel', '--git-dir', '--git-common-dir']);
-  if (result.kind === 'spawn-failed') return fail(result.message);
+  if (result.kind === 'spawn-failed') return fail(result.text);
 
   if (result.code !== 0) {
     const stderr = result.stderr.trim();
     if (/not a git repository|no es un repositorio/i.test(stderr)) {
       return { state: { kind: 'not-repo' }, main: null };
     }
-    return fail(stderr.slice(0, 400) || 'git rev-parse falló.');
+    return fail(
+      stderr.length > 0
+        ? serverText('raw', { text: stderr.slice(0, 400) })
+        : serverText('gitCommandFailed', { command: 'rev-parse' }),
+    );
   }
 
   const [toplevel, gitDir, commonDir] = result.stdout.split(/\r?\n/).map((line) => line.trim());
-  if (!toplevel || !gitDir || !commonDir) return fail('Respuesta inesperada de git rev-parse.');
+  if (!toplevel || !gitDir || !commonDir) return fail(serverText('gitUnexpected', { command: 'rev-parse' }));
 
   const ignored = await checkIgnored(cwd, INDEX_REL);
-  if (typeof ignored === 'string') return fail(ignored);
+  if (typeof ignored !== 'boolean') return fail(ignored);
 
   const absoluteGitDir = path.resolve(cwd, gitDir);
   const absoluteCommonDir = path.resolve(cwd, commonDir);
@@ -1190,13 +1192,14 @@ async function readGit(cwd: string): Promise<GitReading> {
   return { state: { kind: 'repo', ignored, worktree }, main };
 }
 
-/** true/false si git contesto; el mensaje si fallo. */
-async function checkIgnored(cwd: string, rel: string): Promise<boolean | string> {
+/** true/false si git contesto; el motivo si fallo. */
+async function checkIgnored(cwd: string, rel: string): Promise<boolean | ServerText> {
   const result = await runGit(cwd, ['check-ignore', '-q', '--', rel]);
-  if (result.kind === 'spawn-failed') return result.message;
+  if (result.kind === 'spawn-failed') return result.text;
   if (result.code === 0) return true;
   if (result.code === 1) return false;
-  return result.stderr.trim().slice(0, 400) || 'git check-ignore falló.';
+  const stderr = result.stderr.trim().slice(0, 400);
+  return stderr.length > 0 ? serverText('raw', { text: stderr }) : serverText('gitCommandFailed', { command: 'check-ignore' });
 }
 
 async function samePath(a: string, b: string): Promise<boolean> {
@@ -1219,10 +1222,8 @@ async function guard(cwd: string, rel: string): Promise<string> {
   try {
     return await resolveInside(cwd, rel);
   } catch (error) {
-    if (error instanceof InvalidPathError && !/ya no existe/.test(error.message)) {
-      throw new InvalidPathError(
-        `${rel} apunta fuera del proyecto (un enlace o una junction): la app no escribe ahí.`,
-      );
+    if (error instanceof InvalidPathError && error.text.key !== 'tabDirGone') {
+      throw new InvalidPathError(serverText('memoryLinkOutside', { path: rel }));
     }
     throw error;
   }
@@ -1286,7 +1287,7 @@ async function listNoteFiles(folder: string): Promise<string[]> {
 async function readIfFile(absolute: string, label: string): Promise<Buffer | null> {
   try {
     const info = await stat(absolute);
-    if (!info.isFile()) throw new MemoryBridgeError(`${label} existe pero no es un archivo.`);
+    if (!info.isFile()) throw new MemoryBridgeError(serverText('memoryNotAFile', { label }));
     return await readFile(absolute);
   } catch (error) {
     if (isNotFound(error)) return null;
@@ -1346,9 +1347,7 @@ async function writeAtomic(target: string, content: Buffer, mustNotExist: boolea
       await handle.close();
     }
     if (mustNotExist && (await exists(target))) {
-      throw new MemoryBridgeError(
-        `${path.basename(target)} apareció mientras se instalaba. Volvé a mirar los cambios.`,
-      );
+      throw new MemoryBridgeError(serverText('memoryAppeared', { file: path.basename(target) }));
     }
     await renameWithRetry(temporary, target);
   } catch (error) {

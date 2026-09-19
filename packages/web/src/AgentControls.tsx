@@ -33,6 +33,30 @@ import {
   type ModelOption,
 } from '@agent-workbench/shared';
 import { modelOptionIn } from './agent-ui.js';
+import { t, type MessageKey } from './i18n/index.js';
+
+/**
+ * Los niveles de esfuerzo conocidos, en el idioma de la app. La CLI manda los
+ * suyos con una etiqueta en espanol (`EFFORT_OPTIONS`); uno que esta tabla no
+ * conoce se muestra con esa etiqueta.
+ */
+const EFFORT_KEYS: Readonly<Record<string, MessageKey>> = {
+  low: 'controls.effort.low',
+  medium: 'controls.effort.medium',
+  high: 'controls.effort.high',
+  xhigh: 'controls.effort.xhigh',
+  max: 'controls.effort.max',
+};
+
+function effortLabel(entry: EffortOption): string {
+  const key = EFFORT_KEYS[entry.value];
+  return key === undefined ? entry.label : t(key);
+}
+
+/** "Por defecto" es la unica opcion de modelo que no es un nombre propio. */
+function modelLabel(entry: ModelOption): string {
+  return entry.value === 'default' ? t('controls.model.default') : modelOptionLabel(entry);
+}
 
 interface AgentControlsProps {
   /**
@@ -51,10 +75,10 @@ interface AgentControlsProps {
   modelProvisional?: boolean;
   effortProvisional?: boolean;
   /**
-   * Lo que se agrega a "Cambiarlo manda ... a la pestaña CLI" (`modelChoiceNote`):
-   * con la CLI que guarda lo elegido como predeterminado, lo dice. '' con las demas.
+   * true con la CLI que guarda lo elegido como predeterminado (`savesModelChoiceFor`):
+   * el titulo lo dice.
    */
-  choiceNote?: string;
+  savesChoice?: boolean;
   disabled: boolean;
   /** Manda el comando por el mismo camino que un mensaje del cuadro. */
   onCommand: (command: string) => void;
@@ -67,7 +91,7 @@ export function AgentControls({
   effort,
   modelProvisional = false,
   effortProvisional = false,
-  choiceNote = '',
+  savesChoice = false,
   disabled,
   onCommand,
 }: AgentControlsProps): JSX.Element {
@@ -88,10 +112,12 @@ export function AgentControls({
           }}
           title={
             model === null
-              ? 'Modelo: todavia no hubo ninguna respuesta en esta sesion'
+              ? t('controls.model.noData')
               : modelProvisional
-                ? `Modelo segun tu configuracion: ${model}. Todavia no hubo ninguna respuesta que lo confirme`
-                : `Modelo en uso: ${model}. Cambiarlo manda /model a la pestaña CLI${choiceNote}`
+                ? t('controls.model.provisional', { model })
+                : savesChoice
+                  ? t('controls.model.inUseSaved', { model })
+                  : t('controls.model.inUse', { model })
           }
           /*
             Cada familia aparece dos veces porque son dos ventanas de contexto del
@@ -100,11 +126,11 @@ export function AgentControls({
           */
         >
           {option === null && (
-            <option value="">{unknown ? (model ?? '') : 'modelo — sin datos'}</option>
+            <option value="">{unknown ? (model ?? '') : t('controls.model.placeholder')}</option>
           )}
           {models.map((entry) => (
             <option key={entry.value} value={entry.value}>
-              {modelOptionLabel(entry)}
+              {modelLabel(entry)}
             </option>
           ))}
         </select>
@@ -120,16 +146,18 @@ export function AgentControls({
           }}
           title={
             effort === null
-              ? 'Esfuerzo: sin datos. No todos los modelos tienen niveles — con haiku, /effort no deja rastro'
+              ? t('controls.effort.noData')
               : effortProvisional
-                ? `Esfuerzo segun tu configuracion: ${effort}. Todavia no hubo ninguna respuesta que lo confirme`
-                : `Esfuerzo en uso: ${effort}. Cambiarlo manda /effort a la pestaña CLI${choiceNote}`
+                ? t('controls.effort.provisional', { effort })
+                : savesChoice
+                  ? t('controls.effort.inUseSaved', { effort })
+                  : t('controls.effort.inUse', { effort })
           }
         >
-          {effort === null && <option value="">esfuerzo — sin datos</option>}
+          {effort === null && <option value="">{t('controls.effort.placeholder')}</option>}
           {efforts.map((entry) => (
             <option key={entry.value} value={entry.value}>
-              {entry.label}
+              {effortLabel(entry)}
             </option>
           ))}
         </select>

@@ -17,6 +17,7 @@ import { access, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { serverText, type ServerText } from '@agent-workbench/shared';
 
 const execFileAsync = promisify(execFile);
 
@@ -128,11 +129,7 @@ export async function locateCommand(command: string): Promise<CliLocation | null
   };
 }
 
-/** Mensaje que ve el usuario cuando la CLI no esta. */
-export function commandNotFoundMessage(command: string, installUrl: string): string {
-  return (
-    `No se encontro el comando "${command}" en el PATH. ` +
-    `Agent Workbench usa la CLI que ya tengas instalada: no la incluye ni la descarga. ` +
-    `Instalala desde ${installUrl} y volve a arrancar.`
-  );
+/** Lo que ve el usuario cuando la CLI no esta, como clave: la frase la arma la web (§6.23). */
+export function commandNotFoundMessage(command: string, installUrl: string): ServerText {
+  return serverText('cliMissing', { command, url: installUrl });
 }

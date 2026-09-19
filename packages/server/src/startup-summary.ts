@@ -22,9 +22,12 @@
  * CLI), como esta configurada: sin ella la pestana no tiene estado ni medidor,
  * y es lo primero que conviene saber si eso no aparece. Las demas no la tienen
  * y no ganan ninguna linea.
+ *
+ * En ingles, como todo lo que imprime el servidor (hito 34, D19): la consola no
+ * sabe en que idioma esta nadie, y el ingles es el idioma por defecto.
  */
 
-import type { AgentId, StatusLineState } from '@agent-workbench/shared';
+import type { AgentId, ServerText, StatusLineState } from '@agent-workbench/shared';
 
 export interface StartupAgent {
   id: AgentId;
@@ -33,7 +36,8 @@ export interface StartupAgent {
   version: string | null;
   /** Donde esta el binario, o null si la CLI no se encontro. */
   resolvedPath: string | null;
-  missingMessage: string | null;
+  /** El aviso de CLI no instalada que va a la web (`cliMissing`); aca se escribe en ingles. */
+  missingMessage: ServerText | null;
   /**
    * Lo que va despues de `Historial`, o null (`AgentAdapter.startupHistoryNote`).
    * Ausente: null.
@@ -53,23 +57,41 @@ export const STATUS_LINE_LABEL = 'Status line';
 export function statusLineStartupText(state: StatusLineState): string {
   switch (state) {
     case 'active':
-      return 'configurada';
+      return 'configured';
     case 'missing':
-      return 'sin configurar (sin estado ni medidor; se configura desde el medidor)';
+      return 'not configured (no status or meter; set it up from the meter)';
     case 'other-command':
-      return 'hay otra configurada (sin estado ni medidor)';
+      return 'another one is configured (no status or meter)';
     case 'disabled':
-      return 'desactivada con enabled: false';
+      return 'disabled with enabled: false';
     case 'unreadable':
-      return 'no pude leer su settings.json';
+      return "couldn't read its settings.json";
   }
 }
 
 /** Prefijo de la linea con los ids. La demo la busca por este texto. */
-export const AVAILABLE_AGENTS_LABEL = 'CLIs disponibles';
+export const AVAILABLE_AGENTS_LABEL = 'Available CLIs';
 
 /** Rotulo de la linea del historial. La demo se niega a capturar si la ve. */
-export const HISTORY_LABEL = 'Historial';
+export const HISTORY_LABEL = 'History';
+
+/**
+ * El aviso de CLI no instalada, en ingles. La web lo arma con su clave
+ * (`cliMissing`) en el idioma de cada ventana; la consola no tiene diccionario.
+ */
+function missingText(text: ServerText): string {
+  // Un texto suelto (`raw`) sale tal cual: es lo que usan los chequeos.
+  if (text.key !== 'cliMissing') {
+    const raw = text.params?.['text'];
+    return typeof raw === 'string' ? raw : text.key;
+  }
+  const command = String(text.params?.['command'] ?? '');
+  const url = String(text.params?.['url'] ?? '');
+  return (
+    `The "${command}" command wasn't found in the PATH. Agent Workbench uses the CLI you already ` +
+    `have installed: it doesn't include or download it. Install it from ${url} and start again.`
+  );
+}
 
 /**
  * Las lineas, ya con su sangria, en el orden en que se imprimen.
@@ -81,25 +103,25 @@ export const HISTORY_LABEL = 'Historial';
 export function startupAgentLines(agents: readonly StartupAgent[]): string[] {
   const available = agents.filter((agent) => agent.resolvedPath !== null);
   const lines = [
-    `  ${AVAILABLE_AGENTS_LABEL}  ${available.length === 0 ? 'ninguna' : available.map((agent) => agent.id).join(', ')}`,
+    `  ${AVAILABLE_AGENTS_LABEL}  ${available.length === 0 ? 'none' : available.map((agent) => agent.id).join(', ')}`,
   ];
 
   for (const agent of available) {
     const title = available.length === 1 ? 'CLI          ' : `CLI (${agent.label})  `;
-    lines.push(`  ${title}${agent.version ?? 'version desconocida'}`);
-    lines.push(`  Binario      ${agent.resolvedPath ?? ''}`);
+    lines.push(`  ${title}${agent.version ?? 'unknown version'}`);
+    lines.push(`  Binary       ${agent.resolvedPath ?? ''}`);
     const note = agent.historyNote ?? null;
-    if (note !== null) lines.push(`  ${HISTORY_LABEL}    ${note}`);
+    if (note !== null) lines.push(`  ${HISTORY_LABEL}      ${note}`);
     const statusLine = agent.statusLine ?? null;
     if (statusLine !== null) lines.push(`  ${STATUS_LINE_LABEL}  ${statusLineStartupText(statusLine)}`);
   }
 
   const first = agents[0];
   if (available.length === 0 && first !== undefined) {
-    lines.push('  CLI          NO ENCONTRADA');
-    if (first.missingMessage !== null) lines.push('', `  ${first.missingMessage}`);
+    lines.push('  CLI          NOT FOUND');
+    if (first.missingMessage !== null) lines.push('', `  ${missingText(first.missingMessage)}`);
     const others = agents.slice(1).map((agent) => agent.label);
-    if (others.length > 0) lines.push(`  Tambien funciona con: ${others.join(', ')}`);
+    if (others.length > 0) lines.push(`  Also works with: ${others.join(', ')}`);
   }
 
   for (const agent of agents) {

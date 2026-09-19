@@ -194,7 +194,7 @@ export class OpenCodeServeProcess {
    * apaga igual al cumplirse.
    */
   ensure(): Promise<ServeEndpoint> {
-    if (this.disposed) return Promise.reject(new ServeStartError('la app se esta apagando'));
+    if (this.disposed) return Promise.reject(new ServeStartError('the app is shutting down'));
     const endpoint = this.running?.endpoint ?? null;
     if (endpoint !== null) {
       this.scheduleIdleStop();
@@ -247,13 +247,13 @@ export class OpenCodeServeProcess {
 
   private async start(): Promise<ServeEndpoint> {
     await mkdir(this.cwd, { recursive: true });
-    if (this.disposed) throw new ServeStartError('la app se esta apagando');
+    if (this.disposed) throw new ServeStartError('the app is shutting down');
 
     const env = this.environment();
     const username = env['OPENCODE_SERVER_USERNAME'] || OPENCODE_SERVE_DEFAULT_USERNAME;
     const args = serveArgs(this.options.location);
     // Sin argumentos en el log (A4): la regla es la misma para todo log nuevo, aunque estos no traigan la contrasena.
-    debugLog('opencode-serve', 'lanzando el serve');
+    debugLog('opencode-serve', 'launching serve');
 
     let child: ChildProcess;
     try {
@@ -310,7 +310,7 @@ export class OpenCodeServeProcess {
       const timer = this.timers.setTimeout(
         () => {
           const ms = this.startTimeoutMs;
-          fail(`no dijo en que puerto escucha en ${ms >= 1000 ? `${Math.round(ms / 1000)} s` : `${ms} ms`}`);
+          fail(`didn't say which port it listens on within ${ms >= 1000 ? `${Math.round(ms / 1000)} s` : `${ms} ms`}`);
         },
         this.startTimeoutMs,
       );
@@ -322,13 +322,13 @@ export class OpenCodeServeProcess {
           settled = true;
           this.timers.clearTimeout(timer);
           running.endpoint = { url, username, password: this.password };
-          debugLog('opencode-serve', `escuchando en ${url}`);
+          debugLog('opencode-serve', `listening on ${url}`);
           this.scheduleIdleStop();
           resolve(running.endpoint);
           return;
         }
         const other = matchListeningLine(line);
-        if (other !== null) fail(`escucha en ${other.scheme}://${other.host} y no en http://${OPENCODE_SERVE_HOST}`);
+        if (other !== null) fail(`listens on ${other.scheme}://${other.host} and not on http://${OPENCODE_SERVE_HOST}`);
       };
 
       const read = (stream: NodeJS.ReadableStream | null): void => {
@@ -349,16 +349,16 @@ export class OpenCodeServeProcess {
       child.once('error', (error) => fail(error.message));
       child.once('close', (code, signal) => {
         if (this.running === running) this.running = null;
-        const how = signal ?? `codigo ${code ?? '?'}`;
+        const how = signal ?? `code ${code ?? '?'}`;
         if (!settled) {
           const tail = running.tail.trim();
-          fail(`salio antes de escuchar (${how})${tail.length > 0 ? `: ${tail}` : ''}`);
+          fail(`exited before listening (${how})${tail.length > 0 ? `: ${tail}` : ''}`);
           return;
         }
         const endpoint = running.endpoint;
         if (endpoint === null) return;
         const exit: ServeExit = { requested: running.stopRequested };
-        debugLog('opencode-serve', `termino (${how}${exit.requested ? '' : ', sin que la app lo pidiera'})`);
+        debugLog('opencode-serve', `exited (${how}${exit.requested ? '' : ', without the app asking'})`);
         if (this.running === null) this.cancelIdleStop();
         for (const listener of [...this.exitListeners]) {
           try {
@@ -393,7 +393,7 @@ export class OpenCodeServeProcess {
     this.idleTimer = this.timers.setTimeout(() => {
       this.idleTimer = null;
       if (this.retained > 0 || this.disposed) return;
-      debugLog('opencode-serve', 'sin pestanas de OpenCode: se apaga');
+      debugLog('opencode-serve', 'no OpenCode tabs: shutting down');
       this.stop();
     }, this.idleStopMs);
   }

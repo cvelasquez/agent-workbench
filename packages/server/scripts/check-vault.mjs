@@ -68,6 +68,12 @@ import { appendFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlin
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as es } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'aw-vault-'));
 const home = path.join(root, 'home');
@@ -261,7 +267,7 @@ const imageRef = (overrides = {}) => ({
 // --- 1e. El estado del dialogo ---
 const measure = (overrides = {}) => ({
   agent: 'claude-code', sessions: 3, eventBytes: 9000, images: 1, imageBytes: 100, skippedArchived: 2,
-  skippedEmpty: 0, unsupported: 0, failed: 1, failureReasons: ['no se encontro el origen'], ...overrides,
+  skippedEmpty: 0, unsupported: 0, failed: 1, failureReasons: [{ key: 'vaultReasonOriginMissing' }], ...overrides,
 });
 const status = (overrides = {}) => ({
   enabled: true, dir: 'C:\\copia', isDefaultDir: false, state: 'writing', progress: { done: 1, total: 4 },
@@ -272,7 +278,7 @@ const status = (overrides = {}) => ({
 {
   const { parseVaultStatus } = shared;
   check('1 estado valido: sale igual', same(parseVaultStatus(status()), status()), show(parseVaultStatus(status())));
-  const off = status({ enabled: false, state: 'off', progress: null, lastPassAt: null, measurement: null, previousDir: 'D:\\vieja', lastError: 'disco lleno' });
+  const off = status({ enabled: false, state: 'off', progress: null, lastPassAt: null, measurement: null, previousDir: 'D:\\vieja', lastError: { key: 'raw', params: { text: 'disco lleno' } } });
   check('1 estado apagado, con nulls y textos: sale igual', same(parseVaultStatus(off), off));
   const broken = [
     ['state desconocido', { state: 'durmiendo' }],
@@ -284,6 +290,7 @@ const status = (overrides = {}) => ({
     ['passSessions con texto', { passSessions: 'dos' }],
     ['lastPassAt con texto', { lastPassAt: 'hoy' }],
     ['lastError con numero', { lastError: 5 }],
+    ['lastError como frase suelta (antes del hito 34)', { lastError: 'disco lleno' }],
     ['medicion rota', { measurement: { measuredAt: 1 } }],
     ['fila de medicion rota', { measurement: { measuredAt: 1, durationMs: 2, byAgent: [measure({ failureReasons: [3] })], memoryProjects: 0, memoryBytes: 0 } }],
   ];
@@ -309,7 +316,7 @@ const status = (overrides = {}) => ({
 // --- 1f. Los mensajes vault.* ---
 {
   const { PROTOCOL_VERSION, SERVER_ERROR_CODES, parseClientMessage, parseServerMessage, encodeServerMessage } = shared;
-  check('1 el protocolo sube a la 7', PROTOCOL_VERSION === 7, String(PROTOCOL_VERSION));
+  check('1 el protocolo sube a la 8 (hito 34: los textos viajan como clave)', PROTOCOL_VERSION === 8, String(PROTOCOL_VERSION));
   check('1 vault-failed es un codigo de error', SERVER_ERROR_CODES.includes('vault-failed'));
   const client = (value) => parseClientMessage(JSON.stringify(value));
   check('1 vault.measure y vault.reveal sin campos',
@@ -332,8 +339,8 @@ const status = (overrides = {}) => ({
   check('1 vault.status con estado roto -> null', parseServerMessage(JSON.stringify({ type: 'vault.status', status: status({ state: 'x' }) })) === null);
   check('1 vault.exported ida y vuelta',
     same(parseServerMessage(JSON.stringify({ type: 'vault.exported', projectKey: 'k', sessions: 3 })), { type: 'vault.exported', projectKey: 'k', sessions: 3 }));
-  const error = parseServerMessage(JSON.stringify({ type: 'error', code: 'vault-failed', message: 'Medi primero cuanto ocuparia.' }));
-  check('1 un error vault-failed conserva su codigo', error?.code === 'vault-failed', show(error));
+  const error = parseServerMessage(JSON.stringify({ type: 'error', code: 'vault-failed', text: { key: 'vaultMeasureFirst' } }));
+  check('1 un error vault-failed conserva su codigo', error?.code === 'vault-failed' && es(error.text) === 'Mide primero cuánto ocuparía.', show(error));
 }
 
 // --- 1g. El indice completa storage y partial ---
@@ -376,7 +383,7 @@ const status = (overrides = {}) => ({
   const history = await import('../../web/src/archive-history.ts');
   const agentInfo = (id, label, available) => ({
     id, label, command: id, available, version: available ? `${label} 1.0` : null, installUrl: 'https://example.com',
-    missingMessage: available ? null : 'falta', capabilities: shared.NO_CAPABILITIES, environmentNotice: null,
+    missingMessage: available ? null : { key: 'raw', params: { text: 'falta' } }, capabilities: shared.NO_CAPABILITIES, environmentNotice: null,
   });
   const onlyClaude = [agentInfo('claude-code', 'Claude Code', true), agentInfo('codex', 'Codex', false)];
   const both = [agentInfo('claude-code', 'Claude Code', true), agentInfo('codex', 'Codex', true)];
@@ -429,6 +436,7 @@ const status = (overrides = {}) => ({
 // --- 1i. La web de la copia: lo que dice la barra y el dialogo ---
 {
   const vui = await import('../../web/src/vault-ui.ts');
+  const fmt = await import('../../web/src/i18n/format.ts');
   const { parseVaultStatus, parseVaultMeasurement, NO_CAPABILITIES } = shared;
   const status = (overrides = {}) => ({
     enabled: false, dir: 'C:\\copia de prueba', isDefaultDir: true, state: 'off', progress: null, sessions: 0, passSessions: 0,
@@ -440,7 +448,7 @@ const status = (overrides = {}) => ({
     durationMs: 12_400,
     byAgent: [
       { agent: 'claude-code', sessions: 3, eventBytes: 2 * MB, images: 2, imageBytes: 512 * 1024, skippedArchived: 4,
-        skippedEmpty: 1, unsupported: 0, failed: 2, failureReasons: ['no se encontró el origen'] },
+        skippedEmpty: 1, unsupported: 0, failed: 2, failureReasons: [{ key: 'vaultReasonOriginMissing' }] },
       { agent: 'antigravity', sessions: 1, eventBytes: 2048, images: 0, imageBytes: 0, skippedArchived: 0,
         skippedEmpty: 0, unsupported: 5, failed: 0, failureReasons: [] },
       { agent: 'gemini-cli', sessions: 2, eventBytes: 100, images: 0, imageBytes: 0, skippedArchived: 0,
@@ -488,7 +496,7 @@ const status = (overrides = {}) => ({
     offer({ sessions: 4, passSessions: 0 }) === 'needs-measure', show(offer({ sessions: 4, passSessions: 0 })));
   check('1 textos: "Medir" se bloquea con algo en curso o con el indice leyendo',
     vui.vaultMeasureBlockedReason(status(), true) === null &&
-    vui.vaultMeasureBlockedReason(status(), false) === 'Todavía se está leyendo el historial. Medí cuando termine.' &&
+    vui.vaultMeasureBlockedReason(status(), false) === 'Todavía se está leyendo el historial. Mide cuando termine.' &&
     vui.vaultMeasureBlockedReason(status({ enabled: true, state: 'writing' }), true) !== null &&
     vui.vaultChangeDirBlockedReason(status({ enabled: true, state: 'idle' })) === null &&
     vui.vaultChangeDirBlockedReason(status({ state: 'moving' })) !== null);
@@ -512,9 +520,10 @@ const status = (overrides = {}) => ({
     show(view.rows.map((row) => row.note)));
   check('1 textos: cuando y cuanto tardo la medicion', view.summary === 'Medido hace 2 min, en 12 s', show(view.summary));
   check('1 textos: tamanos y duraciones',
-    vui.formatBytes(0) === '0 B' && vui.formatBytes(1023) === '1023 B' && vui.formatBytes(1536) === '2 KB' &&
-    vui.formatBytes(5 * MB) === '5.0 MB' && vui.formatBytes(3 * 1024 * MB) === '3.00 GB' &&
-    vui.formatDuration(400) === 'menos de 1 s' && vui.formatDuration(185_000) === '3 min 5 s' && vui.formatDuration(120_000) === '2 min');
+    fmt.formatBytes(0) === '0 B' && fmt.formatBytes(1023) === '1023 B' && fmt.formatBytes(1536) === '2 KB' &&
+    fmt.formatBytes(5 * MB) === '5.0 MB' && fmt.formatBytes(3 * 1024 * MB) === '3.00 GB' &&
+    fmt.formatRoughDuration(400) === 'menos de 1 s' && fmt.formatRoughDuration(185_000) === '3 min 5 s' &&
+    fmt.formatRoughDuration(120_000) === '2 min');
 
   check('1 textos: una fila nativa no lleva marcas, ni con partial en true',
     same(vui.sessionVaultView({ storage: 'native', partial: true }), { copy: false, partial: false }));
@@ -522,12 +531,12 @@ const status = (overrides = {}) => ({
     same(vui.sessionVaultView({ storage: 'vault', partial: false }), { copy: true, partial: false }) &&
     same(vui.sessionVaultView({ storage: 'vault', partial: true }), { copy: true, partial: true }));
   check('1 textos: las marcas dicen lo de la especificacion',
-    vui.VAULT_MARK_TEXT === 'copia' && vui.PARTIAL_MARK_TEXT === 'parcial' &&
-    vui.VAULT_MARK_TITLE === 'El historial de la CLI ya no tiene esta sesión. Se abre la copia propia, en Markdown.' &&
-    vui.PARTIAL_MARK_TITLE === 'Sólo se rescató la ficha y los documentos: el contenido de la conversación está cifrado.');
+    vui.vaultMarkText() === 'copia' && vui.partialMarkText() === 'parcial' &&
+    vui.vaultMarkTitle() === 'El historial de la CLI ya no tiene esta sesión. Se abre la copia propia, en Markdown.' &&
+    vui.partialMarkTitle() === 'Sólo se rescató la ficha y los documentos: el contenido de la conversación está cifrado.');
   check('1 textos: el aviso de privacidad dice que viaja con la carpeta',
-    vui.VAULT_PRIVACY_TEXT.startsWith('Guarda lo mismo que el historial de cada CLI') &&
-    vui.VAULT_PRIVACY_TEXT.includes('eso viaja con ella') && vui.VAULT_ARCHIVED_TEXT.includes('archivadas no se copian'));
+    vui.vaultPrivacyText().startsWith('Guarda lo mismo que el historial de cada CLI') &&
+    vui.vaultPrivacyText().includes('eso viaja con ella') && vui.vaultArchivedText().includes('archivadas no se copian'));
   check('1 textos: exportar tiene tres titulos distintos y la carpeta anterior se nombra',
     new Set(['idle', 'exporting', 'done'].map((state) => vui.exportButtonTitle(state))).size === 3 &&
     vui.vaultPreviousDirText('D:\\vieja') === 'La carpeta anterior quedó intacta: D:\\vieja');
@@ -1332,7 +1341,7 @@ const vaultDir = path.join(root, 'copia');
 // 7 a 10. El escritor, y lo que de 4, 5 y 6 depende de la pasada
 // ---------------------------------------------------------------------------
 
-const { VaultWriter, VaultBusyError, VAULT_WRITER_REVISION, CALM_MS, PASS_DEBOUNCE_MS, ORIGIN_NOT_FOUND, MEASURE_FIRST_MESSAGE, enableRefusal } =
+const { VaultWriter, VaultBusyError, VAULT_WRITER_REVISION, CALM_MS, PASS_DEBOUNCE_MS, ORIGIN_NOT_FOUND, MEASURE_FIRST_TEXT, enableRefusal } =
   await import('../src/vault/writer.ts');
 const settingsModule = await import('../src/settings-store.ts');
 const memoryCopy = await import('../src/vault/memory-copy.ts');
@@ -1708,7 +1717,7 @@ const agentsWith = (agent, history) => ({
   check('10 una fuente sin wholeRead cuenta como unsupported y no se lee', codexRow?.unsupported === 1 && codexRow.sessions === 0, show(codexRow));
 
   check('10 encender sin medicion y sin sesiones copiadas por una pasada: rechazado con su motivo',
-    catalog.stats().passSessions === 0 && enableRefusal(false, catalog.stats().passSessions) === MEASURE_FIRST_MESSAGE);
+    catalog.stats().passSessions === 0 && enableRefusal(false, catalog.stats().passSessions) === MEASURE_FIRST_TEXT);
   check('10 encender con medicion: se puede', enableRefusal(true, 0) === null);
   const store = new settingsModule.SettingsStore(path.join(root, 'ajustes-seco', 'settings.json'));
   await store.load();
@@ -1929,9 +1938,10 @@ const agentsWith = (agent, history) => ({
   const writer = writerFor({ index: brokenFirst, catalog, agents: agentsWith('claude-code', paging), log: { warn: (message) => warnings.push(String(message)) } });
   const report = await writer.pass();
   check('6 la pasada cuenta en failed la que pagina, con su motivo, y sigue con la siguiente',
-    report?.failed === 1 && report.written === 1 && report.failureReasons.some((reason) => reason.includes('pagino')) &&
+    report?.failed === 1 && report.written === 1 && report.failureReasons.some((reason) => es(reason).includes('maxEvents')) &&
     catalog.header('claude-code', goodId) !== null && catalog.header('claude-code', brokenId) === null, show(report));
-  check('6 el fallo queda en lastError y en la consola', (writer.snapshot().lastError ?? '').includes(brokenId) && warnings.some((warning) => warning.includes(brokenId)),
+  const lastErrorText = (value) => (value === null ? '' : es(value));
+  check('6 el fallo queda en lastError y en la consola', lastErrorText(writer.snapshot().lastError).includes(brokenId) && warnings.some((warning) => warning.includes(brokenId)),
     show(writer.snapshot().lastError));
 
   const items = [];
@@ -1943,7 +1953,7 @@ const agentsWith = (agent, history) => ({
   const full = writerFor({ index: brokenFirst, catalog: fullCatalog, agents: agentsWith('claude-code', counting), writeDeps: diskFull });
   const fullReport = await full.pass();
   check('6 disco lleno: la pasada se corta en la primera sesion, sin contarla como fallo ni seguir',
-    fullReport?.aborted !== null && fullReport.written === 0 && fullReport.failed === 0 && items.length === 1 && (full.snapshot().lastError ?? '').includes('Disco lleno'),
+    fullReport?.aborted !== null && fullReport.written === 0 && fullReport.failed === 0 && items.length === 1 && lastErrorText(full.snapshot().lastError).includes('Disco lleno'),
     show({ fullReport, items: items.length }));
   const leftovers = [...(await namesIn(fullDir)), ...(await namesIn(path.join(fullDir, 'sessions', 'claude-code')))].filter((name) => name.endsWith('.tmp'));
   check('6 disco lleno: no quedan temporales', leftovers.length === 0, show(leftovers));
@@ -2400,7 +2410,7 @@ const linksIn = (text) => [...text.matchAll(/\]\(<([^>]+)>\)/g)].map((match) => 
   check('12 abrir la de D (solo en la copia)', (await readFile(await service.openSession('claude-code', idD), 'utf8')).includes('Probemos una que solo esta en la copia'));
   const missing = await rejectsWith(service.openSession('claude-code', idC));
   check('12 una sesion que no esta en la copia -> "Esa sesión no está en la copia." y nada escrito',
-    missing instanceof VaultError && missing.message === 'Esa sesión no está en la copia.' &&
+    missing instanceof VaultError && es(missing.text) === 'Esa sesión no está en la copia.' &&
     !(await fileExists(vaultPaths.sessionExportFile(dir, 'claude-code', idC))), show(missing?.message));
   await service.reveal();
   check('12 abrir la carpeta de la copia', revealed.at(-1) === dir);
@@ -2420,7 +2430,7 @@ const linksIn = (text) => [...text.matchAll(/\]\(<([^>]+)>\)/g)].map((match) => 
     homeDir: home, reveal: (target) => revealed.push(target), log: quiet,
   });
   const notYet = await rejectsWith(offService.reveal());
-  check('12 abrir la carpeta sin copia -> "Todavía no hay copia."', notYet instanceof VaultError && notYet.message === 'Todavía no hay copia.', show(notYet?.message));
+  check('12 abrir la carpeta sin copia -> "Todavía no hay copia."', notYet instanceof VaultError && es(notYet.text) === 'Todavía no hay copia.', show(notYet?.message));
   const emptyProject = emptyIndex.getProjects().find((candidate) => candidate.cwd === cwd);
   const offResult = await offService.exportProject(emptyProject.key);
   const offFolder = vaultPaths.projectExportDirFor(emptyDir, emptyProject, process.platform);
@@ -2562,7 +2572,7 @@ const serviceAgents = (protectedDirs = []) => ({ adapter: () => ({ history: {} }
   const busyMove = await rejectsWith(service.setDir(path.join(root, 'mudanza-otra')));
   const busyOpen = await rejectsWith(service.openSession('claude-code', id));
   check('13 con una mudanza en curso: mudar y abrir se rechazan con VaultError',
-    busyMove instanceof VaultError && busyMove.message.includes('ocupada') && busyOpen instanceof VaultError, show([busyMove?.message, busyOpen?.message]));
+    busyMove instanceof VaultError && es(busyMove.text).includes('ocupada') && busyOpen instanceof VaultError, show([busyMove?.message, busyOpen?.message]));
   release?.();
   await holding.catch(() => undefined);
   service.dispose();
@@ -2595,7 +2605,7 @@ const serviceAgents = (protectedDirs = []) => ({ adapter: () => ({ history: {} }
   const gemini = await rejectsWith(service.setDir(geminiDir));
   check('13 ~/.gemini tampoco', gemini instanceof VaultError && settings.updates === 0 && (await namesIn(geminiDir)).length === 0, show(gemini?.message));
   const closed = await rejectsWith(service.setDirFromPicker(pickers, 'selector-que-no-existe'));
-  check('13 un selector que no esta abierto -> VaultError', closed instanceof VaultError && closed.message === 'Ese selector ya no está abierto.');
+  check('13 un selector que no esta abierto -> VaultError', closed instanceof VaultError && es(closed.text) === 'Ese selector ya no está abierto.');
   pickers.closeAll();
   service.dispose();
 }
@@ -2620,7 +2630,7 @@ const serviceAgents = (protectedDirs = []) => ({ adapter: () => ({ history: {} }
 
   const refused = await rejectsWith(service.setEnabled(true));
   check('13 encender sin medir y sin sesiones de una pasada: VaultError con el motivo, sin tocar los ajustes',
-    refused instanceof VaultError && refused.message === MEASURE_FIRST_MESSAGE && settings.updates === 0 && !settings.get().vault.enabled, show(refused?.message));
+    refused instanceof VaultError && refused.text === MEASURE_FIRST_TEXT && settings.updates === 0 && !settings.get().vault.enabled, show(refused?.message));
   index.state = 'scanning';
   const early = await rejectsWith(service.measure());
   check('13 medir con el indice sin terminar: VaultError', early instanceof VaultError, show(early?.message));
@@ -2738,7 +2748,7 @@ const serviceAgents = (protectedDirs = []) => ({ adapter: () => ({ history: {} }
   check('13 carpeta con vault.json y solo sesiones importadas: encender sin medir se rechaza y la web no ofrece "Activar"',
     (await fileExists(vaultPaths.vaultMarkerFile(dir))) && importedStatus.sessions === 1 && importedStatus.passSessions === 0 &&
     vui.vaultActivateOffer(importedStatus) === 'needs-measure' &&
-    refused instanceof VaultError && refused.message === MEASURE_FIRST_MESSAGE && settings.updates === 0,
+    refused instanceof VaultError && refused.text === MEASURE_FIRST_TEXT && settings.updates === 0,
     show({ importedStatus, refused: refused?.message }));
 
   const nativeId = '13g00002-0000-4000-8000-000000001342';
@@ -3082,7 +3092,7 @@ async function runImport(argv, extra = {}) {
     runImport(['gemini-cli', '--borrar']),
   ]);
   check('14 script: sin importador, uno desconocido, rutas relativas, opciones cruzadas o sin valor: uso y salida 2',
-    usage.every((run) => run.code === 2 && run.err.includes('Uso:')), show(usage.map((run) => [run.code, run.err.split('\n')[0]])));
+    usage.every((run) => run.code === 2 && run.err.includes('Usage:')), show(usage.map((run) => [run.code, run.err.split('\n')[0]])));
   const help = await runImport(['--', 'gemini-cli', '--help']);
   check('14 script: --help sale 0', help.code === 0 && help.out.includes('pnpm vault:import antigravity-ide --workspace'));
   check('14 script: las barras que duplica pnpm se colapsan en Windows, la UNC conserva las dos del principio',
@@ -3093,16 +3103,16 @@ async function runImport(argv, extra = {}) {
 
   const dryGemini = await runImport(['gemini-cli', '--cwd', 'd:\\\\Proyecto Demo']);
   check('14 script: gemini-cli en seco dice cuantos, cuantos casan, que se salta, y sale 0',
-    dryGemini.code === 0 && dryGemini.out.includes('Encontrados: 6') && dryGemini.out.includes('A importar: 3') && dryGemini.out.includes('con carpeta casada: 2') &&
-    dryGemini.out.includes('1: sólo avisos') && dryGemini.out.includes('En seco'), dryGemini.out + dryGemini.err);
+    dryGemini.code === 0 && dryGemini.out.includes('Found: 6') && dryGemini.out.includes('To import: 3') && dryGemini.out.includes('with a matched folder: 2') &&
+    dryGemini.out.includes('1: only notices') && dryGemini.out.includes('Dry run'), dryGemini.out + dryGemini.err);
   const dryRescue = await runImport(['antigravity-ide', '--workspace', RESCUE_WORKSPACE]);
   check('14 script: antigravity-ide en seco dice conversaciones, pasos, documentos y fechas, y sale 0',
-    dryRescue.code === 0 && dryRescue.out.includes('Conversaciones: 3, con 157 pasos') && dryRescue.out.includes('Documentos: 4') &&
-    dryRescue.out.includes('otras carpetas: 4') && dryRescue.out.includes('A escribir: 3 sesiones parciales') && dryRescue.out.includes('En seco') && !dryRescue.out.includes('SECRETO'),
+    dryRescue.code === 0 && dryRescue.out.includes('Conversations: 3, with 157 steps') && dryRescue.out.includes('Documents: 4') &&
+    dryRescue.out.includes('other folders: 4') && dryRescue.out.includes('To write: 3 partial sessions') && dryRescue.out.includes('Dry run') && !dryRescue.out.includes('SECRETO'),
     dryRescue.out + dryRescue.err);
   const noSqliteRun = await runImport(['antigravity-ide', '--workspace', RESCUE_WORKSPACE, '--write'], { sqlite: () => ({ unavailable: 'node-too-old' }) });
   check('14 script: sin node:sqlite el rescate sale 1 con el motivo, aun con --write',
-    noSqliteRun.code === 1 && noSqliteRun.err.includes('node:sqlite') && !noSqliteRun.out.includes('Escritas'), show(noSqliteRun));
+    noSqliteRun.code === 1 && noSqliteRun.err.includes('node:sqlite') && !noSqliteRun.out.includes('Wrote'), show(noSqliteRun));
   check('14 script: sin --write no se crea nada, ni la carpeta de la copia, ni queda la temporal',
     !(await fileExists(importVault)) && (await rescueLeftovers()).length === 0);
 
@@ -3113,7 +3123,7 @@ async function runImport(argv, extra = {}) {
   await writeFile(foreignFile, foreignText);
   const writeForeign = await runImport(['gemini-cli', '--cwd', 'd:\\Proyecto Demo', '--write']);
   check('14 script: --write no pisa una copia de un formato mas nuevo, y lo dice',
-    writeForeign.code === 0 && writeForeign.out.includes('Escritas 2 sesiones') && writeForeign.out.includes('No se pisó 1 sesión') &&
+    writeForeign.code === 0 && writeForeign.out.includes('Wrote 2 sessions') && writeForeign.out.includes("Didn't overwrite 1 session") &&
     (await readFile(foreignFile, 'utf8')) === foreignText, writeForeign.out + writeForeign.err);
   await rm(foreignFile);
 
@@ -3122,12 +3132,12 @@ async function runImport(argv, extra = {}) {
   const again = await runImport(['gemini-cli', '--cwd', 'd:\\Proyecto Demo', '--write']);
   const afterSecond = await filesUnder(importVault);
   check('14 script: gemini-cli --write escribe las tres; correrlo dos veces deja lo mismo',
-    writeGemini.code === 0 && again.code === 0 && writeGemini.out.includes('Escritas 3 sesiones') &&
+    writeGemini.code === 0 && again.code === 0 && writeGemini.out.includes('Wrote 3 sessions') &&
     same(afterFirst, afterSecond) && same(afterFirst, ['vault.json', ...[GID.noReply, GID.tools, GID.unknown].map((id) => path.join('sessions', 'gemini-cli', `${id}.jsonl`))].sort()),
     show(afterSecond));
 
   const writeRescue = await runImport(['antigravity-ide', '--workspace', RESCUE_WORKSPACE, '--write']);
-  check('14 script: antigravity-ide --write escribe las tres parciales', writeRescue.code === 0 && writeRescue.out.includes('Escritas 3 sesiones'), writeRescue.out + writeRescue.err);
+  check('14 script: antigravity-ide --write escribe las tres parciales', writeRescue.code === 0 && writeRescue.out.includes('Wrote 3 sessions'), writeRescue.out + writeRescue.err);
 
   const catalog = new VaultCatalog();
   await catalog.load(importVault);
@@ -3165,7 +3175,7 @@ async function runImport(argv, extra = {}) {
     encoding: 'utf8', timeout: 60_000, windowsHide: true,
   });
   check('14 script: vault-import.mjs en otro proceso lee el ~/.gemini del home y en seco no crea nada',
-    child.status === 0 && child.stdout.includes('con carpeta casada: 2') && child.stdout.includes('En seco') && !(await fileExists(childAppdata)),
+    child.status === 0 && child.stdout.includes('with a matched folder: 2') && child.stdout.includes('Dry run') && !(await fileExists(childAppdata)),
     show({ status: child.status, stdout: child.stdout?.slice(0, 400), stderr: child.stderr?.slice(0, 400), error: child.error?.message }));
 }
 

@@ -67,7 +67,7 @@ export type SqliteLoad = SqliteModule | { unavailable: SqliteUnavailableReason }
 
 /** El texto que se muestra cuando `node:sqlite` no esta. `label` es el nombre de la CLI. */
 export function sqliteUnavailableText(label: string, nodeVersion: string = process.version): string {
-  return `esta version de Node (${nodeVersion}) no trae node:sqlite; el historial de ${label} necesita Node ${NODE_SQLITE_MIN_VERSION} o posterior.`;
+  return `this Node version (${nodeVersion}) has no node:sqlite; the ${label} history needs Node ${NODE_SQLITE_MIN_VERSION} or later.`;
 }
 
 /**
@@ -306,7 +306,7 @@ export class ReadOnlyDatabase {
         db.close();
         this.state = 'schema';
         console.warn(
-          `[${this.options.label}] a ${this.file} le falta la columna ${missing.table}.${missing.column}: no se lee hasta reiniciar.`,
+          `[${this.options.label}] ${this.file} is missing the column ${missing.table}.${missing.column}: it isn't read until a restart.`,
         );
         return null;
       }

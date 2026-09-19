@@ -33,9 +33,11 @@
 import {
   PERMISSION_MODE_CYCLE,
   cycleDistance,
+  serverText,
   type ImageReferenceStyle,
   type PermissionCycleCapability,
   type PermissionMode,
+  type ServerText,
   type TerminalActivity,
 } from '@agent-workbench/shared';
 import type { QuestionAnswerOutcome } from './agents/adapter.js';
@@ -301,11 +303,13 @@ export type ModeChangePlan =
   /** Ya esta en ese modo: no se escribe nada y no es un error. */
   | { kind: 'none' }
   | { kind: 'keys'; keys: string[] }
-  | { kind: 'refused'; reason: 'pending-confirmation' | 'unreachable'; message: string };
+  | { kind: 'refused'; reason: 'pending-confirmation' | 'unreachable'; text: ServerText };
 
-/** Por que no se cambia el modo con una confirmacion abierta. */
-export const MODE_PENDING_CONFIRMATION_MESSAGE =
-  'Hay una confirmacion pendiente en la CLI: cambiar de modo ahora la aprobaria. Contestala en la solapa CLI.';
+/**
+ * Por que no se cambia el modo con una confirmacion abierta. Los textos para el
+ * usuario van como clave: la frase la arma la web en su idioma (§6.23).
+ */
+export const MODE_PENDING_CONFIRMATION_TEXT: ServerText = serverText('modePendingConfirmation');
 
 /**
  * Por que no se manda un mensaje del cuadro mientras la CLI espera una
@@ -313,36 +317,36 @@ export const MODE_PENDING_CONFIRMATION_MESSAGE =
  * (`approvesPendingOnCycle`, hito 27, R27-2): el Enter aparte del mensaje cae
  * sobre la opcion resaltada. Distingue el permiso, igual que la barra.
  */
-export function pendingSubmitMessage(label: string, waitingFor: string): string {
+export function pendingSubmitText(label: string, waitingFor: string): ServerText {
   return waitingFor === 'permission prompt'
-    ? `${label} esta esperando que autorices una herramienta: el Enter del mensaje la aprobaria. Contestala en la solapa CLI.`
-    : `${label} esta esperando una respuesta: el Enter del mensaje la contestaria. Contestala en la solapa CLI.`;
+    ? serverText('pendingSubmitPermission', { label })
+    : serverText('pendingSubmitAnswer', { label });
 }
 
 /** `answer-failed`: la pregunta ya se contesto, se cerro, o no es la abierta. */
-export const ANSWER_NOT_PENDING_MESSAGE = 'Esa pregunta ya no esta esperando respuesta.';
+export const ANSWER_NOT_PENDING_TEXT: ServerText = serverText('answerNotPending');
 
 /** `answer-failed`: lo elegido no tiene la forma de la pregunta. */
-export const ANSWER_INVALID_MESSAGE = 'La respuesta no corresponde a la pregunta.';
+export const ANSWER_INVALID_TEXT: ServerText = serverText('answerInvalid');
 
 /** `answer-failed`: una respuesta escrita a una pregunta que no la acepta (hito 29, B4). */
-export const ANSWER_NO_FREE_TEXT_MESSAGE = 'Esta pregunta no acepta respuesta escrita: elegi una de las opciones.';
+export const ANSWER_NO_FREE_TEXT_TEXT: ServerText = serverText('answerNoFreeText');
 
 /**
  * El texto de `answer-failed` para como termino una respuesta por la API de la
  * CLI (`QuestionChannel`, hito 29), o null si se contesto. Los dos primeros son
  * los mismos que con teclas: la tarjeta no distingue por donde se mando.
  */
-export function answerFailureMessage(outcome: QuestionAnswerOutcome): string | null {
+export function answerFailureText(outcome: QuestionAnswerOutcome): ServerText | null {
   switch (outcome) {
     case 'answered':
       return null;
     case 'not-pending':
-      return ANSWER_NOT_PENDING_MESSAGE;
+      return ANSWER_NOT_PENDING_TEXT;
     case 'invalid':
-      return ANSWER_INVALID_MESSAGE;
+      return ANSWER_INVALID_TEXT;
     case 'no-free-text':
-      return ANSWER_NO_FREE_TEXT_MESSAGE;
+      return ANSWER_NO_FREE_TEXT_TEXT;
   }
 }
 
@@ -351,8 +355,8 @@ export function answerFailureMessage(outcome: QuestionAnswerOutcome): string | n
  * que declara `waitingBlocksSubmit` (hito 29, D12). No distingue la clase de
  * espera: el registro solo sabe que espera, y la barra ya dice cual.
  */
-export function waitingSubmitMessage(label: string): string {
-  return `${label} esta esperando una respuesta: contestala antes de mandar otro mensaje.`;
+export function waitingSubmitText(label: string): ServerText {
+  return serverText('waitingSubmit', { label });
 }
 
 /**
@@ -384,16 +388,14 @@ export function submitRefusal(input: {
   activity?: TerminalActivity | null;
   blind: boolean;
   openToolCall: boolean;
-}): string | null {
+}): ServerText | null {
   if (input.approvesPendingOnCycle && input.waitingFor !== null) {
-    return pendingSubmitMessage(input.label, input.waitingFor);
+    return pendingSubmitText(input.label, input.waitingFor);
   }
   if (input.waitingBlocksSubmit === true && input.activity === 'waiting') {
-    return waitingSubmitMessage(input.label);
+    return waitingSubmitText(input.label);
   }
-  if (input.blind && input.openToolCall) {
-    return `${input.label} tiene una herramienta sin resultado: puede estar pidiendo una aprobacion. Contestala en la solapa CLI.`;
-  }
+  if (input.blind && input.openToolCall) return serverText('openToolSubmit', { label: input.label });
   return null;
 }
 
@@ -422,15 +424,11 @@ export function planModeChange(input: {
   const { cycle, current, target, waitingFor } = input;
   if (current === target) return { kind: 'none' };
   if (cycle.approvesPendingOnCycle && waitingFor !== null) {
-    return { kind: 'refused', reason: 'pending-confirmation', message: MODE_PENDING_CONFIRMATION_MESSAGE };
+    return { kind: 'refused', reason: 'pending-confirmation', text: MODE_PENDING_CONFIRMATION_TEXT };
   }
   const keys = buildModeKeys(current, target, cycle.modes);
   if (keys === null || keys.length === 0) {
-    return {
-      kind: 'refused',
-      reason: 'unreachable',
-      message: `No se puede llegar a ese modo desde el actual. Cambialo con ${cycle.keyLabel} en la solapa CLI.`,
-    };
+    return { kind: 'refused', reason: 'unreachable', text: serverText('modeUnreachable', { key: cycle.keyLabel }) };
   }
   return { kind: 'keys', keys };
 }

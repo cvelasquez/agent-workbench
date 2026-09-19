@@ -126,7 +126,7 @@ export function buildHeader(input: VaultHeaderInput & VaultHeaderCounts): VaultH
   };
 
   if (parseVaultHeader(JSON.parse(JSON.stringify(header))) === null) {
-    throw new Error(`La cabecera de ${input.agent}/${input.sessionId} no se podria leer despues`);
+    throw new Error(`The header of ${input.agent}/${input.sessionId} couldn't be read back`);
   }
   return header;
 }
@@ -203,7 +203,7 @@ export function serializeSession(input: SerializeSessionInput): SerializedSessio
       truncated: document.truncated,
     };
     if (parseVaultBodyLine(line) === null) {
-      throw new Error(`Documento que no se podria leer despues: ${JSON.stringify(document.name)}`);
+      throw new Error(`A document that couldn't be read back: ${JSON.stringify(document.name)}`);
     }
     bodyLines.push(JSON.stringify(line));
   }

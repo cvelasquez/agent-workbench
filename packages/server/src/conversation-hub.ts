@@ -307,8 +307,8 @@ export class ConversationHub extends EventEmitter {
       // instante y 1M despues.
       await entry.follower.start();
       debugLog(
-        'conversacion',
-        `sigo ${path.basename(entry.follower.label)} de ${terminalId.slice(0, 8)}`,
+        'conversation',
+        `following ${path.basename(entry.follower.label)} for ${terminalId.slice(0, 8)}`,
       );
       // Si mientras arrancaba la pestana cambio de sesion, la cuenta va a la entrada nueva.
       entry = this.entries.get(terminalId) ?? entry;
@@ -490,8 +490,8 @@ export class ConversationHub extends EventEmitter {
     this.watchStatus(terminalId, next, descriptor.sessionId);
     this.startFollowTicker(terminalId, next);
     debugLog(
-      'conversacion',
-      `${terminalId.slice(0, 8)} cambio de sesion: sigo ${path.basename(next.follower.label)}`,
+      'conversation',
+      `${terminalId.slice(0, 8)} changed session: following ${path.basename(next.follower.label)}`,
     );
     await next.follower.start();
     next.primed = true;
@@ -595,7 +595,7 @@ export class ConversationHub extends EventEmitter {
     if (entry.refs > 0) return;
 
     this.release(terminalId, entry);
-    debugLog('conversacion', `dejo de seguir ${terminalId.slice(0, 8)}`);
+    debugLog('conversation', `stopped following ${terminalId.slice(0, 8)}`);
   }
 
   /** La pestana se cerro: se suelta sin importar cuantos la miraban. */
@@ -835,7 +835,7 @@ export class ConversationHub extends EventEmitter {
         result = await entry.follower.poll();
       } catch (error) {
         // Un archivo ilegible no puede tumbar el seguimiento del resto.
-        console.warn(`[conversacion] no se pudo leer ${entry.follower.label}:`, error);
+        console.warn(`[conversation] couldn't read ${entry.follower.label}:`, error);
         return;
       }
 

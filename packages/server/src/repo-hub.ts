@@ -136,7 +136,7 @@ export class RepoHub extends EventEmitter {
     if (entry.pollTimer !== null) clearTimeout(entry.pollTimer);
     void entry.watcher?.close();
     this.entries.delete(terminalId);
-    debugLog('git', `dejo de mirar el repo de ${terminalId.slice(0, 8)}`);
+    debugLog('git', `stopped watching the repo of ${terminalId.slice(0, 8)}`);
   }
 
   /**
@@ -222,7 +222,7 @@ export class RepoHub extends EventEmitter {
       entry.status = status;
       if (!options.silent) this.emit('status', terminalId, status);
     } catch (error) {
-      console.warn(`[git] no se pudo leer el estado de ${entry.cwd}:`, error);
+      console.warn(`[git] couldn't read the status of ${entry.cwd}:`, error);
     } finally {
       entry.reading = false;
       if (this.entries.get(terminalId) === entry) {

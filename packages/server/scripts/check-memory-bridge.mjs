@@ -40,6 +40,12 @@ import {
 import { MemoryHub, UnknownTerminalError, isRelevantPath } from '../src/memory-hub.ts';
 import { InvalidPathError } from '../src/path-guard.ts';
 import { projectSlugFor } from '../src/agents/claude-code/paths.ts';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as es } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 let failures = 0;
 const check = (label, ok, extra = '') => {
@@ -146,7 +152,9 @@ async function rejectsWith(run, Klass) {
     await run();
     return { ok: false, message: 'no fallo' };
   } catch (error) {
-    return { ok: error instanceof Klass, message: error instanceof Error ? error.message : String(error) };
+    // Los errores para el usuario van como clave (§6.23): se leen en español.
+    const message = error instanceof Error ? ('text' in error ? es(error.text) : error.message) : String(error);
+    return { ok: error instanceof Klass, message };
   }
 }
 
@@ -511,6 +519,16 @@ try {
     (await read(wt8, '.agents/memory/MEMORY.md')).equals(await read(main8, '.agents/memory/MEMORY.md')) &&
       applied8.some((c) => c.file === '.agents/memory/MEMORY.md' && c.action === 'copy'),
   );
+  {
+    // La ruta del original viaja aparte y la web arma la frase en su idioma (§6.23).
+    const copy8 = applied8.find((c) => c.file === '.agents/memory/MEMORY.md');
+    check(
+      'worktree: la copia dice de donde sale, sin frase armada en la previsualizacion',
+      typeof copy8?.copiedFrom === 'string' && path.basename(copy8.copiedFrom) === 'MEMORY.md' && copy8.preview === '' &&
+        applied8.filter((c) => c.action !== 'copy').every((c) => c.copiedFrom === null),
+      JSON.stringify(copy8),
+    );
+  }
   check('worktree: copia las notas que faltan', (await read(wt8, '.agents/memory/uno.md')).equals(await read(main8, '.agents/memory/uno.md')));
   check('worktree: no pisa una nota que ya estaba', (await readText(wt8, '.agents/memory/dos.md')) === 'dos propio del worktree\n');
   const notes8 = (await inspectMemory(wt8, home)).notes;
@@ -687,7 +705,7 @@ try {
   const reach9c = (await inspectMemory(c9c, home)).reach;
   check(
     'con el puente instalado, el alcance dice por que Claude Code no llega',
-    !reach9c[0].reaches && reach9c[0].via === 'CLAUDE.md apunta fuera del proyecto' && reach9c[1].reaches,
+    !reach9c[0].reaches && es(reach9c[0].via) === 'CLAUDE.md apunta fuera del proyecto' && reach9c[1].reaches,
     JSON.stringify(reach9c[0]),
   );
   const import9c = await importNativeMemory(c9c, home).then(
@@ -735,7 +753,7 @@ try {
   await put(home, '.claude/projects/otro-proyecto/memory/ajena.md', 'de otro proyecto\n');
 
   const importEarly = await rejectsWith(() => importNativeMemory(c11, home), MemoryBridgeError);
-  check('importar sin la carpeta compartida pide instalar primero', importEarly.ok && importEarly.message.includes('Instalá el puente primero'), importEarly.message);
+  check('importar sin la carpeta compartida pide instalar primero', importEarly.ok && importEarly.message.includes('Instala el puente primero'), importEarly.message);
 
   await installMemory(c11, both, home);
   await put(c11, '.agents/memory/conflicto.md', 'version compartida\n');
@@ -795,7 +813,7 @@ try {
   // --- 12. Alcance por CLI ----------------------------------------------------
 
   const reachOf = (status) =>
-    Object.fromEntries(status.reach.map((r) => [r.agent, `${r.reaches ? 'si' : 'no'}:${r.via}`]));
+    Object.fromEntries(status.reach.map((r) => [r.agent, `${r.reaches ? 'si' : 'no'}:${es(r.via)}`]));
 
   const c12a = await project('c12a');
   await installMemory(c12a, only('AGENTS.md'), home);
@@ -884,7 +902,7 @@ try {
   }
   check(
     'sin git en el PATH el estado es error, no "no es un repo"',
-    status14.git.kind === 'error' && status14.git.message.length > 0,
+    status14.git.kind === 'error' && es(status14.git.message).length > 0,
     JSON.stringify(status14.git),
   );
   process.env.PATH = '';

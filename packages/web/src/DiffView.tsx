@@ -11,6 +11,8 @@
  */
 
 import type { DiffLine, GitDiff } from '@agent-workbench/shared';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 const MARKER: Readonly<Record<DiffLine['kind'], string>> = {
   added: '+',
@@ -26,11 +28,11 @@ interface DiffViewProps {
 
 export function DiffView({ diff }: DiffViewProps): JSX.Element {
   if (diff.binary) {
-    return <p className="panel-note">Archivo binario: no hay diff que mostrar.</p>;
+    return <p className="panel-note">{t('diff.binary')}</p>;
   }
 
   if (diff.lines.length === 0) {
-    return <p className="panel-note">{diff.message ?? 'Sin cambios.'}</p>;
+    return <p className="panel-note">{diff.message === null ? t('diff.noChanges') : serverTextMessage(diff.message)}</p>;
   }
 
   return (
@@ -52,12 +54,7 @@ export function DiffView({ diff }: DiffViewProps): JSX.Element {
         ))}
       </div>
 
-      {diff.truncated && (
-        <p className="panel-note">
-          El diff se cortó por tamaño. El archivo completo se ve mejor fuera de este
-          panel.
-        </p>
-      )}
+      {diff.truncated && <p className="panel-note">{t('diff.truncated')}</p>}
     </div>
   );
 }

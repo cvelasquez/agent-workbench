@@ -115,7 +115,7 @@ export function watchSessions(
     try {
       stops.push(watch((filePath) => onFileEvent(agent, root, filePath)));
     } catch (error) {
-      console.warn('[watcher] no se pudo observar el historial:', error);
+      console.warn("[watcher] couldn't watch the history:", error);
     }
   };
 
@@ -138,7 +138,7 @@ export function watchSessions(
       });
     } catch (error) {
       // Una raiz que no se puede observar no le quita el aviso a las demas.
-      console.warn('[watcher] no se pudo observar el historial:', error);
+      console.warn("[watcher] couldn't watch the history:", error);
       return;
     }
 
@@ -192,7 +192,7 @@ export function watchSessions(
       try {
         stop();
       } catch (error) {
-        console.warn('[watcher] no se pudo dejar de observar el historial:', error);
+        console.warn("[watcher] couldn't stop watching the history:", error);
       }
     }
   };

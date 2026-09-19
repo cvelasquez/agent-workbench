@@ -30,6 +30,7 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { t } from './i18n/index.js';
 
 interface ImageViewerProps {
   src: string;
@@ -62,7 +63,7 @@ export function ImageViewer({ src, caption, onClose }: ImageViewerProps): JSX.El
       </div>
       <div className="viewer-bar">
         <span className="viewer-caption">{caption}</span>
-        <button className="viewer-close" onClick={onClose} title="Cerrar (Esc)">
+        <button className="viewer-close" onClick={onClose} title={t('common.closeEsc')}>
           ×
         </button>
       </div>

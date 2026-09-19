@@ -34,6 +34,9 @@ import {
   type RelaunchPhase,
 } from './agent-ui.js';
 import { AgentConnection, type ConnectionStatus } from './connection.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
+import { useLocale } from './i18n/useLocale.js';
 import { isMemoryPanelRequest } from './useMemory.js';
 
 export interface WorkspaceError {
@@ -156,7 +159,7 @@ export interface Workspace {
    * Continua una conversacion con otra CLI (hito 29). La pestana nueva pasa a
    * ser la activa, como una que se abre desde aca.
    */
-  continueSession: (source: { agent: SessionAgentId; sessionId: string }, target: AgentId) => void;
+  continueSession: (source: { agent: SessionAgentId; sessionId: string }, target: AgentId, label: string) => void;
   /** El aviso de continuacion de cada pestana que lo tiene. */
   handoffs: ReadonlyMap<TerminalId, HandoffNotice>;
   /** Cierra el aviso de una pestana: con la ×, o al mandar el primer mensaje. */
@@ -281,11 +284,7 @@ export function useWorkspace(): Workspace {
     const offStatus = connection.onStatus((next) => {
       setStatus(next);
       if (next === 'failed') {
-        setError({
-          message:
-            'No se pudo conectar con el servidor local. Abri de nuevo la URL que imprimio al arrancar.',
-          at: Date.now(),
-        });
+        setError({ message: t('workspace.connectFailed'), at: Date.now() });
       }
     });
     const offMessage = connection.onMessage((message: ServerMessage) => {
@@ -451,7 +450,7 @@ export function useWorkspace(): Workspace {
           if (message.code === 'vault-failed') break;
           // Y la busqueda global (hito 29): lo dice su linea de estado, en la barra.
           if (message.code === 'search-failed') break;
-          setError({ message: message.message, at: Date.now() });
+          setError({ message: serverTextMessage(message.text), at: Date.now() });
           // Un fallo al abrir la CLI no puede dejar el boton diciendo
           // "Abriendo…" para siempre. Ni "Relanzando…".
           setWaking((current) => (current.size === 0 ? current : new Set()));
@@ -612,7 +611,7 @@ export function useWorkspace(): Workspace {
   );
 
   const continueSession = useCallback(
-    (source: { agent: SessionAgentId; sessionId: string }, target: AgentId) => {
+    (source: { agent: SessionAgentId; sessionId: string }, target: AgentId, label: string) => {
       const requestId = crypto.randomUUID();
       // Como una pestana que se abre desde aca: sin esto, el `terminal.opened`
       // de la continuacion no la activaria (B5).
@@ -623,6 +622,7 @@ export function useWorkspace(): Workspace {
         agent: source.agent,
         sessionId: source.sessionId,
         target,
+        label,
       });
     },
     [connection],
@@ -665,9 +665,11 @@ export function useWorkspace(): Workspace {
     [allTerminals],
   );
 
+  // `summarizeAgents` arma textos: el idioma entra en las dependencias.
+  const locale = useLocale();
   const summary = useMemo(
     () => summarizeAgents(agents, helloReceived, serverProtocolVersion),
-    [agents, helloReceived, serverProtocolVersion],
+    [agents, helloReceived, serverProtocolVersion, locale],
   );
   const capabilitiesFor = useCallback(
     (agent: AgentId | null): AgentCapabilities =>

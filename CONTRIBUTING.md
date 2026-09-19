@@ -1,166 +1,196 @@
-# Contribuir a Agent Workbench
+# Contributing to Agent Workbench
 
-Gracias por mirar el proyecto. Es una herramienta chica y personal, así que las
-reglas también son pocas. Las que hay, sin embargo, no son negociables: casi
-todas existen porque algo salió mal una vez.
-
----
-
-## Antes de escribir código
-
-Leé [`CLAUDE.md`](CLAUDE.md). No es documentación de cortesía: tiene las reglas
-duras del proyecto, el mapa del código y un índice de la carpeta [`docs/`](docs)
-que dice qué archivo leer antes de tocar cada zona. Ahí está el detalle de las
-trampas ya pisadas: el esquema real del JSONL de cada CLI, por qué
-`kill('SIGTERM')` tumbaba el servidor en Windows, por qué el renderer WebGL está
-apagado. Un cambio que ignora esas reglas se descarta aunque funcione.
-
-La numeración de las secciones (`§3.2`, `§11.12`) es estable y la citan los
-comentarios del código: al mover texto entre archivos, viaja con él.
+Thanks for taking a look at the project. It's a small, personal tool, so the
+rules are few too. The ones there are, though, aren't negotiable: almost all of
+them exist because something went wrong once.
 
 ---
 
-## Las cuatro reglas que no se discuten
+## Before writing code
 
-1. **La aplicación no toca credenciales de ninguna CLI.** No se lee, copia ni
-   reenvía `~/.claude/.credentials.json`, ni las de Codex, OpenCode o
-   Antigravity, ni ningún token: la lista de lo que no se abre nunca, por CLI,
-   está en `CLAUDE.md` §2.1. No hay login en la interfaz. No se inyectan
-   variables de autenticación en el entorno de los procesos que se lanzan.
+Read [`CLAUDE.md`](CLAUDE.md) (in Spanish, like the rest of the internal
+documentation). It isn't courtesy documentation: it has the project's hard
+rules, the code map and an index of the [`docs/`](docs) folder that tells you
+which file to read before touching each area. That's where the pitfalls already
+hit are spelled out: the real JSONL schema of each CLI, why `kill('SIGTERM')`
+took the server down on Windows, why the WebGL renderer is off. A change that
+ignores those rules is rejected even if it works.
 
-2. **Los binarios de las CLIs van sin modificar y sin empaquetar.** Se buscan en
-   el `PATH`. No se incluyen en el repositorio, no se descargan y no se envuelven
-   de forma que altere su comportamiento.
+Section numbers (`§3.2`, `§11.12`) are stable and the code comments cite them:
+when text moves between files, its number moves with it.
 
-3. **El servidor escucha solo en `127.0.0.1`**, con puerto efímero y un token
-   aleatorio por arranque que exigen tanto el WebSocket como todas las rutas
-   HTTP. Sin telemetría y sin ninguna llamada de red saliente.
+---
 
-4. **La marca.** El producto se llama Agent Workbench. Ni el nombre, ni el logo,
-   ni ninguna funcionalidad llevan el nombre de una CLI ni de su fabricante. En
-   el código, identificadores neutros (`agentCli`, `cliBinary`, `sessionIndex`).
-   El README puede decir en texto plano que funciona con las CLIs de Claude
-   Code, Codex, OpenCode y Antigravity: es compatibilidad, no respaldo.
+## The four non-negotiable rules
 
-   Con la misma lógica, el nombre de una CLI puede aparecer en el código en dos
-   sitios, como dato de compatibilidad: el id de su adaptador (`AGENT_IDS` en
-   `packages/shared/src/agents.ts`) y la carpeta de ese adaptador
+1. **The app doesn't touch any CLI's credentials.** `~/.claude/.credentials.json`
+   isn't read, copied or forwarded, nor are the credentials of Codex, OpenCode
+   or Antigravity, nor any token: the list of what is never opened, per CLI, is
+   in `CLAUDE.md` §2.1. There's no login in the interface. No authentication
+   variables are injected into the environment of the processes it launches.
+
+2. **The CLI binaries are used unmodified and unbundled.** They're looked up in
+   the `PATH`. They aren't included in the repository, aren't downloaded, and
+   aren't wrapped in a way that alters their behavior.
+
+3. **The server listens only on `127.0.0.1`**, with an ephemeral port and a
+   random per-start token required by both the WebSocket and every HTTP route.
+   No telemetry and no outgoing network calls at all.
+
+4. **The brand.** The product is called Agent Workbench. Neither the name, nor
+   the logo, nor any feature carries the name of a CLI or its maker. In the
+   code, neutral identifiers (`agentCli`, `cliBinary`, `sessionIndex`). The
+   README may say in plain text that it works with the Claude Code, Codex,
+   OpenCode and Antigravity CLIs: that's compatibility, not endorsement.
+
+   By the same logic, a CLI's name may appear in the code in two places, as
+   compatibility data: its adapter id (`AGENT_IDS` in
+   `packages/shared/src/agents.ts`) and that adapter's folder
    (`packages/server/src/agents/claude-code/`, `codex/`, `opencode/`,
-   `antigravity/`), donde los identificadores sí la nombran
-   (`createClaudeCodeAdapter`). Fuera de esas carpetas la nombran el
-   registro de adaptadores y dos módulos que trabajan con archivos de CLIs
-   concretas: la memoria compartida (`memory-bridge.ts`, que conoce el slug
-   de Claude Code y el archivo de instrucciones de cada CLI) y el importador
-   de un solo uso del IDE de Antigravity (`vault/importers/`). El servidor
-   genérico —terminales, hub, índice, socket— habla con la interfaz y no sabe
-   qué CLI tiene delante (`CLAUDE.md` §2.3 y §3.2).
+   `antigravity/`), where identifiers do name it
+   (`createClaudeCodeAdapter`). Outside those folders it's named by the
+   adapter registry and by two modules that work with the files of specific
+   CLIs: the shared memory (`memory-bridge.ts`, which knows Claude Code's slug
+   and each CLI's instructions file) and the one-off importer for the
+   Antigravity IDE (`vault/importers/`). The generic server —terminals, hub,
+   index, socket— talks to the adapter interface and doesn't know which CLI
+   it's dealing with (`CLAUDE.md` §2.3 and §3.2).
 
-Cualquier cambio que roce estos puntos se revisa mirando esos cuatro criterios
-antes que nada.
-
----
-
-## Estilo
-
-- **Español** para conversación, comentarios y documentación.
-  **Inglés** para identificadores y nombres de archivo.
-- **Sin `any` en los tipos del protocolo.** Lo que entra por la red es
-  `unknown` hasta que un parser lo estrecha (`packages/shared/src/validation.ts`).
-- Los comentarios explican **por qué**, no qué. Si un comentario se puede
-  deducir leyendo la línea de abajo, sobra. Si documenta una trampa, vale oro.
-- **Sin dependencias innecesarias.** Cada paquete nuevo se justifica en una
-  línea en el pull request. Hoy la lista completa es: express, ws, node-pty,
-  chokidar en el servidor; react, xterm y highlight.js en la interfaz.
-- Commits chicos con mensajes descriptivos. Una rama por tema.
+Any change that touches these points is reviewed against those four criteria
+before anything else.
 
 ---
 
-## Antes de abrir un pull request
+## Style
+
+- **Spanish** for discussion, code comments and the internal documentation
+  (`CLAUDE.md`, `docs/`). **English** for identifiers, file names, the README
+  and this guide.
+- **Every new UI text goes through `t()`** and into every locale file in
+  `packages/web/src/i18n/locales/` ([below](#adding-a-language)).
+- **No `any` in the protocol types.** Whatever comes in over the network is
+  `unknown` until a parser narrows it (`packages/shared/src/validation.ts`).
+- Comments explain **why**, not what. If a comment can be inferred by reading
+  the line below it, it's redundant. If it documents a pitfall, it's worth its
+  weight in gold.
+- **No unnecessary dependencies.** Each new package is justified in one line in
+  the pull request. Today the full list is: express, ws, node-pty and chokidar
+  on the server; react, xterm and highlight.js in the interface.
+- Small commits with descriptive messages. One branch per topic.
+
+---
+
+## Before opening a pull request
 
 ```bash
-pnpm typecheck   # los tres paquetes
-pnpm check       # chequeos del seguidor de JSONL, del parseo de git y del guardia de rutas
-pnpm build       # que la interfaz compile para producción
+pnpm typecheck   # all three packages
+pnpm check       # checks for the JSONL follower, the git parsing and the path guard
+pnpm build       # the interface must build for production
 ```
 
-`pnpm check` no es una formalidad. Cubre lo que se rompe en silencio:
+`pnpm check` isn't a formality. It covers what breaks silently:
 
-- líneas de JSONL partidas entre dos lecturas y caracteres UTF-8 cortados al
-  medio;
-- el registro de rename de `git status --porcelain=v2`, que se lleva un campo
-  extra y desincroniza el parser entero si no se lo consume;
-- el guardia de rutas, que es lo único que impide que una ruta del cliente lea
-  fuera del directorio de la pestaña.
+- JSONL lines split across two reads and UTF-8 characters cut in half;
+- the rename record of `git status --porcelain=v2`, which carries an extra
+  field and throws the whole parser out of sync if it isn't consumed;
+- the path guard, which is the only thing that stops a path from the client
+  from reading outside the tab's directory.
 
-Si tocás alguna de esas tres zonas, agregá el caso al chequeo correspondiente.
+If you touch any of those three areas, add the case to the corresponding check.
 
 ---
 
-## Probar a mano
+## Testing by hand
 
-Hay cosas que ningún chequeo automático cubre, porque necesitan una CLI real
-respondiendo:
+Some things no automated check covers, because they need a real CLI
+responding:
 
-- que los mensajes nuevos aparezcan en el panel de conversación mientras la CLI
-  escribe;
-- que `Ctrl+V` y `Alt+V` sigan llegando intactos a la CLI (el pegado de
-  imágenes se rompe si alguien intercepta esas teclas);
-- que recargar el navegador conserve los procesos y repinte la pantalla;
-- que cerrar una pestaña realmente termine el proceso, sin dejar huérfanos.
+- that new messages show up in the conversation panel while the CLI writes;
+- that `Ctrl+V` and `Alt+V` still reach the CLI untouched (image pasting breaks
+  if anything intercepts those keys);
+- that reloading the browser keeps the processes and repaints the screen;
+- that closing a tab really ends the process, without leaving orphans.
 
-## Datos de demo y capturas
+## Demo data and screenshots
 
-`pnpm demo` levanta la app con proyectos y conversaciones inventadas, sin tocar
-tu historial ni tu configuración: un home falso con historiales inventados de
-las cuatro CLIs, las cuatro CLIs simuladas primero en el `PATH` —la demo no
-arranca si encuentra una de verdad— y, en Windows, una unidad `W:` montada con
-`subst` para que ninguna ruta lleve tu usuario. Sirve para trabajar en la interfaz con datos estables y para
-verla sin exponer nada propio.
+`pnpm demo` starts the app with made-up projects and conversations, without
+touching your history or your configuration: a fake home with made-up histories
+for all four CLIs, the four simulated CLIs first in the `PATH` —the demo won't
+start if it finds a real one— and, on Windows, a `W:` drive mounted with
+`subst` so no path contains your user name. It's useful for working on the
+interface with stable data and for showing it without exposing anything of your
+own.
 
-`pnpm demo:shots` (después de `pnpm build`) saca las capturas del README con
-ese mismo entorno y el Chrome que tengas instalado. **Las capturas del repo
-salen de ahí y de ningún otro lado**: son públicas, y una captura de tu
-instalación real muestra los nombres de tus proyectos. Si cambiás la interfaz,
-volvé a generarlas con ese comando en vez de reemplazarlas a mano.
+`pnpm demo:shots` (after `pnpm build`) takes the README screenshots with that
+same environment and the Chrome you have installed. **The repo's screenshots
+come from there and nowhere else**: they're public, and a screenshot of your
+real installation shows the names of your projects. If you change the
+interface, regenerate them with that command instead of replacing them by hand.
 
-## Publicar una versión
+## Adding a language
 
-Lo que se publica en npm es `dist-npm/`, que genera `pnpm build:npm` — no el
-repositorio. Sale de la versión del `package.json` de la raíz, así que empezá
-por ahí:
+The interface texts live in `packages/web/src/i18n/locales/`, one flat JSON file
+per language; `en.json` is the reference.
+
+1. Copy `packages/web/src/i18n/locales/en.json` to `<lang>.json`, where `<lang>`
+   is the language's BCP 47 code (`it`, `pt-BR`), and translate every value.
+   Keep the keys, the `{{placeholders}}` and tags like `<code>` untouched.
+   Plural keys end in `_one`, `_few`, `_many` and `_other`: include the forms
+   your language uses, and only those (Russian needs four; Chinese, Japanese
+   and Korean, just `_other`). Keys stay sorted, in `JSON.stringify(…, null, 2)`
+   format.
+2. Add the code to `LOCALES`, `LOCALE_NAMES` (the name in its own language),
+   `LOCALE_BADGES` (the header button), `DEFAULT_FORMAT_TAGS` (the region for
+   dates and numbers) and `LOADERS` in `packages/web/src/i18n/index.ts`, and
+   teach `matchLocale` in `i18n/detect.ts` any regional variant it should
+   accept. A plain code like `it` already matches `it-CH`.
+3. Run `pnpm check`: `check-i18n.mjs` lists missing keys, wrong placeholders and
+   missing plural forms.
+4. Look at it: `pnpm demo:shots --dev --lang <lang>` takes the README
+   screenshots with the interface in your language and leaves them in the
+   system's temp folder (`agent-workbench-shots/<lang>/`). Check that no label
+   is cut off.
+
+Missing texts fall back to English at runtime, but `pnpm check` doesn't pass
+until the file has every key.
+
+## Publishing a release
+
+What gets published to npm is `dist-npm/`, generated by `pnpm build:npm` — not
+the repository. It takes the version from the root `package.json`, so start
+there:
 
 ```bash
-npm version patch --no-git-tag-version   # o minor / major, en la raíz
+npm version patch --no-git-tag-version   # or minor / major, at the root
 pnpm build:npm
-cd dist-npm && npm pack --dry-run        # revisá la lista de archivos
-npm publish                              # pide el segundo factor
+cd dist-npm && npm pack --dry-run        # review the file list
+npm publish                              # asks for the 2FA code
 ```
 
-npm **no deja republicar una versión ya publicada**, ni siquiera idéntica: si
-algo salió mal, se corrige y se sube la siguiente. Por eso conviene mirar
-`npm pack --dry-run` antes, y probar el `.tgz` instalándolo en una carpeta
-vacía:
+npm **doesn't let you republish a version that's already published**, not even
+an identical one: if something went wrong, you fix it and publish the next one.
+That's why it's worth checking `npm pack --dry-run` first, and testing the
+`.tgz` by installing it in an empty folder:
 
 ```bash
 cd dist-npm && npm pack
-mkdir /tmp/prueba && cd /tmp/prueba && npm init -y
-npm install /ruta/al/agent-workbench-<version>.tgz
+mkdir /tmp/test && cd /tmp/test && npm init -y
+npm install /path/to/agent-workbench-<version>.tgz
 ./node_modules/.bin/agent-workbench
 ```
 
 ---
 
-## Qué encaja y qué no
+## What fits and what doesn't
 
-**Encaja:** arreglos de compatibilidad entre plataformas, casos del formato del
-historial que cambian entre versiones de una CLI, accesibilidad, rendimiento con
-repositorios o historiales grandes. Una CLI nueva también, detrás de su propio
-adaptador (`CLAUDE.md` §3.2), con sus lecturas declaradas en §2.1 y un escritor
-de su formato en la demo (§7.3).
+**Fits:** cross-platform compatibility fixes, history-format cases that change
+between versions of a CLI, accessibility, performance with large repositories or
+histories. A new CLI too, behind its own adapter (`CLAUDE.md` §3.2), with its
+reads declared in §2.1 and a writer for its format in the demo (§7.3).
 
-**No encaja:** operaciones de git que escriben (commit, stage, push) desde la
-interfaz —hay un agente editando archivos y la terminal es donde el comando se
-ve antes de ejecutarse—, cualquier forma de autenticación dentro de la app, y
-opciones de configuración que se puedan evitar con un buen valor por defecto.
-La aplicación tiene que ser entendible sin manual: el esfuerzo mental del
-usuario va en su proyecto, no en nuestra herramienta.
+**Doesn't fit:** git operations that write (commit, stage, push) from the
+interface —there's an agent editing files, and the terminal is where the command
+is visible before it runs—, any form of authentication inside the app, and
+configuration options that a good default can avoid. The app has to be
+understandable without a manual: the user's mental effort goes into their
+project, not into our tool.

@@ -37,6 +37,8 @@ import type {
   TerminalId,
 } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 export type MemoryBusy = 'plan' | 'install' | 'import' | null;
 
@@ -81,22 +83,23 @@ export interface MemoryView {
   dismissMessage: () => void;
 }
 
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
+// Los avisos se arman al llegar la respuesta, en el idioma de ese momento: uno
+// que ya esta en pantalla no cambia de idioma hasta que se cierra.
 function installedText(applied: MemoryChange[]): string {
-  if (applied.length === 0) return 'No había nada que cambiar: el puente ya estaba al día.';
-  return `Listo: ${plural(applied.length, 'archivo cambiado', 'archivos cambiados')}.`;
+  if (applied.length === 0) return t('memory.result.nothingChanged');
+  return t('memory.result.installed', { count: applied.length });
 }
 
 function importedText(copied: string[], skipped: string[]): string {
   const head =
     copied.length === 0
-      ? 'No había notas nuevas para importar.'
-      : `Importadas ${plural(copied.length, 'nota', 'notas')}.`;
+      ? t('memory.result.nothingImported')
+      : t('memory.result.imported', { count: copied.length });
   if (skipped.length === 0) return head;
-  return `${head} No se pisaron, porque ya existían con otro contenido: ${skipped.join(', ')}.`;
+  return t('memory.result.withSkipped', {
+    result: head,
+    skipped: t('memory.result.skipped', { count: skipped.length, files: skipped.join(', ') }),
+  });
 }
 
 export function useMemory(connection: AgentConnection, terminalId: TerminalId | null): MemoryView {
@@ -202,7 +205,7 @@ export function useMemory(connection: AgentConnection, terminalId: TerminalId | 
           pending.current.delete(requestId);
           if (kind === 'read') setLoading(null);
           else if (kind !== 'subscribe') setBusy(null);
-          setError(message.message);
+          setError(serverTextMessage(message.text));
           errorFromSubscribe.current = kind === 'subscribe';
           break;
         }
@@ -223,9 +226,7 @@ export function useMemory(connection: AgentConnection, terminalId: TerminalId | 
       if (lost.has('install') || lost.has('import')) {
         plannedOptions.current = null;
         setPlanned(null);
-        setError(
-          'Se cortó la conexión antes de la respuesta. Al reconectar, el estado dice qué quedó escrito.',
-        );
+        setError(t('memory.error.connectionLost'));
       }
     });
 

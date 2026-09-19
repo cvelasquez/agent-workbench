@@ -16,6 +16,7 @@ import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
 import {
   insertionIndex,
+  serverText,
   type AgentId,
   type SessionId,
   type TerminalActivity,
@@ -243,7 +244,7 @@ export class TerminalRegistry extends EventEmitter {
       if (registered === null || registered.location === null) {
         throw new TerminalOpenError(
           'cli-not-found',
-          'La CLI no esta instalada o no se encontro en el PATH.',
+          serverText('cliNotFound'),
         );
       }
       return {
@@ -254,7 +255,7 @@ export class TerminalRegistry extends EventEmitter {
     if (this.shell === null) {
       throw new TerminalOpenError(
         'shell-not-found',
-        'No se encontro ninguna consola del sistema para abrir.',
+        serverText('shellNotFound'),
       );
     }
     return { kind: 'shell', shell: this.shell };
@@ -282,7 +283,7 @@ export class TerminalRegistry extends EventEmitter {
     if (kind === 'agent' && options.agent !== undefined && this.agents.get(options.agent) === null) {
       throw new TerminalOpenError(
         'agent-unsupported',
-        'Este servidor no sabe lanzar esa CLI.',
+        serverText('agentUnknown'),
         options.agent,
       );
     }
@@ -308,7 +309,7 @@ export class TerminalRegistry extends EventEmitter {
     if (this.terminals.size >= MAX_TERMINALS) {
       throw new TerminalOpenError(
         'too-many-terminals',
-        `No se pueden abrir mas de ${MAX_TERMINALS} pestanas a la vez.`,
+        serverText('tooManyTabs', { max: MAX_TERMINALS }),
       );
     }
 
@@ -355,7 +356,7 @@ export class TerminalRegistry extends EventEmitter {
       */
       const spawned = await this.spawn(entry, { resume: resumed });
       if (!spawned) {
-        throw new TerminalOpenError('spawn-failed', 'La pestaña se cerró mientras se abría.');
+        throw new TerminalOpenError('spawn-failed', serverText('tabClosedWhileOpening'));
       }
     } catch (error) {
       if (this.terminals.get(terminalId) === entry) this.terminals.delete(terminalId);
@@ -398,7 +399,7 @@ export class TerminalRegistry extends EventEmitter {
     entry.launching = true;
     try {
       if (action === 'restart' && !(await this.endSessionForRestart(entry))) {
-        throw new TerminalOpenError('spawn-failed', 'No se pudo cerrar la CLI de la pestaña para relanzarla.');
+        throw new TerminalOpenError('spawn-failed', serverText('relaunchCloseFailed'));
       }
       // Cerrada mientras terminaba la CLI vieja: nada que relanzar.
       if (this.terminals.get(terminalId) !== entry) return null;
@@ -451,7 +452,7 @@ export class TerminalRegistry extends EventEmitter {
         resolve(entry.session !== session);
       }, RESTART_EXIT_TIMEOUT_MS);
       this.on('exit', onExit);
-      debugLog('registro', `relanzando ${terminalId.slice(0, 8)}: su servidor se cerro`);
+      debugLog('registry', `relaunching ${terminalId.slice(0, 8)}: its server closed`);
       session.dispose();
     });
   }
@@ -462,10 +463,10 @@ export class TerminalRegistry extends EventEmitter {
     try {
       info = await stat(cwd);
     } catch {
-      throw new TerminalOpenError('invalid-cwd', `El directorio no existe: ${cwd}`);
+      throw new TerminalOpenError('invalid-cwd', serverText('cwdMissing', { cwd }));
     }
     if (!info.isDirectory()) {
-      throw new TerminalOpenError('invalid-cwd', `No es un directorio: ${cwd}`);
+      throw new TerminalOpenError('invalid-cwd', serverText('cwdNotDir', { cwd }));
     }
   }
 
@@ -540,7 +541,7 @@ export class TerminalRegistry extends EventEmitter {
           const listenerCount = target?.listeners.size ?? 0;
           debugLog(
             'pty',
-            `salida ${chunk.length} bytes de ${terminalId.slice(0, 8)}, ${listenerCount} oyentes`,
+            `output ${chunk.length} bytes from ${terminalId.slice(0, 8)}, ${listenerCount} listeners`,
           );
           if (target !== undefined) {
             for (const listener of target.listeners) listener(terminalId, chunk);
@@ -577,7 +578,7 @@ export class TerminalRegistry extends EventEmitter {
     } catch (error) {
       throw new TerminalOpenError(
         'spawn-failed',
-        'No se pudo abrir la terminal.',
+        serverText('terminalOpenFailed'),
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -626,7 +627,7 @@ export class TerminalRegistry extends EventEmitter {
           finished = true;
           const target = this.terminals.get(terminalId);
           if (target !== undefined && hook !== null) target.launchHook.forget(hook);
-          debugLog('registro', `dialogo de reanudar en ${terminalId.slice(0, 8)}: ${outcome}`);
+          debugLog('registry', `resume dialog in ${terminalId.slice(0, 8)}: ${outcome}`);
         },
         reportSessionId: (discovered) => this.reportSessionId(terminalId, discovered),
       });
@@ -787,7 +788,7 @@ export class TerminalRegistry extends EventEmitter {
       const { tab } = saved;
       if ((this.agents.get(tab.agent)?.location ?? null) === null) {
         console.warn(
-          `[workspace] no se restauro la pestana de ${tab.cwd}: su CLI no esta disponible. Se conserva para cuando vuelva.`,
+          `[workspace] the tab of ${tab.cwd} wasn't restored: its CLI isn't available. It's kept for when it's back.`,
         );
         this.unavailableTabs.push({ position, tab });
         continue;
@@ -798,7 +799,7 @@ export class TerminalRegistry extends EventEmitter {
       } catch (error) {
         // Una carpeta que ya no existe no puede frenar la restauracion del resto.
         const reason = error instanceof Error ? error.message : String(error);
-        console.warn(`[workspace] no se restauro la pestana de ${tab.cwd}: ${reason}`);
+        console.warn(`[workspace] the tab of ${tab.cwd} wasn't restored: ${reason}`);
         continue;
       }
 
@@ -891,8 +892,8 @@ export class TerminalRegistry extends EventEmitter {
     entry.listeners.add(listener);
     const replay = entry.buffer.read();
     debugLog(
-      'registro',
-      `attach ${terminalId.slice(0, 8)}: replay de ${replay.length} bytes, ${entry.listeners.size} oyentes`,
+      'registry',
+      `attach ${terminalId.slice(0, 8)}: replay of ${replay.length} bytes, ${entry.listeners.size} listeners`,
     );
     return { replay, truncated: entry.buffer.isTruncated() };
   }

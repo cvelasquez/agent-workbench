@@ -429,7 +429,7 @@ export async function readPreview(cwd: string, relativePath: string): Promise<Fi
 
   const info = await stat(absolute);
   if (info.isDirectory()) {
-    throw new Error('Es un directorio, no un archivo.');
+    throw new Error("It's a directory, not a file.");
   }
 
   const content = await readFile(absolute);

@@ -44,7 +44,7 @@ export function prepareDemo() {
   const configDir = isWindows
     ? path.join(home, 'AppData', 'Roaming', 'agent-workbench')
     : path.join(home, '.config', 'agent-workbench');
-  const projectsRoot = isWindows ? `${DRIVE}\\Proyectos` : path.join(root, 'Proyectos');
+  const projectsRoot = isWindows ? `${DRIVE}\\Projects` : path.join(root, 'Projects');
   // El home de antes, cuando vivia al lado de `root`.
   rmSync(path.join(base, 'home'), { recursive: true, force: true });
   const fixtures = buildFixtures({ root, home, homeView, bin, configDir, projectsRoot });
@@ -61,7 +61,7 @@ function mountDrive(root) {
       .find((line) => line.toUpperCase().startsWith(`${DRIVE}\\: => `));
     const target = mapping?.slice(`${DRIVE}\\: => `.length).trim();
     if (target === undefined || path.resolve(target).toLowerCase() !== path.resolve(root).toLowerCase()) {
-      throw new Error(`La unidad ${DRIVE} ya existe y no es de la demo. Liberala o cambia DRIVE en scripts/demo/environment.mjs.`);
+      throw new Error(`Drive ${DRIVE} already exists and isn't the demo's. Free it or change DRIVE in scripts/demo/environment.mjs.`);
     }
     execFileSync('subst', [DRIVE, '/D']);
   }
@@ -82,12 +82,12 @@ function mountDrive(root) {
  *   `prod` sirve `packages/web/dist` y necesita un `pnpm build` previo; `dev`
  *   monta Vite y recarga en caliente.
  * @returns {Promise<{ url: string, availableAgents: string[], historyLines: string[], demo: ReturnType<typeof prepareDemo>, stop: () => void }>}
- *   `availableAgents`: los ids de la linea `CLIs disponibles` del arranque.
- *   `historyLines`: las lineas `Historial` del arranque (una base de otra CLI).
+ *   `availableAgents`: los ids de la linea `Available CLIs` del arranque.
+ *   `historyLines`: las lineas `History` del arranque (una base de otra CLI).
  */
 export async function startDemoServer({ mode, openBrowser }) {
   if (mode === 'prod' && !existsSync(path.join(repoRoot, 'packages', 'web', 'dist', 'index.html'))) {
-    throw new Error('Falta packages/web/dist: corre "pnpm build" antes.');
+    throw new Error('packages/web/dist is missing: run "pnpm build" first.');
   }
 
   const demo = prepareDemo();
@@ -129,8 +129,8 @@ export async function startDemoServer({ mode, openBrowser }) {
   process.on('exit', stop);
 
   /*
-    Se espera la URL y el bloque de arranque entero: la linea `CLIs disponibles`
-    y las de `Historial` las imprime el mismo arranque, pero pueden llegar en
+    Se espera la URL y el bloque de arranque entero: la linea `Available CLIs`
+    y las de `History` las imprime el mismo arranque, pero pueden llegar en
     otro trozo de la salida. Sin ellas no se sabe que CLIs ni que historiales
     vio el servidor.
   */
@@ -140,7 +140,7 @@ export async function startDemoServer({ mode, openBrowser }) {
     const timer = setTimeout(() => {
       settled = true;
       stop();
-      reject(new Error('El servidor no imprimio la URL y las CLIs disponibles en 60 s.'));
+      reject(new Error("The server didn't print the URL and the available CLIs within 60 s."));
     }, 60_000);
     server.stdout.on('data', (chunk) => {
       process.stdout.write(chunk);
@@ -159,7 +159,7 @@ export async function startDemoServer({ mode, openBrowser }) {
       clearTimeout(timer);
       if (settled) return;
       settled = true;
-      reject(new Error(`El servidor termino con codigo ${code} antes de imprimir la URL.`));
+      reject(new Error(`The server exited with code ${code} before printing the URL.`));
     });
   });
 

@@ -13,3 +13,4 @@ export * from './project-key.js';
 export * from './vault.js';
 export * from './search.js';
 export * from './tab-order.js';
+export * from './server-text.js';

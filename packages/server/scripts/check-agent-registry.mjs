@@ -19,6 +19,12 @@
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as esText } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'aw-agents-'));
 const home = path.join(root, 'home');
@@ -291,7 +297,7 @@ check(
 {
   const { PROTOCOL_VERSION, parseServerMessage, parseClientMessage } = shared;
   // La 7 es la de la copia propia (hito 28); el `hello` de abajo es el de la 6, que no cambio.
-  check('el protocolo es la version 7', PROTOCOL_VERSION === 7, String(PROTOCOL_VERSION));
+  check('el protocolo es la version 8 (hito 34: los errores traen una clave, no una frase)', PROTOCOL_VERSION === 8, String(PROTOCOL_VERSION));
 
   const agentInfo = (overrides = {}) => ({
     id: 'claude-code', label: 'Claude Code', command: 'claude', available: true, version: '2.1.263',
@@ -330,11 +336,13 @@ check(
   check('terminal.activity con un estado inventado sigue siendo invalido',
     parseServerMessage(JSON.stringify({ type: 'terminal.activity', terminalId: 't1', activity: 'dormida' })) === null);
 
-  const unsupported = parseServerMessage(JSON.stringify({ type: 'error', code: 'agent-unsupported', message: 'no', requestId: 'r1' }));
+  const unsupported = parseServerMessage(JSON.stringify({ type: 'error', code: 'agent-unsupported', text: { key: 'agentUnknown' }, requestId: 'r1' }));
   check('error agent-unsupported no cae a internal', unsupported?.type === 'error' && unsupported.code === 'agent-unsupported' && unsupported.requestId === 'r1',
     JSON.stringify(unsupported));
   check('un codigo que no se conoce si cae a internal',
-    parseServerMessage(JSON.stringify({ type: 'error', code: 'otro-codigo', message: 'no' }))?.code === 'internal');
+    parseServerMessage(JSON.stringify({ type: 'error', code: 'otro-codigo', text: { key: 'agentUnknown' } }))?.code === 'internal');
+  check('un error sin clave (un servidor anterior) no se lee',
+    parseServerMessage(JSON.stringify({ type: 'error', code: 'internal', message: 'no' })) === null);
 
   const open = (extra) => parseClientMessage(JSON.stringify({ type: 'terminal.open', requestId: 'r', cwd: 'D:\\p', ...extra }));
   const withAgent = open({ agent: 'claude-code' });
@@ -404,7 +412,7 @@ check(
 
   check('29 continue-failed es un codigo de error y no cae a internal',
     SERVER_ERROR_CODES.includes('continue-failed') &&
-    parseServerMessage(JSON.stringify({ type: 'error', code: 'continue-failed', message: 'no', requestId: 'r9' }))?.code === 'continue-failed');
+    parseServerMessage(JSON.stringify({ type: 'error', code: 'continue-failed', text: { key: 'continueFailed' }, requestId: 'r9' }))?.code === 'continue-failed');
 }
 
 // ---------------------------------------------------------------------------
@@ -429,9 +437,10 @@ check(
   check('una CLI instalada sin version conocida: null, como antes',
     summarizeAgents([info({ version: null })], true).cliVersion === null);
 
-  const absent = summarizeAgents([info({ available: false, version: null, missingMessage: 'No se encontro "claude".' })], true);
+  const raw = (text) => ({ key: 'raw', params: { text } });
+  const absent = summarizeAgents([info({ available: false, version: null, missingMessage: raw('No se encontró "claude".') })], true);
   check('una CLI ausente: no disponible y su texto tal cual',
-    absent.cliAvailable === false && absent.cliVersion === null && absent.cliMissingMessage === 'No se encontro "claude".',
+    absent.cliAvailable === false && absent.cliVersion === null && absent.cliMissingMessage === 'No se encontró "claude".',
     JSON.stringify(absent));
 
   const marker = summarizeAgents([info({ environmentNotice: 'child-session-marker' })], true);
@@ -439,13 +448,13 @@ check(
 
   const two = summarizeAgents([info(), info({ label: 'Otra', version: null })], true);
   check('dos instaladas: cada version con su nombre', two.cliVersion === 'Claude Code 2.1.263 · Otra ?', String(two.cliVersion));
-  const oneOfTwo = summarizeAgents([info({ available: false, missingMessage: 'falta' }), info({ label: 'Otra', version: '1' })], true);
+  const oneOfTwo = summarizeAgents([info({ available: false, missingMessage: raw('falta') }), info({ label: 'Otra', version: '1' })], true);
   check('una de dos instalada: sin cartel, y la version sin nombre',
     oneOfTwo.cliAvailable === true && oneOfTwo.cliMissingMessage === null && oneOfTwo.cliVersion === '1', JSON.stringify(oneOfTwo));
   // Hito 25 (A6): con ninguna instalada, el texto de la primera y las demas por
   // nombre. No las instrucciones de instalar cada una.
-  const noneOfTwo = summarizeAgents([info({ available: false, missingMessage: 'falta a' }), info({ label: 'Otra', available: false, missingMessage: 'falta b' })], true);
-  check('ninguna de dos: el texto de la primera y las demas por nombre', noneOfTwo.cliMissingMessage === 'falta a\nTambien funciona con: Otra', JSON.stringify(noneOfTwo));
+  const noneOfTwo = summarizeAgents([info({ available: false, missingMessage: raw('falta a') }), info({ label: 'Otra', available: false, missingMessage: raw('falta b') })], true);
+  check('ninguna de dos: el texto de la primera y las demas por nombre', noneOfTwo.cliMissingMessage === 'falta a\nTambién funciona con: Otra', JSON.stringify(noneOfTwo));
   const empty = summarizeAgents([], true);
   check('hello sin CLIs: no disponible y sin texto que mostrar', empty.cliAvailable === false && empty.cliMissingMessage === null);
 
@@ -460,19 +469,23 @@ check(
   const outdated = summarizeAgents(legacyHello.agents, true, legacyHello.protocolVersion);
   check('hello v5 de un servidor sin reiniciar: un cartel que pide reiniciarlo, no la app apagada en silencio',
     outdated.cliAvailable === false && typeof outdated.cliMissingMessage === 'string' &&
-    /version anterior/.test(outdated.cliMissingMessage) && /Reinicialo/.test(outdated.cliMissingMessage) &&
+    /versión anterior/.test(outdated.cliMissingMessage) && /Reinícialo/.test(outdated.cliMissingMessage) &&
     outdated.cliMissingMessage.includes('protocolo 5') && outdated.cliVersion === null && outdated.environmentNotice === null,
     JSON.stringify(outdated));
   const outdatedWithAgents = summarizeAgents([info()], true, PROTOCOL_VERSION - 1);
   check('el cartel de servidor anterior gana aunque el hello traiga CLIs',
-    outdatedWithAgents.cliAvailable === false && /version anterior/.test(outdatedWithAgents.cliMissingMessage ?? ''),
+    outdatedWithAgents.cliAvailable === false && /versión anterior/.test(outdatedWithAgents.cliMissingMessage ?? ''),
     JSON.stringify(outdatedWithAgents));
   check('antes de hello la version no se mira: arranque optimista igual',
     summarizeAgents([], false, 0).cliAvailable === true && summarizeAgents([], false, 0).cliMissingMessage === null);
   const current = summarizeAgents([info()], true, PROTOCOL_VERSION);
   const newer = summarizeAgents([info()], true, PROTOCOL_VERSION + 1);
-  check('hello de esta version, o de una mas nueva: lo de siempre, sin cartel',
-    sameShape(current, one) && sameShape(newer, one), JSON.stringify({ current, newer }));
+  check('hello de esta version: lo de siempre, sin cartel', sameShape(current, one), JSON.stringify(current));
+  // Hito 34 (D11): la pagina quedo de antes y el servidor ya es el nuevo. Sus
+  // errores tienen otra forma, y sin el cartel se perderian callados.
+  check('hello de un servidor mas nuevo: un cartel que pide recargar con F5',
+    newer.cliAvailable === false && /más nueva/.test(newer.cliMissingMessage ?? '') && /F5/.test(newer.cliMissingMessage ?? ''),
+    JSON.stringify(newer));
 }
 
 // ---------------------------------------------------------------------------
@@ -541,7 +554,7 @@ const assistantLine = (id, model, tokens) => line({
       running -= 1;
       return found ? { resolvedPath: `/bin/${id}`, file: `/bin/${id}`, prefixArgs: [], version: `${id} 1.0` } : null;
     },
-    missingMessage: () => `falta ${id}`,
+    missingMessage: () => ({ key: 'raw', params: { text: `falta ${id}` } }),
     launch: () => { throw new Error('no se lanza en el chequeo'); },
     environment(base) {
       const env = {};
@@ -571,7 +584,7 @@ const assistantLine = (id, model, tokens) => line({
   const listed = registry.list();
   check('list sigue el orden de registro', listed.map((a) => a.id).join(',') === 'fake-a,fake-b');
   check('missingMessage solo en la ausente',
-    listed[0].missingMessage === 'falta fake-a' && listed[0].available === false &&
+    esText(listed[0].missingMessage) === 'falta fake-a' && listed[0].available === false &&
     listed[1].missingMessage === null && listed[1].available === true);
   check('version de la ubicacion, o null', listed[0].version === null && listed[1].version === 'fake-b 1.0');
 
@@ -633,11 +646,12 @@ const adapter = createClaudeCodeAdapter();
   check('id, comando y etiqueta', adapter.id === 'claude-code' && adapter.command === 'claude' && adapter.label === 'Claude Code');
   check('AGENT_IDS nombra al adaptador', AGENT_IDS.includes(adapter.id));
 
+  // El de antes, con sus tildes y en tuteo (§6.23).
   const missingToday =
-    'No se encontro el comando "claude" en el PATH. ' +
+    'No se encontró el comando "claude" en el PATH. ' +
     'Agent Workbench usa la CLI que ya tengas instalada: no la incluye ni la descarga. ' +
-    'Instalala desde https://docs.claude.com/en/docs/claude-code/setup y volve a arrancar.';
-  check('missingMessage igual, byte por byte, al de antes', adapter.missingMessage() === missingToday, adapter.missingMessage());
+    'Instálala desde https://docs.claude.com/en/docs/claude-code/setup y vuelve a arrancar.';
+  check('missingMessage igual, byte por byte, al de antes', esText(adapter.missingMessage()) === missingToday, esText(adapter.missingMessage()));
 
   const location = { resolvedPath: '/bin/claude', file: '/bin/claude', prefixArgs: [], version: '2.1.263' };
   const fresh = adapter.launch({ location, cwd: '/p', resumeSessionId: null, proposedSessionId: 'nuevo' });
@@ -880,7 +894,7 @@ const adapter = createClaudeCodeAdapter();
     check('sin la CLI: hello la anuncia ausente y sin CLI por defecto',
       absent.agents.length === 1 && absent.agents[0].available === false && absent.defaultAgent === null, JSON.stringify(absent.agents));
     check('sin la CLI: el cartel dice el texto de siempre, byte por byte',
-      absentSummary.cliAvailable === false && absentSummary.cliMissingMessage === real.missingMessage(), String(absentSummary.cliMissingMessage));
+      absentSummary.cliAvailable === false && absentSummary.cliMissingMessage === esText(real.missingMessage()), String(absentSummary.cliMissingMessage));
 
     agents.get('claude-code').location = { resolvedPath: '/bin/claude', file: '/bin/claude', prefixArgs: [], version: '2.1.263' };
     const present = helloFrom();
@@ -912,7 +926,7 @@ const adapter = createClaudeCodeAdapter();
 // veia antes, texto por texto.
 
 {
-  const { encodeServerMessage, parseServerMessage, PERMISSION_MODE_HINT, PERMISSION_MODE_LABEL } = shared;
+  const { encodeServerMessage, parseServerMessage } = shared;
   const ui = await import('../../web/src/agent-ui.ts');
   const real = createClaudeCodeAdapter();
   const agents = new AgentRegistry([real]);
@@ -972,13 +986,18 @@ const adapter = createClaudeCodeAdapter();
   check('el modo de arranque sale de la capacidad, no de una constante',
     ui.shownMode(null, { ...cycle, launchMode: 'plan' }) === 'plan');
   check('con observacion se muestra lo observado', ui.shownMode('plan', cycle) === 'plan');
+  // Los de antes, con las tildes que les faltaban (§6.23).
+  const modeTitles = {
+    auto: 'Modo Automático: La CLI decide sola qué herramientas usar sin preguntar. Cambiarlo manda shift+tab a la pestaña CLI',
+    default: 'Modo Manual: Pregunta antes de cada herramienta que no esté permitida. Cambiarlo manda shift+tab a la pestaña CLI',
+    acceptEdits: 'Modo Aceptar ediciones: Acepta las ediciones de archivos sin preguntar. Cambiarlo manda shift+tab a la pestaña CLI',
+    plan: 'Modo Plan: Investiga y propone un plan, sin tocar nada hasta que lo apruebes. Cambiarlo manda shift+tab a la pestaña CLI',
+  };
   check('titulo del combo de modo igual al de antes',
-    ui.modeTitle('auto', cycle) ===
-      'Modo Automatico: La CLI decide sola que herramientas usar sin preguntar. Cambiarlo manda shift+tab a la pestaña CLI',
-    ui.modeTitle('auto', cycle));
+    ui.modeTitle('auto', cycle) === modeTitles.auto, ui.modeTitle('auto', cycle));
   check('titulo de cada modo con la plantilla de antes',
-    PERMISSION_MODE_CYCLE.every((mode) => ui.modeTitle(mode, cycle) ===
-      `Modo ${PERMISSION_MODE_LABEL[mode]}: ${PERMISSION_MODE_HINT[mode]}. Cambiarlo manda shift+tab a la pestaña CLI`));
+    PERMISSION_MODE_CYCLE.every((mode) => ui.modeTitle(mode, cycle) === modeTitles[mode]),
+    PERMISSION_MODE_CYCLE.map((mode) => ui.modeTitle(mode, cycle)).join(' | '));
   check('la tecla del titulo sale de la capacidad', ui.modeTitle('plan', { ...cycle, keyLabel: 'tab' }).endsWith('manda tab a la pestaña CLI'));
 
   // --- Solapas (M8: Memoria no se filtra) ---
@@ -1032,9 +1051,9 @@ const adapter = createClaudeCodeAdapter();
 
   // --- Medidor (M7) ---
   check('archivo de instrucciones de claude-code', ui.instructionsFileFor('claude-code') === 'CLAUDE.md' && ui.instructionsFileFor(null) === null);
-  check('titulo del medidor vacio igual al de antes',
+  check('titulo del medidor vacio igual al de antes, con sus tildes',
     ui.meterIdleDetail('CLAUDE.md') ===
-      'La sesion todavia no midio ninguna respuesta. No arranca en cero: el prompt de sistema, las herramientas y el CLAUDE.md ya ocupan contexto, y el numero real aparece con la primera respuesta.',
+      'La sesión todavía no midió ninguna respuesta. No arranca en cero: el prompt de sistema, las herramientas y el CLAUDE.md ya ocupan contexto, y el número real aparece con la primera respuesta.',
     ui.meterIdleDetail('CLAUDE.md'));
   check('titulo del medidor vacio sin archivo conocido: no nombra ninguno',
     !ui.meterIdleDetail(null).includes('CLAUDE.md') && ui.meterIdleDetail(null).includes('instrucciones'));
@@ -1055,12 +1074,12 @@ const adapter = createClaudeCodeAdapter();
 
   // --- Mandar una nota (M6) ---
   check('nota sin pestana: el titulo de antes',
-    ui.noteSendTitle(false, null, false) === 'Abri una pestana primero: la conversacion se abre en su proyecto');
-  check('nota vacia: el titulo de antes', ui.noteSendTitle(true, 'D:\\p', true) === 'La nota esta vacia');
+    ui.noteSendTitle(false, null, false) === 'Abre una pestaña primero: la conversación se abre en su proyecto');
+  check('nota vacia: el titulo de antes', ui.noteSendTitle(true, 'D:\\p', true) === 'La nota está vacía');
   check('nota lista: el titulo de antes',
-    ui.noteSendTitle(true, 'D:\\p', false) === 'Mandar la nota al agente en una conversacion nueva de D:\\p');
+    ui.noteSendTitle(true, 'D:\\p', false) === 'Mandar la nota al agente en una conversación nueva de D:\\p');
   check('nota con una CLI que no avisa cuando esta lista: lo dice, no pide abrir una pestana',
-    ui.noteSendTitle(false, 'D:\\p', false).includes('no avisa') && !ui.noteSendTitle(false, 'D:\\p', false).startsWith('Abri'));
+    ui.noteSendTitle(false, 'D:\\p', false).includes('no avisa') && !ui.noteSendTitle(false, 'D:\\p', false).startsWith('Abre'));
 
 
   // --- La pestana provisional (hito 31) ---
@@ -1114,7 +1133,7 @@ const adapter = createClaudeCodeAdapter();
     !ui.openBlockedFor([pending('r1', A)], B, 'win32'));
   check('sin pedidos, nunca', !ui.openBlockedFor([], A, 'win32'));
   check('el titulo del + bloqueado',
-    ui.OPEN_BLOCKED_TITLE === 'Abriendo una pestaña en este proyecto…', ui.OPEN_BLOCKED_TITLE);
+    ui.openBlockedTitle() === 'Abriendo una pestaña en este proyecto…', ui.openBlockedTitle());
   check('el plazo de seguridad es mas del doble del peor lanzamiento medido',
     ui.PENDING_OPEN_TIMEOUT_MS === 20000, String(ui.PENDING_OPEN_TIMEOUT_MS));
 
@@ -1149,7 +1168,7 @@ const adapter = createClaudeCodeAdapter();
   };
   const entered = await rejection(() => pickers.enter(listing.pickerId, '.claude'));
   check('no se puede entrar a la carpeta de la CLI: ni siquiera esta en el listado',
-    entered instanceof DirectoryPickerError && /no esta en el listado/.test(entered.message), String(entered?.message));
+    entered instanceof DirectoryPickerError && /no está en el listado/.test(esText(entered.text)), String(entered?.message));
 
   // La proteccion de `enter` es una segunda defensa: por el listado no se
   // llega nunca, porque lo protegido no se lista. Para probarla hace falta
@@ -1162,12 +1181,12 @@ const adapter = createClaudeCodeAdapter();
   lateProtected.push(path.join(home, 'proyecto-visible'));
   const lateEntered = await rejection(() => latePickers.enter(lateListing.pickerId, 'proyecto-visible'));
   check('enter rechaza una carpeta protegida aunque estuviera en el listado: lo frena la proteccion',
-    lateEntered instanceof DirectoryPickerError && /es de la CLI/.test(lateEntered.message), String(lateEntered?.message));
+    lateEntered instanceof DirectoryPickerError && /es de la CLI/.test(esText(lateEntered.text)), String(lateEntered?.message));
   check('y el selector no se movio', latePickers.currentPath(lateListing.pickerId) === home, String(latePickers.currentPath(lateListing.pickerId)));
   latePickers.closeAll();
   const created = await rejection(() => pickers.create(listing.pickerId, '.claude'));
   check('ni crear una carpeta con su ruta: lo frena la proteccion, no el disco',
-    created instanceof DirectoryPickerError && /carpeta de la CLI/.test(created.message), String(created?.message));
+    created instanceof DirectoryPickerError && /carpeta de la CLI/.test(esText(created.text)), String(created?.message));
   pickers.closeAll();
   real.dispose();
 }
@@ -1485,7 +1504,7 @@ const recordHub = (hub) => {
   const bareAdapter = {
     id: 'cli-pelada', label: 'Pelada', command: 'pelada', installUrl: 'https://example.com',
     capabilities: NO_CAPABILITIES,
-    locate: async () => null, missingMessage: () => 'falta', launch: () => { throw new Error('no'); },
+    locate: async () => null, missingMessage: () => ({ key: 'raw', params: { text: 'falta' } }), launch: () => { throw new Error('no'); },
     environment: (base) => ({ env: { ...base }, notice: null }), onSpawned: () => null,
     history: {
       roots: () => [], list: async () => null, changedRefs: async () => null, item: async () => null,

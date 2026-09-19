@@ -32,14 +32,14 @@ const MAX_TOTAL_POLLS = 20;
 
 export class UnsupportedHistoryError extends Error {
   constructor(label: string) {
-    super(`${label}: la fuente no declara que su seguidor respete los topes de la copia (wholeRead)`);
+    super(`${label}: the source doesn't declare that its follower respects the local copy's limits (wholeRead)`);
     this.name = 'UnsupportedHistoryError';
   }
 }
 
 export class PagedHistoryError extends Error {
   constructor(label: string, events: number) {
-    super(`${label}: el seguidor pagino con maxEvents infinito (${events} eventos y hay mas)`);
+    super(`${label}: the follower paged with infinite maxEvents (${events} ${events === 1 ? 'event' : 'events'} and more left)`);
     this.name = 'PagedHistoryError';
   }
 }

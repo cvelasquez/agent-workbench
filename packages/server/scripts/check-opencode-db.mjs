@@ -55,6 +55,12 @@ import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:f
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as es } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'aw-opencode-'));
 const home = path.join(root, 'home');
@@ -224,11 +230,11 @@ const unknownPart = { kind: 'parte-del-futuro', x: 1 };
   const origin = (source, contextWindow, contextWindowEstimated) =>
     webUi.meterWindowOrigin(source, { contextWindow, contextWindowEstimated });
   check('1 medidor: con catalogo y ventana, el titulo dice de donde sale el limite',
-    origin('usage-with-catalog', 200000, false) === 'limite del catalogo de modelos de la CLI');
+    origin('usage-with-catalog', 200000, false) === 'límite del catálogo de modelos de la CLI');
   check('1 medidor: con catalogo y sin ventana, nada que decir', origin('usage-with-catalog', null, false) === null);
   check('1 medidor: con variantes, lo de siempre (solo la cota deducida)',
     origin('usage-with-variants', 200000, false) === null &&
-    origin('usage-with-variants', 1000000, true) === 'limite deducido de los tokens medidos' &&
+    origin('usage-with-variants', 1000000, true) === 'límite deducido de los tokens medidos' &&
     origin('token-count', 258400, false) === null);
 }
 
@@ -991,7 +997,7 @@ const followerOf = (db, sessionId, extra = {}) => new OpenCodeSessionFollower({ 
   check('10 sesion inexistente: waiting, sin reset', nobody.getState() === 'waiting' && !nobodyPoll.reset && nobodyPoll.added.length === 0);
   const empty = followerOf(db, '');
   await empty.poll();
-  check('10 sin sesion todavia: waiting', empty.getState() === 'waiting' && empty.label.endsWith('(sin sesion)'));
+  check('10 sin sesion todavia: waiting', empty.getState() === 'waiting' && empty.label.endsWith('(no session)'));
 
   // Tandas: nueve mensajes de 100 partes.
   base.insertSession({ id: 'ses_lote', directory: 'D:/Otro', title: 'Lote', time_created: 6000, time_updated: 6000 });
@@ -1323,7 +1329,7 @@ const historyOf = (file, extra = {}) => {
   }) && adapter.input === OPENCODE_INPUT && adapter.input.imageReference === adapter.capabilities.imagesByPath, show(adapter.input));
   check('13 id, etiqueta, comando y enlace', adapter.id === 'opencode' && adapter.label === 'OpenCode' && adapter.command === 'opencode' &&
     adapter.installUrl === 'https://opencode.ai/docs/' && OPENCODE_INSTALL_URL === adapter.installUrl);
-  check('13 el texto de no instalada nombra el comando y el enlace', adapter.missingMessage().includes('"opencode"') && adapter.missingMessage().includes(OPENCODE_INSTALL_URL));
+  check('13 el texto de no instalada nombra el comando y el enlace', es(adapter.missingMessage()).includes('"opencode"') && es(adapter.missingMessage()).includes(OPENCODE_INSTALL_URL));
   // Desde el hito 27 detras de OpenCode va Antigravity: lo que importa es que no se movio de lugar.
   check('13 AGENT_IDS nombra al adaptador, detras de codex', shared.AGENT_IDS.indexOf('opencode') === 2 && shared.MEMORY_AGENT_IDS.includes('opencode'));
 
@@ -1346,7 +1352,7 @@ const historyOf = (file, extra = {}) => {
       return error instanceof Error ? error.message : String(error);
     }
   });
-  const accepted = hostile.filter((_, index) => outcomes[index] !== 'Id de sesion de OpenCode invalido.');
+  const accepted = hostile.filter((_, index) => outcomes[index] !== 'Invalid OpenCode session id.');
   check('13 un id con &, comillas, espacio, ^, salto de linea, corto o que no es ses_ lanza sincronico y no llega a los argumentos (A1, M1b)',
     same(accepted, []), show(accepted));
   await flushAsync();
@@ -1515,28 +1521,29 @@ const historyOf = (file, extra = {}) => {
   const { createCodexAdapter } = await import('../src/agents/codex/index.ts');
   const claude = (extra = {}) => ({ id: 'claude-code', label: 'Claude Code', version: '2.1.263', resolvedPath: '/bin/claude', missingMessage: null, ...extra });
   const opencode = (extra = {}) => ({ id: 'opencode', label: 'OpenCode', version: '1.18.30', resolvedPath: '/bin/opencode', missingMessage: null, ...extra });
-  const missing = { resolvedPath: null, version: null, missingMessage: 'falta' };
+  const missing = { resolvedPath: null, version: null, missingMessage: { key: 'raw', params: { text: 'falta' } } };
 
-  check('8 el rotulo de la linea es Historial', HISTORY_LABEL === 'Historial');
+  // La consola del servidor esta en ingles desde el hito 34 (D19).
+  check('8 el rotulo de la linea es History', HISTORY_LABEL === 'History');
   const plain = startupAgentLines([claude()]);
   check('8 sin nota, las lineas de siempre (con el campo ausente o en null)',
     same(startupAgentLines([claude({ historyNote: null }), opencode({ ...missing, historyNote: null })]), plain) &&
-    same(plain, ['  CLIs disponibles  claude-code', '  CLI          2.1.263', '  Binario      /bin/claude']), show(plain));
-  const notInstalled = startupAgentLines([claude(), opencode({ ...missing, historyNote: 'D:\\datos\\opencode.db (solo lectura)' })]);
+    same(plain, ['  Available CLIs  claude-code', '  CLI          2.1.263', '  Binary       /bin/claude']), show(plain));
+  const notInstalled = startupAgentLines([claude(), opencode({ ...missing, historyNote: 'D:\\datos\\opencode.db (read-only)' })]);
   check('8 OpenCode sin instalar y con base: las de siempre y al final la del historial, con su nombre',
-    same(notInstalled, [...plain, '  Historial (OpenCode)  D:\\datos\\opencode.db (solo lectura)']), show(notInstalled));
-  const both = startupAgentLines([claude(), opencode({ historyNote: 'D:\\datos\\opencode.db (solo lectura)' })]);
+    same(notInstalled, [...plain, '  History (OpenCode)  D:\\datos\\opencode.db (read-only)']), show(notInstalled));
+  const both = startupAgentLines([claude(), opencode({ historyNote: 'D:\\datos\\opencode.db (read-only)' })]);
   check('8 con las dos instaladas, la del historial debajo de las de OpenCode', same(both, [
-    '  CLIs disponibles  claude-code, opencode',
-    '  CLI (Claude Code)  2.1.263', '  Binario      /bin/claude',
-    '  CLI (OpenCode)  1.18.30', '  Binario      /bin/opencode', '  Historial    D:\\datos\\opencode.db (solo lectura)',
+    '  Available CLIs  claude-code, opencode',
+    '  CLI (Claude Code)  2.1.263', '  Binary       /bin/claude',
+    '  CLI (OpenCode)  1.18.30', '  Binary       /bin/opencode', '  History      D:\\datos\\opencode.db (read-only)',
   ]), show(both));
-  const alone = startupAgentLines([claude(missing), opencode({ historyNote: 'x (solo lectura)' })]);
+  const alone = startupAgentLines([claude(missing), opencode({ historyNote: 'x (read-only)' })]);
   check('8 con OpenCode sola, sin nombre, como cualquier CLI sola', same(alone, [
-    '  CLIs disponibles  opencode', '  CLI          1.18.30', '  Binario      /bin/opencode', '  Historial    x (solo lectura)',
+    '  Available CLIs  opencode', '  CLI          1.18.30', '  Binary       /bin/opencode', '  History      x (read-only)',
   ]), show(alone));
-  const nothing = startupAgentLines([claude(missing), opencode({ ...missing, historyNote: 'x (solo lectura)' })]);
-  check('8 sin ninguna CLI, la del historial al final', nothing.at(-1) === '  Historial (OpenCode)  x (solo lectura)' && nothing.includes('  Tambien funciona con: OpenCode'), show(nothing));
+  const nothing = startupAgentLines([claude(missing), opencode({ ...missing, historyNote: 'x (read-only)' })]);
+  check('8 sin ninguna CLI, la del historial al final', nothing.at(-1) === '  History (OpenCode)  x (read-only)' && nothing.includes('  Also works with: OpenCode'), show(nothing));
 
   const noteDir = path.join(root, 'c8-arranque');
   await mkdir(noteDir, { recursive: true });
@@ -1552,16 +1559,16 @@ const historyOf = (file, extra = {}) => {
   };
   const noSqlite = () => unavailable;
   check('8 con base: la ruta y que es de solo lectura, instalada o no',
-    note({ OPENCODE_DB: presentDb.file }, null, false) === `${presentDb.file} (solo lectura)` && note({ OPENCODE_DB: presentDb.file }, null, true) === `${presentDb.file} (solo lectura)`);
+    note({ OPENCODE_DB: presentDb.file }, null, false) === `${presentDb.file} (read-only)` && note({ OPENCODE_DB: presentDb.file }, null, true) === `${presentDb.file} (read-only)`);
   check('8 sin base: nada, instalada o no (quien no usa OpenCode no ve una linea nueva)',
     note({ OPENCODE_DB: absentDb }, null, false) === null && note({ OPENCODE_DB: absentDb }, null, true) === null && !existsSync(path.dirname(absentDb)));
   check('8 sin base por defecto en el home de prueba: nada', note({}, null, false) === null);
   const oldNode = note({ OPENCODE_DB: presentDb.file }, noSqlite, false);
   check('8 sin node:sqlite y con base: el aviso de la version, que nombra 22.13',
-    typeof oldNode === 'string' && oldNode.includes('22.13') && oldNode.includes('OpenCode') && oldNode.startsWith('no se lee'), String(oldNode));
+    typeof oldNode === 'string' && oldNode.includes('22.13') && oldNode.includes('OpenCode') && oldNode.startsWith('not read'), String(oldNode));
   check('8 sin node:sqlite, sin base y sin la CLI: nada; con la CLI instalada: el aviso',
     note({ OPENCODE_DB: absentDb }, noSqlite, false) === null && (note({ OPENCODE_DB: absentDb }, noSqlite, true) ?? '').includes('22.13'));
-  check('8 con la base en memoria: que no hay nada que leer', note({ OPENCODE_DB: ':memory:' }, null, false) === 'en memoria (no hay nada que leer)');
+  check('8 con la base en memoria: que no hay nada que leer', note({ OPENCODE_DB: ':memory:' }, null, false) === 'in memory (nothing to read)');
   presentDb.close();
 
   const claudeAdapter = createClaudeCodeAdapter();
@@ -1593,23 +1600,23 @@ const historyOf = (file, extra = {}) => {
   check('8 demo: el adaptador de OpenCode no anuncia ningun historial', demoAdapter.startupHistoryNote(false) === null);
   demoAdapter.dispose();
 
-  const startupOf = (agents) => ['  URL          http://127.0.0.1:1/?token=x', '  Modo         produccion', ...startupAgentLines(agents), '  Consola      C:\\x\\pwsh.exe'].join('\n');
+  const startupOf = (agents) => ['  URL          http://127.0.0.1:1/?token=x', '  Mode         production', ...startupAgentLines(agents), '  Console      C:\\x\\pwsh.exe'].join('\n');
   const clean = startupOf([claude(), opencode({ ...missing, historyNote: null })]);
-  check('8 demo: el bloque de arranque esta completo recien con la linea Consola',
-    demo.startupBlockComplete(clean) && !demo.startupBlockComplete(clean.slice(0, clean.indexOf('  Consola'))));
+  check('8 demo: el bloque de arranque esta completo recien con la linea Console',
+    demo.startupBlockComplete(clean) && !demo.startupBlockComplete(clean.slice(0, clean.indexOf('  Console'))));
   check('8 demo: un arranque sin base no trae lineas de historial, y se captura',
     same(demo.historyLinesFromStartup(clean), []) && !throwsOn(() => demo.assertDemoHistory(demo.historyLinesFromStartup(clean), demoHome)));
-  const withBase = startupOf([claude(), opencode({ ...missing, historyNote: 'D:\\datos\\opencode.db (solo lectura)' })]);
+  const withBase = startupOf([claude(), opencode({ ...missing, historyNote: 'D:\\datos\\opencode.db (read-only)' })]);
   const historyLines = demo.historyLinesFromStartup(withBase);
   check('8 demo: con una base de OpenCode de verdad a mano, la linea se ve y no se captura',
-    same(historyLines, ['Historial (OpenCode)  D:\\datos\\opencode.db (solo lectura)']) && throwsOn(() => demo.assertDemoHistory(historyLines, demoHome)), show(historyLines));
+    same(historyLines, ['History (OpenCode)  D:\\datos\\opencode.db (read-only)']) && throwsOn(() => demo.assertDemoHistory(historyLines, demoHome)), show(historyLines));
   // Hito 30: la demo trae su propia base de OpenCode, inventada, en su home.
   const demoDb = path.join(demoPaths.dataDir, 'opencode.db');
-  const ownBase = demo.historyLinesFromStartup(startupOf([claude(), opencode({ historyNote: `${demoDb} (solo lectura)` })]));
+  const ownBase = demo.historyLinesFromStartup(startupOf([claude(), opencode({ historyNote: `${demoDb} (read-only)` })]));
   check('8 demo: la base inventada del home de la demo si se captura, aun con otra capitalizacion en Windows',
     ownBase.length === 1 && !throwsOn(() => demo.assertDemoHistory(ownBase, demoHome)) &&
     (process.platform !== 'win32' || !throwsOn(() => demo.assertDemoHistory(ownBase, demoHome.toUpperCase()))), show(ownBase));
-  const besideHome = demo.historyLinesFromStartup(startupOf([claude(), opencode({ historyNote: `${demoHome}-real${path.sep}opencode.db (solo lectura)` })]));
+  const besideHome = demo.historyLinesFromStartup(startupOf([claude(), opencode({ historyNote: `${demoHome}-real${path.sep}opencode.db (read-only)` })]));
   check('8 demo: una carpeta que solo empieza como el home de la demo no cuenta', throwsOn(() => demo.assertDemoHistory(besideHome, demoHome)), show(besideHome));
   const noSqliteNote = demo.historyLinesFromStartup(startupOf([claude(), opencode({ historyNote: 'no se lee: esta version de Node no trae node:sqlite' })]));
   check('8 demo: sin node:sqlite (la base de la demo no se veria) no se captura', throwsOn(() => demo.assertDemoHistory(noSqliteNote, demoHome)));
@@ -1649,7 +1656,7 @@ const historyOf = (file, extra = {}) => {
   };
   const wrong = Object.entries(expected).filter(([name, key]) => toolCategory(name).key !== key);
   check('W tandas: los nombres de OpenCode tienen su categoria (M5)', same(wrong, []), show(wrong));
-  check('W tandas: un MCP con prefijo de servidor se agrupa por nombre', same(toolCategory('jira_search'), { key: 'name:jira_search', label: null }));
+  check('W tandas: un MCP con prefijo de servidor se agrupa por nombre', same(toolCategory('jira_search'), { key: 'name:jira_search', known: false }));
 
   const ui = await import('../../web/src/agent-ui.ts');
   const entry = ui.AGENT_UI.opencode;

@@ -119,7 +119,7 @@ export class ArchivedSessions {
       );
       await rename(temporary, target);
     } catch (error) {
-      console.warn('[archivadas] no se pudo guardar la lista:', error);
+      console.warn("[archived] couldn't save the list:", error);
     }
   }
 }

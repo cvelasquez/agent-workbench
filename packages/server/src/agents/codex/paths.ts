@@ -87,7 +87,7 @@ export function codexHome(): string | null {
   if (!warnedHomes.has(configured)) {
     warnedHomes.add(configured);
     console.warn(
-      `[codex] CODEX_HOME no es una ruta absoluta (${configured}): no se lee el historial de Codex.`,
+      `[codex] CODEX_HOME isn't an absolute path (${configured}): the Codex history isn't read.`,
     );
   }
   return null;

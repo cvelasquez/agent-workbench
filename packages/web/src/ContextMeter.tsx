@@ -33,6 +33,8 @@ import {
   meterSetupTitle,
   meterWindowOrigin,
 } from './agent-ui.js';
+import { formatNumber } from './i18n/format.js';
+import { t } from './i18n/index.js';
 
 /** Umbrales de color. Son de presentacion: la CLI no publica ninguno. */
 const WARN_RATIO = 0.75;
@@ -42,9 +44,9 @@ function formatTokens(value: number): string {
   if (value < 1_000) return String(value);
   if (value < 1_000_000) {
     const thousands = value / 1_000;
-    return `${thousands < 100 ? thousands.toFixed(1) : Math.round(thousands)}k`;
+    return `${thousands < 100 ? formatNumber(thousands, 1) : Math.round(thousands)}k`;
   }
-  return `${(value / 1_000_000).toFixed(2)}M`;
+  return `${formatNumber(value / 1_000_000, 2)}M`;
 }
 
 interface ContextMeterProps {
@@ -107,11 +109,11 @@ export function ContextMeter({
         className={`meter meter-idle${compact ? ' meter-compact' : ''}`}
         title={meterSetupTitle(statusLineState)}
       >
-        <span className="meter-label">Contexto</span>
+        <span className="meter-label">{t('meter.label')}</span>
         <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
-        <span className="meter-value">sin medir</span>
+        <span className="meter-value">{t('meter.unmeasured')}</span>
         <button className="link-button" onClick={onConfigure}>
-          Configurar
+          {t('meter.configure')}
         </button>
       </div>
     );
@@ -121,11 +123,11 @@ export function ContextMeter({
     return (
       <div
         className={`meter meter-idle${compact ? ' meter-compact' : ''}`}
-        title="Esta CLI no publica cuantos tokens usa cada respuesta, asi que no hay nada que medir."
+        title={t('meter.noTokensTitle')}
       >
-        <span className="meter-label">Contexto</span>
+        <span className="meter-label">{t('meter.label')}</span>
         <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
-        <span className="meter-value">esta CLI no publica tokens</span>
+        <span className="meter-value">{t('meter.noTokens')}</span>
       </div>
     );
   }
@@ -147,10 +149,10 @@ export function ContextMeter({
 
     return (
       <div className={`meter meter-idle${compact ? ' meter-compact' : ''}`} title={detail}>
-        <span className="meter-label">Contexto</span>
+        <span className="meter-label">{t('meter.label')}</span>
         <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
         <span className="meter-value">
-          sin medir
+          {t('meter.unmeasured')}
           {idleWindow !== null && (
             <span className="meter-dim"> / {formatTokens(idleWindow)}</span>
           )}
@@ -182,24 +184,28 @@ export function ContextMeter({
     const detail = [
       usage.lastModel === null ? null : usage.lastModel,
       origin,
-      ratio === null ? 'modelo no reconocido: sin tamano de ventana' : `${Math.round(ratio * 100)}% de la ventana`,
-      `salida ${formatTokens(usage.lastOutputTokens)}`,
+      ratio === null
+        ? t('meter.unknownModelShort')
+        : t('meter.windowPercent', { percent: Math.round(ratio * 100) }),
+      t('meter.output', { tokens: formatTokens(usage.lastOutputTokens) }),
       /*
         La status line no publica acumulados de la sesion (hito 27): un "0 out ·
         0 cache" diria que no hubo nada. Solo las respuestas, que salen del hilo.
       */
       source === 'status-line'
-        ? `${usage.assistantMessages} resp.`
-        : `sesion ${formatTokens(usage.totalOutputTokens)} out · ${formatTokens(
-            usage.totalCacheReadTokens,
-          )} cache · ${usage.assistantMessages} resp.`,
+        ? t('meter.responses', { count: usage.assistantMessages })
+        : t('meter.sessionTotals', {
+            output: formatTokens(usage.totalOutputTokens),
+            cache: formatTokens(usage.totalCacheReadTokens),
+            count: usage.assistantMessages,
+          }),
     ]
       .filter((piece): piece is string => piece !== null)
       .join(' · ');
 
     return (
       <div className="meter meter-compact" title={detail}>
-        <span className="meter-label">Contexto</span>
+        <span className="meter-label">{t('meter.label')}</span>
         {ratio !== null && (
           <span className="meter-bar meter-bar-inline">
             <span
@@ -219,7 +225,7 @@ export function ContextMeter({
   return (
     <div className="meter">
       <div className="meter-row">
-        <span className="meter-label">Contexto</span>
+        <span className="meter-label">{t('meter.label')}</span>
         <span className="meter-value">
           {formatTokens(lastRequestTokens)}
           {contextWindow !== null && (
@@ -235,7 +241,7 @@ export function ContextMeter({
                 usage.lastModel === null
                   ? undefined
                   : origin !== null
-                    ? `${usage.lastModel} — ${origin}`
+                    ? t('meter.modelWithOrigin', { model: usage.lastModel, origin })
                     : usage.lastModel
               }
             >
@@ -248,7 +254,7 @@ export function ContextMeter({
       </div>
 
       {ratio !== null ? (
-        <div className="meter-bar" title={`${Math.round(ratio * 100)}% de la ventana`}>
+        <div className="meter-bar" title={t('meter.windowPercent', { percent: Math.round(ratio * 100) })}>
           <div className={`meter-fill meter-fill-${level}`} style={{ width: `${ratio * 100}%` }} />
         </div>
       ) : (
@@ -257,17 +263,20 @@ export function ContextMeter({
           Silenciarlo dejaria al usuario pensando que el medidor esta roto.
         */
         <div className="meter-note" title={usage.lastModel ?? undefined}>
-          modelo no reconocido: se muestran los tokens, no el tamano de la ventana
+          {t('meter.unknownModel')}
         </div>
       )}
 
       <div className="meter-row meter-row-dim">
-        <span title="Ultima respuesta del modelo">
-          salida {formatTokens(usage.lastOutputTokens)}
+        <span title={t('meter.lastResponseTitle')}>
+          {t('meter.output', { tokens: formatTokens(usage.lastOutputTokens) })}
         </span>
-        <span title="Acumulado de toda la sesion">
-          sesion {formatTokens(usage.totalOutputTokens)} out ·{' '}
-          {formatTokens(usage.totalCacheReadTokens)} cache · {usage.assistantMessages} resp.
+        <span title={t('meter.sessionTitle')}>
+          {t('meter.sessionTotals', {
+            output: formatTokens(usage.totalOutputTokens),
+            cache: formatTokens(usage.totalCacheReadTokens),
+            count: usage.assistantMessages,
+          })}
         </span>
       </div>
     </div>

@@ -23,6 +23,7 @@ import {
   asRecord,
   asString,
 } from './validation.js';
+import { parseServerText, type ServerText } from './server-text.js';
 
 /**
  * Ids de las CLIs que tienen adaptador en el servidor.
@@ -291,8 +292,8 @@ export interface AgentInfo {
   /** Primera linea de `--version`, o null. */
   version: string | null;
   installUrl: string;
-  /** Texto listo para mostrar cuando `available` es false; null si esta. */
-  missingMessage: string | null;
+  /** Que decir cuando `available` es false, como clave (§6.23); null si esta. */
+  missingMessage: ServerText | null;
   capabilities: AgentCapabilities;
   environmentNotice: EnvironmentNoticeId | null;
   /** Estado de la status line opcional; null para toda CLI que no la tenga. */
@@ -451,7 +452,7 @@ export function parseAgentInfo(value: unknown): AgentInfo | null {
     available: record['available'] === true,
     version: asString(record['version']),
     installUrl,
-    missingMessage: asString(record['missingMessage']),
+    missingMessage: parseServerText(record['missingMessage']),
     capabilities: parseAgentCapabilities(record['capabilities']),
     environmentNotice: asLiteral(record['environmentNotice'], ENVIRONMENT_NOTICE_IDS),
     statusLine: parseStatusLineSetupInfo(record['statusLine']),

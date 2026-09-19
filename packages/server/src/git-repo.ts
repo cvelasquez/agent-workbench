@@ -17,14 +17,21 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type {
-  DiffLine,
-  GitChangeKind,
-  GitDiff,
-  GitFileChange,
-  GitStatus,
-  GitWorktree,
+import {
+  serverText,
+  type DiffLine,
+  type GitChangeKind,
+  type GitDiff,
+  type GitFileChange,
+  type GitStatus,
+  type GitWorktree,
+  type ServerText,
 } from '@agent-workbench/shared';
+
+/** La salida de git tal cual, o que el comando fallo si no dijo nada. Como clave (§6.23). */
+function gitOutputText(output: string, command: string): ServerText {
+  return output.length > 0 ? serverText('raw', { text: output }) : serverText('gitCommandFailed', { command });
+}
 
 /** Tope de cambios que viajan al navegador. Un repo sin ignorar tiene miles. */
 const MAX_CHANGES = 2_000;
@@ -52,7 +59,7 @@ function isMissingBinary(error: unknown): boolean {
 
 export class GitMissingError extends Error {
   constructor() {
-    super('No se encontro git en el PATH.');
+    super("git wasn't found in the PATH.");
     this.name = 'GitMissingError';
   }
 }
@@ -112,7 +119,7 @@ function toPosix(value: string): string {
 export interface RepoLookup {
   state: 'ready' | 'not-a-repo' | 'error';
   root: string;
-  message: string | null;
+  message: ServerText | null;
 }
 
 /**
@@ -150,13 +157,13 @@ async function resolveRepo(cwd: string): Promise<RepoLookup> {
     return {
       state: 'error',
       root: '',
-      message: 'No se pudo ejecutar git para leer el estado del repositorio.',
+      message: serverText('gitRunFailed'),
     };
   }
   return {
     state: 'error',
     root: '',
-    message: stderr.slice(0, 400) || 'git rev-parse fallo.',
+    message: gitOutputText(stderr.slice(0, 400), 'rev-parse'),
   };
 }
 
@@ -374,15 +381,14 @@ export async function readStatus(cwd: string): Promise<GitStatus> {
       return {
         ...base,
         state: 'git-missing',
-        message:
-          'No se encontro git en el PATH. El panel de cambios necesita git instalado; el resto de la app funciona igual.',
+        message: serverText('gitMissing'),
       };
     }
     throw error;
   }
 
   if (lookup.state === 'not-a-repo') {
-    return { ...base, message: 'Esta carpeta no esta dentro de un repositorio git.' };
+    return { ...base, message: serverText('gitNotRepo') };
   }
   if (lookup.state === 'error') {
     return { ...base, state: 'error', message: lookup.message };
@@ -399,7 +405,7 @@ export async function readStatus(cwd: string): Promise<GitStatus> {
       ...base,
       state: 'error',
       repoRoot,
-      message: statusResult.stderr.trim().slice(0, 400) || 'git status fallo.',
+      message: gitOutputText(statusResult.stderr.trim().slice(0, 400), 'status'),
     };
   }
 
@@ -526,7 +532,7 @@ async function readUntrackedAsDiff(absolutePath: string, relativePath: string): 
       lines: [],
       truncated: false,
       binary: false,
-      message: 'No se pudo leer el archivo.',
+      message: serverText('fileReadFailed'),
     };
   }
 
@@ -537,7 +543,7 @@ async function readUntrackedAsDiff(absolutePath: string, relativePath: string): 
       lines: [],
       truncated: false,
       binary: true,
-      message: 'Archivo binario sin seguimiento.',
+      message: serverText('diffBinaryUntracked'),
     };
   }
 
@@ -564,7 +570,7 @@ async function readUntrackedAsDiff(absolutePath: string, relativePath: string): 
     lines,
     truncated,
     binary: false,
-    message: lines.length === 0 ? 'Archivo nuevo y vacio.' : null,
+    message: lines.length === 0 ? serverText('diffNewEmpty') : null,
   };
 }
 
@@ -604,7 +610,7 @@ export async function readDiff(options: ReadDiffOptions): Promise<GitDiff> {
       lines: [],
       truncated: false,
       binary: false,
-      message: result.stderr.trim().slice(0, 300) || 'git diff fallo.',
+      message: gitOutputText(result.stderr.trim().slice(0, 300), 'diff'),
     };
   }
 
@@ -620,8 +626,8 @@ export async function readDiff(options: ReadDiffOptions): Promise<GitDiff> {
     message:
       parsed.lines.length === 0
         ? staged
-          ? 'No hay cambios preparados para este archivo.'
-          : 'No hay cambios sin preparar para este archivo.'
+          ? serverText('diffNoStaged')
+          : serverText('diffNoUnstaged')
         : null,
   };
 }

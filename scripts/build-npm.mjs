@@ -45,10 +45,10 @@ const dependencies = Object.fromEntries(
   Object.entries(serverPkg.dependencies).filter(([, range]) => !range.startsWith('workspace:')),
 );
 
-console.log('1/4  Compilando la interfaz...');
+console.log('1/4  Building the interface...');
 execFileSync('pnpm', ['build'], { cwd: repoRoot, stdio: 'inherit', shell: true });
 
-console.log('2/4  Empaquetando el servidor...');
+console.log('2/4  Bundling the server...');
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(path.join(outDir, 'dist'), { recursive: true });
 
@@ -68,7 +68,7 @@ await build({
   legalComments: 'none',
 });
 
-console.log('3/4  Copiando la interfaz y los archivos del paquete...');
+console.log('3/4  Copying the interface and the package files...');
 cpSync(path.join(repoRoot, 'packages', 'web', 'dist'), path.join(outDir, 'dist', 'web'), {
   recursive: true,
 });
@@ -110,7 +110,7 @@ writeFileSync(
   )}\n`,
 );
 
-console.log('4/4  Listo.');
-console.log(`\n  Paquete en ${outDir}`);
-console.log('  Reviselo con:  npm pack --dry-run   (parado en esa carpeta)');
-console.log('  Publiquelo con: npm publish\n');
+console.log('4/4  Done.');
+console.log(`\n  Package in ${outDir}`);
+console.log('  Review it with:  npm pack --dry-run   (from that folder)');
+console.log('  Publish it with: npm publish\n');

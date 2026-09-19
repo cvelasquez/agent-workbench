@@ -124,18 +124,18 @@ export function pickPendingTab(
       terminalId: chosen.terminalId,
       confirmedByText: true,
       uncertain,
-      reason: uncertain ? 'dos pestanas mandaron el mismo texto' : null,
+      reason: uncertain ? 'two tabs sent the same text' : null,
     };
   }
 
   const chosen = latest(eligible);
   let reason: string | null = null;
   if (eligible.some((tab) => tab !== chosen && Math.abs(tab.launchedAt - chosen.launchedAt) < CLOSE_LAUNCH_MS)) {
-    reason = 'dos pestanas del mismo proyecto se lanzaron con menos de 1,5 s de diferencia';
+    reason = 'two tabs of the same project were launched less than 1.5 s apart';
   } else if (chosen.submitted.length > 0) {
-    reason = 'el primer mensaje no es el que mando el cuadro de escritura';
+    reason = "the first message isn't the one the input box sent";
   } else if (married.some((tab) => tab.terminalId !== chosen.terminalId && tab.cwdKey === candidate.cwdKey)) {
-    reason = 'hay otra pestana de Codex abierta en el mismo proyecto';
+    reason = 'another Codex tab is open in the same project';
   }
   return { terminalId: chosen.terminalId, confirmedByText: false, uncertain: reason !== null, reason };
 }
@@ -275,7 +275,7 @@ export class CodexSessionDiscovery {
     if (this.running !== null) return this.running;
     const run = this.scan()
       .catch((error: unknown) => {
-        console.warn('[codex] fallo el descubrimiento de sesiones:', error);
+        console.warn('[codex] session discovery failed:', error);
       })
       .finally(() => {
         this.running = null;
@@ -362,9 +362,9 @@ export class CodexSessionDiscovery {
       const id8 = candidate.sessionId.slice(0, 8);
       const tab8 = tab.terminalId.slice(0, 8);
       if (picked.uncertain) {
-        console.warn(`[codex] la sesion ${id8} se asigno a la pestana ${tab8} sin confirmar: ${picked.reason ?? ''}`);
+        console.warn(`[codex] session ${id8} was assigned to tab ${tab8} without confirmation: ${picked.reason ?? ''}`);
       }
-      debugLog('registro', `sesion de codex ${id8} -> ${tab8} (${picked.confirmedByText ? 'texto' : 'lanzamiento'})`);
+      debugLog('registry', `codex session ${id8} -> ${tab8} (${picked.confirmedByText ? 'text' : 'launch'})`);
       tab.reportSessionId(candidate.sessionId);
     }
     this.stopTimerIfIdle();

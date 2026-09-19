@@ -25,6 +25,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TerminalId } from '@agent-workbench/shared';
 import { mergePrefill } from './agent-ui.js';
+import { formatBytes } from './i18n/format.js';
+import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
 import type { ComposerPrefill } from './useWorkspace.js';
 import { useComposerAttachments, type Attachment } from './useComposerAttachments.js';
@@ -352,7 +354,7 @@ export function Composer({
       <div
         className="hdivider composer-divider"
         {...heightDivider}
-        title="Arrastrar para cambiar el alto del cuadro"
+        title={t('composer.resizeTitle')}
       />
 
       {notice !== null && (
@@ -362,7 +364,7 @@ export function Composer({
             {notice.status !== null && <span className="handoff-notice-status">{notice.status}</span>}
           </span>
           {onDismissNotice !== undefined && (
-            <button className="icon-button" onClick={onDismissNotice} title="Cerrar el aviso">
+            <button className="icon-button" onClick={onDismissNotice} title={t('common.dismissNotice')}>
               ×
             </button>
           )}
@@ -372,7 +374,7 @@ export function Composer({
       {attachments.problem !== null && (
         <div className="composer-problem">
           <span>{attachments.problem}</span>
-          <button className="icon-button" onClick={attachments.dismissProblem} title="Cerrar">
+          <button className="icon-button" onClick={attachments.dismissProblem} title={t('common.close')}>
             ×
           </button>
         </div>
@@ -400,10 +402,10 @@ export function Composer({
         */
         placeholder={
           !disabled
-            ? 'Escribi tu mensaje.'
+            ? t('composer.placeholder.ready')
             : sleeping
-              ? 'Esta pestaña todavía no tiene la CLI abierta.'
-              : 'La sesion de esta pestana termino.'
+              ? t('composer.placeholder.sleeping')
+              : t('composer.placeholder.ended')
         }
         disabled={disabled}
         onChange={(event) => setText(event.target.value)}
@@ -441,8 +443,8 @@ export function Composer({
           className="icon-button composer-attach"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          title="Adjuntar un archivo: un log, un PDF, un documento o una imagen"
-          aria-label="Adjuntar un archivo"
+          title={t('composer.attachTitle')}
+          aria-label={t('composer.attach')}
         >
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path
@@ -462,17 +464,17 @@ export function Composer({
           className="composer-stop"
           onClick={interrupt}
           disabled={disabled}
-          title="Interrumpir lo que la CLI este haciendo (Esc)"
+          title={t('composer.stopTitle')}
         >
-          Detener
+          {t('composer.stop')}
         </button>
         <button
           className="composer-send"
           onClick={submit}
           disabled={disabled || !hasSomething || blockedReason !== null}
-          title={blockedReason ?? 'Enviar (Enter)'}
+          title={blockedReason ?? t('composer.sendTitle')}
         >
-          Enviar
+          {t('composer.send')}
         </button>
       </div>
     </div>
@@ -498,7 +500,7 @@ function AttachmentChip({ item, onRemove }: AttachmentChipProps): JSX.Element {
     return (
       <figure className="chip chip-image" title={label}>
         <img src={item.dataUrl} alt={item.name} onClick={() => setOpen(true)} />
-        <button className="chip-remove" onClick={onRemove} title="Quitar">
+        <button className="chip-remove" onClick={onRemove} title={t('composer.chip.remove')}>
           ×
         </button>
         {open && (
@@ -517,7 +519,7 @@ function AttachmentChip({ item, onRemove }: AttachmentChipProps): JSX.Element {
           <span className="chip-file-name">{item.name}</span>
           <span className="chip-file-size">{formatBytes(item.bytes)}</span>
         </span>
-        <button className="chip-remove" onClick={onRemove} title="Quitar">
+        <button className="chip-remove" onClick={onRemove} title={t('composer.chip.remove')}>
           ×
         </button>
       </div>
@@ -528,19 +530,13 @@ function AttachmentChip({ item, onRemove }: AttachmentChipProps): JSX.Element {
     <div className={`chip chip-text${open ? ' chip-open' : ''}`}>
       <button className="chip-toggle" onClick={() => setOpen((value) => !value)}>
         <span className="chip-icon">¶</span>
-        Texto pegado · {item.lines} lineas
+        {t('composer.chip.pastedText', { count: item.lines })}
         <span className="chip-chevron">{open ? '▾' : '▸'}</span>
       </button>
-      <button className="chip-remove" onClick={onRemove} title="Quitar">
+      <button className="chip-remove" onClick={onRemove} title={t('composer.chip.remove')}>
         ×
       </button>
       {open && <pre className="chip-preview">{item.text.slice(0, PREVIEW_CHARS)}</pre>}
     </div>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }

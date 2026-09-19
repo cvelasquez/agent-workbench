@@ -207,7 +207,7 @@ export class CodexRolloutSink implements JsonlLineSink {
     }
     this.warnedForeignMeta = true;
     console.warn(
-      `[codex] el archivo de la sesion ${this.sessionId.slice(0, 8)} dice ser ${meta.id.slice(0, 8)}; se sigue leyendo igual.`,
+      `[codex] the file of session ${this.sessionId.slice(0, 8)} says it's ${meta.id.slice(0, 8)}; reading it anyway.`,
     );
   }
 

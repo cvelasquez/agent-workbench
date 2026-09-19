@@ -19,6 +19,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import type { TerminalId } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { t } from './i18n/index.js';
 
 /** Espera a que el contenedor deje de cambiar de tamano antes de avisar al pty. */
 const RESIZE_DEBOUNCE_MS = 60;
@@ -193,14 +194,14 @@ export function TerminalView({
           // incremento: hay que limpiar antes de escribirlo.
           terminal.reset();
           if (message.truncated) {
-            terminal.write('\x1b[90m-- salida anterior recortada --\x1b[0m\r\n');
+            terminal.write(`\x1b[90m-- ${t('terminal.replayTruncated')} --\x1b[0m\r\n`);
           }
           terminal.write(message.data);
           break;
         case 'terminal.exit':
           if (message.terminalId !== terminalId) break;
           terminal.write(
-            `\r\n\x1b[90m-- el proceso termino (codigo ${message.exitCode}) --\x1b[0m\r\n`,
+            `\r\n\x1b[90m-- ${t('terminal.exited', { code: message.exitCode })} --\x1b[0m\r\n`,
           );
           break;
         default:

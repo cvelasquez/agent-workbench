@@ -32,6 +32,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DirectoryEntry } from '@agent-workbench/shared';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu.js';
 import { FilePreviewView } from './FilePreviewView.js';
+import { formatBytes } from './i18n/format.js';
+import { t } from './i18n/index.js';
+import { useLocale } from './i18n/useLocale.js';
 import type { FilesView } from './useFiles.js';
 
 interface MenuState {
@@ -168,17 +171,11 @@ export function CopyPathButton({
     <button
       className={done ? `${className} tree-action-done` : className}
       onClick={click}
-      title={done ? 'Copiado' : title}
+      title={done ? t('common.copied') : title}
     >
       {done ? <CheckIcon /> : <CopyIcon />}
     </button>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_024 * 1_024) return `${Math.round(bytes / 1_024)} KB`;
-  return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`;
 }
 
 interface FilesPanelProps {
@@ -215,6 +212,7 @@ export function FilesPanel({
     showHidden,
     toggleHidden,
   } = view;
+  const locale = useLocale();
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   const separator = platform === 'win32' ? '\\' : '/';
@@ -253,15 +251,15 @@ export function FilesPanel({
         x: event.clientX,
         y: event.clientY,
         items: [
-          { label: 'Copiar ruta absoluta', onSelect: () => copy(absolutePathOf(relativePath)) },
-          { label: 'Copiar ruta relativa', onSelect: () => copy(relativePath) },
+          { label: t('files.menu.copyAbsolute'), onSelect: () => copy(absolutePathOf(relativePath)) },
+          { label: t('files.menu.copyRelative'), onSelect: () => copy(relativePath) },
           ...(onInsert === undefined
             ? []
             : [
                 {
                   // Se escribe en la terminal pero no se envia: la CLI expande
                   // la referencia y el usuario decide que pedir con ella.
-                  label: 'Insertar como @ruta',
+                  label: t('files.menu.insertMention'),
                   onSelect: () => onInsert(`@${relativePath}`),
                 },
               ]),
@@ -270,13 +268,13 @@ export function FilesPanel({
             // se abre lo decide la asociacion de archivos de Windows, no
             // nosotros. Verificado — un `.md` puede terminar en el navegador,
             // y prometer un editor seria mentir sobre lo que hace el boton.
-            label: 'Abrir con la app del sistema',
+            label: t('files.menu.openWithSystem'),
             onSelect: () => onReveal(relativePath),
           },
         ],
       });
     },
-    [absolutePathOf, copy, onInsert, onReveal],
+    [absolutePathOf, copy, onInsert, onReveal, locale],
   );
 
   if (preview !== null || loadingPreview) {
@@ -284,17 +282,17 @@ export function FilesPanel({
       <div className="panel-body">
         <div className="panel-subhead">
           <button className="link-button" onClick={closePreview}>
-            ← Archivos
+            {t('files.back')}
           </button>
           {preview !== null && (
             <span className="panel-subhead-title" title={preview.path}>
               {preview.path.split('/').pop()}
-              <span className="panel-tagline"> {formatSize(preview.sizeBytes)}</span>
+              <span className="panel-tagline"> {formatBytes(preview.sizeBytes)}</span>
             </span>
           )}
         </div>
         {loadingPreview ? (
-          <p className="panel-note">Leyendo el archivo…</p>
+          <p className="panel-note">{t('files.readingFile')}</p>
         ) : (
           preview !== null && <FilePreviewView preview={preview} />
         )}
@@ -316,28 +314,24 @@ export function FilesPanel({
         </span>
         <CopyPathButton
           className="icon-button"
-          title="Copiar la ruta de esta carpeta entre comillas"
+          title={t('files.copyFolderPath')}
           onCopy={() => copyQuoted('')}
         />
         <button
           className={showHidden ? 'icon-button icon-button-on' : 'icon-button'}
           onClick={toggleHidden}
-          title={
-            showHidden
-              ? 'Esconder de nuevo lo que ocultan .gitignore y la lista fija'
-              : 'Mostrar también lo que ocultan .gitignore y la lista fija'
-          }
+          title={showHidden ? t('files.hidden.hide') : t('files.hidden.show')}
         >
           <EyeIcon open={showHidden} />
         </button>
         <button
           className="icon-button"
           onClick={() => onReveal('')}
-          title="Abrir esta carpeta en el explorador del sistema"
+          title={t('files.revealFolder')}
         >
           <FolderIcon />
         </button>
-        <button className="icon-button" onClick={refresh} title="Releer el árbol">
+        <button className="icon-button" onClick={refresh} title={t('files.refresh')}>
           ⟳
         </button>
       </div>
@@ -352,7 +346,7 @@ export function FilesPanel({
         <input
           className="tree-search-input"
           value={query}
-          placeholder="Buscar archivos por nombre…"
+          placeholder={t('files.search.placeholder')}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Escape' && query.length > 0) {
@@ -362,7 +356,7 @@ export function FilesPanel({
           }}
         />
         {query.length > 0 && (
-          <button className="tree-search-clear" onClick={() => setQuery('')} title="Limpiar (Esc)">
+          <button className="tree-search-clear" onClick={() => setQuery('')} title={t('files.search.clear')}>
             ×
           </button>
         )}
@@ -378,7 +372,7 @@ export function FilesPanel({
           />
         ) : root === undefined ? (
           <p className="panel-note">
-            {loading.has('') ? 'Leyendo el directorio…' : 'No se pudo leer el directorio.'}
+            {loading.has('') ? t('files.readingDir') : t('files.readDirFailed')}
           </p>
         ) : (
           <TreeLevel
@@ -421,11 +415,11 @@ function SearchResults({
   const { results, searching, openFile, toggleDirectory } = view;
 
   if (results === null) {
-    return <p className="panel-note">{searching ? 'Buscando…' : 'Escribí para buscar.'}</p>;
+    return <p className="panel-note">{searching ? t('files.search.searching') : t('files.search.prompt')}</p>;
   }
 
   if (results.entries.length === 0) {
-    return <p className="panel-note">Ningún archivo con ese nombre.</p>;
+    return <p className="panel-note">{t('files.search.none')}</p>;
   }
 
   return (
@@ -449,13 +443,13 @@ function SearchResults({
                 <span className="tree-result-path">{entry.path}</span>
               </span>
               {entry.kind === 'file' && (
-                <span className="tree-size">{formatSize(entry.sizeBytes)}</span>
+                <span className="tree-size">{formatBytes(entry.sizeBytes)}</span>
               )}
             </button>
 
             <CopyPathButton
               className="tree-action"
-              title={`Copiar la ruta de ${entry.name} entre comillas`}
+              title={t('files.copyPath', { name: entry.name })}
               onCopy={() => onCopyPath(entry.path)}
             />
 
@@ -463,7 +457,7 @@ function SearchResults({
               <button
                 className="tree-action"
                 onClick={() => onReveal(entry.path)}
-                title={`Abrir ${entry.name} en el explorador del sistema`}
+                title={t('files.reveal', { name: entry.name })}
               >
                 <FolderIcon />
               </button>
@@ -473,8 +467,8 @@ function SearchResults({
       ))}
 
       {results.truncated && (
-        <li className="tree-hidden" title="Acotá la búsqueda para verlos todos">
-          hay más resultados de los que se muestran
+        <li className="tree-hidden" title={t('files.search.moreTitle')}>
+          {t('files.search.more')}
         </li>
       )}
     </ul>
@@ -502,7 +496,7 @@ function TreeLevel({
   const listing = listings.get(path);
 
   if (listing === undefined) {
-    return loading.has(path) ? <div className="tree-loading">cargando…</div> : null;
+    return loading.has(path) ? <div className="tree-loading">{t('files.loading')}</div> : null;
   }
 
   return (
@@ -521,7 +515,7 @@ function TreeLevel({
 
       {listing.entries.length === 0 && (
         <li className="tree-empty" style={{ paddingLeft: `${depth * 12 + 8}px` }}>
-          {listing.hiddenCount > 0 ? 'todo el contenido está oculto' : 'vacío'}
+          {listing.hiddenCount > 0 ? t('files.allHidden') : t('files.empty')}
         </li>
       )}
 
@@ -529,11 +523,11 @@ function TreeLevel({
         <li
           className="tree-hidden"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
-          title="Se ocultan .git, node_modules, dist, bin, obj y lo que diga .gitignore"
+          title={t('files.hiddenTitle')}
         >
           {listing.truncated
-            ? 'hay más entradas de las que se muestran'
-            : `${listing.hiddenCount} oculto(s)`}
+            ? t('files.moreEntries')
+            : t('files.hiddenCount', { count: listing.hiddenCount })}
         </li>
       )}
     </ul>
@@ -581,9 +575,7 @@ function TreeRow({
             entry.hidden === undefined
               ? entry.path
               : `${entry.path}\n${
-                  entry.hidden === 'ignored'
-                    ? 'oculto por .gitignore'
-                    : 'oculto siempre: .git, node_modules, dist, bin, obj'
+                  entry.hidden === 'ignored' ? t('files.row.ignored') : t('files.row.alwaysHidden')
                 }`
           }
         >
@@ -592,7 +584,7 @@ function TreeRow({
           </span>
           <span className="tree-name">{entry.name}</span>
           {entry.kind === 'file' && (
-            <span className="tree-size">{formatSize(entry.sizeBytes)}</span>
+            <span className="tree-size">{formatBytes(entry.sizeBytes)}</span>
           )}
         </button>
 
@@ -603,7 +595,7 @@ function TreeRow({
         */}
         <CopyPathButton
           className="tree-action"
-          title={`Copiar la ruta de ${entry.name} entre comillas`}
+          title={t('files.copyPath', { name: entry.name })}
           onCopy={() => onCopyPath(entry.path)}
         />
 
@@ -611,7 +603,7 @@ function TreeRow({
           <button
             className="tree-action"
             onClick={() => onReveal(entry.path)}
-            title={`Abrir ${entry.name} en el explorador del sistema`}
+            title={t('files.reveal', { name: entry.name })}
           >
             <FolderIcon />
           </button>

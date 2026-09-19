@@ -170,11 +170,11 @@ function loopbackBase(url: string): string {
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error('La URL del servidor de OpenCode no es valida.');
+    throw new Error("The OpenCode server URL isn't valid.");
   }
   const bare = parsed.pathname === '/' && parsed.search === '' && parsed.hash === '' && parsed.username === '' && parsed.password === '';
   if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1' || parsed.port === '' || !bare) {
-    throw new Error('El servidor de OpenCode tiene que escuchar en http://127.0.0.1.');
+    throw new Error('The OpenCode server has to listen on http://127.0.0.1.');
   }
   return `http://127.0.0.1:${parsed.port}`;
 }
@@ -204,7 +204,7 @@ export class OpenCodeServeClient {
     const body = asRecord(await this.request('POST', '/session', directory, {}));
     const id = body?.['id'];
     if (typeof id !== 'string' || !OPENCODE_SESSION_ID_PATTERN.test(id)) {
-      throw new ServeRequestError('El servidor de OpenCode devolvio un id de sesion con una forma inesperada.', null);
+      throw new ServeRequestError('The OpenCode server returned a session id with an unexpected shape.', null);
     }
     return id;
   }
@@ -247,7 +247,7 @@ export class OpenCodeServeClient {
 
   /** Corta lo que la sesion este haciendo (D13). */
   async abort(directory: string, sessionId: string): Promise<void> {
-    if (!OPENCODE_SESSION_ID_PATTERN.test(sessionId)) throw new Error('Id de sesion de OpenCode invalido.');
+    if (!OPENCODE_SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid OpenCode session id.');
     await this.request('POST', `/session/${sessionId}/abort`, directory, {});
   }
 
@@ -283,7 +283,7 @@ export class OpenCodeServeClient {
           });
           this.checkResponse(response, '/global/event');
           const body = response.body;
-          if (body === null) throw new ServeRequestError('El flujo de eventos llego sin cuerpo.', response.status);
+          if (body === null) throw new ServeRequestError('The event stream arrived without a body.', response.status);
           failures = 0;
           try {
             onReconnect();
@@ -309,7 +309,7 @@ export class OpenCodeServeClient {
           }
         } catch (error) {
           if (closed) return;
-          debugLog('opencode-serve', `flujo de eventos cortado: ${error instanceof Error ? error.name : 'error'}`);
+          debugLog('opencode-serve', `event stream cut: ${error instanceof Error ? error.name : 'error'}`);
         }
         if (closed) return;
         const delays = this.reconnectDelaysMs;
@@ -331,13 +331,13 @@ export class OpenCodeServeClient {
   }
 
   private checkResponse(response: Response, route: string): void {
-    if (response.status === 401) throw new ServeAuthError('El servidor de OpenCode rechazo la contrasena.');
+    if (response.status === 401) throw new ServeAuthError('The OpenCode server rejected the password.');
     const type = response.headers.get('content-type') ?? '';
     if (type.includes('text/html')) {
-      throw new ServeRouteError(`Esta version de OpenCode no tiene la ruta ${route}.`);
+      throw new ServeRouteError(`This OpenCode version doesn't have the route ${route}.`);
     }
     if (!response.ok) {
-      throw new ServeRequestError(`El servidor de OpenCode respondio ${response.status} en ${route}.`, response.status);
+      throw new ServeRequestError(`The OpenCode server answered ${response.status} on ${route}.`, response.status);
     }
   }
 
@@ -362,7 +362,7 @@ export class OpenCodeServeClient {
     try {
       return JSON.parse(text) as unknown;
     } catch {
-      throw new ServeRequestError(`El servidor de OpenCode respondio algo que no es JSON en ${route}.`, response.status);
+      throw new ServeRequestError(`The OpenCode server answered something that isn't JSON on ${route}.`, response.status);
     }
   }
 }

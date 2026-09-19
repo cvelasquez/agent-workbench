@@ -141,7 +141,7 @@ export class JsonlFollower implements EventLookup {
    */
   setPath(filePath: string): void {
     if (this.path !== null) {
-      throw new Error(`El seguidor ya tiene archivo: ${this.path}`);
+      throw new Error(`The follower already has a file: ${this.path}`);
     }
     this.path = filePath;
   }

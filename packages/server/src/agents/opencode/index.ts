@@ -313,11 +313,11 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
      * existe hasta la primera consulta, asi que se mira el archivo.
      */
     startupHistoryNote(cliAvailable: boolean): string | null {
-      if (env['OPENCODE_DB'] === ':memory:') return 'en memoria (no hay nada que leer)';
+      if (env['OPENCODE_DB'] === ':memory:') return 'in memory (nothing to read)';
       if (paths.dbFile === null) return null;
       const present = existsSync(paths.dbFile);
-      if ('unavailable' in sqlite()) return present || cliAvailable ? `no se lee: ${sqliteUnavailableText(OPENCODE_LABEL)}` : null;
-      return present ? `${paths.dbFile} (solo lectura)` : null;
+      if ('unavailable' in sqlite()) return present || cliAvailable ? `not read: ${sqliteUnavailableText(OPENCODE_LABEL)}` : null;
+      return present ? `${paths.dbFile} (read-only)` : null;
     },
 
     // `opencode.json` no se abre (regla 2.1).

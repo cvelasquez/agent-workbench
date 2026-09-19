@@ -16,6 +16,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { AgentId, AgentInfo } from '@agent-workbench/shared';
 import { AgentMenu } from './AgentMenu.js';
+import { t } from './i18n/index.js';
 
 interface AgentSplitButtonProps {
   /** La clase del boton de siempre (`tab-new`, `icon-button`). La llevan las dos mitades. */
@@ -70,7 +71,7 @@ export function AgentSplitButton({
         className={`${className} split-button-main`}
         onClick={() => onOpen(agent ?? undefined)}
         disabled={disabled}
-        title={label === null ? title : `${title} — con ${label}`}
+        title={label === null ? title : t('agentMenu.titleWithAgent', { title, label })}
       >
         {text}
       </button>
@@ -81,7 +82,7 @@ export function AgentSplitButton({
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Elegir con qué CLI abrir"
+        title={t('agentMenu.chooseTitle')}
       >
         ▾
       </button>

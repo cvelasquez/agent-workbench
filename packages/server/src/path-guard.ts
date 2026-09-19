@@ -21,13 +21,10 @@
 
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { ServerTextError, serverText } from '@agent-workbench/shared';
 
-export class InvalidPathError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'InvalidPathError';
-  }
-}
+/** Una ruta rechazada. El texto va como clave: la frase la arma la web (§6.23). */
+export class InvalidPathError extends ServerTextError {}
 
 /** Normaliza a `/` para que el protocolo hable un solo dialecto. */
 export function toPosixPath(value: string): string {
@@ -43,17 +40,17 @@ export function toPosixPath(value: string): string {
  */
 function assertRelativeShape(relativePath: string): void {
   if (relativePath.includes('\0')) {
-    throw new InvalidPathError('La ruta trae un byte nulo.');
+    throw new InvalidPathError(serverText('pathNullByte'));
   }
   if (path.isAbsolute(relativePath) || /^[a-zA-Z]:/.test(relativePath)) {
-    throw new InvalidPathError('Solo se aceptan rutas relativas al directorio de la pestana.');
+    throw new InvalidPathError(serverText('pathNotRelative'));
   }
   if (relativePath.startsWith('/') || relativePath.startsWith('\\')) {
-    throw new InvalidPathError('Solo se aceptan rutas relativas al directorio de la pestana.');
+    throw new InvalidPathError(serverText('pathNotRelative'));
   }
   const segments = relativePath.split(/[\\/]/);
   if (segments.includes('..')) {
-    throw new InvalidPathError('La ruta se sale del directorio de la pestana.');
+    throw new InvalidPathError(serverText('pathOutside'));
   }
 }
 
@@ -80,7 +77,7 @@ export async function resolveInside(
 
   const absolute = path.resolve(root, relativePath);
   if (!isInside(root, absolute)) {
-    throw new InvalidPathError('La ruta se sale del directorio de la pestana.');
+    throw new InvalidPathError(serverText('pathOutside'));
   }
 
   // La raiz misma puede ser un enlace (en macOS `/tmp` lo es), asi que los dos
@@ -89,7 +86,7 @@ export async function resolveInside(
   try {
     realRoot = await realpath(root);
   } catch {
-    throw new InvalidPathError('El directorio de la pestana ya no existe.');
+    throw new InvalidPathError(serverText('tabDirGone'));
   }
 
   let realTarget: string;
@@ -97,7 +94,7 @@ export async function resolveInside(
     realTarget = await realpath(absolute);
   } catch {
     if (options.mustExist === true) {
-      throw new InvalidPathError('La ruta no existe.');
+      throw new InvalidPathError(serverText('pathMissing'));
     }
     // No existe todavia: se valida el ancestro que si existe. Si ese esta
     // adentro, la ruta completa tambien lo esta.
@@ -105,7 +102,7 @@ export async function resolveInside(
   }
 
   if (!isInside(realRoot, realTarget)) {
-    throw new InvalidPathError('La ruta se sale del directorio de la pestana.');
+    throw new InvalidPathError(serverText('pathOutside'));
   }
   return absolute;
 }
@@ -117,7 +114,7 @@ async function realpathOfNearestParent(absolute: string): Promise<string> {
       return await realpath(current);
     } catch {
       const parent = path.dirname(current);
-      if (parent === current) throw new InvalidPathError('La ruta no existe.');
+      if (parent === current) throw new InvalidPathError(serverText('pathMissing'));
       current = parent;
     }
   }

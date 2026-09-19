@@ -15,12 +15,14 @@
  *
  * La regla de todo el archivo: con la CLI de hoy tiene que salir **exactamente**
  * lo que se veia antes de que existieran las capacidades.
+ *
+ * Los textos salen de `t()` (§6.23) y se arman al pedirlos, nunca al cargar el
+ * modulo: una constante quedaria en el idioma del arranque. Por eso los atajos
+ * de `AGENT_UI` son getters y los textos sueltos, funciones.
  */
 
 import {
   IMPORTED_AGENT_LABELS,
-  PERMISSION_MODE_HINT,
-  PERMISSION_MODE_LABEL,
   blindToApprovals,
   insertionIndex,
   isAgentId,
@@ -47,6 +49,7 @@ import {
   type TerminalKind,
   type TerminalOfflineReason,
 } from '@agent-workbench/shared';
+import { t, type MessageKey } from './i18n/index.js';
 
 export interface Shortcut {
   keys: string;
@@ -83,22 +86,21 @@ export interface AgentUi {
  * Salen del mapa de teclas de su fuente, no de una prueba: la prueba en vivo
  * del hito las confirma y lo que no funcione se saca de aca.
  */
-const CODEX_SHORTCUTS: readonly Shortcut[] = [
-  { keys: 'Esc', description: 'Interrumpir el turno en curso' },
-  { keys: 'Esc Esc', description: 'Editar un mensaje anterior' },
-  { keys: 'Ctrl + C', description: 'Interrumpir, o salir si no hay turno' },
-  { keys: 'Alt + , / Alt + .', description: 'Bajar / subir el esfuerzo' },
-  {
-    keys: 'Shift + Tab',
-    description: 'Cambiar entre el modo por defecto y Plan (con el foco en la terminal)',
-  },
-  { keys: 'Tab', description: 'Encolar el mensaje mientras el agente trabaja' },
-  { keys: 'Ctrl + T', description: 'Ver la transcripción' },
-  { keys: 'Ctrl + R', description: 'Buscar en el historial de mensajes' },
-  { keys: '@', description: 'Mencionar un archivo, una skill o un plugin' },
-  { keys: '/', description: 'Comandos' },
-  { keys: 'Ctrl + G', description: 'Editar el mensaje en el editor externo' },
-];
+function codexShortcuts(): readonly Shortcut[] {
+  return [
+    { keys: 'Esc', description: t('agent.shortcuts.codex.interruptTurn') },
+    { keys: 'Esc Esc', description: t('agent.shortcuts.codex.editPrevious') },
+    { keys: 'Ctrl + C', description: t('agent.shortcuts.codex.interruptOrExit') },
+    { keys: 'Alt + , / Alt + .', description: t('agent.shortcuts.codex.effort') },
+    { keys: 'Shift + Tab', description: t('agent.shortcuts.codex.cycleMode') },
+    { keys: 'Tab', description: t('agent.shortcuts.codex.queue') },
+    { keys: 'Ctrl + T', description: t('agent.shortcuts.codex.transcript') },
+    { keys: 'Ctrl + R', description: t('agent.shortcuts.codex.searchHistory') },
+    { keys: '@', description: t('agent.shortcuts.codex.mention') },
+    { keys: '/', description: t('agent.shortcuts.commands') },
+    { keys: 'Ctrl + G', description: t('agent.shortcuts.codex.externalEditor') },
+  ];
+}
 
 /**
  * Las teclas de OpenCode dentro de su terminal.
@@ -111,22 +113,18 @@ const CODEX_SHORTCUTS: readonly Shortcut[] = [
  * declare los dos: xterm manda el mismo `\r` con Shift o sin el, y OpenCode lo
  * toma como un Enter y envia el mensaje a medias. `Ctrl + J` llega como `\n`.
  */
-const OPENCODE_SHORTCUTS: readonly Shortcut[] = [
-  { keys: 'Esc Esc', description: 'Interrumpir (el primer toque sólo avisa)' },
-  {
-    keys: 'Tab / Shift + Tab',
-    description: 'Cambiar de agente, build o plan (con el foco en la terminal)',
-  },
-  { keys: 'Ctrl + P', description: 'Lista de comandos, con las variantes del modelo' },
-  { keys: 'Ctrl + X y M', description: 'Elegir modelo' },
-  {
-    keys: 'Ctrl + X y N',
-    description: 'Sesión nueva: la pestaña sigue atada a la sesión con la que se abrió',
-  },
-  { keys: 'Ctrl + J', description: 'Salto de línea' },
-  { keys: 'Ctrl + C', description: 'Limpiar la entrada; dos veces, salir' },
-  { keys: 'Ctrl + V', description: 'Pegar' },
-];
+function opencodeShortcuts(): readonly Shortcut[] {
+  return [
+    { keys: 'Esc Esc', description: t('agent.shortcuts.opencode.interrupt') },
+    { keys: 'Tab / Shift + Tab', description: t('agent.shortcuts.opencode.cycleAgent') },
+    { keys: 'Ctrl + P', description: t('agent.shortcuts.opencode.commandList') },
+    { keys: t('agent.shortcuts.leaderThen', { key: 'M' }), description: t('agent.shortcuts.opencode.model') },
+    { keys: t('agent.shortcuts.leaderThen', { key: 'N' }), description: t('agent.shortcuts.opencode.newSession') },
+    { keys: 'Ctrl + J', description: t('agent.shortcuts.opencode.newline') },
+    { keys: 'Ctrl + C', description: t('agent.shortcuts.opencode.clearInput') },
+    { keys: 'Ctrl + V', description: t('agent.shortcuts.opencode.paste') },
+  ];
+}
 
 /**
  * Las teclas de Antigravity CLI dentro de su terminal.
@@ -135,16 +133,28 @@ const OPENCODE_SHORTCUTS: readonly Shortcut[] = [
  * `Shift + Tab` cicla los tres modos, y el menu de permiso es numerado —no
  * `y`/`n` como decia la documentacion—. Lo que no se probo no se lista.
  */
-const ANTIGRAVITY_SHORTCUTS: readonly Shortcut[] = [
-  { keys: 'Esc', description: 'Interrumpir el turno en curso, o cancelar un pedido de permiso' },
-  {
-    keys: 'Shift + Tab',
-    description: 'Cambiar el modo: accept-edits, plan y por defecto (con el foco en la terminal)',
-  },
-  { keys: '1 … 4', description: 'Contestar un pedido de permiso: 1 lo permite, 4 lo rechaza' },
-  { keys: '/', description: 'Comandos' },
-  { keys: '?', description: 'Ver los atajos de la CLI' },
-];
+function antigravityShortcuts(): readonly Shortcut[] {
+  return [
+    { keys: 'Esc', description: t('agent.shortcuts.antigravity.interrupt') },
+    { keys: 'Shift + Tab', description: t('agent.shortcuts.antigravity.cycleMode') },
+    { keys: '1 … 4', description: t('agent.shortcuts.antigravity.answerPermission') },
+    { keys: '/', description: t('agent.shortcuts.commands') },
+    { keys: '?', description: t('agent.shortcuts.antigravity.help') },
+  ];
+}
+
+function claudeCodeShortcuts(): readonly Shortcut[] {
+  return [
+    { keys: 'Esc', description: t('agent.shortcuts.interruptCli') },
+    { keys: 'Esc Esc', description: t('agent.shortcuts.claudeCode.rewind') },
+    { keys: 'Ctrl + C', description: t('agent.shortcuts.claudeCode.cancel') },
+    { keys: 'Ctrl + R', description: t('agent.shortcuts.claudeCode.searchHistory') },
+    { keys: 'Ctrl + O', description: t('agent.shortcuts.claudeCode.fullOutput') },
+    { keys: 'Shift + Tab', description: t('agent.shortcuts.claudeCode.cycleMode') },
+    { keys: 'Alt + V', description: t('agent.shortcuts.claudeCode.pasteImage') },
+    { keys: 'Ctrl + V', description: t('agent.shortcuts.claudeCode.pasteText') },
+  ];
+}
 
 /**
  * Una entrada por CLI con adaptador.
@@ -152,46 +162,46 @@ const ANTIGRAVITY_SHORTCUTS: readonly Shortcut[] = [
  * Es un `Record` exhaustivo a proposito: agregar un id a `AGENT_IDS` sin su
  * entrada aca no compila, y asi el dialogo de atajos no queda mudo para la CLI
  * nueva sin que nadie lo note.
+ *
+ * Los atajos y la aclaracion son getters: se traducen cada vez que se leen.
  */
 export const AGENT_UI: Record<AgentId, AgentUi> = {
   'claude-code': {
     shortLabel: 'CC',
-    shortcuts: [
-      { keys: 'Esc', description: 'Interrumpir lo que la CLI esté haciendo' },
-      { keys: 'Esc Esc', description: 'Abrir el menú de rewind' },
-      { keys: 'Ctrl + C', description: 'Cancelar' },
-      { keys: 'Ctrl + R', description: 'Buscar en el historial de comandos' },
-      { keys: 'Ctrl + O', description: 'Ver la salida completa' },
-      {
-        keys: 'Shift + Tab',
-        description: 'Cambiar el modo de permisos (con el foco en la terminal)',
-      },
-      { keys: 'Alt + V', description: 'Pegar una imagen del portapapeles' },
-      { keys: 'Ctrl + V', description: 'Pegar texto del portapapeles' },
-    ],
+    get shortcuts() {
+      return claudeCodeShortcuts();
+    },
     shortcutsNote: null,
     instructionsFile: 'CLAUDE.md',
     savesModelChoice: false,
   },
   codex: {
     shortLabel: 'CX',
-    shortcuts: CODEX_SHORTCUTS,
-    shortcutsNote:
-      'Alt + ← / → cambian de agente dentro de Codex, pero acá los usa la app para cambiar de pestaña.',
+    get shortcuts() {
+      return codexShortcuts();
+    },
+    get shortcutsNote() {
+      return t('agent.shortcuts.codex.note');
+    },
     instructionsFile: 'AGENTS.md',
     savesModelChoice: false,
   },
   opencode: {
     shortLabel: 'OC',
-    shortcuts: OPENCODE_SHORTCUTS,
-    shortcutsNote:
-      'Ctrl + T cambia la variante del modelo dentro de OpenCode, pero el navegador se la queda: está en Ctrl + P.',
+    get shortcuts() {
+      return opencodeShortcuts();
+    },
+    get shortcutsNote() {
+      return t('agent.shortcuts.opencode.note');
+    },
     instructionsFile: 'AGENTS.md',
     savesModelChoice: false,
   },
   antigravity: {
     shortLabel: 'AG',
-    shortcuts: ANTIGRAVITY_SHORTCUTS,
+    get shortcuts() {
+      return antigravityShortcuts();
+    },
     shortcutsNote: null,
     instructionsFile: 'AGENTS.md',
     // Medido con la 1.2.2: los dos quedan escritos en su settings.json.
@@ -228,6 +238,18 @@ export function sessionAgentLabel(agent: SessionAgentId, agents: readonly AgentI
 }
 
 /**
+ * El titulo que el servidor pone a una sesion sin ningun texto. Es un dato: el
+ * indice y la copia propia lo guardan asi, y por eso se reconoce ademas de
+ * `titleSource`.
+ */
+const UNTITLED_SESSION_TITLE = 'Sesion sin titulo';
+
+/** El titulo de una sesion para mostrar: el suyo, o "sin titulo" en el idioma de la app (§6.23). */
+export function sessionTitleText(title: string, titleSource?: SessionSummary['titleSource']): string {
+  return titleSource === 'none' || title === UNTITLED_SESSION_TITLE ? t('session.untitled') : title;
+}
+
+/**
  * true si una fila de la barra se retoma como pestana: es del historial nativo
  * y de una CLI con adaptador.
  *
@@ -241,11 +263,12 @@ export function resumableSession<T extends Pick<SessionSummary, 'agent' | 'stora
   return session.storage === 'native' && isAgentId(session.agent);
 }
 
-/** Lo que agregan los titulos de los combos de modelo y esfuerzo, o '' si nada. */
-export function modelChoiceNote(agent: AgentId | null): string {
-  return agent !== null && AGENT_UI[agent].savesModelChoice
-    ? ', y la CLI lo guarda como predeterminado para las pestañas siguientes'
-    : '';
+/**
+ * true si la CLI guarda lo elegido en los combos de modelo y esfuerzo como su
+ * predeterminado: sus titulos lo dicen, con una frase entera (§6.23).
+ */
+export function savesModelChoiceFor(agent: AgentId | null): boolean {
+  return agent !== null && AGENT_UI[agent].savesModelChoice;
 }
 
 /** El archivo de instrucciones de una CLI, o null si la pestana no tiene. */
@@ -321,9 +344,33 @@ export function shownMode(mode: PermissionMode | null, cycle: PermissionCycleCap
   return mode ?? cycle.launchMode;
 }
 
+const MODE_LABEL_KEYS: Readonly<Record<PermissionMode, MessageKey>> = {
+  auto: 'mode.auto.label',
+  default: 'mode.default.label',
+  acceptEdits: 'mode.acceptEdits.label',
+  plan: 'mode.plan.label',
+};
+
+const MODE_HINT_KEYS: Readonly<Record<PermissionMode, MessageKey>> = {
+  auto: 'mode.auto.hint',
+  default: 'mode.default.hint',
+  acceptEdits: 'mode.acceptEdits.hint',
+  plan: 'mode.plan.hint',
+};
+
+/** Como se lee cada modo en el combo. La CLI los nombra en ingles. */
+export function modeLabel(mode: PermissionMode): string {
+  return t(MODE_LABEL_KEYS[mode]);
+}
+
+/** Una linea para el titulo del combo: que hace cada modo. */
+export function modeHint(mode: PermissionMode): string {
+  return t(MODE_HINT_KEYS[mode]);
+}
+
 /** Titulo del combo de modo. La tecla la nombra la capacidad. */
 export function modeTitle(mode: PermissionMode, cycle: PermissionCycleCapability): string {
-  return `Modo ${PERMISSION_MODE_LABEL[mode]}: ${PERMISSION_MODE_HINT[mode]}. Cambiarlo manda ${cycle.keyLabel} a la pestaña CLI`;
+  return t('agent.mode.title', { mode: modeLabel(mode), hint: modeHint(mode), key: cycle.keyLabel });
 }
 
 /**
@@ -351,33 +398,29 @@ export function modeControlTitle(
   statusKnown: boolean,
   waitingFor: string | null,
 ): string {
-  if (modeChangeBlocked(cycle, waitingFor)) {
-    return 'Hay una confirmación pendiente en la CLI: cambiar de modo ahora la aprobaría. Contestala en la solapa CLI.';
-  }
+  if (modeChangeBlocked(cycle, waitingFor)) return t('agent.mode.blocked');
   const base = modeTitle(mode, cycle);
   if (!cycle.approvesPendingOnCycle || statusKnown) return base;
-  return `${base}. Sin datos de la status line la app no sabe si hay una confirmación pendiente; cambiar el modo en ese momento la aprueba`;
+  return t('agent.mode.titleBlind', { title: base });
 }
+
+const STATUS_LINE_STATE_KEYS: Readonly<Record<StatusLineState, MessageKey>> = {
+  active: 'agent.statusLine.state.active',
+  missing: 'agent.statusLine.state.missing',
+  'other-command': 'agent.statusLine.state.otherCommand',
+  disabled: 'agent.statusLine.state.disabled',
+  unreadable: 'agent.statusLine.state.unreadable',
+};
 
 /** Lo que dice el dialogo de la status line sobre su estado, en una linea. */
 export function statusLineStateText(state: StatusLineState): string {
-  switch (state) {
-    case 'active':
-      return 'Configurada';
-    case 'missing':
-      return 'No configurada';
-    case 'other-command':
-      return 'Tenés otra status line: pegar esta la reemplaza';
-    case 'disabled':
-      return 'Desactivada (enabled: false)';
-    case 'unreadable':
-      return 'No pude leer settings.json';
-  }
+  return t(STATUS_LINE_STATE_KEYS[state]);
 }
 
 /** Por que el dialogo no ofrece fragmento (`StatusLineSetupInfo.fragment` null). */
-export const STATUS_LINE_NO_FRAGMENT =
-  'La carpeta de la app tiene caracteres que la consola interpreta (como & % ! o comillas), y con ellos no hay una línea que la CLI pueda correr: en Windows la corre con cmd /c y ninguna comilla le llega. Con la carpeta de configuración en una ruta sin esos caracteres se resuelve.';
+export function statusLineNoFragmentText(): string {
+  return t('agent.statusLine.noFragment');
+}
 
 /**
  * Las solapas que se ofrecen.
@@ -428,20 +471,22 @@ export function shortcutsAgent(
  */
 export function composerShortcuts(imagesAllowed: boolean): readonly Shortcut[] {
   return [
-    { keys: 'Enter', description: 'Enviar el mensaje' },
-    { keys: 'Shift + Enter', description: 'Salto de línea sin enviar' },
+    { keys: 'Enter', description: t('agent.shortcuts.composer.send') },
+    { keys: 'Shift + Enter', description: t('agent.shortcuts.composer.newline') },
     {
       keys: 'Ctrl + V',
       description: imagesAllowed
-        ? 'Pegar texto o una imagen (queda como miniatura)'
-        : 'Pegar texto',
+        ? t('agent.shortcuts.composer.pasteWithImages')
+        : t('agent.shortcuts.composer.pasteText'),
     },
-    { keys: 'Esc', description: 'Interrumpir lo que la CLI esté haciendo' },
+    { keys: 'Esc', description: t('agent.shortcuts.interruptCli') },
   ];
 }
 
 /** Lo que dice el cuadro cuando se le pega una imagen que la CLI no recibe. */
-export const IMAGES_REFUSED_MESSAGE = 'Esta CLI no recibe imagenes desde el cuadro.';
+export function imagesRefusedMessage(): string {
+  return t('agent.composer.imagesRefused');
+}
 
 /**
  * El limite que el medidor muestra antes de la primera respuesta, o null.
@@ -495,15 +540,13 @@ export function meterOffersSetup(
 
 /** Titulo del medidor que ofrece configurar la status line. */
 export function meterSetupTitle(state: StatusLineState): string {
-  const why =
-    state === 'other-command'
-      ? 'tenés otra status line configurada'
-      : state === 'disabled'
-        ? 'la status line de la app está desactivada'
-        : state === 'unreadable'
-          ? 'no se pudo leer su settings.json'
-          : 'todavía no está configurada';
-  return `Esta CLI publica sus tokens solo por su status line, y ${why}. Configurar explica cómo.`;
+  return state === 'other-command'
+    ? t('agent.meter.setup.otherCommand')
+    : state === 'disabled'
+      ? t('agent.meter.setup.disabled')
+      : state === 'unreadable'
+        ? t('agent.meter.setup.unreadable')
+        : t('agent.meter.setup.missing');
 }
 
 /**
@@ -518,9 +561,9 @@ export function meterWindowOrigin(
   source: ContextWindowSource | null,
   usage: Pick<ContextUsage, 'contextWindow' | 'contextWindowEstimated'>,
 ): string | null {
-  if (usage.contextWindowEstimated) return 'limite deducido de los tokens medidos';
+  if (usage.contextWindowEstimated) return t('agent.meter.origin.estimated');
   if (source === 'usage-with-catalog' && usage.contextWindow !== null) {
-    return 'limite del catalogo de modelos de la CLI';
+    return t('agent.meter.origin.catalog');
   }
   return null;
 }
@@ -535,18 +578,10 @@ export function meterIdleDetail(
   instructionsFile: string | null,
   source: ContextWindowSource | null = null,
 ): string {
-  if (source === 'status-line') {
-    return (
-      'La status line todavia no publico tokens de esta conversacion. No arranca en cero: el' +
-      ' numero aparece cuando la CLI la corre, con el primer mensaje o al retomar la sesion.'
-    );
-  }
-  const instructions = instructionsFile ?? 'archivo de instrucciones del proyecto';
-  return (
-    'La sesion todavia no midio ninguna respuesta. No arranca en cero: el prompt de' +
-    ` sistema, las herramientas y el ${instructions} ya ocupan contexto, y el numero real` +
-    ' aparece con la primera respuesta.'
-  );
+  if (source === 'status-line') return t('agent.meter.idle.statusLine');
+  return instructionsFile === null
+    ? t('agent.meter.idle.noFile')
+    : t('agent.meter.idle.withFile', { file: instructionsFile });
 }
 
 /**
@@ -560,14 +595,12 @@ export function restingDotTitle(
   activity: TerminalActivity | undefined,
   statusLine: Pick<StatusLineSetupInfo, 'state'> | null = null,
 ): string {
-  if (activity === 'idle') return 'Lista, sin nada en curso';
+  if (activity === 'idle') return t('agent.dot.idle');
   if (activity === 'unknown') {
-    if (statusLine === null) return 'Esta CLI no publica su estado';
-    return statusLine.state === 'active'
-      ? 'La status line todavía no publicó el estado de esta conversación'
-      : 'Esta CLI publica su estado sólo con la status line configurada';
+    if (statusLine === null) return t('agent.dot.noStatus');
+    return statusLine.state === 'active' ? t('agent.dot.statusLinePending') : t('agent.dot.statusLineOnly');
   }
-  return 'CLI abierta';
+  return t('agent.dot.open');
 }
 
 /**
@@ -589,14 +622,8 @@ export function noteSendTitle(
   targetCwd: string | null,
   empty: boolean,
 ): string {
-  if (!sendable) {
-    return targetCwd === null
-      ? 'Abri una pestana primero: la conversacion se abre en su proyecto'
-      : 'La CLI de esta pestaña no avisa cuando esta lista, asi que la nota no se puede mandar';
-  }
-  return empty
-    ? 'La nota esta vacia'
-    : `Mandar la nota al agente en una conversacion nueva de ${targetCwd ?? ''}`;
+  if (!sendable) return targetCwd === null ? t('agent.note.needsTab') : t('agent.note.noReadySignal');
+  return empty ? t('agent.note.empty') : t('agent.note.send', { cwd: targetCwd ?? '' });
 }
 
 // ---------------------------------------------------------------------------
@@ -791,7 +818,9 @@ export function continueTargets(
 }
 
 /** Titulo del `↪`, en la fila y en el medidor. */
-export const CONTINUE_BUTTON_TITLE = 'Continuar esta conversación con otra CLI';
+export function continueButtonTitle(): string {
+  return t('agent.continue.title');
+}
 
 /**
  * Por que el `↪` del medidor esta apagado, o null si no lo esta.
@@ -802,9 +831,9 @@ export const CONTINUE_BUTTON_TITLE = 'Continuar esta conversación con otra CLI'
  * no esta en el historial.
  */
 export function continueBlockedReason(sessionId: string, discovering: boolean, hasMessages: boolean): string | null {
-  if (discovering) return 'La sesión todavía no está en el historial: aparece con el primer mensaje.';
-  if (sessionId.length === 0) return 'Esta pestaña todavía no tiene una conversación que continuar.';
-  if (!hasMessages) return 'Esta conversación todavía no tiene mensajes que continuar.';
+  if (discovering) return t('agent.continue.discovering');
+  if (sessionId.length === 0) return t('agent.continue.noConversation');
+  if (!hasMessages) return t('agent.continue.noMessages');
   return null;
 }
 
@@ -819,30 +848,53 @@ export function handoffNoticeText(
   totalTurns: number,
   totalTurnsIsMinimum: boolean,
 ): string {
-  const of = totalTurnsIsMinimum ? `de más de ${totalTurns}` : `de ${totalTurns}`;
   const turns =
     includedTurns >= totalTurns && !totalTurnsIsMinimum
       ? totalTurns === 1
-        ? 'del único turno'
-        : `de los ${totalTurns} turnos`
+        ? t('agent.handoff.turns.single')
+        : t('agent.handoff.turns.all', { count: totalTurns })
       : includedTurns === 1
-        ? `del último turno ${of}`
-        : `de los últimos ${includedTurns} ${of} turnos`;
-  return `Continuación de ${label}: el agente arranca de un transcript ${turns}, no del contexto que tenía. Los resultados de herramientas van recortados y las imágenes no viajan.`;
+        ? totalTurnsIsMinimum
+          ? t('agent.handoff.turns.lastOneOfMore', { total: totalTurns })
+          : t('agent.handoff.turns.lastOne', { total: totalTurns })
+        : totalTurnsIsMinimum
+          ? t('agent.handoff.turns.lastManyOfMore', { count: totalTurns, included: includedTurns })
+          : t('agent.handoff.turns.lastMany', { count: totalTurns, included: includedTurns });
+  return t('agent.handoff.notice', { label, turns });
+}
+
+/** Cuanto del titulo entra en la etiqueta de la pestana de una continuacion. */
+const CONTINUATION_TITLE_CHARS = 40;
+
+/**
+ * La etiqueta de la pestana que continua una conversacion (D12), en el idioma de
+ * la app: `Continuación: <titulo>`, con el titulo cortado como lo cortaba el
+ * servidor, o solo `Continuación` si no hay titulo.
+ */
+export function continuationTabLabel(title: string): string {
+  const clean = title.replace(/\s+/g, ' ').trim();
+  const chars = [...clean];
+  const cut =
+    chars.length > CONTINUATION_TITLE_CHARS
+      ? `${chars.slice(0, CONTINUATION_TITLE_CHARS).join('').trimEnd()}…`
+      : clean;
+  return cut.length > 0 ? t('agent.handoff.tabLabel', { title: cut }) : t('agent.handoff.tabLabelNoTitle');
 }
 
 /** Lo que agrega el aviso mientras el servidor manda la continuacion sola. */
-export const HANDOFF_SENDING_TEXT = 'Mandando la continuación…';
+export function handoffSendingText(): string {
+  return t('agent.handoff.sending');
+}
 
 /** Lo que agrega el aviso cuando la continuacion no se mando sola y quedo en el cuadro. */
 export function handoffPrefillText(reason: 'no-delivery' | 'not-ready' | 'send-failed'): string {
   switch (reason) {
     case 'no-delivery':
-      return 'El mensaje quedó en el cuadro: revisalo y mandalo con Enter.';
+      return t('agent.handoff.prefill.noDelivery');
     case 'not-ready':
-      return 'La CLI no llegó a estar lista a tiempo: el mensaje quedó en el cuadro para que lo mandes.';
+      return t('agent.handoff.prefill.notReady');
     case 'send-failed':
-      return 'No se pudo mandar solo: el mensaje quedó en el cuadro para que lo mandes.';
+      return t('agent.handoff.prefill.sendFailed');
   }
 }
 
@@ -892,7 +944,7 @@ export function sessionAgentView(
   const missing = info !== undefined && !info.available && anyAvailable;
   return {
     badge: offerAgentChoice || missing,
-    unavailableTitle: missing ? `La CLI ${info.label} no está instalada.` : null,
+    unavailableTitle: missing ? t('agent.session.cliMissing', { label: info.label }) : null,
   };
 }
 
@@ -914,11 +966,14 @@ export function discoveringSession(
  * que seguir (`ConversationState 'no-transcript'`, hito 27): una version vieja
  * de la CLI que guardaba el historial vacio. Se lista y se puede reanudar.
  */
-export const NO_TRANSCRIPT_TEXT =
-  'Esta conversación es de una versión de la CLI que no dejaba el transcript legible. Se puede reanudar desde la barra lateral, pero acá no hay nada que mostrar.';
+export function noTranscriptText(): string {
+  return t('agent.thread.noTranscript');
+}
 
 /** La linea que la vista vacia agrega mientras la sesion no aparece. */
-export const DISCOVERING_HINT = 'La sesión aparece en el historial con el primer mensaje.';
+export function discoveringHint(): string {
+  return t('agent.thread.discovering');
+}
 
 /**
  * Por que el cuadro de escritura no deja mandar, o null si deja.
@@ -941,7 +996,7 @@ export function openToolCallNotice(
   activity: TerminalActivity | null = null,
 ): string | null {
   if (!alive || !blindToApprovals(capabilities, activity) || !openToolCall) return null;
-  return `${label ?? 'La CLI'} tiene una herramienta sin resultado: puede estar pidiendo una aprobación. Contestala en la solapa CLI.`;
+  return label === null ? t('agent.openTool.noLabel') : t('agent.openTool.withLabel', { label });
 }
 
 /**
@@ -950,15 +1005,15 @@ export function openToolCallNotice(
  * por ella (`pendingApprovalNotice`).
  */
 export function waitingBarText(waitingFor: string, questionsAnswerable = false): string {
-  if (waitingFor === 'permission prompt') return 'La CLI esta esperando que autorices una herramienta.';
+  if (waitingFor === 'permission prompt') return t('agent.waiting.permission');
   /*
     Hito 29 (B6): una CLI que publica que espera la respuesta a una pregunta
     —`'question'`— y cuyas tarjetas se contestan desde el hilo. Ahi la barra no
     manda a la solapa CLI: la tarjeta con los botones esta arriba. Ninguna CLI
     de hoy publica esa etiqueta, y con cualquier otra el texto es el de siempre.
   */
-  if (waitingFor === 'question' && questionsAnswerable) return 'El agente te hizo una pregunta: respondela en el hilo.';
-  return 'La CLI esta esperando una respuesta tuya.';
+  if (waitingFor === 'question' && questionsAnswerable) return t('agent.waiting.question');
+  return t('agent.waiting.answer');
 }
 
 /**
@@ -988,11 +1043,16 @@ export function serverClosedBarState(input: {
 
 /** Lo que dice la barra, y el cuadro que se apaga por ella. */
 export function serverClosedBarText(label: string | null): string {
-  return `El servidor de ${label ?? 'la CLI'} se cerró y esta pestaña quedó sin conexión.`;
+  return label === null ? t('agent.serverClosed.noLabel') : t('agent.serverClosed.withLabel', { label });
 }
 
-export const SERVER_CLOSED_RELAUNCH_TEXT = 'Relanzar';
-export const SERVER_CLOSED_RELAUNCHING_TEXT = 'Relanzando…';
+export function serverClosedRelaunchText(): string {
+  return t('agent.serverClosed.relaunch');
+}
+
+export function serverClosedRelaunchingText(): string {
+  return t('agent.serverClosed.relaunching');
+}
 
 /**
  * Por donde va cada relanzamiento: `waiting-exit` hasta que la lista de
@@ -1161,4 +1221,6 @@ export function openBlockedFor(
 }
 
 /** El titulo del `+` mientras esa carpeta tiene una pestana en camino. */
-export const OPEN_BLOCKED_TITLE = 'Abriendo una pestaña en este proyecto…';
+export function openBlockedTitle(): string {
+  return t('agent.openBlocked');
+}

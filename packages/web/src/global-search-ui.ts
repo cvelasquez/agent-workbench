@@ -31,6 +31,7 @@ import {
   type VaultStatus,
 } from '@agent-workbench/shared';
 import { resumableSession } from './agent-ui.js';
+import { t } from './i18n/index.js';
 
 export type SidebarSearchMode = 'titles' | 'conversations';
 
@@ -39,25 +40,35 @@ export function globalSearchVisible(agents: readonly AgentInfo[], vault: VaultSt
   return shouldOfferAgentChoice(agents) && vault !== null && vault.sessions > 0;
 }
 
-export const SEARCH_MODE_TITLES_TEXT = 'En títulos';
-export const SEARCH_MODE_CONVERSATIONS_TEXT = 'En conversaciones';
-export const SEARCH_MODE_CONVERSATIONS_TITLE =
-  'Busca en el texto de las conversaciones guardadas en la copia propia, sin distinguir mayúsculas ni tildes';
+export function searchModeTitlesText(): string {
+  return t('search.mode.titles');
+}
+
+export function searchModeConversationsText(): string {
+  return t('search.mode.conversations');
+}
+
+export function searchModeConversationsTitle(): string {
+  return t('search.mode.conversationsTitle');
+}
 
 /** El placeholder del buscador de la barra. El de títulos es el de siempre. */
 export function sidebarFilterPlaceholder(mode: SidebarSearchMode): string {
-  return mode === 'conversations' ? 'Buscar en las conversaciones (Enter)' : 'Filtrar proyectos y sesiones';
+  return mode === 'conversations' ? t('search.placeholder.conversations') : t('search.placeholder.titles');
 }
 
-export const GLOBAL_SEARCH_TOO_SHORT_TEXT = `Escribí al menos ${GLOBAL_SEARCH_MIN_CHARS} caracteres y Enter.`;
+export function globalSearchTooShortText(): string {
+  return t('search.tooShort', { min: GLOBAL_SEARCH_MIN_CHARS });
+}
 
 /** true si la consulta no llega al minimo: ni se manda. */
 export function globalSearchTooShort(query: string): boolean {
   return [...query.trim()].length < GLOBAL_SEARCH_MIN_CHARS;
 }
 
-export const GLOBAL_SEARCH_OFF_TEXT =
-  'La copia propia está apagada: se busca en lo que guardó mientras estuvo encendida.';
+export function globalSearchOffText(): string {
+  return t('search.off');
+}
 
 /** Los aciertos de una sesion, en el orden en que llegaron. */
 export interface SearchHitGroup {
@@ -134,7 +145,7 @@ export function snippetPieces(
 
 /** "Pedido" o "Respuesta": quien escribio el mensaje del acierto. */
 export function searchHitRoleText(hit: Pick<GlobalSearchHit, 'role'>): string {
-  return hit.role === 'user' ? 'Pedido' : hit.role === 'assistant' ? 'Respuesta' : 'Título';
+  return hit.role === 'user' ? t('search.role.user') : hit.role === 'assistant' ? t('search.role.assistant') : t('search.role.title');
 }
 
 /**
@@ -153,7 +164,7 @@ export function groupThreadQuery(group: SearchHitGroup): string {
   return first === null ? '' : threadQueryFor(first);
 }
 
-const count = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+const sessionsText = (count: number): string => t('search.sessions', { count });
 
 /**
  * Suma un aviso de progreso a lo que se tiene de esa busqueda (`previous`, o
@@ -187,32 +198,36 @@ export function globalSearchStatusText(state: {
 }): string | null {
   const { result } = state;
   if (state.searching && state.error === null) {
-    if (result === null) return 'Buscando…';
-    const sofar = `Buscando… ${result.sessionsScanned} de ${count(result.sessionsTotal, 'sesión', 'sesiones')}`;
-    return result.hits.length === 0 ? `${sofar}.` : `${sofar}, ${foundText(result)} por ahora.`;
+    if (result === null) return t('search.status.searching');
+    const progress = { count: result.sessionsTotal, scanned: result.sessionsScanned };
+    return result.hits.length === 0
+      ? t('search.status.progress', progress)
+      : t('search.status.progressFound', { ...progress, found: foundText(result) });
   }
   if (state.error !== null) return state.error;
   if (result === null) return null;
 
-  const found = result.hits.length === 0 ? 'Sin resultados' : foundText(result);
+  const found = result.hits.length === 0 ? t('search.status.none') : foundText(result);
 
   if (result.truncated === null && result.hits.length === 0 && result.sessionsScanned > 0) {
-    return `Sin resultados en ${count(result.sessionsScanned, 'sesión', 'sesiones')}.`;
+    return t('search.status.noneIn', { sessions: sessionsText(result.sessionsScanned) });
   }
-  if (result.truncated === 'results') {
-    return `${found}: son los primeros, afiná la búsqueda para ver el resto.`;
-  }
+  if (result.truncated === 'results') return t('search.status.truncatedResults', { found });
   if (result.truncated === 'time') {
     const left = Math.max(0, result.sessionsTotal - result.sessionsScanned);
-    return `${found}: la búsqueda se cortó a los ${Math.round(GLOBAL_SEARCH_SAFETY_MS / 1000)} s y quedaron ${count(left, 'sesión', 'sesiones')} sin mirar.`;
+    return t('search.status.truncatedTime', {
+      found,
+      seconds: Math.round(GLOBAL_SEARCH_SAFETY_MS / 1000),
+      left: sessionsText(left),
+    });
   }
-  return `${found}.`;
+  return t('search.status.done', { found });
 }
 
 /** "3 aciertos en 2 sesiones". */
 function foundText(result: GlobalSearchResult): string {
   const sessions = new Set(result.hits.map((hit) => `${hit.agent}:${hit.sessionId}`)).size;
-  return `${count(result.hits.length, 'acierto', 'aciertos')} en ${count(sessions, 'sesión', 'sesiones')}`;
+  return t('search.found', { hits: t('search.hits', { count: result.hits.length }), sessions: sessionsText(sessions) });
 }
 
 /** Que hace el clic en un acierto. */

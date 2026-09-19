@@ -29,12 +29,14 @@
 import {
   IMPORTED_AGENT_LABELS,
   isAgentId,
+  serverText,
   type AgentCapabilities,
   type AgentId,
   type ConversationEvent,
   type ConversationState,
   type ServerErrorCode,
   type ServerSessionContinuedMessage,
+  type ServerText,
   type SessionAgentId,
   type SessionSummary,
   type TerminalDescriptor,
@@ -106,7 +108,7 @@ export type ContinueOutcome =
       /** El mensaje para la CLI que continua: se manda solo o va prellenado segun `continued.delivery`. */
       message: string;
     }
-  | { ok: false; code: ServerErrorCode; message: string; detail?: string };
+  | { ok: false; code: ServerErrorCode; text: ServerText; detail?: string };
 
 /** Como llega el mensaje a la CLI que continua (D19, sin la API que saco A4). */
 export type Delivery = 'pty' | 'prefill';
@@ -120,7 +122,10 @@ export function chooseDelivery(capabilities: Pick<AgentCapabilities, 'readySigna
   return capabilities.readySignal ? 'pty' : 'prefill';
 }
 
-/** `Continuación: <titulo>`, con el titulo cortado. */
+/**
+ * `Continuación: <titulo>`, con el titulo cortado. Es el respaldo: la web manda
+ * la suya en su idioma (hito 34, D12), y esta queda para un cliente que no.
+ */
 export function continuationLabel(title: string): string {
   const clean = title.replace(/\s+/g, ' ').trim();
   const chars = [...clean];
@@ -178,42 +183,42 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
  */
 export async function continueSession(
   deps: ContinueDeps,
-  request: { agent: SessionAgentId; sessionId: string; target: AgentId },
+  request: { agent: SessionAgentId; sessionId: string; target: AgentId; label?: string },
 ): Promise<ContinueOutcome> {
-  const failed = (message: string, detail?: string): ContinueOutcome => ({
+  const failed = (text: ServerText, detail?: string): ContinueOutcome => ({
     ok: false,
     code: 'continue-failed',
-    message,
+    text,
     ...(detail !== undefined ? { detail } : {}),
   });
 
   // 1. La CLI que continua: registrada, instalada y otra que la de origen.
   const target = deps.agents.get(request.target);
   if (target === null) {
-    return { ok: false, code: 'agent-unsupported', message: 'Este servidor no sabe lanzar esa CLI.', detail: request.target };
+    return { ok: false, code: 'agent-unsupported', text: serverText('agentUnknown'), detail: request.target };
   }
   if (target.location === null) {
-    return { ok: false, code: 'cli-not-found', message: `${target.adapter.label} no esta instalada o no se encontro en el PATH.` };
+    return { ok: false, code: 'cli-not-found', text: serverText('cliNotInstalled', { label: target.adapter.label }) };
   }
   if (request.agent === request.target) {
     // Continuar con la misma CLI no entra en el hito (§16): reanudarla es abrir su fila.
-    return failed('Esa conversación ya es de esa CLI: para seguirla, abrila desde la barra lateral.');
+    return failed(serverText('continueSameCli'));
   }
 
   // 2. La sesion, como la lista la barra. Su `cwd` es el de reanudar (M4).
   const summary = deps.index.find(request.agent, request.sessionId);
   // Una sesion recien empezada puede tardar en indexarse (Codex en Windows, §10.10).
-  if (summary === null) return failed('Esa conversación no está en el historial: si acaba de empezar, probá de nuevo en unos segundos.');
-  if (summary.cwd.length === 0) return failed('Esa conversación no dice en qué carpeta corrió.');
+  if (summary === null) return failed(serverText('continueNotInHistory'));
+  if (summary.cwd.length === 0) return failed(serverText('continueNoFolder'));
 
   // 3. Los eventos: la copia si sirve, si no el seguidor de la CLI de origen.
   let source: (SourceEvents & { partial: boolean }) | null;
   try {
     source = await readEvents(deps, request.agent, summary);
   } catch (error) {
-    return failed('No se pudo leer esa conversación.', messageOf(error));
+    return failed(serverText('continueReadFailed'), messageOf(error));
   }
-  if (source === null) return failed('No se encontró el historial de esa conversación.');
+  if (source === null) return failed(serverText('continueHistoryMissing'));
 
   // 4. El transcript, antes de abrir nada: sin turnos no hay continuacion (H5).
   const sourceLabel = isAgentId(request.agent)
@@ -233,7 +238,7 @@ export async function continueSession(
     state: source.state,
     complete: source.complete,
   });
-  if (!plan.ok) return failed(plan.message);
+  if (!plan.ok) return failed(plan.text);
 
   // 5. La pestana de la CLI que continua, en la carpeta de la sesion.
   let descriptor: TerminalDescriptor;
@@ -242,13 +247,13 @@ export async function continueSession(
       cwd: summary.cwd,
       agent: request.target,
       kind: 'agent',
-      label: continuationLabel(summary.title),
+      label: request.label ?? continuationLabel(summary.title),
     });
   } catch (error) {
     if (error instanceof TerminalOpenError) {
-      return { ok: false, code: error.code, message: error.message, ...(error.detail !== undefined ? { detail: error.detail } : {}) };
+      return { ok: false, code: error.code, text: error.text, ...(error.detail !== undefined ? { detail: error.detail } : {}) };
     }
-    return failed('No se pudo abrir la pestaña de la continuación.', messageOf(error));
+    return failed(serverText('continueTabFailed'), messageOf(error));
   }
 
   // 6. El archivo, en la carpeta de pegados de esa pestana (D17).
@@ -257,7 +262,7 @@ export async function continueSession(
     saved = await deps.pasteStore.saveText(descriptor.terminalId, 'continuacion', plan.markdown);
   } catch (error) {
     deps.closeTab(descriptor.terminalId);
-    return failed('No se pudo guardar el transcript de la continuación.', messageOf(error));
+    return failed(serverText('continueTranscriptFailed'), messageOf(error));
   }
 
   // 7. El mensaje, nombrando el archivo como lo lee esa CLI (D18).

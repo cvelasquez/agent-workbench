@@ -21,6 +21,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { FilePreview } from '@agent-workbench/shared';
+import { t } from './i18n/index.js';
 
 interface FilePreviewViewProps {
   preview: FilePreview;
@@ -59,12 +60,7 @@ export function FilePreviewView({ preview }: FilePreviewViewProps): JSX.Element 
   );
 
   if (preview.binary) {
-    return (
-      <p className="panel-note">
-        Archivo binario: no se previsualiza. Se puede abrir con la app del sistema desde
-        el menú contextual del árbol.
-      </p>
-    );
+    return <p className="panel-note">{t('files.preview.binary')}</p>;
   }
 
   return (
@@ -82,12 +78,7 @@ export function FilePreviewView({ preview }: FilePreviewViewProps): JSX.Element 
         )}
       </div>
 
-      {preview.truncated && (
-        <p className="panel-note">
-          El archivo se cortó por tamaño. Se ve completo abriéndolo con la app del
-          sistema.
-        </p>
-      )}
+      {preview.truncated && <p className="panel-note">{t('files.preview.truncated')}</p>}
     </div>
   );
 }

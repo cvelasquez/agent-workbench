@@ -35,6 +35,7 @@
 import type { TerminalDescriptor, TerminalId } from '@agent-workbench/shared';
 import { TerminalView } from './TerminalView.js';
 import type { AgentConnection } from './connection.js';
+import { t } from './i18n/index.js';
 
 interface ConsolePaneProps {
   connection: AgentConnection;
@@ -67,7 +68,7 @@ export function ConsolePane({
   onCloseShell,
   onCollapse,
 }: ConsolePaneProps): JSX.Element {
-  const label = shellName ?? 'Consola';
+  const label = shellName ?? t('console.name');
   const active = shells.find((shell) => shell.terminalId === activeShellId) ?? shells[0] ?? null;
 
   return (
@@ -86,16 +87,16 @@ export function ConsolePane({
                 onClick={() => onSelect(shell.terminalId)}
                 title={
                   shell.alive
-                    ? `${label} ${index + 1} en ${cwd}`
-                    : `Terminada con codigo ${shell.exitCode ?? '?'}`
+                    ? t('console.tab.title', { shell: label, number: index + 1, cwd })
+                    : t('console.tab.exited', { code: shell.exitCode ?? '?' })
                 }
               >
-                Terminal {index + 1}
+                {t('console.tab.label', { number: index + 1 })}
               </button>
               <button
                 className="strip-tab-close"
                 onClick={() => onCloseShell(shell.terminalId)}
-                title="Cerrar esta terminal y terminar su proceso"
+                title={t('console.tab.close')}
               >
                 ×
               </button>
@@ -106,7 +107,7 @@ export function ConsolePane({
             <button
               className="strip-tab-new"
               onClick={onOpen}
-              title={`Abrir otra ${label} en ${cwd}`}
+              title={t('console.openAnother', { shell: label, cwd })}
             >
               +
             </button>
@@ -117,7 +118,7 @@ export function ConsolePane({
         <button
           className="icon-button"
           onClick={onCollapse}
-          title="Plegar. Los procesos siguen vivos: para terminarlos, la × de cada terminal"
+          title={t('console.collapse')}
         >
           ▾
         </button>
@@ -127,10 +128,10 @@ export function ConsolePane({
         {shells.length === 0 ? (
           <div className="console-empty">
             {shellName === null ? (
-              <p className="panel-note">No se encontró ninguna consola del sistema para abrir.</p>
+              <p className="panel-note">{t('console.noShell')}</p>
             ) : (
               <button className="link-button" onClick={onOpen}>
-                Abrir {label} en {cwd}
+                {t('console.openIn', { shell: label, cwd })}
               </button>
             )}
           </div>

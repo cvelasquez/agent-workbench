@@ -197,7 +197,7 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
       try {
         await installStatusLineScript(integrationsDir());
       } catch (error) {
-        console.warn(`[antigravity] no pude reinstalar el script de la status line: ${String(error)}`);
+        console.warn(`[antigravity] couldn't reinstall the status line script: ${String(error)}`);
       }
     }
     const changed = settings.statusLine.state !== state;
@@ -235,12 +235,12 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
     launch(input: LaunchInput): LaunchPlan {
       const { resumeSessionId } = input;
       if (resumeSessionId !== null && !CONVERSATION_ID_PATTERN.test(resumeSessionId)) {
-        throw new Error('Id de conversacion de Antigravity CLI invalido.');
+        throw new Error('Invalid Antigravity CLI conversation id.');
       }
       let logPath = cliLogPathFor(input.launchToken);
       if (logPath !== null && input.location.prefixArgs.length > 0 && !SHIM_SAFE_PATH.test(logPath)) {
         console.warn(
-          '[antigravity] la CLI llega por un shim y la carpeta temporal tiene caracteres que cmd /c corta: sin log propio, una pestana nueva no descubre su conversacion ni ve un /clear.',
+          "[antigravity] the CLI runs through a shim and the temp folder has characters that cmd /c cuts: without its own log, a new tab doesn't discover its conversation or see a /clear.",
         );
         logPath = null;
       }
@@ -364,7 +364,7 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
       try {
         await installStatusLineScript(integrationsDir());
       } catch (error) {
-        console.warn(`[antigravity] no pude instalar el script de la status line: ${String(error)}`);
+        console.warn(`[antigravity] couldn't install the status line script: ${String(error)}`);
       }
       await removeStaleCliLogs();
       await store.removeStale();

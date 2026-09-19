@@ -28,6 +28,7 @@
  * lo nuevo es de donde sale esa ruta.
  */
 
+import { ServerTextError, serverText } from '@agent-workbench/shared';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -48,7 +49,8 @@ const MAX_PICKERS = 8;
  */
 const SKIPPED = new Set(['node_modules', '.git', 'dist', 'bin', 'obj', '$RECYCLE.BIN']);
 
-export class DirectoryPickerError extends Error {}
+/** Un pedido del selector que no se cumple. El texto va como clave (§6.23). */
+export class DirectoryPickerError extends ServerTextError {}
 
 /**
  * true si `target` es una de las carpetas protegidas o esta adentro. No se
@@ -112,7 +114,7 @@ export class DirectoryPickers {
   /** Abre un selector en el directorio del usuario. */
   async open(): Promise<DirectoryPickerListing> {
     if (this.pickers.size >= MAX_PICKERS) {
-      throw new DirectoryPickerError('Hay demasiados selectores abiertos.');
+      throw new DirectoryPickerError(serverText('pickerTooMany'));
     }
     const picker: Picker = { id: randomUUID(), current: homedir(), entries: new Set() };
     this.pickers.set(picker.id, picker);
@@ -151,12 +153,12 @@ export class DirectoryPickers {
     }
 
     if (!picker.entries.has(name)) {
-      throw new DirectoryPickerError('Esa carpeta no esta en el listado actual.');
+      throw new DirectoryPickerError(serverText('pickerNotListed'));
     }
 
     const target = path.join(picker.current, name);
     if (isInsideProtected(target, this.protectedDirs)) {
-      throw new DirectoryPickerError('Esa carpeta es de la CLI y no se abre desde aca.');
+      throw new DirectoryPickerError(serverText('pickerCliFolder'));
     }
     picker.current = target;
     return this.listing(picker);
@@ -167,7 +169,7 @@ export class DirectoryPickers {
     const picker = this.require(pickerId);
     const roots = await this.knownRoots();
     const target = roots[index];
-    if (target === undefined) throw new DirectoryPickerError('Esa raiz no existe.');
+    if (target === undefined) throw new DirectoryPickerError(serverText('pickerRootMissing'));
     picker.current = target;
     return this.listing(picker);
   }
@@ -184,25 +186,25 @@ export class DirectoryPickers {
     const clean = name.trim();
 
     if (clean.length === 0 || clean.length > 120) {
-      throw new DirectoryPickerError('El nombre de la carpeta no es valido.');
+      throw new DirectoryPickerError(serverText('pickerNameInvalid'));
     }
     if (clean === '.' || clean === '..') {
-      throw new DirectoryPickerError('El nombre de la carpeta no es valido.');
+      throw new DirectoryPickerError(serverText('pickerNameInvalid'));
     }
     // Los que Windows no admite en un nombre de archivo. Los espacios y los
     // guiones si valen: `mi proyecto` y `agent-workbench` son normales.
     if (/[\\/:*?"<>|]/.test(clean)) {
-      throw new DirectoryPickerError('El nombre tiene caracteres que no se pueden usar.');
+      throw new DirectoryPickerError(serverText('pickerNameChars'));
     }
     for (const character of clean) {
       if ((character.codePointAt(0) ?? 0) < 32) {
-        throw new DirectoryPickerError('El nombre tiene caracteres que no se pueden usar.');
+        throw new DirectoryPickerError(serverText('pickerNameChars'));
       }
     }
 
     const target = path.join(picker.current, clean);
     if (isInsideProtected(target, this.protectedDirs)) {
-      throw new DirectoryPickerError('Ahi no se crean proyectos: es la carpeta de la CLI.');
+      throw new DirectoryPickerError(serverText('pickerNoProjectsHere'));
     }
 
     try {
@@ -212,9 +214,7 @@ export class DirectoryPickers {
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       throw new DirectoryPickerError(
-        code === 'EEXIST'
-          ? 'Ya hay una carpeta con ese nombre.'
-          : 'No se pudo crear la carpeta ahi.',
+        code === 'EEXIST' ? serverText('pickerFolderExists') : serverText('pickerCreateFailed'),
       );
     }
 
@@ -224,7 +224,7 @@ export class DirectoryPickers {
 
   private require(pickerId: string): Picker {
     const picker = this.pickers.get(pickerId);
-    if (picker === undefined) throw new DirectoryPickerError('Ese selector ya no esta abierto.');
+    if (picker === undefined) throw new DirectoryPickerError(serverText('pickerClosed'));
     return picker;
   }
 

@@ -43,10 +43,10 @@ import type {
   StatusLineState,
 } from '@agent-workbench/shared';
 import {
-  DISCOVERING_HINT,
-  NO_TRANSCRIPT_TEXT,
-  SERVER_CLOSED_RELAUNCHING_TEXT,
-  SERVER_CLOSED_RELAUNCH_TEXT,
+  discoveringHint,
+  noTranscriptText,
+  serverClosedRelaunchingText,
+  serverClosedRelaunchText,
   waitingBarText,
   type ServerClosedBarState,
 } from './agent-ui.js';
@@ -55,10 +55,13 @@ import { threadFontTitle } from './thread-font.js';
 import type { ThreadFontState } from './useThreadFont.js';
 import { ContinueButton } from './ContinueButton.js';
 import { noticeText } from './conversation-notice.js';
+import { formatDuration, formatTime } from './i18n/format.js';
+import { t } from './i18n/index.js';
+import { useLocale } from './i18n/useLocale.js';
 import { ImageViewer } from './ImageViewer.js';
 import { nextUrl } from './inline-markup.js';
 import { Markdown } from './Markdown.js';
-import { toolCategory } from './tool-categories.js';
+import { toolCategory, toolRunSummary } from './tool-categories.js';
 import { imageKey, type ConversationFeed } from './useConversation.js';
 
 /** Margen para decidir si el usuario estaba mirando el final. */
@@ -145,11 +148,10 @@ function groupCards(cards: readonly Card[]): Block[] {
       continue;
     }
 
-    const label = category.label ?? `llamadas a ${names[0] ?? ''}`;
     blocks.push({
       kind: 'tools',
       id: `tools-${card.event.eventId}`,
-      summary: `${count} ${label}`,
+      summary: toolRunSummary(category.key, count, names[0] ?? ''),
       at: card.event.at,
       cards: run,
     });
@@ -189,26 +191,6 @@ function cardText(card: Card, results: Map<string, ConversationToolResultPart>):
     }
   }
   return pieces.join('\n');
-}
-
-function formatTime(at: number): string {
-  if (at <= 0) return '';
-  return new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
-
-/**
- * Duracion de un turno, en la unidad que se lee de un vistazo.
- *
- * Sale de la propia CLI (`system/turn_duration`), no de restar marcas de
- * tiempo: esa resta incluye lo que el usuario tardo en escribir lo siguiente.
- */
-function formatDuration(ms: number): string {
-  if (ms < 1_000) return `${ms} ms`;
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds} s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
 }
 
 /** Resalta las coincidencias en texto plano (lo que no pasa por Markdown). */
@@ -388,6 +370,7 @@ export function ConversationView({
     answerFailed,
   } = view;
 
+  const locale = useLocale();
   const [query, setQuery] = useState('');
   const [matchIndex, setMatchIndex] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -444,7 +427,7 @@ export function ConversationView({
     Las tandas de acciones se agrupan aca y no al dibujar: una tanda es una
     fila de la lista, no un adorno de las tarjetas que la componen.
   */
-  const blocks = useMemo(() => groupCards(cards), [cards]);
+  const blocks = useMemo(() => groupCards(cards), [cards, locale]);
 
   const needle = query.trim();
   const matches = useMemo(() => {
@@ -453,7 +436,7 @@ export function ConversationView({
     return cards
       .filter((card) => cardText(card, results).toLowerCase().includes(lower))
       .map((card) => card.event.eventId);
-  }, [cards, results, needle]);
+  }, [cards, results, needle, locale]);
 
   useEffect(() => {
     setMatchIndex(0);
@@ -501,7 +484,7 @@ export function ConversationView({
         })
         .catch(() => setCopiedId(null));
     },
-    [results],
+    [results, locale],
   );
 
   const stepMatch = (offset: number): void => {
@@ -515,7 +498,7 @@ export function ConversationView({
         <input
           className="conversation-search-input"
           type="search"
-          placeholder="Buscar en la conversacion"
+          placeholder={t('thread.search.placeholder')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
@@ -527,13 +510,13 @@ export function ConversationView({
         {needle.length > 0 && (
           <>
             <span className="conversation-matches">
-              {matches.length === 0 ? 'sin resultados' : `${matchIndex + 1}/${matches.length}`}
+              {matches.length === 0 ? t('thread.search.none') : `${matchIndex + 1}/${matches.length}`}
             </span>
             <button
               className="icon-button"
               onClick={() => stepMatch(-1)}
               disabled={matches.length === 0}
-              title="Anterior"
+              title={t('thread.search.previous')}
             >
               ↑
             </button>
@@ -541,7 +524,7 @@ export function ConversationView({
               className="icon-button"
               onClick={() => stepMatch(1)}
               disabled={matches.length === 0}
-              title="Siguiente"
+              title={t('thread.search.next')}
             >
               ↓
             </button>
@@ -557,7 +540,7 @@ export function ConversationView({
           <ContinueButton
             targets={continueTargets}
             className="icon-button conversation-continue"
-            text="↪ Continuar con…"
+            text={t('thread.continueWith')}
             blockedReason={continueBlockedReason}
             onPick={onContinue}
           />
@@ -592,19 +575,19 @@ export function ConversationView({
       <div className="conversation-scroll" ref={scrollRef} onScroll={onScroll}>
         {hasMore && (
           <button className="conversation-more" onClick={loadMore} disabled={loadingMore}>
-            {loadingMore ? 'Cargando...' : 'Cargar mensajes anteriores'}
+            {loadingMore ? t('thread.loadingMore') : t('thread.loadEarlier')}
           </button>
         )}
 
         {cards.length === 0 && (
           <p className="conversation-empty">
             {state === 'unavailable'
-              ? 'Esta pestana no tiene un directorio conocido, asi que no hay archivo de sesion que seguir.'
+              ? t('thread.empty.unavailable')
               : state === 'no-transcript'
-                ? NO_TRANSCRIPT_TEXT
+                ? noTranscriptText()
                 : state === 'waiting'
-                  ? 'Esperando el primer mensaje. El archivo de la sesion se crea cuando la conversacion arranca.'
-                  : 'La sesion todavia no tiene mensajes.'}
+                  ? t('thread.empty.waiting')
+                  : t('thread.empty.noMessages')}
             {/*
               Una CLI que pone el id ella misma: la pestana todavia no tiene
               sesion y por eso tampoco esta en la barra lateral. Se dice debajo
@@ -614,7 +597,7 @@ export function ConversationView({
             {state === 'waiting' && discovering && (
               <>
                 <br />
-                {DISCOVERING_HINT}
+                {discoveringHint()}
               </>
             )}
           </p>
@@ -715,15 +698,17 @@ function WakeBar({
 }): JSX.Element {
   const text =
     presence === 'sleeping'
-      ? 'Esta conversación se lee sin la CLI abierta. Abrila para escribirle al agente.'
-      : `La CLI de esta pestaña se cerró${exitCode === null ? '' : ` (código ${exitCode})`}.`;
+      ? t('thread.wake.sleeping')
+      : exitCode === null
+        ? t('thread.wake.exited')
+        : t('thread.wake.exitedWithCode', { code: exitCode });
 
   return (
     <div className="conversation-waiting conversation-wake" role="status">
       <span className="conversation-wake-dot" aria-hidden="true" />
       <span>{text}</span>
       <button className="primary-button primary-button-small" onClick={onWake} disabled={waking}>
-        {waking ? 'Abriendo…' : 'Abrir CLI'}
+        {waking ? t('thread.wake.opening') : t('thread.wake.open')}
       </button>
     </div>
   );
@@ -753,7 +738,7 @@ function ServerClosedBar({
       <span className="conversation-wake-dot" aria-hidden="true" />
       <span>{text}</span>
       <button className="primary-button primary-button-small" onClick={onRelaunch} disabled={relaunching}>
-        {relaunching ? SERVER_CLOSED_RELAUNCHING_TEXT : SERVER_CLOSED_RELAUNCH_TEXT}
+        {relaunching ? serverClosedRelaunchingText() : serverClosedRelaunchText()}
       </button>
     </div>
   );
@@ -793,7 +778,7 @@ function WaitingBar({
       <span className="conversation-waiting-dot" aria-hidden="true" />
       <span>{text}</span>
       <button className="link-button" onClick={onGoToCli}>
-        Ir a la solapa CLI
+        {t('thread.goToCli')}
       </button>
     </div>
   );
@@ -820,7 +805,7 @@ function ToolCallBar({
       <span className="conversation-waiting-dot" aria-hidden="true" />
       <span>{notice}</span>
       <button className="link-button" onClick={onGoToCli}>
-        Ir a la solapa CLI
+        {t('thread.goToCli')}
       </button>
     </div>
   );
@@ -892,14 +877,14 @@ function MessageBlock({
         conversacion*, y ese punto siempre es algo que pedi yo.
       */}
       <div className="turn-actions">
-        <button className="icon-button" onClick={onCopy} title="Copiar el texto de este mensaje">
+        <button className="icon-button" onClick={onCopy} title={t('thread.copyMessage')}>
           {copied ? '✓' : '⧉'}
         </button>
         {mine && onRewind !== undefined && (
           <button
             className="icon-button"
             onClick={onRewind}
-            title="Volver aqui — abre el menu de rewind de la CLI en la pestaña CLI (Esc Esc)"
+            title={t('thread.rewind')}
           >
             ↩
           </button>
@@ -951,7 +936,7 @@ function ToolGroup({
   open: boolean;
   children: React.ReactNode;
 }): JSX.Element {
-  const time = formatTime(at);
+  const time = at > 0 ? formatTime(at) : '';
   return (
     <details className="tool-group" open={open}>
       <summary className="tool-group-summary">
@@ -968,14 +953,17 @@ function ToolGroup({
 
 /** Hora, duracion y esfuerzo. Todo sale del archivo; nada se deduce. */
 function TurnFooter({ event, mine }: { event: ConversationEvent; mine: boolean }): JSX.Element {
-  const time = formatTime(event.at);
+  const time = event.at > 0 ? formatTime(event.at) : '';
   const bits: string[] = [];
+  // La duracion sale de la propia CLI (`system/turn_duration`), no de restar
+  // marcas de tiempo: esa resta incluye lo que el usuario tardo en escribir lo
+  // siguiente.
   if (event.durationMs !== null) bits.push(formatDuration(event.durationMs));
-  if (event.effort !== null) bits.push(`esfuerzo ${event.effort}`);
+  if (event.effort !== null) bits.push(t('thread.turn.effort', { effort: event.effort }));
 
   return (
     <div className="turn-meta">
-      {mine && <span className="turn-who">Vos</span>}
+      {mine && <span className="turn-who">{t('thread.turn.you')}</span>}
       {time.length > 0 && <span>{time}</span>}
       {/*
         Un mensaje encolado no arranco un turno: se lo encontro uno que ya
@@ -983,11 +971,8 @@ function TurnFooter({ event, mine }: { event: ConversationEvent; mine: boolean }
         leyo y contesto, y no es lo que paso.
       */}
       {event.queued && (
-        <span
-          className="turn-queued"
-          title="Lo escribiste con el agente trabajando: entro en el turno que ya estaba en curso"
-        >
-          enviado mientras trabajaba
+        <span className="turn-queued" title={t('thread.turn.queuedTitle')}>
+          {t('thread.turn.queued')}
         </span>
       )}
       {bits.map((bit) => (
@@ -1037,7 +1022,7 @@ function PartView({
       ) : (
         <div className="part-text">
           <Markdown text={part.text} needle={needle} />
-          {part.truncated && <span className="part-truncated"> … (recortado)</span>}
+          {part.truncated && <span className="part-truncated"> {t('thread.truncated')}</span>}
         </div>
       );
 
@@ -1089,30 +1074,30 @@ function PartView({
         <details className="tool" open={matchesSearch}>
           <summary className="tool-summary">
             <span className="tool-name">{part.name}</span>
-            {result !== null && result.isError && <span className="tool-error">error</span>}
+            {result !== null && result.isError && <span className="tool-error">{t('thread.tool.error')}</span>}
             {result !== null && result.imageCount > 0 && (
-              <span className="tool-images">{result.imageCount} img</span>
+              <span className="tool-images">{t('thread.tool.images', { count: result.imageCount })}</span>
             )}
           </summary>
 
           <div className="tool-block">
-            <span className="tool-label">entrada</span>
+            <span className="tool-label">{t('thread.tool.input')}</span>
             <pre className="tool-pre">
               {highlight(part.input, needle)}
-              {part.truncated && <span className="part-truncated"> … (recortado)</span>}
+              {part.truncated && <span className="part-truncated"> {t('thread.truncated')}</span>}
             </pre>
           </div>
 
           {result !== null && (
             <div className="tool-block">
-              <span className="tool-label">resultado</span>
+              <span className="tool-label">{t('thread.tool.result')}</span>
               <pre className={`tool-pre${result.isError ? ' tool-pre-error' : ''}`}>
                 {result.text.length > 0
                   ? highlight(result.text, needle)
                   : result.imageCount > 0
-                    ? `(${result.imageCount} imagen(es): no se transportan al panel)`
-                    : '(sin salida)'}
-                {result.truncated && <span className="part-truncated"> … (recortado)</span>}
+                    ? t('thread.tool.imagesNotSent', { count: result.imageCount })
+                    : t('thread.tool.noOutput')}
+                {result.truncated && <span className="part-truncated"> {t('thread.truncated')}</span>}
               </pre>
             </div>
           )}
@@ -1124,7 +1109,7 @@ function PartView({
       // Solo llega aca si su llamada no esta cargada (quedo antes del tramo).
       return (
         <div className="tool-block">
-          <span className="tool-label">resultado suelto</span>
+          <span className="tool-label">{t('thread.tool.orphanResult')}</span>
           <pre className={`tool-pre${part.isError ? ' tool-pre-error' : ''}`}>
             {highlight(part.text, needle)}
           </pre>
@@ -1266,7 +1251,7 @@ function QuestionCard({
                 <span className="question-header">{question.header}</span>
               )}
               <span className="question-text">{highlight(question.question, needle)}</span>
-              {question.multiSelect && <span className="question-hint">varias</span>}
+              {question.multiSelect && <span className="question-hint">{t('thread.question.multi')}</span>}
             </div>
 
             <div className="question-options">
@@ -1300,7 +1285,7 @@ function QuestionCard({
                     autoFocus
                     rows={2}
                     value={text}
-                    placeholder="Escribi tu respuesta"
+                    placeholder={t('thread.question.placeholder')}
                     onChange={(event) => setText(event.target.value)}
                     onKeyDown={(event) => {
                       // Enter confirma, Shift+Enter salta de linea: lo mismo
@@ -1320,14 +1305,14 @@ function QuestionCard({
                       disabled={text.trim().length === 0}
                       onClick={() => commitText(questionIndex)}
                     >
-                      {oneShot ? 'Enviar' : 'Usar este texto'}
+                      {oneShot ? t('thread.question.send') : t('thread.question.useText')}
                     </button>
                     <button
                       type="button"
                       className="question-write-cancel"
                       onClick={() => setWriting(null)}
                     >
-                      Cancelar
+                      {t('common.cancel')}
                     </button>
                   </div>
                 </div>
@@ -1341,12 +1326,10 @@ function QuestionCard({
                   onClick={() => openWriting(questionIndex)}
                 >
                   <span className="question-option-label">
-                    {written !== null ? written : 'Escribir otra respuesta…'}
+                    {written !== null ? written : t('thread.question.writeOther')}
                   </span>
                   {written === null && (
-                    <span className="question-option-desc">
-                      Para proponer una alternativa, o dar mas contexto
-                    </span>
+                    <span className="question-option-desc">{t('thread.question.writeOtherHint')}</span>
                   )}
                 </button>
               )}
@@ -1358,9 +1341,9 @@ function QuestionCard({
       <div className="question-foot">
         {failure !== null && <span className="question-failed">{failure}</span>}
         {done ? (
-          <span className="question-sent">Respondida</span>
+          <span className="question-sent">{t('thread.question.answered')}</span>
         ) : !answerable ? (
-          <span className="question-note">Respondé en la solapa CLI</span>
+          <span className="question-note">{t('thread.question.answerInCli')}</span>
         ) : (
           <>
             {!oneShot && (
@@ -1370,12 +1353,11 @@ function QuestionCard({
                 disabled={!complete}
                 onClick={() => onAnswer(part.toolUseId, draft)}
               >
-                Enviar respuestas
+                {t('thread.question.sendAnswers')}
               </button>
             )}
             <span className="question-note">
-              {oneShot ? 'Elegí una opción' : 'Elegí en cada pregunta'} · también podés
-              responder en la solapa CLI
+              {oneShot ? t('thread.question.pickOne') : t('thread.question.pickEach')}
             </span>
           </>
         )}
@@ -1409,10 +1391,10 @@ function FoldableText({
   return (
     <div className="part-text part-mine">
       {linkify(visible, needle)}
-      {truncated && <span className="part-truncated"> … (recortado)</span>}
+      {truncated && <span className="part-truncated"> {t('thread.truncated')}</span>}
       {foldable && (
         <button className="fold-toggle" onClick={() => setOpen((value) => !value)}>
-          {open ? 'ver menos' : `ver las ${lines.length} lineas`}
+          {open ? t('thread.fold.less') : t('thread.fold.more', { count: lines.length })}
         </button>
       )}
     </div>
@@ -1450,10 +1432,10 @@ function ConversationImage({
   }, [src, eventId, index, source, onRequest]);
 
   if (src === undefined) {
-    return <div className="conversation-image-placeholder">cargando imagen…</div>;
+    return <div className="conversation-image-placeholder">{t('thread.image.loading')}</div>;
   }
   if (src === null) {
-    return <div className="conversation-image-placeholder">la imagen ya no esta en el archivo</div>;
+    return <div className="conversation-image-placeholder">{t('thread.image.gone')}</div>;
   }
 
   return (
@@ -1461,12 +1443,12 @@ function ConversationImage({
       <img
         className="conversation-image"
         src={src}
-        alt="imagen del mensaje"
+        alt={t('thread.image.alt')}
         onClick={() => setOpen(true)}
-        title="Clic para verla entera"
+        title={t('thread.image.openTitle')}
       />
       {open && (
-        <ImageViewer src={src} caption="imagen del mensaje" onClose={() => setOpen(false)} />
+        <ImageViewer src={src} caption={t('thread.image.alt')} onClose={() => setOpen(false)} />
       )}
     </>
   );

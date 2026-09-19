@@ -8,6 +8,8 @@
  * ahi no cambian.
  */
 
+import { ServerTextError, serverText, type ServerText } from '@agent-workbench/shared';
+
 export type TerminalOpenErrorCode =
   | 'cli-not-found'
   | 'shell-not-found'
@@ -16,14 +18,14 @@ export type TerminalOpenErrorCode =
   | 'spawn-failed'
   | 'agent-unsupported';
 
-export class TerminalOpenError extends Error {
+/** Con su codigo para el cliente, y el texto como clave: la frase la arma la web (§6.23). */
+export class TerminalOpenError extends ServerTextError {
   constructor(
     readonly code: TerminalOpenErrorCode,
-    message: string,
+    text: ServerText,
     readonly detail?: string,
   ) {
-    super(message);
-    this.name = 'TerminalOpenError';
+    super(text);
   }
 }
 
@@ -45,7 +47,7 @@ export async function resolveLaunchPlan<T>(launch: () => T | Promise<T>): Promis
     if (error instanceof TerminalOpenError) throw error;
     throw new TerminalOpenError(
       'spawn-failed',
-      'No se pudo abrir la terminal.',
+      serverText('terminalOpenFailed'),
       error instanceof Error ? error.message : String(error),
     );
   }

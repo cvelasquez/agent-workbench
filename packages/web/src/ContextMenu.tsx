@@ -12,6 +12,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 export interface ContextMenuItem {
   label: string;
   onSelect: () => void;
+  /** Un menú de opciones: la elegida lleva la marca. Sin el campo, no hay columna de marca. */
+  checked?: boolean;
+  /** El idioma del texto del ítem, si no es el de la página: el menú de idiomas (§6.23). */
+  lang?: string;
 }
 
 interface ContextMenuProps {
@@ -19,9 +23,15 @@ interface ContextMenuProps {
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
+  /**
+   * El botón que abrió el menú, si lo abrió un botón. Tocarlo no cierra el menú
+   * desde acá: lo cierra su propio clic, y si no, se cerraría y se volvería a
+   * abrir en el mismo gesto.
+   */
+  anchor?: HTMLElement | null;
 }
 
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps): JSX.Element {
+export function ContextMenu({ x, y, items, onClose, anchor = null }: ContextMenuProps): JSX.Element {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState({ left: x, top: y });
 
@@ -43,17 +53,24 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps): JSX.Ele
         onClose();
       }
     };
+    // En captura sobre `window`, este listener corre antes que los de React:
+    // un toque adentro del menú lo cerraría antes de que llegue el clic al ítem.
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (target instanceof Node && (menuRef.current?.contains(target) || anchor?.contains(target))) return;
+      onClose();
+    };
     window.addEventListener('keydown', onKeyDown, true);
-    window.addEventListener('pointerdown', onClose, true);
+    window.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('scroll', onClose, true);
     window.addEventListener('resize', onClose);
     return () => {
       window.removeEventListener('keydown', onKeyDown, true);
-      window.removeEventListener('pointerdown', onClose, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
       window.removeEventListener('scroll', onClose, true);
       window.removeEventListener('resize', onClose);
     };
-  }, [onClose]);
+  }, [anchor, onClose]);
 
   return (
     <div
@@ -68,11 +85,19 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps): JSX.Ele
         <button
           key={item.label}
           className="context-menu-item"
+          lang={item.lang}
+          role={item.checked === undefined ? undefined : 'menuitemradio'}
+          aria-checked={item.checked}
           onClick={() => {
             item.onSelect();
             onClose();
           }}
         >
+          {item.checked !== undefined && (
+            <span className="context-menu-check" aria-hidden="true">
+              {item.checked ? '✓' : ''}
+            </span>
+          )}
           {item.label}
         </button>
       ))}

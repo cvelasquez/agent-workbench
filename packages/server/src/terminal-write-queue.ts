@@ -139,7 +139,7 @@ export class TerminalWriteQueue {
       })
       .catch((error: unknown) => {
         console.error(
-          `[escritura] fallo un envio a la terminal ${terminalId}:`,
+          `[write] a send to terminal ${terminalId} failed:`,
           error instanceof Error ? error.message : error,
         );
       })

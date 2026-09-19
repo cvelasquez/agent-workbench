@@ -13,7 +13,8 @@
 import { useCallback, useRef, useState } from 'react';
 import type { AgentId, AgentInfo } from '@agent-workbench/shared';
 import { AgentMenu } from './AgentMenu.js';
-import { CONTINUE_BUTTON_TITLE } from './agent-ui.js';
+import { continueButtonTitle } from './agent-ui.js';
+import { t } from './i18n/index.js';
 
 interface ContinueButtonProps {
   /** Las CLIs que se ofrecen, ya filtradas. Vacia: no se dibuja nada. */
@@ -56,7 +57,7 @@ export function ContinueButton({
         disabled={blockedReason !== null}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={blockedReason ?? CONTINUE_BUTTON_TITLE}
+        title={blockedReason ?? continueButtonTitle()}
       >
         {text}
       </button>
@@ -65,7 +66,7 @@ export function ContinueButton({
           agents={targets}
           preselected={null}
           anchor={buttonRef.current}
-          label="Continuar con"
+          label={t('continue.menuLabel')}
           onPick={pick}
           onClose={close}
         />

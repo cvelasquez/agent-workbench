@@ -28,7 +28,8 @@ import {
   MAX_SUBMIT_IMAGES,
   MAX_SUBMIT_IMAGE_BYTES,
 } from '@agent-workbench/shared';
-import { IMAGES_REFUSED_MESSAGE } from './agent-ui.js';
+import { imagesRefusedMessage } from './agent-ui.js';
+import { t } from './i18n/index.js';
 
 /** A partir de cuantas lineas el texto pegado se pliega. */
 const FOLD_FROM_LINES = 5;
@@ -103,15 +104,17 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
 
   const addImage = useCallback((file: File) => {
     if (items.filter((item) => item.kind === 'image').length >= MAX_SUBMIT_IMAGES) {
-      setProblem(`Hasta ${MAX_SUBMIT_IMAGES} imagenes por mensaje.`);
+      setProblem(t('composer.problem.tooManyImages', { count: MAX_SUBMIT_IMAGES }));
       return;
     }
 
     if (file.size > MAX_SUBMIT_IMAGE_BYTES) {
+      const size = Math.round(file.size / 1024 / 1024);
+      const max = MAX_SUBMIT_IMAGE_BYTES / 1024 / 1024;
       setProblem(
-        `"${file.name || 'la imagen'}" pesa ${Math.round(file.size / 1024 / 1024)} MB; el maximo son ${
-          MAX_SUBMIT_IMAGE_BYTES / 1024 / 1024
-        } MB.`,
+        file.name.length > 0
+          ? t('composer.problem.tooBig', { name: file.name, size, max })
+          : t('composer.problem.imageTooBig', { size, max }),
       );
       return;
     }
@@ -134,29 +137,31 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
                 base64: result.slice(comma + 1),
                 dataUrl: result,
                 bytes: file.size,
-                name: file.name.length > 0 ? file.name : 'imagen pegada',
+                name: file.name.length > 0 ? file.name : t('composer.pastedImage'),
               },
             ],
       );
     };
-    reader.onerror = () => setProblem('No se pudo leer la imagen del portapapeles.');
+    reader.onerror = () => setProblem(t('composer.problem.imageUnreadable'));
     reader.readAsDataURL(file);
   }, [items]);
 
   const addFile = useCallback((file: File) => {
     if (items.filter((item) => item.kind === 'file').length >= MAX_SUBMIT_FILES) {
-      setProblem(`Hasta ${MAX_SUBMIT_FILES} archivos por mensaje.`);
+      setProblem(t('composer.problem.tooManyFiles', { count: MAX_SUBMIT_FILES }));
       return;
     }
     if (file.size === 0) {
-      setProblem(`"${file.name}" esta vacio.`);
+      setProblem(t('composer.problem.empty', { name: file.name }));
       return;
     }
     if (file.size > MAX_SUBMIT_FILE_BYTES) {
       setProblem(
-        `"${file.name}" pesa ${Math.round(file.size / 1024 / 1024)} MB; el maximo son ${
-          MAX_SUBMIT_FILE_BYTES / 1024 / 1024
-        } MB.`,
+        t('composer.problem.tooBig', {
+          name: file.name,
+          size: Math.round(file.size / 1024 / 1024),
+          max: MAX_SUBMIT_FILE_BYTES / 1024 / 1024,
+        }),
       );
       return;
     }
@@ -183,7 +188,7 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
       );
     };
     // Una carpeta soltada llega como un File que no se puede leer.
-    reader.onerror = () => setProblem(`No se pudo leer "${file.name}".`);
+    reader.onerror = () => setProblem(t('composer.problem.unreadable', { name: file.name }));
     reader.readAsDataURL(file);
   }, [items]);
 
@@ -197,7 +202,7 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
       const all = Array.from(files);
       const images = all.filter((file) => file.type.startsWith('image/'));
       const documents = all.filter((file) => !file.type.startsWith('image/'));
-      if (images.length > 0 && !imagesAllowed) setProblem(IMAGES_REFUSED_MESSAGE);
+      if (images.length > 0 && !imagesAllowed) setProblem(imagesRefusedMessage());
       else for (const file of images) addImage(file);
       for (const file of documents) addFile(file);
     },

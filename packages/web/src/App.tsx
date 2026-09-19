@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  HANDOFF_SENDING_TEXT,
+  handoffSendingText,
   continueBlockedReason,
   continueTargets,
   controlsFor,
@@ -10,7 +10,7 @@ import {
   sessionAgentLabel,
   effectivePanelTab,
   instructionsFileFor,
-  modelChoiceNote,
+  savesModelChoiceFor,
   openToolCallNotice,
   pendingApprovalNotice,
   projectAgent,
@@ -20,7 +20,9 @@ import {
   shortcutsAgent,
   openBlockedFor,
   tabBarAgent,
-  OPEN_BLOCKED_TITLE,
+  openBlockedTitle,
+  sessionTitleText,
+  continuationTabLabel,
 } from './agent-ui.js';
 import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
@@ -45,21 +47,25 @@ import { usePlans } from './usePlans.js';
 import { useGit } from './useGit.js';
 import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
-import { THEME_ICON, THEME_LABEL, useTheme } from './useTheme.js';
+import { THEME_ICON, themeTitle, useTheme } from './useTheme.js';
 import { useNotificationSound } from './useNotificationSound.js';
 import { useThreadFont } from './useThreadFont.js';
 import { soundButtonTitle } from './notification-sound.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
+import { useLocale } from './i18n/useLocale.js';
+import { t, type MessageKey } from './i18n/index.js';
+import { tRich } from './i18n/rich.js';
+import { LocaleMenu } from './LocaleMenu.js';
 import { VaultDialog } from './VaultDialog.js';
 import type { ConnectionStatus } from './connection.js';
 import { blindToApprovals, type GlobalSearchHit, type TerminalId } from '@agent-workbench/shared';
 
-const STATUS_LABEL: Record<ConnectionStatus, string> = {
-  connecting: 'Conectando',
-  open: 'Conectada',
-  reconnecting: 'Reconectando',
-  failed: 'Sin conexion',
+const STATUS_LABEL_KEYS: Record<ConnectionStatus, MessageKey> = {
+  connecting: 'app.status.connecting',
+  open: 'app.status.open',
+  reconnecting: 'app.status.reconnecting',
+  failed: 'app.status.failed',
 };
 
 /**
@@ -114,6 +120,9 @@ const MARKER_NOTICE_KEY = 'agent-workbench.marker-notice-dismissed';
 
 
 export function App(): JSX.Element {
+  // Escuchar el idioma acá hace que toda la pantalla se vuelva a pintar cuando
+  // cambia, sin recargar (§6.23).
+  const locale = useLocale();
   const workspace = useWorkspace();
   const {
     connection,
@@ -180,6 +189,17 @@ export function App(): JSX.Element {
     cuando el usuario la configura: el servidor manda la lista de nuevo.
   */
   const activeAgentInfo = agents.find((info) => info.id === activeAgent) ?? null;
+  /** El titulo de la sesion de la pestana activa segun el indice: el que nombra una continuacion. */
+  const activeSessionTitle = useMemo(() => {
+    if (activeTerminal === null || activeAgent === null) return null;
+    for (const project of projects) {
+      const found = project.sessions.find(
+        (session) => session.agent === activeAgent && session.sessionId === activeTerminal.sessionId,
+      );
+      if (found !== undefined) return sessionTitleText(found.title, found.titleSource);
+    }
+    return null;
+  }, [activeTerminal, activeAgent, projects, locale]);
   const activeStatusLine = activeAgentInfo?.statusLine ?? null;
 
   /*
@@ -204,7 +224,7 @@ export function App(): JSX.Element {
     () => openBlockedFor(pendingOpens, newTabCwd, platform),
     [pendingOpens, newTabCwd, platform],
   );
-  const newTabBlockedTitle = newTabBlocked ? OPEN_BLOCKED_TITLE : null;
+  const newTabBlockedTitle = newTabBlocked ? openBlockedTitle() : null;
 
   /*
     Las notas viven aca y no en la barra lateral: la barra se desmonta al
@@ -263,7 +283,7 @@ export function App(): JSX.Element {
           cwd: action.cwd,
           resumeSessionId: action.session.sessionId,
           agent: action.session.agent,
-          label: action.session.title,
+          label: sessionTitleText(action.session.title, action.session.titleSource),
         });
         leaveThreadQuery();
         break;
@@ -528,7 +548,7 @@ export function App(): JSX.Element {
             activeHandoff.prefillReason !== null
               ? handoffPrefillText(activeHandoff.prefillReason)
               : activeHandoff.delivery === 'sending' && conversation.events.length === 0
-                ? HANDOFF_SENDING_TEXT
+                ? handoffSendingText()
                 : null,
         };
 
@@ -896,7 +916,7 @@ export function App(): JSX.Element {
 
   const panelTitle =
     activeTerminal === null
-      ? 'Panel'
+      ? t('app.panel.name')
       : activeTerminal.label.length > 0
         ? activeTerminal.label
         : (activeTerminal.cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ??
@@ -906,21 +926,24 @@ export function App(): JSX.Element {
     <div className="app">
       <header className="app-header">
         <span className="app-name">Agent Workbench</span>
-        <span className={`status status-${status}`}>{STATUS_LABEL[status]}</span>
+        <span className={`status status-${status}`}>{t(STATUS_LABEL_KEYS[status])}</span>
         {activeTerminal !== null && (
           <span className="meta" title={activeTerminal.cwd}>
             {activeTerminal.cwd}
           </span>
         )}
         <span className="header-spacer" />
-        {cliVersion !== null && <span className="meta meta-dim">CLI {cliVersion}</span>}
+        {cliVersion !== null && (
+          <span className="meta meta-dim">{t('app.header.cliVersion', { version: cliVersion })}</span>
+        )}
         <button
           className="icon-button"
           onClick={theme.cycle}
-          title={`${THEME_LABEL[theme.preference]} — clic para cambiar`}
+          title={themeTitle(theme.preference)}
         >
           {THEME_ICON[theme.preference]}
         </button>
+        <LocaleMenu />
         <button
           className={`icon-button${sound.enabled ? '' : ' icon-button-muted'}`}
           onClick={sound.toggle}
@@ -932,7 +955,7 @@ export function App(): JSX.Element {
         <button
           className="icon-button"
           onClick={() => setShortcutsVisible(true)}
-          title="Ver los atajos de teclado"
+          title={t('app.header.shortcuts')}
         >
           ?
         </button>
@@ -960,13 +983,8 @@ export function App(): JSX.Element {
       */}
       {environmentNotice === 'child-session-marker' && markerNoticeVisible && (
         <div className="banner banner-notice">
-          <span>
-            Este servidor se lanzo desde dentro de una sesion de la CLI. Se quito la variable{' '}
-            <code>CLAUDE_CODE_CHILD_SESSION</code> del entorno de las pestanas, que apaga el
-            guardado del historial; sin eso no habria conversacion ni medidor. El resto del
-            entorno va intacto.
-          </span>
-          <button className="banner-close" onClick={dismissMarkerNotice} title="Entendido">
+          <span>{tRich('app.markerNotice', { variable: 'CLAUDE_CODE_CHILD_SESSION' })}</span>
+          <button className="banner-close" onClick={dismissMarkerNotice} title={t('common.gotIt')}>
             ×
           </button>
         </div>
@@ -975,7 +993,7 @@ export function App(): JSX.Element {
       {error !== null && (
         <div className="banner banner-error">
           <span>{error.message}</span>
-          <button className="banner-close" onClick={dismissError} title="Cerrar">
+          <button className="banner-close" onClick={dismissError} title={t('common.close')}>
             ×
           </button>
         </div>
@@ -989,7 +1007,7 @@ export function App(): JSX.Element {
       {vault.problem !== null && !vaultDialogVisible && (
         <div className="banner banner-error">
           <span>{vault.problem}</span>
-          <button className="banner-close" onClick={vault.dismissProblem} title="Cerrar">
+          <button className="banner-close" onClick={vault.dismissProblem} title={t('common.close')}>
             ×
           </button>
         </div>
@@ -1008,10 +1026,10 @@ export function App(): JSX.Element {
           <button
             className="panel-peek panel-peek-left"
             onClick={toggleSidebar}
-            title="Mostrar la lista de proyectos"
+            title={t('app.sidebar.show')}
           >
             <span className="panel-peek-arrow">›</span>
-            <span className="panel-peek-label">Proyectos</span>
+            <span className="panel-peek-label">{t('app.sidebar.name')}</span>
           </button>
         )}
 
@@ -1035,7 +1053,7 @@ export function App(): JSX.Element {
                 // La CLI de la sesion, no la de la ultima pestana del proyecto:
                 // reanudar un id con otra CLI no encontraria nada.
                 agent: session.agent,
-                label: session.title,
+                label: sessionTitleText(session.title, session.titleSource),
               })
             }
             canResume={(agent) => sessionResumable(agents, agent)}
@@ -1084,7 +1102,11 @@ export function App(): JSX.Element {
             exporting={vault.exporting}
             lastExported={vault.lastExported}
             onContinueSession={(session, target) =>
-              continueSession({ agent: session.agent, sessionId: session.sessionId }, target)
+              continueSession(
+                { agent: session.agent, sessionId: session.sessionId },
+                target,
+                continuationTabLabel(sessionTitleText(session.title, session.titleSource)),
+              )
             }
             globalSearch={
               globalSearchShown ? { ...globalSearch, vaultEnabled: vault.status?.enabled === true } : null
@@ -1094,7 +1116,7 @@ export function App(): JSX.Element {
         )}
 
         {sidebarVisible && (
-          <div className="divider" {...sidebarDivider} title="Arrastrar para cambiar el ancho" />
+          <div className="divider" {...sidebarDivider} title={t('app.divider.width')} />
         )}
 
         <main
@@ -1123,11 +1145,8 @@ export function App(): JSX.Element {
           <div className="chat-stack">
             {terminals.length === 0 ? (
               <div className="empty-state">
-                <p>No hay pestanas abiertas.</p>
-                <p className="empty-hint">
-                  Elegi un proyecto de la izquierda, o abri una sesion del historial para
-                  retomarla.
-                </p>
+                <p>{t('app.empty.noTabs')}</p>
+                <p className="empty-hint">{t('app.empty.hint')}</p>
                 {cliAvailable && defaultCwd.length > 0 && (
                   <button
                     className="primary-button"
@@ -1135,7 +1154,7 @@ export function App(): JSX.Element {
                     disabled={newTabBlocked}
                     title={newTabBlockedTitle ?? undefined}
                   >
-                    {newTabBlocked ? 'Abriendo…' : `Nueva sesion en ${defaultCwd}`}
+                    {newTabBlocked ? t('app.empty.opening') : t('app.empty.newSession', { cwd: defaultCwd })}
                   </button>
                 )}
               </div>
@@ -1180,7 +1199,12 @@ export function App(): JSX.Element {
                 onContinue={
                   activeTerminal === null || activeAgent === null
                     ? undefined
-                    : (target) => continueSession({ agent: activeAgent, sessionId: activeTerminal.sessionId }, target)
+                    : (target) =>
+                        continueSession(
+                          { agent: activeAgent, sessionId: activeTerminal.sessionId },
+                          target,
+                          continuationTabLabel(activeSessionTitle ?? activeTerminal.label),
+                        )
                 }
                 searchRequest={threadSearch}
                 onSearchRequestApplied={threadSearchApplied}
@@ -1233,7 +1257,7 @@ export function App(): JSX.Element {
                     effort={currentEffort}
                     modelProvisional={modelProvisional}
                     effortProvisional={effortProvisional}
-                    choiceNote={modelChoiceNote(activeAgent)}
+                    savesChoice={savesModelChoiceFor(activeAgent)}
                     disabled={!activeTerminal.alive}
                     onCommand={sendCommand}
                   />
@@ -1269,10 +1293,10 @@ export function App(): JSX.Element {
               <button
                 className="panel-peek"
                 onClick={togglePanel}
-                title="Mostrar el panel derecho (Alt+P)"
+                title={t('app.panel.show')}
               >
                 <span className="panel-peek-arrow">‹</span>
-                <span className="panel-peek-label">Panel</span>
+                <span className="panel-peek-label">{t('app.panel.name')}</span>
               </button>
             )}
 
@@ -1280,7 +1304,7 @@ export function App(): JSX.Element {
               <div
                 className="divider"
                 {...panelDivider}
-                title="Arrastrar para cambiar el ancho"
+                title={t('app.divider.width')}
               />
             )}
             <div
@@ -1348,7 +1372,7 @@ export function App(): JSX.Element {
                     <div
                       className="hdivider"
                       {...consoleDivider}
-                      title="Arrastrar para cambiar el alto de la consola"
+                      title={t('app.divider.consoleHeight')}
                     />
                   )}
                   <div
@@ -1382,10 +1406,14 @@ export function App(): JSX.Element {
                 <button
                   className="strip-collapsed"
                   onClick={toggleConsole}
-                  title={`Abrir ${shellName ?? 'una consola'} en ${activeTerminal.cwd}`}
+                  title={
+                    shellName === null
+                      ? t('console.openAnyIn', { cwd: activeTerminal.cwd })
+                      : t('console.openIn', { shell: shellName, cwd: activeTerminal.cwd })
+                  }
                 >
                   <span className="strip-collapsed-arrow">▸</span>
-                  <span>{shellName ?? 'Consola'}</span>
+                  <span>{shellName ?? t('console.name')}</span>
                   {consoleShells.length > 0 && (
                     <span className="strip-collapsed-count">{consoleShells.length}</span>
                   )}
@@ -1424,9 +1452,9 @@ export function App(): JSX.Element {
       {pickerFor === 'project' && (
         <FolderPicker
           connection={connection}
-          title="Proyecto nuevo"
-          confirmLabel="Abrir aca"
-          confirmTitle={(path) => `Abrir una pestana del agente en ${path}`}
+          title={t('app.picker.project.title')}
+          confirmLabel={t('app.picker.project.confirm')}
+          confirmTitle={(path) => t('app.picker.project.confirmTitle', { path })}
           onChoose={(_pickerId, cwd) => {
             setPickerFor(null);
             openTerminal({ cwd });
@@ -1459,11 +1487,9 @@ export function App(): JSX.Element {
       {pickerFor === 'vault' && (
         <FolderPicker
           connection={connection}
-          title="Carpeta de la copia propia"
-          confirmLabel="Usar esta carpeta"
-          confirmTitle={(path) =>
-            `Mudar la copia propia a ${path}. La carpeta de ahora queda intacta`
-          }
+          title={t('app.picker.vault.title')}
+          confirmLabel={t('app.picker.vault.confirm')}
+          confirmTitle={(path) => t('app.picker.vault.confirmTitle', { path })}
           onChoose={(pickerId) => {
             // Antes de cerrar: el servidor lee la carpeta de este selector, que
             // se cierra al desmontarse.

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ServerMessage, SessionAgentId, VaultStatus } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 export interface VaultExported {
   projectKey: string;
@@ -72,7 +73,7 @@ export function useVault(connection: AgentConnection): VaultApi {
 
         case 'error':
           if (message.code !== 'vault-failed') break;
-          setProblem(message.message);
+          setProblem(serverTextMessage(message.text));
           if (message.detail !== undefined) console.error('[servidor]', message.detail);
           // El error no dice de que pedido es: una exportacion pendiente no
           // puede quedarse diciendo "Exportando…" para siempre.

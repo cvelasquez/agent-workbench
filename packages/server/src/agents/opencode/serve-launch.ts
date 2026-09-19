@@ -50,7 +50,7 @@ function reason(error: unknown): string {
 export function launchWithServe(deps: ServeLaunchDeps, input: LaunchInput): Promise<LaunchPlan> {
   const { resumeSessionId } = input;
   if (resumeSessionId !== null && !OPENCODE_SESSION_ID_PATTERN.test(resumeSessionId)) {
-    throw new Error('Id de sesion de OpenCode invalido.');
+    throw new Error('Invalid OpenCode session id.');
   }
 
   return (async (): Promise<LaunchPlan> => {
@@ -58,7 +58,7 @@ export function launchWithServe(deps: ServeLaunchDeps, input: LaunchInput): Prom
     try {
       endpoint = await deps.ensure();
     } catch (error) {
-      throw new Error(`No se pudo arrancar el servidor de OpenCode: ${reason(error)}`);
+      throw new Error(`Couldn't start the OpenCode server: ${reason(error)}`);
     }
 
     let sessionId = resumeSessionId;
@@ -66,7 +66,7 @@ export function launchWithServe(deps: ServeLaunchDeps, input: LaunchInput): Prom
       try {
         sessionId = await deps.createSession(endpoint, input.cwd);
       } catch (error) {
-        throw new Error(`El servidor de OpenCode no creo la sesion: ${reason(error)}`);
+        throw new Error(`The OpenCode server didn't create the session: ${reason(error)}`);
       }
     }
 

@@ -329,7 +329,7 @@ export class VaultCatalog {
       try {
         listener();
       } catch (error) {
-        console.warn('[copia] un oyente del catalogo lanzo:', error);
+        console.warn('[vault] a catalog listener threw:', error);
       }
     }
   }

@@ -179,7 +179,7 @@ export class OpenCodeSessionFollower implements SessionFollower {
 
   get label(): string {
     const base = this.dbFile ?? 'opencode';
-    return `${base}#${this.sessionId.length > 0 ? this.sessionId : '(sin sesion)'}`;
+    return `${base}#${this.sessionId.length > 0 ? this.sessionId : '(no session)'}`;
   }
 
   /** Precarga el catalogo, para que la primera lectura no espere 93 ms de JSON. Nunca lanza. */
@@ -320,7 +320,7 @@ export class OpenCodeSessionFollower implements SessionFollower {
     this.delivered = next;
     const diff = diffEvents(previous, next);
     if (diff === null) {
-      debugLog('conversacion', `opencode: evento fuera de orden o desaparecido en ${this.sessionId}, rehago`);
+      debugLog('conversation', `opencode: out-of-order or vanished event in ${this.sessionId}, rebuilding`);
       return { ...emptyResult(), reset: true };
     }
     return { reset: false, added: diff.added, turns: diff.turns, plans: [], parts: diff.parts, usageChanged };

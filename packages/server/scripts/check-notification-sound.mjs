@@ -18,6 +18,11 @@ import {
   planChimes,
   soundButtonTitle,
 } from '../../web/src/notification-sound.ts';
+import { setLocale } from '../../web/src/i18n/index.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 let failures = 0;
 const check = (label, ok, extra = '') => {

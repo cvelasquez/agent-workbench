@@ -42,6 +42,12 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setLocale } from '../../web/src/i18n/index.ts';
+import { serverTextMessage as es } from '../../web/src/i18n/server-text.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
+// con el español de siempre, así que lo fija antes de la primera comparación.
+await setLocale('es');
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'aw-handoff-'));
 const home = path.join(root, 'home');
@@ -57,11 +63,11 @@ process.env['CODEX_HOME'] = path.join(root, 'codex');
 
 const transcript = await import('../src/handoff/transcript.ts');
 const {
-  HANDOFF_EMPTY_MESSAGE,
+  HANDOFF_EMPTY_TEXT,
   HANDOFF_MAX_BYTES,
   HANDOFF_MAX_LINES,
   HANDOFF_MAX_TURNS,
-  HANDOFF_NO_TRANSCRIPT_MESSAGE,
+  HANDOFF_NO_TRANSCRIPT_TEXT,
   HANDOFF_QUOTE_CHARS,
   HANDOFF_TOOL_INPUT_CHARS,
   HANDOFF_TOOL_RESULT_CHARS,
@@ -337,7 +343,7 @@ const turns = splitTurns(events);
 
 {
   const empty = planTranscript({ header: header(), events: [] });
-  check('H5 sin eventos: no hay continuacion, con el motivo', empty.ok === false && empty.message === HANDOFF_EMPTY_MESSAGE && !('markdown' in empty), show(empty));
+  check('H5 sin eventos: no hay continuacion, con el motivo', empty.ok === false && empty.text === HANDOFF_EMPTY_TEXT && !('markdown' in empty), show(empty));
   const noRequest = planTranscript({
     header: header(),
     events: [
@@ -346,12 +352,12 @@ const turns = splitTurns(events);
       ev('x3', 'user', [image()]),
     ],
   });
-  check('H5 sin ningun pedido con texto (solo asistente, resultados e imagenes): igual', noRequest.ok === false && noRequest.message === HANDOFF_EMPTY_MESSAGE, show(noRequest));
+  check('H5 sin ningun pedido con texto (solo asistente, resultados e imagenes): igual', noRequest.ok === false && noRequest.text === HANDOFF_EMPTY_TEXT, show(noRequest));
   const noTranscript = planTranscript({ header: header({ agent: 'antigravity', sourceLabel: 'Antigravity CLI' }), events: [], state: 'no-transcript' });
   check('H5 una fuente en no-transcript dice que esa CLI no dejo transcript legible',
-    noTranscript.ok === false && noTranscript.message === HANDOFF_NO_TRANSCRIPT_MESSAGE && noTranscript.message.includes('no dejó transcript legible'), show(noTranscript));
+    noTranscript.ok === false && noTranscript.text === HANDOFF_NO_TRANSCRIPT_TEXT && es(noTranscript.text).includes('no dejó transcript legible'), show(noTranscript));
   const partialImport = planTranscript({ header: header({ agent: 'antigravity-ide', partial: true }), events: [] });
-  check('H5 (B9) una sesion importada parcial sin eventos: tampoco', partialImport.ok === false && partialImport.message === HANDOFF_EMPTY_MESSAGE);
+  check('H5 (B9) una sesion importada parcial sin eventos: tampoco', partialImport.ok === false && partialImport.text === HANDOFF_EMPTY_TEXT);
 
   const fine = planTranscript({ header: header({ partial: true }), events });
   check('H5 con turnos si hay continuacion, con el ultimo pedido y las cuentas',
@@ -487,12 +493,12 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   const { deps, registry } = continueDeps({ archive: { events: async () => ({ events: noTurns, partial: false, complete: true }) } });
   const outcome = await continueSession(deps, request());
   check('H5 continueSession sin turnos: continue-failed con el motivo, y registry.open no se llamo',
-    outcome.ok === false && outcome.code === 'continue-failed' && outcome.message === HANDOFF_EMPTY_MESSAGE && registry.opened.length === 0, show(outcome));
+    outcome.ok === false && outcome.code === 'continue-failed' && outcome.text === HANDOFF_EMPTY_TEXT && registry.opened.length === 0, show(outcome));
 
   const blank = continueDeps({ history: fakeHistory([], { state: 'no-transcript' }), sessions: [summaryOf('opencode', 'ses_origen')] });
   const noTranscript = await continueSession(blank.deps, request());
   check('H5 continueSession de una fuente en no-transcript: el motivo de esa CLI, y nada abierto',
-    noTranscript.ok === false && noTranscript.message === HANDOFF_NO_TRANSCRIPT_MESSAGE && blank.registry.opened.length === 0, show(noTranscript));
+    noTranscript.ok === false && noTranscript.text === HANDOFF_NO_TRANSCRIPT_TEXT && blank.registry.opened.length === 0, show(noTranscript));
 }
 
 // ---------------------------------------------------------------------------
@@ -565,13 +571,13 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
     ['un seguidor que no llega a live', continueDeps({ history: fakeHistory(events, { state: 'waiting' }) }), request(), 'continue-failed', 'No se encontró el historial'],
     ['una importada sin copia', continueDeps({ sessions: [summaryOf('gemini-cli', 'g1', { storage: 'vault' })] }), request({ agent: 'gemini-cli', sessionId: 'g1' }), 'continue-failed', 'No se encontró el historial'],
     ['un destino que este servidor no tiene', continueDeps(), request({ target: 'antigravity' }), 'agent-unsupported', 'no sabe lanzar'],
-    ['un destino no instalado', continueDeps({ targets: [['antigravity', registered('antigravity', 'Antigravity CLI', ANTIGRAVITY_BASE_CAPABILITIES, CODEX_INPUT, fakeHistory([]), null)]] }), request({ target: 'antigravity' }), 'cli-not-found', 'no esta instalada'],
+    ['un destino no instalado', continueDeps({ targets: [['antigravity', registered('antigravity', 'Antigravity CLI', ANTIGRAVITY_BASE_CAPABILITIES, CODEX_INPUT, fakeHistory([]), null)]] }), request({ target: 'antigravity' }), 'cli-not-found', 'no está instalada'],
     ['la misma CLI', continueDeps(), request({ target: 'opencode' }), 'continue-failed', 'ya es de esa CLI'],
   ];
   for (const [label, setup, input, code, fragment] of refusals) {
     const refused = await continueSession(setup.deps, input);
     check(`H6 ${label}: ${code} y registry.open no se llamo`,
-      refused.ok === false && refused.code === code && refused.message.includes(fragment) && setup.registry.opened.length === 0, show(refused));
+      refused.ok === false && refused.code === code && es(refused.text).includes(fragment) && setup.registry.opened.length === 0, show(refused));
   }
   const throwing = continueDeps({ history: { wholeRead: true, follow: () => { throw new Error('base ilegible'); } } });
   const threw = await continueSession(throwing.deps, request());
@@ -896,14 +902,14 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
     JSON.stringify(sendable) === JSON.stringify({ 'claude-code': true, codex: false, opencode: false, antigravity: false }), JSON.stringify(sendable));
 
   check('H10 (B6) waitingBarText con permission prompt: el texto de hoy, palabra por palabra, con tarjetas o sin',
-    ui.waitingBarText('permission prompt') === 'La CLI esta esperando que autorices una herramienta.' &&
-    ui.waitingBarText('permission prompt', true) === 'La CLI esta esperando que autorices una herramienta.');
+    ui.waitingBarText('permission prompt') === 'La CLI está esperando que autorices una herramienta.' &&
+    ui.waitingBarText('permission prompt', true) === 'La CLI está esperando que autorices una herramienta.');
   check('H10 (B6) el resto: el texto de hoy, con tarjetas o sin',
     ['dialog open', 'input needed', 'worker request', ''].every((label) =>
-      ui.waitingBarText(label) === 'La CLI esta esperando una respuesta tuya.' && ui.waitingBarText(label, true) === 'La CLI esta esperando una respuesta tuya.'));
+      ui.waitingBarText(label) === 'La CLI está esperando una respuesta tuya.' && ui.waitingBarText(label, true) === 'La CLI está esperando una respuesta tuya.'));
   check('H10 (B6) una pregunta con tarjetas se contesta en el hilo; sin tarjetas, el texto de siempre',
-    ui.waitingBarText('question', true) === 'El agente te hizo una pregunta: respondela en el hilo.' &&
-    ui.waitingBarText('question', false) === 'La CLI esta esperando una respuesta tuya.');
+    ui.waitingBarText('question', true) === 'El agente te hizo una pregunta: respóndela en el hilo.' &&
+    ui.waitingBarText('question', false) === 'La CLI está esperando una respuesta tuya.');
 
   check('H10 el aviso: CLI, N de M turnos y lo que se pierde',
     ui.handoffNoticeText('OpenCode', 20, 57, false) ===

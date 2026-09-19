@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { t, type MessageKey } from './i18n/index.js';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ResolvedTheme = 'light' | 'dark';
@@ -21,11 +22,16 @@ const STORAGE_KEY = 'agent-workbench.theme';
 
 const ORDER: readonly ThemePreference[] = ['system', 'light', 'dark'];
 
-export const THEME_LABEL: Readonly<Record<ThemePreference, string>> = {
-  system: 'Tema del sistema',
-  light: 'Tema claro',
-  dark: 'Tema oscuro',
+const THEME_KEYS: Readonly<Record<ThemePreference, MessageKey>> = {
+  system: 'theme.system',
+  light: 'theme.light',
+  dark: 'theme.dark',
 };
+
+/** El titulo del boton: que tema hay puesto (§6.23). */
+export function themeTitle(preference: ThemePreference): string {
+  return t('theme.title', { theme: t(THEME_KEYS[preference]) });
+}
 
 export const THEME_ICON: Readonly<Record<ThemePreference, string>> = {
   system: '◐',

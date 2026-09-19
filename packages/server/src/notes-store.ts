@@ -25,8 +25,10 @@ import {
   MAX_NOTE_IMAGES,
   MAX_NOTE_TEXT_CHARS,
   MAX_SUBMIT_IMAGE_BYTES,
+  ServerTextError,
   isValidNoteId,
   parseNote,
+  serverText,
   type Note,
   type NoteImage,
 } from '@agent-workbench/shared';
@@ -40,7 +42,8 @@ const STATE_VERSION = 1;
 /** El texto llega tecla a tecla; a disco va cuando se hace una pausa. */
 const WRITE_DEBOUNCE_MS = 500;
 
-export class NotesError extends Error {}
+/** Un pedido de notas que no se cumple. El texto va como clave (§6.23). */
+export class NotesError extends ServerTextError {}
 
 function parseState(raw: string): Note[] | null {
   try {
@@ -111,10 +114,10 @@ export class NotesStore {
    * Un id repetido no crea nada; el cliente ya tiene esa nota.
    */
   create(noteId: string, now = Date.now()): Note {
-    if (!isValidNoteId(noteId)) throw new NotesError('El id de la nota no es valido.');
-    if (this.get(noteId) !== null) throw new NotesError('Esa nota ya existe.');
+    if (!isValidNoteId(noteId)) throw new NotesError(serverText('noteIdInvalid'));
+    if (this.get(noteId) !== null) throw new NotesError(serverText('noteExists'));
     if (this.notes.length >= MAX_NOTES) {
-      throw new NotesError(`Hasta ${MAX_NOTES} notas abiertas. Cerra alguna primero.`);
+      throw new NotesError(serverText('notesMax', { max: MAX_NOTES }));
     }
     const note: Note = { noteId, text: '', images: [], createdAt: now, updatedAt: now };
     this.notes.push(note);
@@ -125,9 +128,9 @@ export class NotesStore {
   /** Devuelve true si el texto cambio de verdad. */
   update(noteId: string, text: string, now = Date.now()): boolean {
     const note = this.get(noteId);
-    if (note === null) throw new NotesError('La nota ya no existe.');
+    if (note === null) throw new NotesError(serverText('noteGone'));
     if (text.length > MAX_NOTE_TEXT_CHARS) {
-      throw new NotesError(`Una nota admite hasta ${MAX_NOTE_TEXT_CHARS} caracteres.`);
+      throw new NotesError(serverText('noteTooLong', { max: MAX_NOTE_TEXT_CHARS }));
     }
     if (note.text === text) return false;
     note.text = text;
@@ -161,26 +164,27 @@ export class NotesStore {
     now = Date.now(),
   ): Promise<NoteImage> {
     const note = this.get(noteId);
-    if (note === null) throw new NotesError('La nota ya no existe.');
+    if (note === null) throw new NotesError(serverText('noteGone'));
     if (note.images.length >= MAX_NOTE_IMAGES) {
-      throw new NotesError(`Hasta ${MAX_NOTE_IMAGES} imagenes por nota.`);
+      throw new NotesError(serverText('noteImagesMax', { max: MAX_NOTE_IMAGES }));
     }
     if (!IMAGE_MEDIA_TYPES.has(declaredType)) {
-      throw new NotesError(`Tipo de imagen no admitido: ${declaredType}`);
+      throw new NotesError(serverText('imageTypeUnsupported', { type: declaredType }));
     }
 
     const bytes = Buffer.from(base64, 'base64');
-    if (bytes.length === 0) throw new NotesError('La imagen llego vacia.');
+    if (bytes.length === 0) throw new NotesError(serverText('imageEmpty'));
     if (bytes.length > MAX_SUBMIT_IMAGE_BYTES) {
       throw new NotesError(
-        `La imagen pesa ${Math.round(bytes.length / 1024 / 1024)} MB; el maximo son ${
-          MAX_SUBMIT_IMAGE_BYTES / 1024 / 1024
-        } MB.`,
+        serverText('imageTooLarge', {
+          size: Math.round(bytes.length / 1024 / 1024),
+          max: MAX_SUBMIT_IMAGE_BYTES / 1024 / 1024,
+        }),
       );
     }
     const format = detectImageFormat(bytes);
     if (format === null) {
-      throw new NotesError('El contenido no es una imagen de un formato conocido.');
+      throw new NotesError(serverText('imageUnknownFormat'));
     }
 
     const image: NoteImage = {
@@ -305,7 +309,7 @@ export class NotesStore {
       );
       await rename(temporary, this.statePath);
     } catch (error) {
-      console.warn('[notas] no se pudieron guardar:', error);
+      console.warn("[notes] couldn't save the notes:", error);
     }
   }
 }

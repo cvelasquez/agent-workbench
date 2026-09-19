@@ -123,7 +123,7 @@ export function createCodexAdapter(): AgentAdapter {
       if (resumeSessionId === null) {
         return { file: input.location.file, args: [...input.location.prefixArgs], session: { kind: 'discover' } };
       }
-      if (!isUuid(resumeSessionId)) throw new Error('Id de sesion de Codex invalido.');
+      if (!isUuid(resumeSessionId)) throw new Error('Invalid Codex session id.');
       return {
         file: input.location.file,
         args: [...input.location.prefixArgs, 'resume', resumeSessionId],

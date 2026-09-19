@@ -60,7 +60,7 @@ function listableMeta(line: string, item: HistoryItem): SessionMeta | null {
   if (meta.id.toLowerCase() !== item.sessionId.toLowerCase()) return null;
   if (typeof meta.source !== 'string' || !INTERACTIVE_SOURCES.includes(meta.source)) return null;
   if (meta.historyMode !== null && !LISTED_HISTORY_MODES.includes(meta.historyMode)) {
-    debugLog('indice', `rollout de codex ${item.sessionId.slice(0, 8)} en modo ${meta.historyMode}: no se lista`);
+    debugLog('index', `codex rollout ${item.sessionId.slice(0, 8)} in ${meta.historyMode} mode: not listed`);
     return null;
   }
   if (meta.cwd.length === 0) return null;

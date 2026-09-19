@@ -35,7 +35,7 @@ export class AgentRegistry {
   constructor(adapters: readonly AgentAdapter[]) {
     for (const adapter of adapters) {
       if (this.agents.has(adapter.id)) {
-        throw new Error(`Adaptador registrado dos veces: ${adapter.id}`);
+        throw new Error(`Adapter registered twice: ${adapter.id}`);
       }
       this.agents.set(adapter.id, { adapter, location: null });
     }
@@ -73,7 +73,7 @@ export class AgentRegistry {
           try {
             await adapter.prepare?.();
           } catch (error) {
-            console.warn(`[agentes] ${adapter.label} no pudo preparar lo suyo: ${String(error)}`);
+            console.warn(`[agents] ${adapter.label} couldn't prepare its files: ${String(error)}`);
           }
         }),
     );
@@ -126,7 +126,7 @@ export class AgentRegistry {
   /** El adaptador aunque su CLI no este instalada: el historial se lee igual. */
   adapter(id: AgentId): AgentAdapter {
     const entry = this.agents.get(id);
-    if (entry === undefined) throw new Error(`No hay adaptador para ${id}`);
+    if (entry === undefined) throw new Error(`No adapter for ${id}`);
     return entry.adapter;
   }
 
@@ -206,7 +206,7 @@ export class AgentRegistry {
         const result = adapter.dispose();
         if (result instanceof Promise) pending.push(result);
       } catch (error) {
-        console.warn(`[agentes] ${adapter.label} no se pudo soltar: ${String(error)}`);
+        console.warn(`[agents] ${adapter.label} couldn't be released: ${String(error)}`);
       }
     }
     return Promise.allSettled(pending).then(() => undefined);

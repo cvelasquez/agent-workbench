@@ -37,6 +37,7 @@ import {
   type PendingOpen,
   type PendingTabPlacement,
 } from './agent-ui.js';
+import { t } from './i18n/index.js';
 import { projectColor } from './project-color.js';
 
 interface TabBarProps {
@@ -82,11 +83,10 @@ function PendingTab({ placement }: { placement: PendingTabPlacement }): JSX.Elem
     <div
       className="tab tab-pending"
       aria-busy="true"
-      title={`${placement.pending.cwd}
-abriendo…`}
+      title={`${placement.pending.cwd}\n${t('tabs.state.opening')}`}
       style={{ '--tab-project-color': projectColor(placement.pending.cwd) } as React.CSSProperties}
     >
-      <span className="tab-opening" aria-label="abriendo">
+      <span className="tab-opening" aria-label={t('tabs.aria.opening')}>
         <i />
       </span>
       <span className="tab-label">{placement.label}</span>
@@ -128,14 +128,14 @@ function TabStatus({
     return (
       <span
         className={`tab-dot${dormida ? ' tab-dot-sleeping' : ' tab-dot-dead'}`}
-        title={dormida ? 'Dormida: se lee, sin CLI abierta' : 'La CLI de esta pestaña se cerró'}
+        title={dormida ? t('tabs.dot.sleeping') : t('tabs.dot.exited')}
       />
     );
   }
 
   if (activity === 'waiting') {
     return (
-      <span className="tab-bang" title="La CLI está esperando una respuesta tuya">
+      <span className="tab-bang" title={t('tabs.dot.waiting')}>
         !
       </span>
     );
@@ -143,7 +143,7 @@ function TabStatus({
 
   if (activity === 'busy') {
     return (
-      <span className="tab-working" title="El agente está trabajando" aria-label="trabajando">
+      <span className="tab-working" title={t('tabs.dot.busy')} aria-label={t('tabs.aria.working')}>
         <i />
         <i />
         <i />
@@ -161,6 +161,13 @@ function defaultLabel(terminal: TerminalDescriptor): string {
   const parts = terminal.cwd.split(/[\\/]/).filter((part) => part.length > 0);
   const folder = parts[parts.length - 1] ?? terminal.cwd;
   return terminal.resumed ? `${folder} ↩` : folder;
+}
+
+/** La segunda línea del título de una pestaña: en qué estado está su CLI. */
+function tabStateText(terminal: TerminalDescriptor): string {
+  if (terminal.alive) return t('tabs.state.alive');
+  if (terminal.sleeping) return t('tabs.state.sleeping');
+  return t('tabs.state.exited', { code: terminal.exitCode ?? '?' });
 }
 
 export function TabBar({
@@ -246,7 +253,7 @@ export function TabBar({
             onDragEnd={() => setDragId(null)}
             onClick={() => onSelect(terminal.terminalId)}
             onDoubleClick={() => startEditing(terminal)}
-            title={`${terminal.cwd}\n${terminal.alive ? 'activa' : terminal.sleeping ? 'dormida' : `terminada (codigo ${terminal.exitCode ?? '?'})`}`}
+            title={`${terminal.cwd}\n${tabStateText(terminal)}`}
             style={{ '--tab-project-color': projectColor(terminal.cwd) } as React.CSSProperties}
           >
             {isEditing ? (
@@ -283,7 +290,7 @@ export function TabBar({
                     event.stopPropagation();
                     onClose(terminal.terminalId);
                   }}
-                  title="Cerrar (Ctrl+W)"
+                  title={t('tabs.close')}
                 >
                   ×
                 </button>
@@ -298,7 +305,7 @@ export function TabBar({
       <AgentSplitButton
         className="tab-new"
         text="+"
-        title={newTabBlockedTitle ?? 'Nueva pestana (Ctrl+T)'}
+        title={newTabBlockedTitle ?? t('tabs.new')}
         disabled={!canOpen || newTabBlockedTitle !== null}
         offerAgentChoice={offerAgentChoice}
         agents={agents}
