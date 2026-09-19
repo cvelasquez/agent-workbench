@@ -126,11 +126,13 @@ export const CHIMES: Readonly<Record<Chime, readonly Note[]>> = {
 /**
  * El volumen es el pico de ganancia de una nota, y lo elige el usuario con la
  * barrita del botón (hito 36). Nació fijo en 0,12 y resultó bajo; el default
- * subió a 0,2 y el tope es 0,5, para un día en que hay que enterarse sí o sí.
+ * subió a 0,2 y el tope es 0,8, para un día en que hay que enterarse sí o sí
+ * —fue 0,5 un rato, y con parlantes chicos seguía corto—. Las dos notas de una
+ * melodía casi no se pisan, así que ni al tope la suma llega a saturar.
  * El piso no es cero: silenciar es el clic del botón, no la barrita.
  */
 export const MIN_VOLUME = 0.02;
-export const MAX_VOLUME = 0.5;
+export const MAX_VOLUME = 0.8;
 export const DEFAULT_VOLUME = 0.2;
 export const VOLUME_STORAGE_KEY = 'agent-workbench.sound-volume';
 
