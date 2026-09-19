@@ -12,7 +12,7 @@ credentials, and makes no network calls of its own.
 npx agent-workbench
 ```
 
-![A tour: the conversation as cards, the changed files and a diff, one tab per CLI, and continuing a conversation with another CLI](assets/demo.gif)
+![A tour: the conversation as cards, the changed files and a diff, one tab per CLI, and continuing a conversation with another CLI](assets/demo.webp)
 
 It doesn't talk to any API. It launches the CLI you already have installed and
 logged in —`claude`, `codex`, `opencode` or `agy`— inside a pseudo-terminal, and
