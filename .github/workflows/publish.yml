@@ -1,0 +1,48 @@
+name: Publish
+
+# Runs on a vX.Y.Z tag. Publishes `dist-npm/` to npm with provenance through
+# trusted publishing (OIDC): npm trusts this repository and this workflow, so
+# there is no long-lived token anywhere. Then it creates the GitHub release.
+on:
+  push:
+    tags: ['v*']
+
+env:
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - name: Tag matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          test "$TAG" = "$PKG" || { echo "tag $TAG != package.json $PKG"; exit 1; }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm check
+      - run: pnpm build:npm
+      - run: node .github/scripts/check-tarball.mjs
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships 10.x.
+      - run: npm install -g npm@latest
+      - run: npm publish --provenance --access public
+        working-directory: dist-npm
+      - name: GitHub release with the changelog section
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '$0 ~ "^## "v"( |$)" {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}

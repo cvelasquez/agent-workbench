@@ -8,16 +8,16 @@ them exist because something went wrong once.
 
 ## Before writing code
 
-Read [`CLAUDE.md`](CLAUDE.md) (in Spanish, like the rest of the internal
-documentation). It isn't courtesy documentation: it has the project's hard
-rules, the code map and an index of the [`docs/`](docs) folder that tells you
-which file to read before touching each area. That's where the pitfalls already
-hit are spelled out: the real JSONL schema of each CLI, why `kill('SIGTERM')`
-took the server down on Windows, why the WebGL renderer is off. A change that
-ignores those rules is rejected even if it works.
+Read [`ARCHITECTURE.md`](ARCHITECTURE.md). It isn't courtesy documentation: it
+has the project's hard rules, the code map, what is read from each CLI and the
+pitfalls that shape the design: why a tab isn't a process, why
+`kill('SIGTERM')` took the server down on Windows, why nothing with spaces goes
+behind `cmd /c`. A change that ignores those rules is rejected even if it
+works.
 
-Section numbers (`§3.2`, `§11.12`) are stable and the code comments cite them:
-when text moves between files, its number moves with it.
+Code comments cite sections like `§3.2`. They point to the maintainer's working
+notes, which aren't part of the repository; the comment itself carries the
+reason.
 
 ---
 
@@ -26,7 +26,7 @@ when text moves between files, its number moves with it.
 1. **The app doesn't touch any CLI's credentials.** `~/.claude/.credentials.json`
    isn't read, copied or forwarded, nor are the credentials of Codex, OpenCode
    or Antigravity, nor any token: the list of what is never opened, per CLI, is
-   in `CLAUDE.md` §2.1. There's no login in the interface. No authentication
+   in `ARCHITECTURE.md`, section 4. There's no login in the interface. No authentication
    variables are injected into the environment of the processes it launches.
 
 2. **The CLI binaries are used unmodified and unbundled.** They're looked up in
@@ -54,7 +54,7 @@ when text moves between files, its number moves with it.
    and each CLI's instructions file) and the one-off importer for the
    Antigravity IDE (`vault/importers/`). The generic server —terminals, hub,
    index, socket— talks to the adapter interface and doesn't know which CLI
-   it's dealing with (`CLAUDE.md` §2.3 and §3.2).
+   it's dealing with (`ARCHITECTURE.md`, sections 1.3 and 3.4).
 
 Any change that touches these points is reviewed against those four criteria
 before anything else.
@@ -63,9 +63,9 @@ before anything else.
 
 ## Style
 
-- **Spanish** for discussion, code comments and the internal documentation
-  (`CLAUDE.md`, `docs/`). **English** for identifiers, file names, the README
-  and this guide.
+- **English** for identifiers, file names, issues, pull requests and the
+  documentation. Existing code comments are in **Spanish**; new ones can be in
+  either, as long as they're consistent within a file.
 - **Every new UI text goes through `t()`** and into every locale file in
   `packages/web/src/i18n/locales/` ([below](#adding-a-language)).
 - **No `any` in the protocol types.** Whatever comes in over the network is
@@ -162,9 +162,20 @@ there:
 
 ```bash
 npm version patch --no-git-tag-version   # or minor / major, at the root
+# add the version to CHANGELOG.md, commit, and then:
+git tag v<version> && git push origin main v<version>
+```
+
+The tag starts `.github/workflows/publish.yml`: it checks that the tag matches
+`package.json`, runs the checks, builds `dist-npm/` and publishes it to npm with
+provenance (trusted publishing over OIDC: there's no npm token anywhere), then
+creates the GitHub release.
+
+To review by hand what would travel:
+
+```bash
 pnpm build:npm
 cd dist-npm && npm pack --dry-run        # review the file list
-npm publish                              # asks for the 2FA code
 ```
 
 npm **doesn't let you republish a version that's already published**, not even
@@ -185,8 +196,8 @@ npm install /path/to/agent-workbench-<version>.tgz
 
 **Fits:** cross-platform compatibility fixes, history-format cases that change
 between versions of a CLI, accessibility, performance with large repositories or
-histories. A new CLI too, behind its own adapter (`CLAUDE.md` §3.2), with its
-reads declared in §2.1 and a writer for its format in the demo (§7.3).
+histories. A new CLI too, behind its own adapter (`ARCHITECTURE.md`, section 3.4),
+with its reads declared in section 4 and a writer for its format in the demo.
 
 **Doesn't fit:** git operations that write (commit, stage, push) from the
 interface —there's an agent editing files, and the terminal is where the command

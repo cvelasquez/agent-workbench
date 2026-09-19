@@ -19,13 +19,20 @@
  * vuelve a crecer hito a hito hasta que arrancar una sesion cuesta 140k tokens.
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // `new URL(...).pathname` deja el espacio de "Agent Explorer" como %20.
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DOCS = join(ROOT, 'docs');
+
+// La guia interna no se versiona: en un clon del repositorio, o en el CI, no
+// esta, y no hay nada que comprobar.
+if (!existsSync(join(ROOT, 'CLAUDE.md')) || !existsSync(join(ROOT, 'CHECKLIST.md')) || !existsSync(DOCS)) {
+  console.log('SKIP check-docs: the internal guide is not part of this checkout');
+  process.exit(0);
+}
 
 let failures = 0;
 const check = (label, ok, extra = '') => {

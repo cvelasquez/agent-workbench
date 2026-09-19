@@ -75,12 +75,12 @@ cpSync(path.join(repoRoot, 'packages', 'web', 'dist'), path.join(outDir, 'dist',
 cpSync(path.join(repoRoot, 'LICENSE'), path.join(outDir, 'LICENSE'));
 
 // npm renderiza el README en la pagina del paquete, y ahi una ruta relativa a
-// `docs/` no existe: las capturas saldrian rotas. Apuntan a GitHub solo en la
+// `assets/` no existe: las capturas saldrian rotas. Apuntan a GitHub solo en la
 // copia que se publica; la del repositorio sigue con rutas relativas, que es lo
 // que funciona en GitHub y al leer el archivo de local.
 const readme = readFileSync(path.join(repoRoot, 'README.md'), 'utf8').replaceAll(
-  /(\]\(|src=")docs\//g,
-  (_match, prefix) => `${prefix}${RAW_BASE}docs/`,
+  /(\]\(|src=")assets\//g,
+  (_match, prefix) => `${prefix}${RAW_BASE}assets/`,
 );
 writeFileSync(path.join(outDir, 'README.md'), readme);
 

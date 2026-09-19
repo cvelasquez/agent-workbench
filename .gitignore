@@ -21,3 +21,10 @@ Thumbs.db
 
 # Paquete generado por "pnpm build:npm"
 /dist-npm/
+
+# Notas de trabajo: no son parte del repositorio
+/CLAUDE.md
+/AGENTS.md
+/CHECKLIST.md
+/agent-workbench-brief.md
+/docs/

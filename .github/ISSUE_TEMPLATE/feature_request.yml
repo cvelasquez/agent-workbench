@@ -1,0 +1,17 @@
+name: Idea
+description: Something the app could do
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: What are you trying to do?
+      description: The situation, before the solution. What do you do today instead?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What would help
+  - type: markdown
+    attributes:
+      value: |
+        Worth a look first: [what fits and what doesn't](https://github.com/cvelasquez/agent-workbench/blob/main/CONTRIBUTING.md#what-fits-and-what-doesnt).

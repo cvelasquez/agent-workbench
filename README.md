@@ -11,7 +11,7 @@ the conversation as cards, a context meter, git status and a file tree.
 The terminal is still the terminal. Everything you type reaches the CLI without
 the app touching it.
 
-![The conversation in the center; around it, the projects with their history, the tabs of the four CLIs and the file tree](docs/captura-conversacion.png)
+![The conversation in the center; around it, the projects with their history, the tabs of the four CLIs and the file tree](assets/captura-conversacion.png)
 
 ---
 
@@ -35,8 +35,8 @@ the app touching it.
 | **Theme** | Light, dark, or the system's. |
 
 <p>
-  <img src="docs/captura-cambios.png" width="49%" alt="The Changes panel: branch and changed files, by group">
-  <img src="docs/captura-diff.png" width="49%" alt="The diff of one of those files, in the same panel">
+  <img src="assets/captura-cambios.png" width="49%" alt="The Changes panel: branch and changed files, by group">
+  <img src="assets/captura-diff.png" width="49%" alt="The diff of one of those files, in the same panel">
 </p>
 
 ### Multiple CLIs
@@ -45,7 +45,7 @@ With more than one CLI installed, every session in the sidebar and every tab
 carries its CLI's badge, and the new-tab `+` opens with the one you used in that
 project; its arrow lets you pick another. With just one, you see none of this.
 
-<img src="docs/captura-clis.png" width="45%" alt="The projects sidebar with sessions from several CLIs, each with its badge, and the + menu with the four CLIs and their versions">
+<img src="assets/captura-clis.png" width="45%" alt="The projects sidebar with sessions from several CLIs, each with its badge, and the + menu with the four CLIs and their versions">
 
 **Not every CLI exposes the same things.** Claude Code leaves everything the app
 needs in its files. Codex leaves the history and the meter's tokens, but not its
@@ -122,7 +122,7 @@ touched until you confirm. Installing imports the memory Claude Code already had
 for that project. The app doesn't write each CLI's global memory: it gives you
 the snippet to paste yourself.
 
-<img src="docs/captura-memoria.png" width="70%" alt="The Memory tab with the bridge installed for the four CLIs and the imported notes">
+<img src="assets/captura-memoria.png" width="70%" alt="The Memory tab with the bridge installed for the four CLIs and the imported notes">
 
 ### Antigravity CLI: status and meter (optional)
 
@@ -167,7 +167,7 @@ in Markdown; each project can be exported to Markdown. And with the copy on and
 more than one CLI, the sidebar filter offers **In conversations**: it searches
 the text of everything copied, from every CLI.
 
-<img src="docs/captura-buscador.png" width="40%" alt="Search in conversations: a match in one session of each CLI, with its snippet">
+<img src="assets/captura-buscador.png" width="40%" alt="Search in conversations: a match in one session of each CLI, with its snippet">
 
 By default it lives inside the app's configuration folder
 (`%APPDATA%\agent-workbench\vault` on Windows). **Change folder…** copies all of
@@ -308,7 +308,7 @@ requests whose `Origin` isn't its own.
 files, a button that writes history is exactly the kind of thing where, later,
 nobody knows who pressed it.
 
-![A file from the tree, previewed with syntax highlighting](docs/captura-archivos.png)
+![A file from the tree, previewed with syntax highlighting](assets/captura-archivos.png)
 
 ---
 
@@ -397,15 +397,12 @@ each one —where it stores things, how it's launched, what is read and what is
 never opened— lives in its adapter, and the interface draws each control based
 on what that CLI declares.
 
-[`CLAUDE.md`](CLAUDE.md) has the rules and the map, and its index leads to
-[`docs/`](docs), where the detail of each CLI lives: the real format of its
-history —which differs from what you'd expect—, what is read and what isn't,
-and the pitfalls already hit. [`CHECKLIST.md`](CHECKLIST.md) is what's pending
-and the open debt; [`docs/bitacora.md`](docs/bitacora.md), the
-milestone-by-milestone log. These internal docs are in Spanish, like the code
-comments. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers how to work on the
-repository. The screenshots in this README come from `pnpm demo:shots`, on
-made-up data.
+[`ARCHITECTURE.md`](ARCHITECTURE.md) has the hard rules, the code map, what is
+read from each CLI and what is never opened. [`CONTRIBUTING.md`](CONTRIBUTING.md)
+covers how to work on the repository, [`SECURITY.md`](SECURITY.md) how to report
+a vulnerability, and [`CHANGELOG.md`](CHANGELOG.md) what changed in each
+version. Code comments are in Spanish. The screenshots in this README come from
+`pnpm demo:shots`, on made-up data.
 
 ---
 

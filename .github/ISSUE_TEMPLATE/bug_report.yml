@@ -1,0 +1,36 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you did, what you saw, and what you expected. Screenshots help — check they don't show anything private.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Agent Workbench version
+      description: It's in the header of the app, or `npm ls -g agent-workbench`.
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: CLI involved
+      multiple: true
+      options: [Claude Code, Codex, OpenCode, Antigravity CLI, None / not sure]
+  - type: input
+    attributes:
+      label: CLI version
+      placeholder: "claude 2.1.270"
+  - type: input
+    attributes:
+      label: OS, Node and browser
+      placeholder: "Windows 11, Node 22.14, Chrome 140"
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Server console output
+      description: The lines around the error, from the terminal where the app runs. Remove the URL token.
+      render: text

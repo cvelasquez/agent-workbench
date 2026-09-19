@@ -5,7 +5,7 @@
  * aparezca nada del entorno de desarrollo.
  *
  * Sin opciones saca las del README, con la interfaz en ingles, y las escribe en
- * `docs/captura-*.png`. Con `--lang <codigo>` —el nombre de uno de los archivos
+ * `assets/captura-*.png`. Con `--lang <codigo>` —el nombre de uno de los archivos
  * de `packages/web/src/i18n/locales/`— saca las mismas en ese idioma y las deja
  * en la carpeta temporal (`agent-workbench-shots/<codigo>/`): sirven para
  * revisar como queda cada traduccion sin tocar las del README (hito 34).
@@ -76,7 +76,7 @@ function ui(key) {
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const exactly = (text) => new RegExp(`^${escapeRegExp(text)}$`);
 
-const outDir = language === 'en' ? path.join(repoRoot, 'docs') : path.join(tmpdir(), 'agent-workbench-shots', language);
+const outDir = language === 'en' ? path.join(repoRoot, 'assets') : path.join(tmpdir(), 'agent-workbench-shots', language);
 mkdirSync(outDir, { recursive: true });
 
 const { url, availableAgents, historyLines, demo, stop } = await startDemoServer({ mode, openBrowser: false });
