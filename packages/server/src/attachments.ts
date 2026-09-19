@@ -96,6 +96,9 @@ export function formatAttachmentBytes(bytes: number): string {
 /**
  * La linea del mensaje que presenta un adjunto. Dice el nombre original y el
  * peso para que el agente sepa que es antes de abrirlo.
+ *
+ * En ingles, con cualquier idioma de la interfaz: lo que se le manda a una CLI
+ * en lenguaje natural va en ingles (hito 35, §6.23).
  */
 export function attachmentLine(originalName: string, bytes: number, reference: string): string {
   const display = Array.from(originalName)
@@ -104,8 +107,8 @@ export function attachmentLine(originalName: string, bytes: number, reference: s
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_DISPLAY_CHARS);
-  const label = display.length > 0 ? display : 'sin nombre';
-  return `Archivo adjunto (${label}, ${formatAttachmentBytes(bytes)}): ${reference}`;
+  const label = display.length > 0 ? display : 'unnamed';
+  return `Attached file (${label}, ${formatAttachmentBytes(bytes)}): ${reference}`;
 }
 
 /**

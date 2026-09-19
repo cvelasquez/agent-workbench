@@ -167,7 +167,7 @@ const turns = splitTurns(events);
     partialRead.opening === null && partialRead.complete === false && partialRead.turns.length === 20 && partialRead.totalTurns === 30);
   const plan = planTranscript({ header: header(), events, complete: false });
   check('H1 (M5) el transcript dice "más de N turnos", sin "Pedido inicial", y la cuenta es un minimo',
-    plan.ok && plan.totalTurnsIsMinimum === true && plan.markdown.includes('de más de 30 turnos') && !plan.markdown.includes('## Pedido inicial'),
+    plan.ok && plan.totalTurnsIsMinimum === true && plan.markdown.includes('of more than 30 turns') && !plan.markdown.includes('## Initial request'),
     plan.ok ? plan.markdown.slice(0, 400) : show(plan));
   const completePlan = planTranscript({ header: header(), events });
   check('H1 (M5) la lectura completa no se marca', completePlan.ok && completePlan.totalTurnsIsMinimum === false && completePlan.totalTurns === 30);
@@ -181,14 +181,14 @@ const turns = splitTurns(events);
   const { markdown, includedTurns } = renderTranscript(header(), selectTurns(turns));
   const lines = markdown.split('\n');
   check('H2 entran los 20 turnos', includedTurns === 20, String(includedTurns));
-  check('H2 "## Pedido inicial" antes de "## Turno 11 · usuario", y hasta "## Turno 30 · asistente"',
-    markdown.indexOf('## Pedido inicial') !== -1 && markdown.indexOf('## Pedido inicial') < markdown.indexOf('## Turno 11 · usuario') &&
-    markdown.includes('## Turno 30 · asistente') && !markdown.includes('## Turno 10 · usuario'));
+  check('H2 "## Initial request" antes de "## Turn 11 · user", y hasta "## Turn 30 · assistant"',
+    markdown.indexOf('## Initial request') !== -1 && markdown.indexOf('## Initial request') < markdown.indexOf('## Turn 11 · user') &&
+    markdown.includes('## Turn 30 · assistant') && !markdown.includes('## Turn 10 · user'));
   check('H2 el pedido inicial es el texto del turno 1',
-    markdown.slice(markdown.indexOf('## Pedido inicial'), markdown.indexOf('## Turno 11')).includes('Ajustá el importador de CSV, paso 1.'));
+    markdown.slice(markdown.indexOf('## Initial request'), markdown.indexOf('## Turn 11')).includes('Ajustá el importador de CSV, paso 1.'));
   check('H2 la cabecera dice de donde viene y cuanto incluye',
-    markdown.startsWith('# Continuación de una conversación con OpenCode\n') && markdown.includes('- Proyecto: `D:\\Mi App`') &&
-    markdown.includes('- Conversación: Ajustar el importador (opencode, ses_prueba)') && markdown.includes('Incluye los últimos 20 de 30 turnos.'),
+    markdown.startsWith('# Continuation of a conversation with OpenCode\n') && markdown.includes('- Project: `D:\\Mi App`') &&
+    markdown.includes('- Conversation: Ajustar el importador (opencode, ses_prueba)') && markdown.includes('Includes the last 20 of 30 turns.'),
     markdown.slice(0, 500));
 
   const toolLines = lines.filter((line) => line.startsWith('- `Bash`'));
@@ -197,13 +197,13 @@ const turns = splitTurns(events);
   check(`H2 la entrada va a ${HANDOFF_TOOL_INPUT_CHARS} caracteres con "…"`,
     HANDOFF_TOOL_INPUT_CHARS === 300 && toolLine.includes(`\`${TOOL_INPUT.slice(0, 300)}…\``) && !toolLine.includes(TOOL_INPUT.slice(0, 301)), toolLine.slice(0, 120));
   check(`H2 el resultado va a ${HANDOFF_TOOL_RESULT_CHARS} caracteres, marcado "recortado"`,
-    HANDOFF_TOOL_RESULT_CHARS === 600 && toolLine.includes(`→ recortado: ${TOOL_RESULT.slice(0, 600)}…`) && !toolLine.includes(TOOL_RESULT.slice(0, 601)),
+    HANDOFF_TOOL_RESULT_CHARS === 600 && toolLine.includes(`→ truncated: ${TOOL_RESULT.slice(0, 600)}…`) && !toolLine.includes(TOOL_RESULT.slice(0, 601)),
     toolLine.slice(-120));
-  check('H2 "[imagen no incluida]" en el turno 30 y en el pedido inicial',
-    markdown.split('[imagen no incluida]').length - 1 === 2 &&
-    markdown.slice(markdown.indexOf('## Turno 30 · usuario')).includes('[imagen no incluida]'));
-  check('H2 la pregunta con su respuesta', markdown.includes('- Pregunta "¿Qué formato preferís?": respondida "CSV"'));
-  check('H2 el aviso', markdown.includes('- Aviso: Contexto compactado'));
+  check('H2 "[image not included]" en el turno 30 y en el pedido inicial',
+    markdown.split('[image not included]').length - 1 === 2 &&
+    markdown.slice(markdown.indexOf('## Turn 30 · user')).includes('[image not included]'));
+  check('H2 la pregunta con su respuesta', markdown.includes('- Question "¿Qué formato preferís?": answered "CSV"'));
+  check('H2 el aviso', markdown.includes('- Notice: Context compacted'));
   check('H2 ninguna parte thinking deja rastro, y nada sale "undefined"',
     !/thinking|razon|undefined|\[object/i.test(markdown));
   check(`H2 dentro de los topes (${HANDOFF_MAX_BYTES} bytes, ${HANDOFF_MAX_LINES} lineas)`,
@@ -221,12 +221,12 @@ const turns = splitTurns(events);
   const heavyRender = renderTranscript(header(), heavySelection);
   check('H2 textos de 9 000 x 40: dentro de 60 KB, soltando turnos viejos',
     bytesOf(heavyRender.markdown) <= HANDOFF_MAX_BYTES && heavyRender.includedTurns < 20 && heavyRender.includedTurns >= 1 &&
-    heavyRender.markdown.includes('## Turno 40 · usuario') && !heavyRender.markdown.includes('## Turno 21 · usuario'),
+    heavyRender.markdown.includes('## Turn 40 · user') && !heavyRender.markdown.includes('## Turn 21 · user'),
     `${bytesOf(heavyRender.markdown)} bytes, ${heavyRender.includedTurns} turnos`);
   check('H2 la cabecera cuenta los que entraron, y el texto largo va cortado a 8 000',
-    heavyRender.markdown.includes(`Incluye los últimos ${heavyRender.includedTurns} de 40 turnos.`) &&
-    heavyRender.markdown.includes('… (recortado)') && !heavyRender.markdown.includes(`40 ${patterned(9_000, 'u')}`.slice(0, 8_001)));
-  check('H2 el pedido inicial se conserva aunque se suelten turnos', heavyRender.markdown.includes('## Pedido inicial'));
+    heavyRender.markdown.includes(`Includes the last ${heavyRender.includedTurns} of 40 turns.`) &&
+    heavyRender.markdown.includes('… (truncated)') && !heavyRender.markdown.includes(`40 ${patterned(9_000, 'u')}`.slice(0, 8_001)));
+  check('H2 el pedido inicial se conserva aunque se suelten turnos', heavyRender.markdown.includes('## Initial request'));
 
   // Muchas herramientas cortas: el que corta es el tope de lineas.
   const busy = [];
@@ -238,7 +238,7 @@ const turns = splitTurns(events);
   const busyRender = renderTranscript(header(), selectTurns(splitTurns(busy)));
   check('H2 100 herramientas por turno: dentro de 1 500 lineas, soltando turnos viejos',
     linesOf(busyRender.markdown) <= HANDOFF_MAX_LINES && busyRender.includedTurns < 20 && busyRender.includedTurns >= 1 &&
-    bytesOf(busyRender.markdown) <= HANDOFF_MAX_BYTES && busyRender.markdown.includes('## Turno 40 · asistente'),
+    bytesOf(busyRender.markdown) <= HANDOFF_MAX_BYTES && busyRender.markdown.includes('## Turn 40 · assistant'),
     `${linesOf(busyRender.markdown)} lineas, ${busyRender.includedTurns} turnos`);
 
   // Un solo turno enorme: se cortan sus textos y se conserva.
@@ -247,8 +247,8 @@ const turns = splitTurns(events);
   const hugeRender = renderTranscript(header(), selectTurns(splitTurns(huge)));
   check('H2 un solo turno enorme: se corta, entra en 60 KB y el turno queda',
     hugeRender.includedTurns === 1 && bytesOf(hugeRender.markdown) <= HANDOFF_MAX_BYTES &&
-    hugeRender.markdown.includes('## Turno 1 · usuario') && hugeRender.markdown.includes('Revisá todo.') &&
-    hugeRender.markdown.includes('Parte 29:') && hugeRender.markdown.includes('… (recortado)'),
+    hugeRender.markdown.includes('## Turn 1 · user') && hugeRender.markdown.includes('Revisá todo.') &&
+    hugeRender.markdown.includes('Parte 29:') && hugeRender.markdown.includes('… (truncated)'),
     `${bytesOf(hugeRender.markdown)} bytes`);
 
   // Un solo turno con 3 000 herramientas: ni cortando textos entra; se omite el medio.
@@ -260,16 +260,16 @@ const turns = splitTurns(events);
   const endlessRender = renderTranscript(header(), selectTurns(splitTurns(endless)));
   check('H2 un turno con 3 000 herramientas: el medio se omite, dentro de los dos topes',
     endlessRender.includedTurns === 1 && bytesOf(endlessRender.markdown) <= HANDOFF_MAX_BYTES && linesOf(endlessRender.markdown) <= HANDOFF_MAX_LINES &&
-    endlessRender.markdown.includes('líneas omitidas'),
+    endlessRender.markdown.includes('lines omitted'),
     `${bytesOf(endlessRender.markdown)} bytes, ${linesOf(endlessRender.markdown)} lineas`);
   check('H2 y conserva el pedido, la primera herramienta y lo ultimo que respondio',
-    endlessRender.markdown.includes('## Turno 1 · usuario') && endlessRender.markdown.includes('Recorré el repositorio.') &&
+    endlessRender.markdown.includes('## Turn 1 · user') && endlessRender.markdown.includes('Recorré el repositorio.') &&
     endlessRender.markdown.includes('herramienta-0 ') && endlessRender.markdown.trimEnd().endsWith('Terminé de recorrerlo.'));
 
   // Topes chicos a mano: la misma regla con otros numeros.
   const tight = renderTranscript(header(), selectTurns(turns), 8_000, 60);
   check('H2 con topes de 8 KB y 60 lineas tambien se cumplen',
-    bytesOf(tight.markdown) <= 8_000 && linesOf(tight.markdown) <= 60 && tight.includedTurns >= 1 && tight.markdown.includes('## Turno 30 · usuario'),
+    bytesOf(tight.markdown) <= 8_000 && linesOf(tight.markdown) <= 60 && tight.includedTurns >= 1 && tight.markdown.includes('## Turn 30 · user'),
     `${bytesOf(tight.markdown)} bytes, ${linesOf(tight.markdown)} lineas, ${tight.includedTurns} turnos`);
 }
 
@@ -295,8 +295,8 @@ const turns = splitTurns(events);
   check('H3 el transcript no lleva ESC, NUL ni CR', plan.ok && !markdown.includes('\x1b') && !markdown.includes('\x00') && !markdown.includes('\r'), show(markdown));
   check('H3 lo que queda del texto es texto: \\r\\n pasa a \\n', markdown.includes('ab[31mrojo\nsegundafin'), show(markdown));
   check('H3 titulo, carpeta, etiqueta e id saneados',
-    markdown.includes('Continuación de una conversación con OpenCode') && markdown.includes('Título ab[31mrojo segundafin') &&
-    markdown.includes('- Proyecto: `D:\\carpeta rara`') && markdown.includes('ses_x'), markdown.slice(0, 400));
+    markdown.includes('Continuation of a conversation with OpenCode') && markdown.includes('Título ab[31mrojo segundafin') &&
+    markdown.includes('- Project: `D:\\carpeta rara`') && markdown.includes('ses_x'), markdown.slice(0, 400));
   const message = buildContinuationMessage({
     sourceLabel: `Open\x1b[201~Code`, includedTurns: 1, reference: transcriptReferenceFor('C:\\t\\c.md', 'at-quoted'), lastRequest: hostile,
   });
@@ -316,7 +316,7 @@ const turns = splitTurns(events);
   });
   const [intro, quoted] = message.split('\n\n');
   check('H4 presenta la continuacion, la cantidad y la referencia',
-    intro === 'Esto continúa una conversación que empezó con otro asistente (OpenCode).\nEl transcript de los últimos 20 turnos está en "C:\\t\\continuacion-1-3f2a9c1b.md".\nLeelo entero y seguí desde el último pedido, que fue:',
+    intro === 'This continues a conversation that started with another assistant (OpenCode).\nThe transcript of the last 20 turns is in "C:\\t\\continuacion-1-3f2a9c1b.md".\nRead all of it and continue from the last request, which was:',
     show(intro));
   const quoteLines = (quoted ?? '').split('\n');
   const body = quoteLines.map((line) => line.replace(/^> ?/, '')).join('\n');
@@ -325,7 +325,7 @@ const turns = splitTurns(events);
   check('H4 cada linea citada empieza con "> "', quoteLines.length > 1 && quoteLines.every((line) => line.startsWith('> ')), show(quoteLines.slice(0, 3)));
 
   const bare = buildContinuationMessage({ sourceLabel: 'Codex', includedTurns: 1, reference: '"C:\\t\\c.md"', lastRequest: null });
-  check('H4 sin pedido: sin cita', !bare.includes('>') && bare.endsWith('Leelo entero y seguí desde donde quedó.') && bare.includes('del último turno'), show(bare));
+  check('H4 sin pedido: sin cita', !bare.includes('>') && bare.endsWith('Read all of it and continue from where it left off.') && bare.includes('of the last turn'), show(bare));
   check('H4 un pedido en blanco cuenta como sin pedido',
     !buildContinuationMessage({ sourceLabel: 'Codex', includedTurns: 2, reference: 'x', lastRequest: '  \n ' }).includes('>'));
 
@@ -362,7 +362,7 @@ const turns = splitTurns(events);
   const fine = planTranscript({ header: header({ partial: true }), events });
   check('H5 con turnos si hay continuacion, con el ultimo pedido y las cuentas',
     fine.ok === true && fine.includedTurns === 20 && fine.totalTurns === 30 && fine.lastRequest === 'Ajustá el importador de CSV, paso 30.' &&
-    fine.markdown.includes('- Historial parcial:'), fine.ok ? '' : show(fine));
+    fine.markdown.includes('- Partial history:'), fine.ok ? '' : show(fine));
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +521,7 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   check('H6 la copia da eventos: se usan y el seguidor falso no se crea',
     outcome.ok && archiveCalls === 1 && history.calls.follow === 0 && markdown.includes('Pedido que solo esta en la copia.'), show(outcome));
   check('H6 lo parcial de la copia llega a la cabecera, y la cuenta sale de la copia',
-    outcome.ok && markdown.includes('- Historial parcial:') && outcome.continued.totalTurns === 3 && outcome.continued.includedTurns === 3 &&
+    outcome.ok && markdown.includes('- Partial history:') && outcome.continued.totalTurns === 3 && outcome.continued.includedTurns === 3 &&
     outcome.continued.totalTurnsIsMinimum === false);
   check('H6 la pestana se abre con la CLI pedida, en la carpeta de la sesion y con su etiqueta',
     fromArchive.registry.opened.length === 1 && fromArchive.registry.opened[0].agent === 'claude-code' &&
@@ -542,7 +542,7 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   const nativeFile = nativeOutcome.ok ? pathInMessage(nativeOutcome.message) : null;
   const nativeMarkdown = nativeFile === null ? '' : await readFile(nativeFile, 'utf8');
   check('H6 y el archivo guardado es el transcript: pedido inicial, turno 30, sin marca de parcial',
-    nativeMarkdown.includes('## Pedido inicial') && nativeMarkdown.includes('## Turno 30 · usuario') && !nativeMarkdown.includes('Historial parcial'));
+    nativeMarkdown.includes('## Initial request') && nativeMarkdown.includes('## Turn 30 · user') && !nativeMarkdown.includes('Partial history'));
   check('H6 sin copia (archive null) tambien lee el seguidor', (await continueSession(continueDeps({ archive: null }).deps, request())).ok === true);
 
   // M5: la lectura se corta en el tope.
@@ -551,8 +551,8 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   const cappedFile = cappedOutcome.ok ? pathInMessage(cappedOutcome.message) : null;
   const cappedMarkdown = cappedFile === null ? '' : await readFile(cappedFile, 'utf8');
   check('H6 (M5) con mas eventos que el tope: la cuenta es un minimo y no hay pedido inicial',
-    cappedOutcome.ok && cappedOutcome.continued.totalTurnsIsMinimum === true && !cappedMarkdown.includes('## Pedido inicial') &&
-    cappedMarkdown.includes('de más de'), show(cappedOutcome.ok ? cappedOutcome.continued : cappedOutcome));
+    cappedOutcome.ok && cappedOutcome.continued.totalTurnsIsMinimum === true && !cappedMarkdown.includes('## Initial request') &&
+    cappedMarkdown.includes('of more than'), show(cappedOutcome.ok ? cappedOutcome.continued : cappedOutcome));
   const whole = await readSourceEvents(fakeHistory(events), { cwd: HANDOFF_CWD, sessionId: 'x' });
   check('H6 (M5) readSourceEvents pagina hasta el principio: todos los eventos, en orden, completa',
     whole !== null && whole.complete === true && whole.events.length === events.length &&
@@ -662,7 +662,7 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   const markdown = saved === null ? '' : await readFile(saved, 'utf8');
   check('H6 con el seguidor real de Claude Code (instalada o no): el transcript sale del archivo',
     outcome.ok && outcome.continued.totalTurns === 3 && markdown.includes('Pedido real número 3') && markdown.includes('Respuesta 3, ñandú 🦤.') &&
-    markdown.startsWith('# Continuación de una conversación con Claude Code'), show(outcome));
+    markdown.startsWith('# Continuation of a conversation with Claude Code'), show(outcome));
   check('H6 (H7) hacia Codex: prefilled y la ruta entre comillas, sin @',
     outcome.ok && outcome.continued.delivery === 'prefilled' && outcome.message.includes(`"${saved}"`) && !outcome.message.includes('@"'));
   index.dispose();
@@ -691,7 +691,7 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   check('H7 hacia Claude Code: sending, y el archivo nombrado con @"ruta"',
     toClaude.ok && toClaude.continued.delivery === 'sending' && /@"[^"]+continuacion-\d+-[0-9a-f]{8}\.md"/.test(toClaude.message), show(toClaude));
   check('H7 el mensaje presenta la CLI de origen y cita el ultimo pedido',
-    toClaude.ok && toClaude.message.startsWith('Esto continúa una conversación que empezó con otro asistente (OpenCode).') &&
+    toClaude.ok && toClaude.message.startsWith('This continues a conversation that started with another assistant (OpenCode).') &&
     toClaude.message.includes('> Ajustá el importador de CSV, paso 30.'));
   check('H7 el plazo de la entrega es 15 s', HANDOFF_DELIVERY_TIMEOUT_MS === 15_000);
 }

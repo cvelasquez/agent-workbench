@@ -48,22 +48,29 @@ export const MEMORY_AGENT_LABELS: Record<MemoryAgentId, string> = {
   opencode: 'OpenCode',
 };
 
+/*
+  En ingles, como todo lo que se le manda a una CLI en lenguaje natural (hito
+  35, §6.23): cada CLI lo carga como instrucciones del proyecto. Cambiar este
+  texto hace que la app vea desactualizados los bloques ya instalados y ofrezca
+  reemplazarlos (§6.15).
+*/
 const MEMORY_BLOCK_BODY = [
-  '## Memoria del proyecto',
+  '## Project memory',
   '',
-  'La memoria de este proyecto vive en `.agents/memory/` y es compartida: la leen y',
-  'la escriben todos los agentes que trabajan acá, con cualquier herramienta.',
+  "This project's memory lives in `.agents/memory/` and is shared: every agent",
+  'that works here reads and writes it, whatever tool it runs in.',
   '',
-  '- Al empezar, leé `.agents/memory/MEMORY.md`. Es el índice: una línea por nota.',
-  '- Cuando aprendas algo que sirva en otra sesión —una decisión y su motivo, una',
-  '  restricción, una trampa ya pisada, una preferencia del usuario—, guardalo en',
-  '  un archivo propio dentro de `.agents/memory/` y agregá su línea al índice:',
-  '  `- [Título](archivo.md) — de qué trata, en una línea`.',
-  '- Cada nota empieza con `name:` y `description:` entre dos líneas `---`, y',
-  '  después el hecho. Si ya hay una nota sobre lo mismo, actualizala en vez de',
-  '  crear otra.',
-  '- No guardes lo que ya cuenta el repositorio ni lo que sólo importa hoy.',
-  '- Guardá la memoria acá, no en la carpeta de memoria propia de tu herramienta.',
+  '- When you start, read `.agents/memory/MEMORY.md`. It is the index: one line',
+  '  per note.',
+  '- When you learn something that would help in another session —a decision and',
+  '  its reason, a constraint, a pitfall already hit, a user preference—, save it',
+  '  in its own file inside `.agents/memory/` and add its line to the index:',
+  '  `- [Title](file.md) — what it is about, in one line`.',
+  '- Each note starts with `name:` and `description:` between two `---` lines,',
+  '  followed by the fact. If there is already a note about the same thing,',
+  '  update it instead of creating another one.',
+  "- Don't save what the repository already records or what only matters today.",
+  "- Save memory here, not in your tool's own memory folder.",
 ];
 
 /**
@@ -80,12 +87,15 @@ export function memoryBlock(file: MemoryInstructionFile): string {
   return lines.join('\n');
 }
 
-/** Contenido de un `MEMORY.md` nuevo. Termina en linea en blanco. */
+/**
+ * Contenido de un `MEMORY.md` nuevo. Termina en linea en blanco. En ingles, por
+ * lo mismo que el bloque; un `MEMORY.md` que ya existe no se reescribe.
+ */
 export const MEMORY_INDEX_TEMPLATE = [
-  '# Memoria del proyecto',
+  '# Project memory',
   '',
-  'Índice de la memoria compartida entre agentes. Una línea por nota, con este',
-  'formato: `- [Título](archivo.md) — de qué trata, en una línea`.',
+  'Index of the memory shared between agents. One line per note, in this',
+  'format: `- [Title](file.md) — what it is about, in one line`.',
   '',
   '',
 ].join('\n');

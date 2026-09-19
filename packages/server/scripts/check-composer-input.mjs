@@ -523,9 +523,10 @@ check('comillas, & y | no pasan', /^[A-Za-z0-9._-]+$/.test(safeFileName('a"b&c|d
   check('quoted-path: siempre "ruta"', attachmentReference(log, 'quoted-path') === `"${log}"`);
 
   const line = attachmentLine('app "prod"\n.log', 219_000, `@"${log}"`);
+  // En inglés, como todo lo que se le manda a una CLI en lenguaje natural (hito 35).
   check('la linea dice nombre, peso y referencia, sin comillas ni saltos en el nombre',
-    line === `Archivo adjunto (app prod .log, 214 KB): @"${log}"`, line);
-  check('sin nombre lo dice', attachmentLine('\n', 10, '"x"') === 'Archivo adjunto (sin nombre, 10 B): "x"');
+    line === `Attached file (app prod .log, 214 KB): @"${log}"`, line);
+  check('sin nombre lo dice', attachmentLine('\n', 10, '"x"') === 'Attached file (unnamed, 10 B): "x"');
 
   check('sin adjuntos el texto es el de siempre', textWithAttachments('hola', []) === 'hola');
   check('los adjuntos van antes del texto, uno por linea', textWithAttachments('mira esto', [line, 'otra']) === `${line}\notra\nmira esto`);
@@ -639,9 +640,10 @@ check('el titulo dice que hay y que pone el clic', threadFontTitle('m') === 'Tam
   check('con los CRLF que puede guardar una CLI, lo mismo', same(splitPastedBlocks(message.replace(/\n/g, '\r\n')), roundTrip));
   check('sin textos pegados: el mensaje tal cual, sin tocar',
     same(splitPastedBlocks('hola\r\nchau'), [{ kind: 'text', text: 'hola\r\nchau' }]));
-  const withAttachment = splitPastedBlocks(`Archivo adjunto (a.log, 1 KB): "C:\\a.log"\n${message}`);
+  const attached = attachmentLine('a.log', 1024, '"C:\\a.log"');
+  const withAttachment = splitPastedBlocks(textWithAttachments(message, [attached]));
   check('la línea de un adjunto, que el servidor pone antes, queda en su lugar',
-    same(withAttachment[0], { kind: 'text', text: 'Archivo adjunto (a.log, 1 KB): "C:\\a.log"' }) && withAttachment.length === 4,
+    same(withAttachment[0], { kind: 'text', text: attached }) && withAttachment.length === 4,
     show(withAttachment));
   check('un inicio sin su fin en un mensaje recortado: el bloque, incompleto',
     same(splitPastedBlocks('[Start of pasted text #1]\nmuy largo', true), [{ kind: 'pasted', number: 1, text: 'muy largo', complete: false }]));

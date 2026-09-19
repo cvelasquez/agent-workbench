@@ -22,13 +22,18 @@
  *    agente necesita es saber que se hizo y como salio, no releer la salida.
  *  - **El razonamiento no existe** (CLAUDE.md 4.9) y las imagenes no viajan:
  *    se dice que habia una, no se inventa nada.
+ *
+ * **El archivo y el mensaje van en ingles** (hito 35, §6.23): los lee el
+ * agente, y lo que se le manda a una CLI en lenguaje natural no depende del
+ * idioma de la interfaz. Lo que el usuario y los agentes escribieron va tal
+ * cual.
  */
 
 import {
-  noticeText,
   serverText,
   type ServerText,
   type ConversationEvent,
+  type ConversationNoticePart,
   type ConversationPart,
   type ConversationQuestionPart,
   type ConversationState,
@@ -182,11 +187,26 @@ function renderText(text: string, truncated: boolean, maxChars: number): string 
   const clean = sanitizeForPaste(text).replace(/\s+$/u, '');
   if (clean.trim().length === 0) return null;
   const { text: kept, cut } = cutChars(clean, maxChars);
-  return cut || truncated ? `${kept}… (recortado)` : kept;
+  return cut || truncated ? `${kept}… (truncated)` : kept;
 }
 
 const imagesText = (count: number): string =>
-  count === 1 ? '[imagen no incluida]' : `[${count} imágenes no incluidas]`;
+  count === 1 ? '[image not included]' : `[${count} images not included]`;
+
+/**
+ * Lo que dice un aviso de la conversacion, en ingles. `noticeText` de `shared`
+ * dice lo mismo en espanol para la exportacion a Markdown, que lee el usuario.
+ */
+function noticeLine(part: Pick<ConversationNoticePart, 'notice' | 'detail'>): string {
+  switch (part.notice) {
+    case 'compacted':
+      return part.detail === 'auto' ? 'Context compacted automatically' : 'Context compacted';
+    case 'interrupted':
+      return 'Interrupted';
+    case 'error':
+      return part.detail.length > 0 ? `The CLI returned an error: ${part.detail}` : 'The CLI returned an error';
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Bloques
@@ -196,19 +216,19 @@ function renderResult(result: ConversationToolResultPart): string {
   const { text, cut } = cutChars(oneLine(result.text), HANDOFF_TOOL_RESULT_CHARS);
   const marks: string[] = [];
   if (result.isError) marks.push('error');
-  if (cut || result.truncated) marks.push('recortado');
+  if (cut || result.truncated) marks.push('truncated');
   let body = cut ? `${text}…` : text;
   if (result.imageCount > 0) body = body.length > 0 ? `${body} ${imagesText(result.imageCount)}` : imagesText(result.imageCount);
-  if (body.length === 0) body = 'sin texto';
+  if (body.length === 0) body = 'no text';
   return marks.length > 0 ? `${marks.join(', ')}: ${body}` : body;
 }
 
 function renderToolLine(part: ConversationToolCallPart, result: ConversationToolResultPart | undefined): string {
   const name = cutChars(oneLine(part.name), 80).text;
   const { text: input, cut } = cutChars(oneLine(part.input), HANDOFF_TOOL_INPUT_CHARS);
-  const head = `- ${inlineCode(name.length > 0 ? name : 'herramienta')}`;
+  const head = `- ${inlineCode(name.length > 0 ? name : 'tool')}`;
   const withInput = input.length > 0 ? `${head}: ${inlineCode(cut || part.truncated ? `${input}…` : input)}` : head;
-  return `${withInput} → ${result !== undefined ? renderResult(result) : 'sin resultado'}`;
+  return `${withInput} → ${result !== undefined ? renderResult(result) : 'no result'}`;
 }
 
 function renderQuestionLine(part: ConversationQuestionPart, result: ConversationToolResultPart | undefined): string {
@@ -218,11 +238,11 @@ function renderQuestionLine(part: ConversationQuestionPart, result: Conversation
       return `"${cutChars(label, QUESTION_LABEL_CHARS).text}"`;
     })
     .join(', ');
-  const title = part.questions.length === 1 ? `- Pregunta ${labels}` : `- Preguntas ${labels}`;
-  if (result === undefined) return `${title}: sin responder`;
+  const title = part.questions.length === 1 ? `- Question ${labels}` : `- Questions ${labels}`;
+  if (result === undefined) return `${title}: unanswered`;
   const { text, cut } = cutChars(oneLine(result.text), HANDOFF_TOOL_RESULT_CHARS);
   const answer = `"${cut ? `${text}…` : text}"`;
-  return `${title}: ${result.isError ? 'no respondida' : 'respondida'} ${answer}`;
+  return `${title}: ${result.isError ? 'not answered' : 'answered'} ${answer}`;
 }
 
 /** Lo que dijo el usuario al abrir un turno: sus textos y cuantas imagenes. */
@@ -241,7 +261,7 @@ function renderRequestBody(event: ConversationEvent, textChars: number): string[
 
 function renderTurn(turn: Turn, textChars: number): string {
   const [request, ...rest] = turn.events;
-  if (request === undefined) return `## Turno ${turn.number} · usuario`;
+  if (request === undefined) return `## Turn ${turn.number} · user`;
 
   // Llamada y resultado viajan en eventos distintos (Claude Code) o en el
   // mismo (OpenCode): se casan por id dentro del turno.
@@ -254,7 +274,7 @@ function renderTurn(turn: Turn, textChars: number): string {
     }
   }
 
-  const heading = `## Turno ${turn.number} · usuario${request.queued ? ' (enviado mientras trabajaba)' : ''}`;
+  const heading = `## Turn ${turn.number} · user${request.queued ? ' (sent while the agent was working)' : ''}`;
   const userBlocks = [heading, ...renderRequestBody(request, textChars)];
 
   const answer: string[] = [];
@@ -283,13 +303,13 @@ function renderTurn(turn: Turn, textChars: number): string {
         pushLine(renderQuestionLine(part, results.get(part.toolUseId)));
         return;
       case 'tool-result':
-        if (!calls.has(part.toolUseId)) pushLine(`- Resultado de una herramienta anterior → ${renderResult(part)}`);
+        if (!calls.has(part.toolUseId)) pushLine(`- Result of an earlier tool call → ${renderResult(part)}`);
         return;
       case 'image':
-        pushLine(event.role === 'user' ? `- ${imagesText(1)} (del usuario)` : `- ${imagesText(1)}`);
+        pushLine(event.role === 'user' ? `- ${imagesText(1)} (from the user)` : `- ${imagesText(1)}`);
         return;
       case 'notice':
-        pushLine(`- Aviso: ${oneLine(noticeText(part))}`);
+        pushLine(`- Notice: ${oneLine(noticeLine(part))}`);
         return;
       case 'thinking':
         return;
@@ -305,14 +325,14 @@ function renderTurn(turn: Turn, textChars: number): string {
   }
 
   const blocks = [userBlocks.join('\n\n')];
-  if (answer.length > 0) blocks.push([`## Turno ${turn.number} · asistente`, ...answer].join('\n\n'));
+  if (answer.length > 0) blocks.push([`## Turn ${turn.number} · assistant`, ...answer].join('\n\n'));
   return blocks.join('\n\n');
 }
 
 function renderOpening(turn: Turn, textChars: number): string {
   const request = turn.events[0];
   const body = request === undefined ? [] : renderRequestBody(request, textChars);
-  return ['## Pedido inicial', ...body].join('\n\n');
+  return ['## Initial request', ...body].join('\n\n');
 }
 
 export interface TranscriptHeader {
@@ -331,14 +351,15 @@ export interface TranscriptHeader {
 
 function coverageSentence(included: number, total: number, complete: boolean): string {
   let what: string;
+  const last = included === 1 ? 'the last one' : `the last ${included}`;
   if (!complete) {
-    what = `Incluye ${included === 1 ? 'el último' : `los últimos ${included}`} de más de ${total} turnos, numerados desde el más viejo que se leyó.`;
+    what = `Includes ${last} of more than ${total} turns, numbered from the oldest one that was read.`;
   } else if (included >= total) {
-    what = total === 1 ? 'Incluye el único turno.' : `Incluye los ${total} turnos.`;
+    what = total === 1 ? 'Includes the only turn.' : `Includes all ${total} turns.`;
   } else {
-    what = `Incluye ${included === 1 ? 'el último' : `los últimos ${included}`} de ${total} turnos.`;
+    what = `Includes ${last} of ${total} turns.`;
   }
-  return `${what} Los resultados de herramientas están recortados y las imágenes no se incluyen.`;
+  return `${what} Tool results are truncated and images are not included.`;
 }
 
 function renderHeader(header: TranscriptHeader, included: number, selection: TurnSelection): string {
@@ -349,14 +370,16 @@ function renderHeader(header: TranscriptHeader, included: number, selection: Tur
   const agent = cutChars(oneLine(header.agent), 80).text;
   const sessionId = cutChars(oneLine(header.sessionId), 200).text;
 
+  // El titulo de respaldo del indice esta en espanol: aca, como uno vacio.
+  const named = title.length > 0 && title !== UNTITLED_SESSION_TITLE ? title : 'untitled';
   const facts = [
-    `- Proyecto: ${cwd.trim().length > 0 ? inlineCode(cwd) : 'desconocido'}`,
-    `- Conversación: ${title.length > 0 ? title : UNTITLED_SESSION_TITLE} (${agent}, ${sessionId})`,
+    `- Project: ${cwd.trim().length > 0 ? inlineCode(cwd) : 'unknown'}`,
+    `- Conversation: ${named} (${agent}, ${sessionId})`,
   ];
-  if (header.lastAt !== null && header.lastAt > 0) facts.push(`- Última respuesta: ${formatStamp(header.lastAt)}`);
+  if (header.lastAt !== null && header.lastAt > 0) facts.push(`- Last reply: ${formatStamp(header.lastAt)}`);
   facts.push(`- ${coverageSentence(included, selection.totalTurns, selection.complete)}`);
-  if (header.partial) facts.push('- Historial parcial: la conversación original no se pudo leer entera.');
-  return `# Continuación de una conversación con ${label}\n\n${facts.join('\n')}`;
+  if (header.partial) facts.push("- Partial history: the original conversation couldn't be read in full.");
+  return `# Continuation of a conversation with ${label}\n\n${facts.join('\n')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +422,7 @@ function elide(block: string, maxBytes: number, maxLines: number): string {
   const lines = block.split('\n');
   const heading = lines[0] ?? '';
   const body = lines.slice(1);
-  const marker = (omitted: number): string => `[… ${omitted} líneas omitidas para que el transcript entre en su tope …]`;
+  const marker = (omitted: number): string => `[… ${omitted} lines omitted to keep the transcript within its limit …]`;
 
   const markerBytes = Buffer.byteLength(marker(body.length), 'utf8') + 1;
   const available = Math.max(0, maxBytes - Buffer.byteLength(heading, 'utf8') - 1 - markerBytes);
@@ -517,15 +540,15 @@ export function buildContinuationMessage(input: {
 }): string {
   const label = oneLine(input.sourceLabel);
   const lines = [
-    `Esto continúa una conversación que empezó con otro asistente (${label}).`,
+    `This continues a conversation that started with another assistant (${label}).`,
     input.includedTurns === 1
-      ? `El transcript del último turno está en ${input.reference}.`
-      : `El transcript de los últimos ${input.includedTurns} turnos está en ${input.reference}.`,
+      ? `The transcript of the last turn is in ${input.reference}.`
+      : `The transcript of the last ${input.includedTurns} turns is in ${input.reference}.`,
   ];
   if (input.lastRequest !== null && sanitizeForPaste(input.lastRequest).trim().length > 0) {
-    lines.push('Leelo entero y seguí desde el último pedido, que fue:', '', quote(input.lastRequest));
+    lines.push('Read all of it and continue from the last request, which was:', '', quote(input.lastRequest));
   } else {
-    lines.push('Leelo entero y seguí desde donde quedó.');
+    lines.push('Read all of it and continue from where it left off.');
   }
   return sanitizeForPaste(lines.join('\n'));
 }
