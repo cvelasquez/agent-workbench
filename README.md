@@ -12,6 +12,8 @@ credentials, and makes no network calls of its own.
 npx agent-workbench
 ```
 
+![A tour: the conversation as cards, the changed files and a diff, one tab per CLI, and continuing a conversation with another CLI](assets/demo.gif)
+
 It doesn't talk to any API. It launches the CLI you already have installed and
 logged in —`claude`, `codex`, `opencode` or `agy`— inside a pseudo-terminal, and
 adds around it what a terminal alone doesn't give you: tabs, browsable history,
@@ -19,8 +21,6 @@ the conversation as cards, a context meter, git status and a file tree.
 
 The terminal is still the terminal. Everything you type reaches the CLI without
 the app touching it.
-
-![The conversation in the center; around it, the projects with their history, the tabs of the four CLIs and the file tree](assets/captura-conversacion.png)
 
 ---
 
