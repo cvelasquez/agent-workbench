@@ -54,6 +54,7 @@ import { ContextMeter } from './ContextMeter.js';
 import { threadFontTitle } from './thread-font.js';
 import type { ThreadFontState } from './useThreadFont.js';
 import { ContinueButton } from './ContinueButton.js';
+import { pastedLineCount, splitPastedBlocks } from './composer-paste.js';
 import { noticeText } from './conversation-notice.js';
 import { formatDuration, formatTime } from './i18n/format.js';
 import { t } from './i18n/index.js';
@@ -1016,9 +1017,10 @@ function PartView({
   switch (part.kind) {
     case 'text':
       // Lo propio va tal cual se escribio —es texto, no un documento— y
-      // plegado si es largo. Lo del asistente se renderiza como markdown.
+      // plegado si es largo, con cada texto pegado en su ficha (hito 35). Lo
+      // del asistente se renderiza como markdown.
       return mine ? (
-        <FoldableText text={part.text} truncated={part.truncated} needle={needle} />
+        <OwnText text={part.text} truncated={part.truncated} needle={needle} />
       ) : (
         <div className="part-text">
           <Markdown text={part.text} needle={needle} />
@@ -1362,6 +1364,68 @@ function QuestionCard({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Un mensaje propio, con cada texto pegado desde el cuadro en su ficha (hito
+ * 35, §6.24).
+ *
+ * El cuadro manda cada texto pegado entre su linea de inicio y la de fin, y
+ * arriba de lo escrito. Plegado como un texto mas, lo que se veia eran las
+ * primeras lineas de lo pegado, y la pregunta quedaba escondida debajo. Aca
+ * cada uno es una ficha cerrada con su numero y sus lineas, y lo escrito se ve
+ * entero. Un mensaje sin textos pegados se dibuja como siempre.
+ */
+function OwnText({ text, truncated, needle }: { text: string; truncated: boolean; needle: string }): JSX.Element {
+  const segments = splitPastedBlocks(text, truncated);
+  const only = segments.length === 1 ? segments[0] : undefined;
+  if (only !== undefined && only.kind === 'text') {
+    return <FoldableText text={text} truncated={truncated} needle={needle} />;
+  }
+  const last = segments.length - 1;
+  return (
+    <div className="part-own">
+      {segments.map((segment, index) =>
+        segment.kind === 'text' ? (
+          <FoldableText key={index} text={segment.text} truncated={truncated && index === last} needle={needle} />
+        ) : (
+          <PastedBlock key={index} number={segment.number} text={segment.text} complete={segment.complete} needle={needle} />
+        ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * Un texto pegado dentro de un mensaje propio: cerrado, con su numero y sus
+ * lineas. Se abre solo si el buscador encontro algo adentro, como una tanda de
+ * acciones (`ToolGroup`).
+ */
+function PastedBlock({
+  number,
+  text,
+  complete,
+  needle,
+}: {
+  number: number;
+  text: string;
+  complete: boolean;
+  needle: string;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const matched = needle.length > 0 && text.toLowerCase().includes(needle.toLowerCase());
+  const shown = open || matched;
+  return (
+    <div className={`thread-pasted${shown ? ' thread-pasted-open' : ''}`}>
+      <button className="thread-pasted-toggle" onClick={() => setOpen((value) => !value)} aria-expanded={shown}>
+        <span className="chip-icon">¶</span>
+        {t('thread.pasted', { number, count: pastedLineCount(text) })}
+        {!complete && <span className="part-truncated"> {t('thread.truncated')}</span>}
+        <span className="chip-chevron">{shown ? '▾' : '▸'}</span>
+      </button>
+      {shown && <div className="thread-pasted-text part-mine">{linkify(text, needle)}</div>}
     </div>
   );
 }

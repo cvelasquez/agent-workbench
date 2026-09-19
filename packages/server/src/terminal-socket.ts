@@ -67,6 +67,7 @@ import {
   buildSubmissionWrites,
   planModeChange,
   submitRefusal,
+  submitStartDelayMs,
 } from './pty-input.js';
 import type { RepoHub } from './repo-hub.js';
 import { revealPath } from './reveal.js';
@@ -828,11 +829,19 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               // texto no puede encontrar el archivo de la CLI antes que el texto.
               // Con adjuntos es el texto entero: es lo que la CLI va a guardar.
               registry.noteSubmitted(terminalId, fullText);
+              // Un envio justo despues de lanzar espera a que la CLI dibuje su
+              // pantalla: lo que llega antes se pierde (hito 35, §10.11).
+              const startAfterMs = submitStartDelayMs(
+                registry.launchedAtOf(terminalId),
+                Date.now(),
+                input.readyAfterLaunchMs ?? 0,
+              );
               const outcome = await lane.writePieces(
                 pieces,
                 input.pieceGapMs,
                 pieceWriter(socket, terminalId),
                 approvalGuard,
+                { startAfterMs },
               );
               if (outcome === 'interrupted') interrupted();
               if (outcome === 'blocked') {

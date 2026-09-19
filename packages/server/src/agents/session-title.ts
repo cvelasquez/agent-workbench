@@ -11,6 +11,8 @@
  * tercer consumidor (hito 26).
  */
 
+import { pastedBlockPattern, pastedBoundaryPattern } from '@agent-workbench/shared';
+
 /** Largo maximo de un titulo en la barra. */
 export const TITLE_MAX_LENGTH = 90;
 
@@ -25,7 +27,7 @@ export const UNTITLED_SESSION_TITLE = 'Sesion sin titulo';
  * listado.
  */
 export function toTitle(raw: string): string {
-  let text = raw
+  let text = withoutPastedText(raw)
     .replace(/<[^>]{1,80}>/g, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/\s+/g, ' ')
@@ -35,4 +37,16 @@ export function toTitle(raw: string): string {
     text = `${text.slice(0, TITLE_MAX_LENGTH - 1).trimEnd()}…`;
   }
   return text;
+}
+
+/**
+ * Lo escrito, sin los textos pegados desde el cuadro (hito 35, §6.24): el
+ * titulo de una conversacion que empieza con un texto pegado es lo que se
+ * pregunto, no las primeras lineas de lo pegado. Si no se escribio nada mas,
+ * lo pegado, sin sus lineas de inicio y fin.
+ */
+function withoutPastedText(raw: string): string {
+  const normalized = raw.replace(/\r\n?/g, '\n');
+  const typed = normalized.replace(pastedBlockPattern(), '$1');
+  return typed.trim().length > 0 ? typed : normalized.replace(pastedBoundaryPattern(), ' ');
 }

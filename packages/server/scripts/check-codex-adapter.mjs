@@ -373,6 +373,42 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
   check('B4 el texto se recorta al tope', long !== null && long[0] === P('x'.repeat(MAX_SUBMIT_CHARS)) && long.length === 2);
 }
 
+// B8. Codex en Windows: la tecla Fin antes del Enter (hito 35, §10.11). Sin
+// ella, un texto largo todavia se esta procesando cuando llega el Enter, y
+// Codex lo toma como un salto de linea mas: medido con la 0.155, 0 de 3.
+{
+  const { codexInput } = await import('../src/agents/codex/index.ts');
+  const onWindows = codexInput('win32');
+  const elsewhere = codexInput('linux');
+  const END_ENTER = '\x1b[F\r';
+  check('B8 codex en Windows: Fin antes del Enter y 3 s de arranque',
+    onWindows.endBeforeSubmit === true && onWindows.readyAfterLaunchMs === 3000, show(onWindows));
+  check('B8 codex fuera de Windows: ninguno de los dos, que ahi el pegado es de verdad',
+    elsewhere.endBeforeSubmit === false && elsewhere.readyAfterLaunchMs === 0, show(elsewhere));
+  const text = buildSubmissionWrites('hola\nchau', [], onWindows);
+  check('B8 el texto y despues Fin + Enter, en su propia pieza', same(text, [P('hola\nchau'), END_ENTER]), show(text));
+  const withImage = buildSubmissionWrites('que ves?', [img1], onWindows);
+  check('B8 con una imagen: su pegado, el texto y Fin + Enter', same(withImage, [P(img1), P('que ves?'), END_ENTER]), show(withImage));
+  const quiet = buildSubmissionWrites('hola', [], onWindows, { send: false });
+  check('B8 send:false: ni Fin ni Enter', same(quiet, [P('hola')]), show(quiet));
+  const plain = buildSubmissionWrites('hola', [], elsewhere);
+  check('B8 fuera de Windows: el Enter solo, como antes', same(plain, [P('hola'), '\r']), show(plain));
+  const single = buildSubmissionWrites('hola', [], { imageReference: 'at-quoted', pasteMarkers: true, endBeforeSubmit: true });
+  check('B8 en una pieza unica, Fin va pegado antes del Enter', same(single, [`${P('hola')}${END_ENTER}`]), show(single));
+}
+
+// B9. La espera del arranque (hito 35): lo que se manda antes de que la CLI
+// dibuje su pantalla se pierde. Medido con Codex 0.155: a 0,5–1,5 s del
+// lanzamiento, 7 de 9 no llegaron; desde 2 s, 12 de 12.
+{
+  const { submitStartDelayMs } = await import('../src/pty-input.ts');
+  check('B9 a 1 s del lanzamiento con 3 s declarados: espera 2 s', submitStartDelayMs(10_000, 11_000, 3000) === 2000);
+  check('B9 cumplido el plazo: no espera', submitStartDelayMs(10_000, 13_000, 3000) === 0 && submitStartDelayMs(10_000, 60_000, 3000) === 0);
+  check('B9 sin plazo declarado: no espera', submitStartDelayMs(10_000, 10_001, 0) === 0);
+  check('B9 sin proceso: no espera, la terminal rechaza la escritura', submitStartDelayMs(null, 1, 3000) === 0);
+  check('B9 con el reloj para atras, nunca mas que el plazo', submitStartDelayMs(10_000, 9_000, 3000) === 3000);
+}
+
 // B5. Protocolo.
 {
   const { parseServerMessage, parseAgentInfo, EMPTY_CONTEXT_USAGE } = shared;
@@ -593,6 +629,38 @@ const makeWait = (waits) => async (ms) => {
   });
   check('M5.6 una interrupcion durante la guarda: interrupted y nada escrito', racedOutcome === 'interrupted' && raced.length === 0);
   check('M5.6 la fila se olvida al vaciarse', queue.busyTerminals() === 0);
+}
+
+// M5.7 La espera antes de la primera pieza (hito 35): va dentro del turno de
+// la fila, con el mismo reloj, y un Esc durante la espera corta el envio.
+{
+  const waits = [];
+  const queue = new TerminalWriteQueue({ wait: makeWait(waits) });
+  const log = [];
+  let outcome = null;
+  await queue.enqueue('t1', async (lane) => {
+    outcome = await lane.writePieces(['texto', '\r'], 400, (p) => { log.push(p); return true; }, undefined, { startAfterMs: 1200 });
+  });
+  check('M5.7 espera el arranque y despues la separacion de siempre',
+    outcome === 'written' && same(waits, [1200, 400]) && log.join(',') === 'texto,\r', `${outcome} ${show(waits)} ${show(log)}`);
+
+  const none = [];
+  const flat = new TerminalWriteQueue({ wait: makeWait(none) });
+  await flat.enqueue('t1', async (lane) => { await lane.writePieces(['x'], 400, () => true, undefined, { startAfterMs: 0 }); });
+  check('M5.7 sin espera de arranque no se espera nada', none.length === 0, show(none));
+
+  const cut = [];
+  const interrupting = new TerminalWriteQueue({
+    wait: async (ms) => {
+      if (ms === 900) interrupting.interrupt('t1');
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+  });
+  let cutOutcome = null;
+  await interrupting.enqueue('t1', async (lane) => {
+    cutOutcome = await lane.writePieces(['texto', '\r'], 400, (p) => { cut.push(p); return true; }, undefined, { startAfterMs: 900 });
+  });
+  check('M5.7 un Esc durante la espera: interrupted y nada escrito', cutOutcome === 'interrupted' && cut.length === 0, `${cutOutcome} ${show(cut)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -2195,8 +2263,12 @@ const throwsOn = (run) => {
     plans: false,
     waitingBlocksSubmit: false,
   }), show(adapter.capabilities));
-  check('E1 envio: imagenes por ruta sola, 400 ms entre piezas, con marcadores, transcript entre comillas',
-    same(adapter.input, { imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1, transcriptReference: 'quoted-path' }),
+  const onWindows = process.platform === 'win32';
+  check('E1 envio: imagenes por ruta sola, 400 ms entre piezas, con marcadores, transcript entre comillas; en Windows, Fin antes del Enter y 3 s de arranque',
+    same(adapter.input, {
+      imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1,
+      transcriptReference: 'quoted-path', endBeforeSubmit: onWindows, readyAfterLaunchMs: onWindows ? 3000 : 0,
+    }),
     show(adapter.input));
   check('E1 lo que se escribe coincide con lo que se le promete a la interfaz',
     adapter.input.imageReference === adapter.capabilities.imagesByPath);

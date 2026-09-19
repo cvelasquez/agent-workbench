@@ -83,16 +83,30 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
  * pegado no hay riesgo de interrumpir el turno: medido sobre ConPTY, no llegan
  * como Escape (`AgentInput.pasteMarkers`). En macOS y Linux el pegado entre
  * marcadores es el nativo.
+ *
+ * Los 400 ms no alcanzan con un texto largo, y por eso en Windows van dos cosas
+ * mas (hito 35, §10.11). Medido con la 0.155: desde unos 850 caracteres Codex
+ * todavia procesa la rafaga cuando llega el Enter y lo toma como salto de linea
+ * (0 de 3); con la tecla Fin delante envia siempre (26 de 26). Y lo que llega
+ * antes de que dibuje su pantalla, a los 1,7–2,2 s, se pierde: a 0,5–1,5 s del
+ * lanzamiento no llegaron 7 de 9, y desde 2 s llegaron 12 de 12.
  */
-export const CODEX_INPUT: AgentInput = {
-  imageReference: 'bare-path-paste',
-  pieceGapMs: 400,
-  pasteMarkers: true,
-  enterSeparately: true,
-  interruptPresses: 1,
-  // `@` abre el buscador de la TUI: el transcript se nombra entre comillas y lo lee el agente.
-  transcriptReference: 'quoted-path',
-};
+export function codexInput(platform: NodeJS.Platform): AgentInput {
+  const windows = platform === 'win32';
+  return {
+    imageReference: 'bare-path-paste',
+    pieceGapMs: 400,
+    pasteMarkers: true,
+    enterSeparately: true,
+    interruptPresses: 1,
+    // `@` abre el buscador de la TUI: el transcript se nombra entre comillas y lo lee el agente.
+    transcriptReference: 'quoted-path',
+    endBeforeSubmit: windows,
+    readyAfterLaunchMs: windows ? 3000 : 0,
+  };
+}
+
+export const CODEX_INPUT: AgentInput = codexInput(process.platform);
 
 export function createCodexAdapter(): AgentAdapter {
   const discovery = new CodexSessionDiscovery();

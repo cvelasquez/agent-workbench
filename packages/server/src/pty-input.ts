@@ -58,6 +58,13 @@ const SHIFT_TAB = '\x1b[Z';
 /** Lo que envia el mensaje. `\r`, no `\n`: es lo que manda una terminal. */
 const SUBMIT = '\r';
 
+/**
+ * La tecla Fin, como la manda una terminal. Va delante del Enter en la CLI que
+ * lo declara (`endBeforeSubmit`, hito 35): en Windows, ConPTY la convierte en
+ * la tecla Fin de verdad (medido, igual que `ESC[4~` y `ESC O F`).
+ */
+const END_KEY = '\x1b[F';
+
 /** Esc. Interrumpe lo que la CLI este haciendo. */
 export const INTERRUPT = '\x1b';
 
@@ -493,6 +500,8 @@ export interface SubmissionShape {
    * false. Con `bare-path-paste` el Enter ya va aparte y esto no cambia nada.
    */
   readonly enterSeparately?: boolean;
+  /** La tecla Fin delante del Enter (`AgentInput.endBeforeSubmit`). Ausente es false. */
+  readonly endBeforeSubmit?: boolean;
 }
 
 /**
@@ -513,6 +522,9 @@ export interface SubmissionShape {
  *    el Enter, y el Enter aparte. Es para la CLI que puede recibir lo pegado
  *    como rafaga y decidir por el tiempo si un Enter es parte de ella.
  *
+ * Con `endBeforeSubmit`, el Enter lleva la tecla Fin delante, en la misma
+ * pieza: Fin tiene que llegar despues de todo lo pegado y justo antes del Enter.
+ *
  * Devuelve null si no hay nada que mandar, y tambien si hay imagenes y la CLI
  * no tiene forma de nombrarlas: el socket lo rechaza antes, y esto no escribe
  * a medias un mensaje sin sus imagenes.
@@ -526,6 +538,7 @@ export function buildSubmissionWrites(
   const send = options.send ?? true;
   const style = shape.imageReference;
   if (imagePaths.length > 0 && style === null) return null;
+  const submit = shape.endBeforeSubmit === true ? `${END_KEY}${SUBMIT}` : SUBMIT;
 
   if (style !== 'bare-path-paste') {
     const payload = joinedPayload(
@@ -534,9 +547,9 @@ export function buildSubmissionWrites(
     );
     if (payload === null) return null;
     if (shape.enterSeparately === true) {
-      return send ? [pasted(payload, shape.pasteMarkers), SUBMIT] : [pasted(payload, shape.pasteMarkers)];
+      return send ? [pasted(payload, shape.pasteMarkers), submit] : [pasted(payload, shape.pasteMarkers)];
     }
-    return [`${pasted(payload, shape.pasteMarkers)}${send ? SUBMIT : ''}`];
+    return [`${pasted(payload, shape.pasteMarkers)}${send ? submit : ''}`];
   }
 
   const pieces: string[] = [];
@@ -548,6 +561,19 @@ export function buildSubmissionWrites(
   if (clean.length > 0) pieces.push(pasted(clean, shape.pasteMarkers));
 
   if (pieces.length === 0) return null;
-  if (send) pieces.push(SUBMIT);
+  if (send) pieces.push(submit);
   return pieces;
+}
+
+/**
+ * Cuanto esperar antes de la primera pieza de un envio (hito 35).
+ *
+ * `readyAfterLaunchMs` es lo que la CLI declara (`AgentInput`): lo que llega
+ * antes de que dibuje su pantalla se pierde. Sin proceso (`launchedAt` null) no
+ * se espera: la terminal rechaza la escritura y eso ya se avisa. Nunca mas que
+ * el plazo, aunque el reloj haya ido para atras.
+ */
+export function submitStartDelayMs(launchedAt: number | null, now: number, readyAfterLaunchMs: number): number {
+  if (launchedAt === null || readyAfterLaunchMs <= 0) return 0;
+  return Math.min(readyAfterLaunchMs, Math.max(0, launchedAt + readyAfterLaunchMs - now));
 }

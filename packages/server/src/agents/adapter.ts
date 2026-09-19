@@ -563,6 +563,26 @@ export interface AgentInput {
    */
   readonly enterSeparately: boolean;
   /**
+   * Si el Enter que envia lleva la tecla Fin (`ESC[F`) delante (hito 35).
+   * Ausente es false.
+   *
+   * Existe por la CLI que en Windows toma un Enter como salto de linea mientras
+   * todavia esta procesando la rafaga de lo pegado: con un texto largo, a los
+   * `pieceGapMs` sigue procesando. Una tecla que no es texto le hace volcar lo
+   * que tenia a medias y cerrar esa ventana, y el Enter que sigue envia siempre
+   * (§10.11).
+   */
+  readonly endBeforeSubmit?: boolean;
+  /**
+   * Cuanto despues del lanzamiento se le puede escribir un mensaje (hito 35).
+   * Ausente es 0.
+   *
+   * Lo que llega antes de que la CLI dibuje su pantalla se pierde o llega a
+   * medias. Un envio mas temprano espera, dentro de su turno en la fila de la
+   * terminal, hasta cumplirlo; uno mas tardio no espera nada (§10.11).
+   */
+  readonly readyAfterLaunchMs?: number;
+  /**
    * Cuantos Esc hacen falta para interrumpir un turno.
    *
    * El primero sale enseguida, como siempre; los demas van espaciados por

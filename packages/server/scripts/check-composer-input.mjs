@@ -44,6 +44,7 @@ import {
   textWithAttachments,
 } from '../src/attachments.ts';
 import { buildSubmissionWrites } from '../src/pty-input.ts';
+import { toTitle } from '../src/agents/session-title.ts';
 import { parseClientMessage } from '@agent-workbench/shared';
 import {
   DEFAULT_THREAD_FONT_SIZE,
@@ -51,6 +52,19 @@ import {
   parseThreadFontSize,
   threadFontTitle,
 } from '../../web/src/thread-font.ts';
+import {
+  assembleMessage,
+  insertPasteReference,
+  nextPasteNumber,
+  pasteEndLine,
+  pasteReference,
+  pasteStartLine,
+  pastedChipLabel,
+  pastedLineCount,
+  referencedPasteNumbers,
+  removePasteReferences,
+  splitPastedBlocks,
+} from '../../web/src/composer-paste.ts';
 import { setLocale } from '../../web/src/i18n/index.ts';
 
 // Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
@@ -546,6 +560,108 @@ check('el ciclo: chica → normal → grande → chica',
 check('de lo guardado solo valen los tres', parseThreadFontSize('s') === 's' && parseThreadFontSize('m') === 'm'
   && parseThreadFontSize('l') === 'l' && parseThreadFontSize('xl') === null && parseThreadFontSize('') === null);
 check('el titulo dice que hay y que pone el clic', threadFontTitle('m') === 'Tamaño de letra: normal (clic: grande)', threadFontTitle('m'));
+
+// ---------------------------------------------------------------------------
+// Texto pegado: número, marca y bloques (hito 35, §6.24)
+// ---------------------------------------------------------------------------
+
+{
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const show = (value) => JSON.stringify(value);
+
+  // Lo que va a la CLI en lenguaje natural va en inglés, con cualquier idioma
+  // de la interfaz (D1): el chequeo corre con la interfaz en español.
+  check('las marcas van en inglés aunque la interfaz esté en español',
+    pasteReference(1) === '[Pasted text #1]' && pasteStartLine(2) === '[Start of pasted text #2]' &&
+    pasteEndLine(2) === '[End of pasted text #2]');
+  check('la ficha sí va en el idioma de la interfaz',
+    pastedChipLabel(1, 6) === '#1 · Texto pegado · 6 líneas' && pastedChipLabel(2, 1) === '#2 · Texto pegado · 1 línea',
+    `${pastedChipLabel(1, 6)} | ${pastedChipLabel(2, 1)}`);
+  check('la ficha vacía dice que no se manda', pastedChipLabel(3, 0) === '#3 · Texto pegado · vacío, no se manda', pastedChipLabel(3, 0));
+  check('líneas: vacío 0, una 1, con salto final no cuenta de más',
+    pastedLineCount('') === 0 && pastedLineCount('a') === 1 && pastedLineCount('a\nb\n') === 2 && pastedLineCount('a\r\nb') === 2);
+
+  check('el primer número es 1 y el siguiente, uno más que el mayor en uso',
+    nextPasteNumber([]) === 1 && nextPasteNumber([1]) === 2 && nextPasteNumber([3, 1]) === 4);
+  check('las marcas que siguen en lo escrito también cuentan como en uso',
+    same(referencedPasteNumbers('a [Pasted text #3] b [Pasted text #10] [Pasted text #3]'), [3, 10]) &&
+      same(referencedPasteNumbers('sin marcas [Pasted text #] [pasted text #2]'), []),
+    show(referencedPasteNumbers('a [Pasted text #3] b [Pasted text #10] [Pasted text #3]')));
+
+  const insertion = (text, start, end, n) => insertPasteReference(text, start, end, n);
+  const tail = insertion('aquí ', 5, 5, 1);
+  check('al final, después de un espacio: la marca sola', tail.text === 'aquí [Pasted text #1]' && tail.caret === tail.text.length, show(tail));
+  const glued = insertion('aquí', 4, 4, 2);
+  check('pegado a una palabra: un espacio antes', glued.text === 'aquí [Pasted text #2]' && glued.inserted === ' [Pasted text #2]', show(glued));
+  const middle = insertion('abcd', 2, 2, 1);
+  check('en medio de una palabra: un espacio a cada lado y el cursor después',
+    middle.text === 'ab [Pasted text #1] cd' && middle.caret === 'ab [Pasted text #1] '.length, show(middle));
+  const punctuation = insertion('aquí, y', 4, 4, 1);
+  check('antes de una coma: sin espacio después', punctuation.text === 'aquí [Pasted text #1], y', show(punctuation));
+  const replaced = insertion('cambia ESTO por', 7, 11, 3);
+  check('con texto seleccionado: la marca lo reemplaza', replaced.text === 'cambia [Pasted text #3] por', show(replaced));
+  check('en un cuadro vacío: la marca sola', insertion('', 0, 0, 1).text === '[Pasted text #1]');
+  check('después de un paréntesis que abre: sin espacio', insertion('(', 1, 1, 1).text === '([Pasted text #1]');
+
+  check('quitar la marca deja un solo espacio', removePasteReferences('a [Pasted text #1] b', 1) === 'a b');
+  check('al final y al principio, sin espacios sueltos',
+    removePasteReferences('a [Pasted text #1]', 1) === 'a' && removePasteReferences('[Pasted text #1] b', 1) === 'b');
+  check('todas las veces, y nunca la de otro número',
+    removePasteReferences('[Pasted text #1] x [Pasted text #10] y [Pasted text #1]', 1) === 'x [Pasted text #10] y',
+    removePasteReferences('[Pasted text #1] x [Pasted text #10] y [Pasted text #1]', 1));
+  check('dos seguidas', removePasteReferences('a [Pasted text #1] [Pasted text #1] b', 1) === 'a b');
+
+  const message = assembleMessage(
+    [{ number: 1, text: 'uno\ndos\n' }, { number: 2, text: 'tres' }],
+    'mira [Pasted text #1] y [Pasted text #2]',
+  );
+  const expected = [
+    '[Start of pasted text #1]', 'uno', 'dos', '[End of pasted text #1]', '',
+    '[Start of pasted text #2]', 'tres', '[End of pasted text #2]', '',
+    'mira [Pasted text #1] y [Pasted text #2]',
+  ].join('\n');
+  check('el mensaje: cada texto entre su inicio y su fin, arriba, y lo escrito debajo', message === expected, show(message));
+  check('un texto pegado vaciado no se manda, y su marca sale de lo escrito',
+    assembleMessage([{ number: 1, text: '  \n' }, { number: 2, text: 'x' }], 'a [Pasted text #1] b [Pasted text #2]') ===
+      '[Start of pasted text #2]\nx\n[End of pasted text #2]\n\na b [Pasted text #2]');
+  check('sin nada escrito: solo los textos pegados',
+    assembleMessage([{ number: 1, text: 'x' }], '  ') === '[Start of pasted text #1]\nx\n[End of pasted text #1]');
+  check('sin textos pegados: lo escrito, como siempre', assembleMessage([], 'hola') === 'hola' && assembleMessage([], '   ') === '');
+  check('los CRLF de un texto pegado pasan a LF',
+    assembleMessage([{ number: 1, text: 'a\r\nb\r\n' }], '') === '[Start of pasted text #1]\na\nb\n[End of pasted text #1]');
+
+  const roundTrip = [
+    { kind: 'pasted', number: 1, text: 'uno\ndos', complete: true },
+    { kind: 'pasted', number: 2, text: 'tres', complete: true },
+    { kind: 'text', text: 'mira [Pasted text #1] y [Pasted text #2]' },
+  ];
+  check('ida y vuelta: el hilo recupera los textos pegados y lo escrito', same(splitPastedBlocks(message), roundTrip), show(splitPastedBlocks(message)));
+  check('con los CRLF que puede guardar una CLI, lo mismo', same(splitPastedBlocks(message.replace(/\n/g, '\r\n')), roundTrip));
+  check('sin textos pegados: el mensaje tal cual, sin tocar',
+    same(splitPastedBlocks('hola\r\nchau'), [{ kind: 'text', text: 'hola\r\nchau' }]));
+  const withAttachment = splitPastedBlocks(`Archivo adjunto (a.log, 1 KB): "C:\\a.log"\n${message}`);
+  check('la línea de un adjunto, que el servidor pone antes, queda en su lugar',
+    same(withAttachment[0], { kind: 'text', text: 'Archivo adjunto (a.log, 1 KB): "C:\\a.log"' }) && withAttachment.length === 4,
+    show(withAttachment));
+  check('un inicio sin su fin en un mensaje recortado: el bloque, incompleto',
+    same(splitPastedBlocks('[Start of pasted text #1]\nmuy largo', true), [{ kind: 'pasted', number: 1, text: 'muy largo', complete: false }]));
+  check('un inicio sin su fin, sin recorte: texto',
+    same(splitPastedBlocks('[Start of pasted text #1]\nsuelto'), [{ kind: 'text', text: '[Start of pasted text #1]\nsuelto' }]));
+  check('el fin de otro número no cierra el bloque',
+    same(splitPastedBlocks('[Start of pasted text #1]\nx\n[End of pasted text #2]'), [{ kind: 'text', text: '[Start of pasted text #1]\nx\n[End of pasted text #2]' }]));
+  check('una marca a mitad de línea no abre un bloque',
+    same(splitPastedBlocks('ver [Start of pasted text #1]\nx\n[End of pasted text #1]').map((s) => s.kind), ['text']));
+
+  // El título de la barra sale del primer mensaje, con las cuatro CLIs: es lo
+  // que se preguntó, no las primeras líneas de lo pegado.
+  check('el título de una sesión es lo escrito, sin los textos pegados',
+    toTitle(message) === 'mira [Pasted text #1] y [Pasted text #2]', toTitle(message));
+  check('y con los CRLF que puede guardar una CLI, lo mismo', toTitle(message.replace(/\n/g, '\r\n')) === 'mira [Pasted text #1] y [Pasted text #2]');
+  check('sin nada escrito, el título es lo pegado, sin las líneas de inicio y fin',
+    toTitle(assembleMessage([{ number: 1, text: 'uno\ndos' }], '')) === 'uno dos',
+    toTitle(assembleMessage([{ number: 1, text: 'uno\ndos' }], '')));
+  check('un mensaje sin textos pegados, como siempre', toTitle('  hola\n mundo ') === 'hola mundo');
+}
 
 await rm(dir, { recursive: true, force: true });
 

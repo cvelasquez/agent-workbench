@@ -54,13 +54,23 @@ export interface WriteLane {
    * pieza, ocho imagenes y el texto, el Enter sale casi cuatro segundos despues
    * de que se decidio mandar. Lo que era cierto al encolar puede no serlo antes
    * del Enter (A1 del hito 25).
+   *
+   * `startAfterMs` espera antes de la primera pieza, con el mismo reloj y dentro
+   * del turno: es la espera del arranque de la CLI (hito 35). Un Esc durante la
+   * espera corta el envio antes de escribir nada.
    */
   writePieces(
     pieces: readonly string[],
     gapMs: number,
     write: PieceWriter,
     guard?: PieceGuard,
+    options?: WritePiecesOptions,
   ): Promise<WriteOutcome>;
+}
+
+export interface WritePiecesOptions {
+  /** Espera antes de la primera pieza. Por omision, 0. */
+  readonly startAfterMs?: number;
 }
 
 export interface EnqueueOptions {
@@ -115,7 +125,9 @@ export class TerminalWriteQueue {
       get interrupted() {
         return interrupted();
       },
-      writePieces: async (pieces, gapMs, write, guard) => {
+      writePieces: async (pieces, gapMs, write, guard, writeOptions) => {
+        const startAfterMs = writeOptions?.startAfterMs ?? 0;
+        if (startAfterMs > 0) await this.wait(startAfterMs);
         for (const [index, piece] of pieces.entries()) {
           if (index > 0 && gapMs > 0) await this.wait(gapMs);
           if (interrupted()) return 'interrupted';

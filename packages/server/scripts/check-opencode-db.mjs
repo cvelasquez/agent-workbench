@@ -1396,7 +1396,9 @@ const historyOf = (file, extra = {}) => {
   const { CLAUDE_CODE_INPUT } = await import('../src/agents/claude-code/index.ts');
   const { CODEX_INPUT } = await import('../src/agents/codex/index.ts');
   check('13 Claude Code sigue con una sola pieza y el Enter adentro', same(buildSubmissionWrites('hola', [], CLAUDE_CODE_INPUT), [`${P('hola')}\r`]));
-  check('13 Codex declara el Enter aparte, que ya era asi', CODEX_INPUT.enterSeparately === true && same(buildSubmissionWrites('hola', [], CODEX_INPUT), [P('hola'), '\r']));
+  // Desde el hito 35, en Windows, con la tecla Fin delante (§10.11).
+  const codexEnter = process.platform === 'win32' ? '\x1b[F\r' : '\r';
+  check('13 Codex declara el Enter aparte, que ya era asi', CODEX_INPUT.enterSeparately === true && same(buildSubmissionWrites('hola', [], CODEX_INPUT), [P('hola'), codexEnter]));
 
   const { createAgentRegistry } = await import('../src/agents/registry.ts');
   const registry = createAgentRegistry();

@@ -10,7 +10,9 @@
  *    CLI.
  *  - **Un texto de mas de cuatro lineas** se pliega en una ficha desplegable.
  *    Pegar un stack trace de 300 lineas dentro de un textarea entierra el
- *    pedido que uno estaba escribiendo.
+ *    pedido que uno estaba escribiendo. Desde el hito 35 lleva un numero, deja
+ *    una marca donde se pego y se puede editar en su ficha (§6.24,
+ *    `composer-paste.ts`).
  *
  *  - **Un archivo que no es imagen** —un log, un PDF, un .docx— queda como
  *    ficha con su nombre y su peso (hito 33, §6.21). Viaja como bytes, el
@@ -29,6 +31,7 @@ import {
   MAX_SUBMIT_IMAGE_BYTES,
 } from '@agent-workbench/shared';
 import { imagesRefusedMessage } from './agent-ui.js';
+import { nextPasteNumber, pastedLineCount } from './composer-paste.js';
 import { t } from './i18n/index.js';
 
 /** A partir de cuantas lineas el texto pegado se pliega. */
@@ -56,6 +59,8 @@ export type Attachment =
   | {
       id: string;
       kind: 'text';
+      /** `#1`, `#2`…: el de su marca en lo escrito. Lo elige `nextPasteNumber`. */
+      number: number;
       text: string;
       lines: number;
     }
@@ -69,15 +74,30 @@ export type Attachment =
       bytes: number;
     };
 
+/**
+ * Lo que paso con un pegado. `consumed`: quien llama debe hacer
+ * preventDefault. `pastedNumber`: se plego un texto con ese numero, y quien
+ * llama pone su marca donde esta el cursor.
+ */
+export interface PasteResult {
+  readonly consumed: boolean;
+  readonly pastedNumber: number | null;
+}
+
 export interface ComposerAttachments {
   items: Attachment[];
   /** El ultimo problema al pegar (imagen enorme, formato raro), o null. */
   problem: string | null;
-  /** true si el evento se consumio: quien llama debe hacer preventDefault. */
-  acceptPaste: (data: DataTransfer) => boolean;
+  /**
+   * `takenNumbers`: los de las marcas que hay en lo escrito. Un texto pegado
+   * nuevo no toma ninguno de ellos ni de las fichas (`nextPasteNumber`).
+   */
+  acceptPaste: (data: DataTransfer, takenNumbers?: readonly number[]) => PasteResult;
   /** Para arrastrar y soltar, y para el boton del clip. Imagenes y documentos. */
   acceptFiles: (files: FileList | File[]) => void;
   remove: (id: string) => void;
+  /** Lo editado en la ficha de un texto pegado: es lo que se manda. */
+  updateText: (id: string, text: string) => void;
   /**
    * Cambia los adjuntos de golpe.
    *
@@ -210,27 +230,46 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
   );
 
   const acceptPaste = useCallback(
-    (data: DataTransfer): boolean => {
+    (data: DataTransfer, takenNumbers: readonly number[] = []): PasteResult => {
       // Un archivo copiado en el explorador y pegado aca llega en `files`.
       if (data.files.length > 0) {
         acceptFiles(data.files);
-        return true;
+        return { consumed: true, pastedNumber: null };
       }
 
       const text = data.getData('text/plain');
-      if (text.length === 0) return false;
+      if (text.length === 0) return { consumed: false, pastedNumber: null };
 
-      const lines = text.split('\n').length;
-      if (lines < FOLD_FROM_LINES && text.length < FOLD_FROM_CHARS) return false;
+      if (text.split('\n').length < FOLD_FROM_LINES && text.length < FOLD_FROM_CHARS) {
+        return { consumed: false, pastedNumber: null };
+      }
 
-      setItems((current) => [...current, { id: newId(), kind: 'text', text, lines }]);
-      return true;
+      // El numero sale de las fichas de este render y de las marcas de lo
+      // escrito: dos pegados no caen en el mismo evento, y el borrador de otra
+      // pestana trae los suyos.
+      const number = nextPasteNumber([
+        ...items.flatMap((item) => (item.kind === 'text' ? [item.number] : [])),
+        ...takenNumbers,
+      ]);
+      setItems((current) => [
+        ...current,
+        { id: newId(), kind: 'text', number, text, lines: pastedLineCount(text) },
+      ]);
+      return { consumed: true, pastedNumber: number };
     },
-    [acceptFiles],
+    [acceptFiles, items],
   );
 
   const remove = useCallback((id: string) => {
     setItems((current) => current.filter((item) => item.id !== id));
+  }, []);
+
+  const updateText = useCallback((id: string, text: string) => {
+    setItems((current) =>
+      current.map((item) =>
+        item.id === id && item.kind === 'text' ? { ...item, text, lines: pastedLineCount(text) } : item,
+      ),
+    );
   }, []);
 
   const replace = useCallback((next: Attachment[]) => {
@@ -242,5 +281,5 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
 
   const dismissProblem = useCallback(() => setProblem(null), []);
 
-  return { items, problem, acceptPaste, acceptFiles, remove, replace, clear, dismissProblem };
+  return { items, problem, acceptPaste, acceptFiles, remove, updateText, replace, clear, dismissProblem };
 }

@@ -14,17 +14,27 @@
  *    La imagen viaja por el socket, el servidor la escribe en disco y se la
  *    nombra a la CLI por ruta.
  *  - **Un pegado de mas de cuatro lineas se pliega** en una ficha. Se manda
- *    entero; lo que se pliega es como se ve mientras se escribe.
+ *    entero; lo que se pliega es como se ve mientras se escribe. Desde el hito
+ *    35 lleva un numero, deja su marca (`[Pasted text #1]`) donde estaba el
+ *    cursor y se edita en la misma ficha (§6.24).
  *  - **`Esc` interrumpe**, igual que en la terminal, y no borra lo escrito.
  *
  * El orden de lo que se envia es el que se ve en pantalla: las fichas primero,
- * en el orden en que se pegaron, y despues lo escrito. Que coincida con la
- * pantalla es lo unico que lo hace predecible.
+ * en el orden en que se pegaron, cada una entre su linea de inicio y la de fin,
+ * y despues lo escrito, con las marcas donde se pego (`assembleMessage`). Que
+ * coincida con la pantalla es lo unico que lo hace predecible.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TerminalId } from '@agent-workbench/shared';
 import { mergePrefill } from './agent-ui.js';
+import {
+  assembleMessage,
+  insertPasteReference,
+  pastedChipLabel,
+  referencedPasteNumbers,
+  removePasteReferences,
+} from './composer-paste.js';
 import { formatBytes } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
@@ -49,9 +59,6 @@ const MIN_TEXTAREA_PX = 90;
 const DEFAULT_TEXTAREA_PX = 260;
 const MAX_TEXTAREA_PX = 720;
 const TEXTAREA_HEIGHT_KEY = 'agent-workbench.composer-height';
-
-/** Cuantas lineas de un texto plegado se ven al desplegarlo, como maximo. */
-const PREVIEW_CHARS = 4_000;
 
 /** Lo que queda escrito en una pestana y todavia no se mando. */
 interface Draft {
@@ -270,7 +277,7 @@ export function Composer({
 
     const folded = attachments.items
       .filter((item): item is Extract<Attachment, { kind: 'text' }> => item.kind === 'text')
-      .map((item) => item.text);
+      .map((item) => ({ number: item.number, text: item.text }));
     const images = attachments.items
       .filter((item): item is Extract<Attachment, { kind: 'image' }> => item.kind === 'image')
       .map((item) => ({ mediaType: item.mediaType, data: item.base64 }));
@@ -278,7 +285,7 @@ export function Composer({
       .filter((item): item is Extract<Attachment, { kind: 'file' }> => item.kind === 'file')
       .map((item) => ({ name: item.name, data: item.base64 }));
 
-    const body = [...folded, text].filter((piece) => piece.trim().length > 0).join('\n\n');
+    const body = assembleMessage(folded, text);
     if (body.length === 0 && images.length === 0 && files.length === 0) return;
 
     // `files` solo viaja si hay: sin adjuntos el mensaje es el de siempre.
@@ -314,12 +321,45 @@ export function Composer({
     [submit, interrupt],
   );
 
+  /*
+    La marca de un texto pegado va donde estaba el cursor, reemplazando lo
+    seleccionado, como un pegado cualquiera. Se escribe con `insertText` para que
+    el navegador la trate como algo tecleado: Ctrl+Z la saca, y `onChange` avisa
+    como siempre. Si el navegador no lo acepta, `setRangeText`, sin deshacer.
+  */
+  const insertReference = useCallback((element: HTMLTextAreaElement, n: number) => {
+    const { inserted } = insertPasteReference(element.value, element.selectionStart, element.selectionEnd, n);
+    let done = false;
+    try {
+      done = document.execCommand('insertText', false, inserted);
+    } catch {
+      done = false;
+    }
+    if (!done) {
+      element.setRangeText(inserted, element.selectionStart, element.selectionEnd, 'end');
+      setText(element.value);
+    }
+  }, []);
+
   const onPaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       if (event.clipboardData === null) return;
       // Solo se intercepta lo que no cabe en el cuadro. Un pegado corriente lo
       // sigue haciendo el navegador, con su deshacer y su cursor.
-      if (attachments.acceptPaste(event.clipboardData)) event.preventDefault();
+      const result = attachments.acceptPaste(event.clipboardData, referencedPasteNumbers(event.currentTarget.value));
+      if (!result.consumed) return;
+      event.preventDefault();
+      if (result.pastedNumber !== null) insertReference(event.currentTarget, result.pastedNumber);
+    },
+    [attachments, insertReference],
+  );
+
+  // Quitar la ficha de un texto pegado borra tambien su marca: no puede quedar
+  // nombrando un texto que ya no se manda.
+  const removeAttachment = useCallback(
+    (item: Attachment) => {
+      attachments.remove(item.id);
+      if (item.kind === 'text') setText((current) => removePasteReferences(current, item.number));
     },
     [attachments],
   );
@@ -327,7 +367,10 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const disabled = terminalId === null || !alive;
-  const hasSomething = text.trim().length > 0 || attachments.items.length > 0;
+  // Una ficha de texto que se vacio al editarla no se manda: sola, no habilita Enviar.
+  const hasSomething =
+    text.trim().length > 0 ||
+    attachments.items.some((item) => item.kind !== 'text' || item.text.trim().length > 0);
 
   return (
     <div
@@ -383,7 +426,13 @@ export function Composer({
       {attachments.items.length > 0 && (
         <div className="composer-chips">
           {attachments.items.map((item) => (
-            <AttachmentChip key={item.id} item={item} onRemove={() => attachments.remove(item.id)} />
+            <AttachmentChip
+              key={item.id}
+              item={item}
+              onRemove={() => removeAttachment(item)}
+              onEdit={(value) => attachments.updateText(item.id, value)}
+              onDoneEditing={() => textareaRef.current?.focus()}
+            />
           ))}
         </div>
       )}
@@ -484,9 +533,13 @@ export function Composer({
 interface AttachmentChipProps {
   item: Attachment;
   onRemove: () => void;
+  /** El texto nuevo de un texto pegado, editado en su ficha. */
+  onEdit: (text: string) => void;
+  /** Se cerro la ficha con Esc: el foco vuelve al cuadro. */
+  onDoneEditing: () => void;
 }
 
-function AttachmentChip({ item, onRemove }: AttachmentChipProps): JSX.Element {
+function AttachmentChip({ item, onRemove, onEdit, onDoneEditing }: AttachmentChipProps): JSX.Element {
   const [open, setOpen] = useState(false);
 
   if (item.kind === 'image') {
@@ -526,17 +579,43 @@ function AttachmentChip({ item, onRemove }: AttachmentChipProps): JSX.Element {
     );
   }
 
+  /*
+    Abierta, la ficha es un cuadro editable con el texto entero (hito 35): lo
+    que se cambia ahi es lo que se manda. Enter es un salto de linea, no un
+    envio, y Esc cierra la ficha sin interrumpir al agente — el Esc que
+    interrumpe es el del cuadro de escritura.
+  */
   return (
     <div className={`chip chip-text${open ? ' chip-open' : ''}`}>
-      <button className="chip-toggle" onClick={() => setOpen((value) => !value)}>
+      <button
+        className="chip-toggle"
+        onClick={() => setOpen((value) => !value)}
+        title={t('composer.chip.editHint')}
+        aria-expanded={open}
+      >
         <span className="chip-icon">¶</span>
-        {t('composer.chip.pastedText', { count: item.lines })}
+        {pastedChipLabel(item.number, item.lines)}
         <span className="chip-chevron">{open ? '▾' : '▸'}</span>
       </button>
       <button className="chip-remove" onClick={onRemove} title={t('composer.chip.remove')}>
         ×
       </button>
-      {open && <pre className="chip-preview">{item.text.slice(0, PREVIEW_CHARS)}</pre>}
+      {open && (
+        <textarea
+          className="chip-editor"
+          value={item.text}
+          onChange={(event) => onEdit(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            setOpen(false);
+            onDoneEditing();
+          }}
+          aria-label={t('composer.chip.editorLabel', { number: item.number })}
+          spellCheck={false}
+          autoFocus
+        />
+      )}
     </div>
   );
 }
