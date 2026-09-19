@@ -1278,7 +1278,9 @@ const historyOf = (file, extra = {}) => {
   const { SessionIndex } = await import('../src/session-index.ts');
   const { AgentRegistry } = await import('../src/agents/registry.ts');
   const { createOpenCodeAdapter } = await import('../src/agents/opencode/index.ts');
-  const adapter = createOpenCodeAdapter({ env: { OPENCODE_DB: historyFixture.file }, home, platform: 'win32' });
+  // La plataforma real: la base esta en la carpeta del chequeo, y con `win32`
+  // forzado una ruta sin unidad no es absoluta y no se lee.
+  const adapter = createOpenCodeAdapter({ env: { OPENCODE_DB: historyFixture.file }, home, platform: process.platform });
   const index = new SessionIndex(new AgentRegistry([adapter]));
   await index.scan();
   const projects = index.getProjects();
@@ -1287,7 +1289,7 @@ const historyOf = (file, extra = {}) => {
     same(sessions.map((s) => s.sessionId).sort(), ['ses_a_nueva', 'ses_c_rica', 'ses_z_vieja']) && sessions.every((s) => s.agent === 'opencode'),
     show(sessions.map((s) => [s.sessionId, s.agent])));
   const miApp = projects.find((project) => project.sessions.some((s) => s.sessionId === 'ses_z_vieja'));
-  check('12 indice: las dos formas de D:\\Mi App son un solo proyecto', miApp?.sessions.length === 2, show(projects.map((p) => [p.key, p.sessions.length])));
+  check('12 indice: las dos formas de D:\\Mi App son un solo proyecto (en Windows)', miApp?.sessions.length === (process.platform === 'win32' ? 2 : 1), show(projects.map((p) => [p.key, p.sessions.length])));
   adapter.dispose();
 
   // B8: el archivado propio de la app, por sessionId, con un id de OpenCode.
@@ -1552,7 +1554,7 @@ const historyOf = (file, extra = {}) => {
   const presentDb = await createOpenCodeFixture(path.join(noteDir, 'con-base'), {});
   const absentDb = path.join(noteDir, 'sin-base', 'opencode.db');
   const note = (env, sqlite, cliAvailable) => {
-    const adapter = createOpenCodeAdapter({ env, home, platform: 'win32', ...(sqlite === null ? {} : { sqlite }) });
+    const adapter = createOpenCodeAdapter({ env, home, platform: process.platform, ...(sqlite === null ? {} : { sqlite }) });
     try {
       return adapter.startupHistoryNote(cliAvailable);
     } finally {
