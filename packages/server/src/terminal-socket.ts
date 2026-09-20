@@ -11,6 +11,8 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   PROTOCOL_VERSION,
+  REMOTE_REVOKED_CLOSE_CODE,
+  ServerTextError,
   WS_PATH,
   encodeServerMessage,
   parseClientMessage,
@@ -76,7 +78,9 @@ import type { ShellLocation } from './shell-locator.js';
 import { TerminalOpenError, type OutputListener, type TerminalRegistry } from './terminal-registry.js';
 import { TerminalWriteQueue, type PieceWriter } from './terminal-write-queue.js';
 import { VaultError, type VaultService } from './vault/service.js';
-import { rejectRequest } from './security.js';
+import { remoteRefusal } from './remote-access.js';
+import type { RemoteAccessService } from './remote-access-service.js';
+import { authorizeRequest, type Credential } from './security.js';
 
 /**
  * Cuanto se espera a que arranque la CLI de una pestana recien abierta antes de
@@ -129,6 +133,8 @@ export interface TerminalSocketOptions {
   pasteStore?: PasteStore;
   /** La copia propia (`vault.*`, hito 28). */
   vault: VaultService;
+  /** El acceso remoto (`remote.*`, hito 37): quien entra, y que se le niega al que entro como equipo. */
+  remote: RemoteAccessService;
 }
 
 export function attachTerminalSocket(options: TerminalSocketOptions): () => void {
@@ -147,6 +153,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     agents,
     defaultCwd,
     vault,
+    remote,
   } = options;
 
   const pasteStore = options.pasteStore ?? new PasteStore();
@@ -171,6 +178,20 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     const payload = encodeServerMessage(message);
     for (const socket of clients) {
       if (socket.readyState === socket.OPEN) socket.send(payload);
+    }
+  };
+
+  /**
+    Las ventanas que entraron como **equipo remoto** (hito 37), con el id de su
+    equipo. Las demas entraron con el token del arranque: son del anfitrion.
+  */
+  const remoteSockets = new Map<WebSocket, string>();
+
+  /** Solo a las ventanas del anfitrion: el estado del acceso remoto no se le cuenta a un equipo remoto. */
+  const broadcastToHost = (message: ServerMessage): void => {
+    const payload = encodeServerMessage(message);
+    for (const socket of clients) {
+      if (!remoteSockets.has(socket) && socket.readyState === socket.OPEN) socket.send(payload);
     }
   };
 
@@ -487,6 +508,31 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   // La copia propia avisa a todas las ventanas, y el servicio ya espacia los avisos.
   const stopVaultStatus = vault.onStatus((status) => broadcast({ type: 'vault.status', status }));
 
+  const stopRemoteStatus = remote.onChange(() =>
+    broadcastToHost({ type: 'remote.status', status: remote.status() }),
+  );
+  /*
+    Un equipo revocado, o el acceso apagado (null): sus ventanas se cierran ya.
+    Con su codigo, para que la pagina deje de reconectar y lo diga. La
+    credencial ya no entra, asi que reintentar no llevaria a nada.
+  */
+  const stopRemoteRevoked = remote.onRevoked((deviceId) => {
+    for (const [socket, id] of remoteSockets) {
+      if (deviceId === null || id === deviceId) socket.close(REMOTE_REVOKED_CLOSE_CODE, 'revoked');
+    }
+  });
+
+  /** Un pedido `remote.*` que fallo: un `ServerTextError` trae el texto para el usuario. */
+  const sendRemoteError = (socket: WebSocket, error: unknown): void => {
+    if (error instanceof ServerTextError) {
+      sendError(socket, 'remote-failed', error.text);
+      return;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn('[remote] a request failed:', detail);
+    sendError(socket, 'remote-failed', serverText('remoteFailed'), detail);
+  };
+
   /**
    * Un pedido `vault.*` que fallo. Un `VaultError` trae el texto para el
    * usuario; cualquier otra cosa es un error de disco o de lectura, que va en
@@ -516,16 +562,16 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     // Cualquier otra ruta es de Vite. Si destruimos el socket aca, rompemos el HMR.
     if (pathname !== WS_PATH) return;
 
-    const rejection = rejectRequest(request, port, token);
-    if (rejection !== null) {
+    const authorization = authorizeRequest(request, port, token, remote.verifier());
+    if (!authorization.ok) {
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       socket.destroy();
-      console.warn(`[security] upgrade rejected on ${WS_PATH}: ${rejection}`);
+      console.warn(`[security] upgrade rejected on ${WS_PATH}: ${authorization.reason}`);
       return;
     }
 
     wss.handleUpgrade(request, socket, head, (client) => {
-      wss.emit('connection', client, request);
+      wss.emit('connection', client, request, authorization.credential);
     });
   };
 
@@ -533,8 +579,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
   // ---- conexiones ----
 
-  wss.on('connection', (socket: WebSocket) => {
+  wss.on('connection', (socket: WebSocket, _request: IncomingMessage, credential: Credential) => {
     clients.add(socket);
+    // Con que entro esta ventana decide que se le atiende (`remoteRefusal`).
+    const deviceId = credential.kind === 'device' ? credential.deviceId : null;
+    if (deviceId !== null) {
+      remoteSockets.set(socket, deviceId);
+      remote.noteConnected(deviceId);
+    }
 
     // Un oyente por socket. Se engancha y desengancha de terminales concretas
     // sin que ninguna se entere de que hubo una reconexion.
@@ -627,6 +679,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       platform: process.platform,
       defaultCwd,
       shellName: shell?.name ?? null,
+      remoteClient: deviceId !== null,
     });
     send(socket, terminalListMessage());
     /*
@@ -641,6 +694,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     send(socket, { type: 'index.projects', projects: index.getProjects(), replace: true });
     send(socket, { type: 'notes.list', notes: notes.list() });
     send(socket, { type: 'vault.status', status: vault.status() });
+    if (deviceId === null) send(socket, { type: 'remote.status', status: remote.status() });
 
     socket.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
       const text = Array.isArray(raw)
@@ -654,6 +708,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         return;
       }
       if (message.type !== 'input') debugLog('socket', `received ${message.type}`);
+
+      // Antes de atender nada: lo que a un equipo remoto no se le atiende (hito 37).
+      const refusal = remoteRefusal(message.type, deviceId !== null);
+      if (refusal !== null) {
+        sendError(socket, 'remote-refused', refusal);
+        return;
+      }
 
       switch (message.type) {
         case 'input':
@@ -1940,6 +2001,51 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'search.cancel':
           globalSearch.cancel(message.searchId);
           break;
+
+        /*
+          El acceso remoto (hito 37). Hasta aca solo llega una ventana del
+          anfitrion: a un equipo remoto lo freno `remoteRefusal`. El estado
+          nuevo sale a las ventanas del anfitrion por `remote.onChange`; aca
+          solo se contesta lo que falla, y el codigo, que va **solo** a quien lo
+          pidio.
+        */
+        case 'remote.configure': {
+          const patch: { enabled?: boolean; port?: number } = {};
+          if (message.enabled !== undefined) patch.enabled = message.enabled;
+          if (message.port !== undefined) patch.port = message.port;
+          void remote.configure(patch).catch((error: unknown) => sendRemoteError(socket, error));
+          break;
+        }
+
+        case 'remote.pairing.start':
+          try {
+            send(socket, { type: 'remote.pairing.code', pairing: remote.startPairing() });
+          } catch (error) {
+            sendRemoteError(socket, error);
+          }
+          break;
+
+        case 'remote.pairing.cancel':
+          remote.cancelPairing();
+          break;
+
+        case 'remote.device.rename':
+          void remote
+            .renameDevice(message.deviceId, message.label)
+            .then((renamed) => {
+              if (!renamed) sendError(socket, 'remote-failed', serverText('remoteDeviceGone'));
+            })
+            .catch((error: unknown) => sendRemoteError(socket, error));
+          break;
+
+        case 'remote.device.revoke':
+          void remote
+            .revokeDevice(message.deviceId)
+            .then((revoked) => {
+              if (!revoked) sendError(socket, 'remote-failed', serverText('remoteDeviceGone'));
+            })
+            .catch((error: unknown) => sendRemoteError(socket, error));
+          break;
       }
     });
 
@@ -1955,6 +2061,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       for (const terminalId of memorySubscriptions) memory.unsubscribe(terminalId);
       memorySubscriptions.clear();
       clients.delete(socket);
+      // `close` y `error` pueden llegar los dos: la baja se anota una sola vez.
+      if (deviceId !== null && remoteSockets.delete(socket)) remote.noteDisconnected(deviceId);
     };
 
     socket.on('close', teardown);
@@ -1981,6 +2089,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     memory.off('status', onMemoryStatus);
     stopAgentChanges();
     stopVaultStatus();
+    stopRemoteStatus();
+    stopRemoteRevoked();
     for (const client of wss.clients) client.terminate();
     wss.close();
   };

@@ -198,6 +198,90 @@ without it, they tell you what they would import.
   summary and its `.md` documents. The conversation content is encrypted, so it
   is marked as partial history.
 
+### Remote access over SSH (optional)
+
+You can leave Agent Workbench running on one computer and use it from another
+one on the same network, in its browser — with no CLI installed there.
+**The app is never opened to the network**: it keeps listening only on
+`127.0.0.1`, and the other computer reaches it through an SSH tunnel. That's
+also what makes it work: through the tunnel the other browser sees the app as
+`localhost`, and outside `localhost` browsers switch off things the app needs
+(the clipboard, notifications, `crypto.randomUUID`). **It's off by default.**
+
+**1. On the computer that runs the app, once: turn on its SSH server.** The app
+doesn't do this for you — it's a system change that needs administrator rights.
+
+- **Windows 10/11** — in PowerShell *as administrator*:
+
+  ```powershell
+  Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+  Start-Service sshd
+  Set-Service -Name sshd -StartupType Automatic
+  ```
+
+- **macOS** — System Settings → General → Sharing → **Remote Login**.
+- **Linux** — install and enable your distribution's OpenSSH server
+  (`sudo apt install openssh-server`, then `sudo systemctl enable --now ssh`).
+
+**2. In the app: the ⇄ button in the header → Turn on remote access**, and
+restart Agent Workbench. A tunnel needs a port that doesn't change on every
+start, so the app uses a fixed one (24837 by default, you can change it) — and
+the port is chosen at startup, which is why it takes a restart. Restarting
+closes the open CLIs; the tabs come back asleep. Turning it *off* takes effect
+right away.
+
+**3. On the other computer, every time: open the tunnel.** The dialog shows the
+command ready to copy:
+
+```
+ssh -N -L 24837:127.0.0.1:24837 you@your-computer
+```
+
+Leave it running. **Use the same port on both ends**: the server checks it, and
+with a different local port it answers 403. Adding
+`-o ServerAliveInterval=30 -o ExitOnForwardFailure=yes` makes the tunnel notice
+a dropped Wi‑Fi instead of hanging. On Windows you can save the line in a
+`.cmd` file and double-click it.
+
+**4. Pair that computer, once.** In the dialog, **Pair a device** shows an
+address with a one-time code, such as
+`http://localhost:24837/?pair=K7QM-X2RD`. Open it in the other computer's
+browser within five minutes. From then on that browser just opens
+`http://localhost:24837`, even after the app restarts. The dialog lists the
+paired devices, and **Revoke** cuts one off on the spot.
+
+A paired device can use the whole app, with two limits: it can't manage remote
+access (turn it on, pair or revoke), and it isn't offered what opens a window on
+the computer that runs the app — *Open with the default app*, opening the local
+copy's folder or exporting to Markdown. A small **Remote** badge in the header
+says so. Those limits are about what lands on the host's screen, not about
+trust: the app includes a console and launches agents, so a paired device can
+run commands on that computer, just as you can. Pair only devices that are
+yours.
+
+**A safer key (recommended).** The SSH login is the one of your user on that
+computer, so a password or key that opens the tunnel also opens a full terminal
+there. You can create a key that is only good for the tunnel: generate one on
+the other computer (`ssh-keygen -t ed25519`) and add its public half to
+`authorized_keys` on the computer that runs the app, with these options in
+front:
+
+```
+restrict,port-forwarding,permitopen="127.0.0.1:24837" ssh-ed25519 AAAA… other-computer
+```
+
+On Windows, if your user is an administrator, that file is
+`C:\ProgramData\ssh\administrators_authorized_keys` and it must be writable
+only by Administrators and SYSTEM; otherwise it's
+`%USERPROFILE%\.ssh\authorized_keys`. To check that the restriction holds, try
+a plain `ssh you@your-computer` with that key: it should be refused.
+
+**Notifications.** The bell button in the header turns on system notifications:
+"finished" and "is waiting for you", with the tab's name, only when the window
+isn't in view. They follow the same rule as the notification sound, so they
+come from the CLIs that publish their status. Each browser remembers its own
+choice, and the sound plays on every screen that has the app open.
+
 ---
 
 ## From source
@@ -301,7 +385,9 @@ and stops being valid when you close the app.
 
 - **In its own configuration directory:** the open tabs, the index cache, the
   notes, the archived sessions, the Antigravity status line script and, if you
-  turn it on, the local copy (or in the folder you choose).
+  turn it on, the local copy (or in the folder you choose). With remote access
+  on, also the list of paired devices: a name, two dates and a hash of each
+  one's credential — never the credential itself.
 - **In the temp folder:** the images you paste; each Antigravity tab's log,
   which contains your messages, readable only by you and deleted on the first
   start once it's more than 24 hours old; and the transcript of a conversation
@@ -313,7 +399,10 @@ and stops being valid when you close the app.
 
 **The server listens only on `127.0.0.1`**, on an ephemeral port, with a random
 per-start token that the WebSocket and every HTTP route require, and it rejects
-requests whose `Origin` isn't its own.
+requests whose `Origin` isn't its own. [Remote access](#remote-access-over-ssh-optional)
+doesn't change any of that: the port becomes a fixed one, still on `127.0.0.1`,
+and a paired device presents its own credential instead of the token. Reaching
+the port is left to SSH, which you turn on and control.
 
 **The git panel is read-only.** No commit, stage or push. With an agent editing
 files, a button that writes history is exactly the kind of thing where, later,
@@ -374,6 +463,26 @@ start the app from inside a Claude Code CLI session. That variable turns off
 history saving, and without history there's no conversation or meter. The app
 removes it and lets you know. In normal use —a regular terminal— it never shows
 up.
+
+**From the other computer, `ssh` can't connect** (it times out or is refused).
+The SSH server isn't running on the computer that has the app, or something
+between the two blocks it. On Windows, check that the Wi‑Fi network is set to
+*Private* — the firewall rule the SSH server installs may not cover *Public*
+networks. And a work VPN that blocks the local network cuts this too while it's
+connected: there's nothing the app can do about that. If `ssh` rejects your
+user, a Microsoft or work account may need the name of your profile folder
+(`C:\Users\<name>`) and the account's password, not the PIN.
+
+**From the other computer, the page says "Origin not allowed"** (403). It was
+opened by the computer's name or IP. Open `http://localhost:<port>`, with the
+tunnel using the same port on both ends.
+
+**From the other computer, the page says the session token is missing** (401).
+That browser isn't paired, its access was revoked, or remote access is off.
+Pair it again from the ⇄ dialog.
+
+**The ⇄ dialog says the port is busy.** Another program —often a second Agent
+Workbench— already has it. Close it and restart, or choose another port.
 
 **The Changes panel says the folder isn't a git repository** and it is one.
 Make sure `git` is in the `PATH`. If the message is a different one, it's the

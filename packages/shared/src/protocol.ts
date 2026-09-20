@@ -43,6 +43,12 @@
  * `terminal.activity`, opcional. Un cliente anterior ignora los mensajes y el
  * campo nuevos, y uno anterior no manda ninguno de los pedidos.
  *
+ * Lo que agrega el hito 37 sin subir la version, por lo mismo: la familia
+ * `remote.*` (el acceso remoto, CLAUDE.md 14), `remoteClient` en `hello` y los
+ * errores `remote-failed` y `remote-refused`. Ningun `remote.*` lleva una
+ * credencial: el codigo para emparejar va solo al socket que lo pidio, y la
+ * credencial de un equipo no viaja nunca por el WebSocket.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -135,6 +141,13 @@ import {
   type GlobalSearchResult,
 } from './search.js';
 import { isVaultSessionId, parseVaultStatus, type VaultStatus } from './vault.js';
+import {
+  cleanDeviceLabel,
+  parseRemoteAccessStatus,
+  parseRemotePairingCode,
+  type RemoteAccessStatus,
+  type RemotePairingCode,
+} from './remote.js';
 import { parseServerText, type ServerText } from './server-text.js';
 
 /** Se incrementa cuando el contrato cambia de forma incompatible. */
@@ -775,6 +788,39 @@ export interface ClientVaultRevealMessage {
 }
 
 /**
+ * Enciende o apaga el acceso remoto, o cambia su puerto (hito 37). Lleva al
+ * menos uno de los dos. Solo lo atiende el servidor si quien lo pide entro con el
+ * token del arranque: un equipo remoto no administra el acceso remoto.
+ */
+export interface ClientRemoteConfigureMessage {
+  type: 'remote.configure';
+  enabled?: boolean;
+  port?: number;
+}
+
+/** Pide un codigo de un solo uso para emparejar un equipo. Llega en `remote.pairing.code`. */
+export interface ClientRemotePairingStartMessage {
+  type: 'remote.pairing.start';
+}
+
+/** Da de baja el codigo vigente: se cerro el dialogo sin usarlo. */
+export interface ClientRemotePairingCancelMessage {
+  type: 'remote.pairing.cancel';
+}
+
+export interface ClientRemoteDeviceRenameMessage {
+  type: 'remote.device.rename';
+  deviceId: string;
+  label: string;
+}
+
+/** Revoca un equipo: sus ventanas se cierran y su credencial deja de entrar. */
+export interface ClientRemoteDeviceRevokeMessage {
+  type: 'remote.device.revoke';
+  deviceId: string;
+}
+
+/**
  * Continuar una sesion con otra CLI, en la carpeta de esa sesion (hito 29).
  *
  * El servidor arma un transcript de los ultimos turnos, abre una pestana de
@@ -903,7 +949,12 @@ export type ClientMessage =
   | ClientVaultRevealMessage
   | ClientContinueSessionMessage
   | ClientGlobalSearchMessage
-  | ClientCancelGlobalSearchMessage;
+  | ClientCancelGlobalSearchMessage
+  | ClientRemoteConfigureMessage
+  | ClientRemotePairingStartMessage
+  | ClientRemotePairingCancelMessage
+  | ClientRemoteDeviceRenameMessage
+  | ClientRemoteDeviceRevokeMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -945,6 +996,14 @@ export interface ServerHelloMessage {
    * generico, y en macOS o Linux ese rotulo seria directamente falso.
    */
   shellName: string | null;
+  /**
+   * Esta ventana entro como **equipo remoto** (hito 37): con la credencial de
+   * un equipo emparejado y no con el token del arranque. La interfaz esconde lo
+   * que el servidor igual le negaria: administrar el acceso remoto y lo que abre
+   * una ventana en el escritorio del anfitrion. Ausente —un servidor anterior—
+   * es false.
+   */
+  remoteClient: boolean;
 }
 
 /**
@@ -1358,6 +1417,22 @@ export interface ServerVaultExportedMessage {
   sessions: number;
 }
 
+/**
+ * Estado del acceso remoto (hito 37). Al conectar y a todos en cada cambio, pero
+ * **solo a las ventanas del anfitrion**: a un equipo remoto no se le cuenta que
+ * otros equipos hay ni con que usuario se entra.
+ */
+export interface ServerRemoteStatusMessage {
+  type: 'remote.status';
+  status: RemoteAccessStatus;
+}
+
+/** El codigo que pidio `remote.pairing.start`, solo al socket que lo pidio. */
+export interface ServerRemotePairingCodeMessage {
+  type: 'remote.pairing.code';
+  pairing: RemotePairingCode;
+}
+
 /** Como llega a la CLI nueva el mensaje de continuacion. */
 export type HandoffDelivery = 'sending' | 'prefilled';
 export const HANDOFF_DELIVERIES: readonly HandoffDelivery[] = ['sending', 'prefilled'];
@@ -1447,6 +1522,10 @@ export type ServerErrorCode =
   | 'continue-failed'
   /** Un `search.global` que no se pudo hacer (no la sesion que no se leyo: esa se salta). */
   | 'search-failed'
+  /** Un pedido `remote.*` que no se pudo cumplir. El texto dice por que. */
+  | 'remote-failed'
+  /** Un pedido que a un equipo remoto no se le atiende (hito 37). No se hizo nada. */
+  | 'remote-refused'
   /**
    * La CLI de la pestana no tiene esa accion —o se pidio una CLI que el
    * servidor no conoce—. Va aparte de `mode-failed` y compania porque no es un
@@ -1476,6 +1555,8 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'vault-failed',
   'continue-failed',
   'search-failed',
+  'remote-failed',
+  'remote-refused',
   'agent-unsupported',
   'internal',
 ];
@@ -1534,6 +1615,8 @@ export type ServerMessage =
   | ServerComposerPrefillMessage
   | ServerGlobalSearchProgressMessage
   | ServerGlobalSearchMessage
+  | ServerRemoteStatusMessage
+  | ServerRemotePairingCodeMessage
   | ServerErrorMessage;
 
 export type ServerMessageType = ServerMessage['type'];
@@ -1997,6 +2080,34 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const searchId = asNonEmptyString(record['searchId']);
       return searchId === null ? null : { type: 'search.cancel', searchId };
     }
+    case 'remote.configure': {
+      // Que el puerto este en rango lo decide el servidor, que contesta con su
+      // texto; aca solo se exige la forma, y que el pedido diga algo.
+      const rawEnabled = record['enabled'];
+      const rawPort = record['port'];
+      const enabled = rawEnabled === undefined ? undefined : asBoolean(rawEnabled);
+      const port = rawPort === undefined ? undefined : asFiniteNumber(rawPort);
+      if (enabled === null || port === null || (enabled === undefined && port === undefined)) return null;
+      return {
+        type: 'remote.configure',
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(port !== undefined ? { port } : {}),
+      };
+    }
+    case 'remote.pairing.start':
+      return { type: 'remote.pairing.start' };
+    case 'remote.pairing.cancel':
+      return { type: 'remote.pairing.cancel' };
+    case 'remote.device.rename': {
+      const deviceId = asNonEmptyString(record['deviceId']);
+      const rawLabel = asString(record['label']);
+      const label = rawLabel === null ? '' : cleanDeviceLabel(rawLabel);
+      return deviceId === null || label.length === 0 ? null : { type: 'remote.device.rename', deviceId, label };
+    }
+    case 'remote.device.revoke': {
+      const deviceId = asNonEmptyString(record['deviceId']);
+      return deviceId === null ? null : { type: 'remote.device.revoke', deviceId };
+    }
     default:
       return null;
   }
@@ -2040,6 +2151,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         platform,
         defaultCwd,
         shellName: asNonEmptyString(record['shellName']),
+        remoteClient: record['remoteClient'] === true,
       };
     }
     case 'agents': {
@@ -2421,6 +2533,14 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       const searchId = asNonEmptyString(record['searchId']);
       const progress = parseGlobalSearchProgress(record['progress']);
       return searchId === null || progress === null ? null : { type: 'search.progress', searchId, progress };
+    }
+    case 'remote.status': {
+      const status = parseRemoteAccessStatus(record['status']);
+      return status === null ? null : { type: 'remote.status', status };
+    }
+    case 'remote.pairing.code': {
+      const pairing = parseRemotePairingCode(record['pairing']);
+      return pairing === null ? null : { type: 'remote.pairing.code', pairing };
     }
     case 'search.results': {
       const searchId = asNonEmptyString(record['searchId']);

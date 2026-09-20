@@ -4,6 +4,29 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## 0.4.0 — unreleased
+
+### Added
+
+- **Remote access over SSH (optional, off by default).** Leave the app running
+  on one computer and use it from the browser of another one on the same
+  network, with no CLI installed there. The app keeps listening only on
+  `127.0.0.1`: the other computer reaches it through an SSH tunnel, so nothing
+  is opened to the network. A new ⇄ dialog turns it on (fixed port, applied on
+  restart), gives you the tunnel command to copy, pairs a device with a one-time
+  code and lists the paired devices, which you can rename or revoke on the spot.
+  A paired device can use the whole app but can't manage remote access or open
+  files with the host's apps. See "Remote access over SSH" in the README.
+- **System notifications.** A bell button in the header: "finished" and "is
+  waiting for you", with the tab's name, shown only when the window isn't in
+  view. Same rule as the notification sound; each browser keeps its own choice.
+
+### Fixed
+
+- **Two windows on the same tab left the terminal drawn for the other one's
+  size** until a divider was moved. A window now sends its size again when it
+  gets the focus back.
+
 ## 0.3.1 — 2026-09-19
 
 ### Fixed

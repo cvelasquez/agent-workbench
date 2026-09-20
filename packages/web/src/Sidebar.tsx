@@ -143,10 +143,14 @@ interface SidebarProps {
   /**
    * Abre una fila que solo esta en la copia, en Markdown. No depende de la CLI
    * ni de la carpeta: la sesion ya no es de la CLI, y la lee el servidor.
+   *
+   * null, como `onExportProject`, en una ventana que entro como equipo remoto
+   * (hito 37): las dos terminan abriendo algo con la app del sistema **del
+   * anfitrion**, en una pantalla que desde el otro equipo nadie mira.
    */
-  onOpenVaultSession: (session: SessionSummary) => void;
+  onOpenVaultSession: ((session: SessionSummary) => void) | null;
   /** Exporta a Markdown las sesiones de un proyecto, por su `key`. */
-  onExportProject: (projectKey: string) => void;
+  onExportProject: ((projectKey: string) => void) | null;
   /** Proyectos cuya exportacion esta en viaje. */
   exporting: ReadonlySet<string>;
   /** La ultima exportacion que llego: el boton de ese proyecto acusa recibo. */
@@ -926,17 +930,19 @@ export function Sidebar({
                   negativo en cada boton, el segundo caia encima del primero.
                 */}
                 <span className="project-actions">
-                <button
-                  className={`icon-button project-action${
-                    exportState(project.key) !== 'idle' ? ' project-action-busy' : ''
-                  }`}
-                  onClick={() => onExportProject(project.key)}
-                  disabled={exportState(project.key) === 'exporting'}
-                  title={exportButtonTitle(exportState(project.key))}
-                  aria-label={t('sidebar.project.export')}
-                >
-                  <ExportIcon done={exportState(project.key) === 'done'} />
-                </button>
+                {onExportProject !== null && (
+                  <button
+                    className={`icon-button project-action${
+                      exportState(project.key) !== 'idle' ? ' project-action-busy' : ''
+                    }`}
+                    onClick={() => onExportProject(project.key)}
+                    disabled={exportState(project.key) === 'exporting'}
+                    title={exportButtonTitle(exportState(project.key))}
+                    aria-label={t('sidebar.project.export')}
+                  >
+                    <ExportIcon done={exportState(project.key) === 'done'} />
+                  </button>
+                )}
                 {/*
                   Archivar el proyecto entero (hito 31). Al pasar el mouse, como
                   exportar y como archivar una fila: no es de todos los dias.
@@ -1003,7 +1009,7 @@ export function Sidebar({
                     // no depende de la CLI ni de la carpeta (hito 28, D8).
                     const vaultView = sessionVaultView(session);
                     const resumable = resumableSession(session) && canResume(session.agent);
-                    const openable = vaultView.copy || (canOpen && resumable);
+                    const openable = vaultView.copy ? onOpenVaultSession !== null : canOpen && resumable;
 
                     return (
                       <li
@@ -1025,7 +1031,7 @@ export function Sidebar({
                             // Una fila "copia" se lee, no se retoma: se abre su
                             // Markdown y la fila queda como estaba.
                             if (vaultView.copy) {
-                              onOpenVaultSession(session);
+                              onOpenVaultSession?.(session);
                               return;
                             }
                             // Abrir una archivada la devuelve a la lista:
@@ -1040,7 +1046,9 @@ export function Sidebar({
                           disabled={!openable}
                           title={
                             vaultView.copy
-                              ? `${sessionTitleText(session.title, session.titleSource)}\n${vaultMarkTitle()}`
+                              ? `${sessionTitleText(session.title, session.titleSource)}\n${
+                                  onOpenVaultSession === null ? t('remote.onlyOnHost') : vaultMarkTitle()
+                                }`
                               : (agentView.unavailableTitle ?? sessionTitleText(session.title, session.titleSource))
                           }
                         >

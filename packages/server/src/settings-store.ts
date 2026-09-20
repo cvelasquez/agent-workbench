@@ -1,7 +1,7 @@
 /**
  * Ajustes de la app, en `<carpeta de configuracion>/settings.json`.
  *
- * Hoy solo los de la copia propia (hito 28). Archivo aparte de
+ * Los de la copia propia (hito 28) y los del acceso remoto (hito 37). Archivo aparte de
  * `workspace.json` por lo de siempre: ese se reescribe entero en cada cambio de
  * pestanas y dos instancias se lo pisan (CLAUDE.md 6.5).
  *
@@ -24,9 +24,9 @@
  * se desincroniza.
  */
 
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { asBoolean, asRecord } from '@agent-workbench/shared';
+import { REMOTE_DEFAULT_PORT, asBoolean, asRecord, isRemotePort } from '@agent-workbench/shared';
 import { appSettingsPath } from './paths.js';
 import { writeFileAtomic } from './vault/write.js';
 
@@ -46,19 +46,34 @@ export interface VaultSettings {
   toolResultMaxChars: number;
 }
 
+/**
+ * El acceso remoto (hito 37, CLAUDE.md 14). Los equipos emparejados no van aca:
+ * van en su archivo (`remote-devices-store.ts`), porque una build anterior que
+ * comparta la carpeta reescribe este sin lo que no conoce.
+ */
+export interface RemoteSettings {
+  /** false por defecto. Apagado, ningun equipo emparejado entra. */
+  enabled: boolean;
+  /** El puerto fijo, entre `REMOTE_MIN_PORT` y `REMOTE_MAX_PORT`. Se usa al arrancar. */
+  port: number;
+}
+
 export interface AppSettings {
   version: typeof SETTINGS_VERSION;
   vault: VaultSettings;
+  remote: RemoteSettings;
 }
 
 export interface SettingsPatch {
   vault?: Partial<VaultSettings>;
+  remote?: Partial<RemoteSettings>;
 }
 
 export function defaultAppSettings(): AppSettings {
   return {
     version: SETTINGS_VERSION,
     vault: { enabled: false, dir: null, toolResultMaxChars: VAULT_TOOL_RESULT_DEFAULT_CHARS },
+    remote: { enabled: false, port: REMOTE_DEFAULT_PORT },
   };
 }
 
@@ -96,6 +111,12 @@ export function parseAppSettings(
   if (record === null || record['version'] !== SETTINGS_VERSION) return null;
 
   const settings = defaultAppSettings();
+  const remote = asRecord(record['remote']);
+  if (remote !== null) {
+    settings.remote.enabled = asBoolean(remote['enabled']) ?? false;
+    if (isRemotePort(remote['port'])) settings.remote.port = remote['port'];
+  }
+
   const vault = asRecord(record['vault']);
   if (vault === null) return settings;
 
@@ -112,7 +133,11 @@ export function parseAppSettings(
 
 /** Congelados: lo que devuelve `get()` no se puede cambiar sin pasar por `update`. */
 function frozen(settings: AppSettings): AppSettings {
-  return Object.freeze({ ...settings, vault: Object.freeze({ ...settings.vault }) });
+  return Object.freeze({
+    ...settings,
+    vault: Object.freeze({ ...settings.vault }),
+    remote: Object.freeze({ ...settings.remote }),
+  });
 }
 
 export interface SettingsStoreOptions {
@@ -160,18 +185,54 @@ export class SettingsStore {
     this.current = frozen(settings ?? defaultAppSettings());
   }
 
+  /**
+   * Relee **solo** lo del acceso remoto (hito 37). Otra instancia de la app
+   * comparte este archivo, y "apagar" desde una tiene que valer en la que tiene
+   * el puerto; lo de la copia propia no se toca, que cada instancia lo lleva en
+   * memoria como siempre. Sin archivo o ilegible, queda lo que habia.
+   */
+  async reloadRemote(): Promise<void> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(this.filePath, 'utf8'));
+    } catch {
+      return;
+    }
+    const settings = parseAppSettings(parsed, this.platform);
+    if (settings === null) return;
+    this.current = frozen({ ...this.current, remote: settings.remote });
+  }
+
+  /** Una marca que cambia cuando el archivo cambia (fecha y tamano), o '' si no esta. */
+  async stamp(): Promise<string> {
+    try {
+      const info = await stat(this.filePath);
+      return `${info.mtimeMs}:${info.size}`;
+    } catch {
+      return '';
+    }
+  }
+
   /** Lo ultimo que quedo escrito. Congelado: nadie de afuera lo cambia sin pasar por `update`. */
   get(): Readonly<AppSettings> {
     return this.current;
   }
 
   /**
-   * Aplica un cambio y lo escribe. Lanza si la carpeta no es absoluta o si no
-   * se pudo escribir; en los dos casos `get()` sigue dando lo anterior.
+   * Aplica un cambio y lo escribe. Lanza si la carpeta no es absoluta, si el
+   * puerto no sirve o si no se pudo escribir; en todos los casos `get()` sigue
+   * dando lo anterior.
    */
   update(patch: SettingsPatch): Promise<void> {
     const run = async (): Promise<void> => {
-      const next: AppSettings = { version: SETTINGS_VERSION, vault: { ...this.current.vault } };
+      // Un cambio que no es del acceso remoto no puede reescribirlo con lo que
+      // esta instancia recordaba: otra pudo apagarlo, y volveria encendido.
+      if (patch.remote === undefined) await this.reloadRemote();
+      const next: AppSettings = {
+        version: SETTINGS_VERSION,
+        vault: { ...this.current.vault },
+        remote: { ...this.current.remote },
+      };
       const vault = patch.vault ?? {};
       if (vault.enabled !== undefined) next.vault.enabled = vault.enabled;
       if (vault.dir !== undefined) {
@@ -182,6 +243,12 @@ export class SettingsStore {
       }
       if (vault.toolResultMaxChars !== undefined) {
         next.vault.toolResultMaxChars = clampToolResultMaxChars(vault.toolResultMaxChars);
+      }
+      const remote = patch.remote ?? {};
+      if (remote.enabled !== undefined) next.remote.enabled = remote.enabled;
+      if (remote.port !== undefined) {
+        if (!isRemotePort(remote.port)) throw new Error(`The remote access port isn't valid: ${JSON.stringify(remote.port)}`);
+        next.remote.port = remote.port;
       }
 
       await mkdir(path.dirname(this.filePath), { recursive: true });

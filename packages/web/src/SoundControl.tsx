@@ -7,10 +7,16 @@
  * u ocultarla es CSS (`:hover` y `:focus-within`), así que no hay estado acá.
  *
  * Silenciado no hay barrita: lo primero es encenderlo, y eso es el clic.
+ *
+ * Al lado va, desde el hito 37, `NotifyButton`: la notificación del sistema
+ * (§6.20.1). Es otro botón y no una casilla dentro de la barrita: se quiere con
+ * el sonido silenciado también, y ahí la barrita no existe. Donde el navegador
+ * no tiene notificaciones, no se dibuja.
  */
 
 import { MAX_VOLUME, MIN_VOLUME, soundButtonTitle, volumePercent } from './notification-sound.js';
-import type { NotificationSoundState } from './useNotificationSound.js';
+import { notifyButtonTitle } from './system-notification.js';
+import type { NotificationSoundState, SystemNotifyState } from './useNotificationSound.js';
 import { t } from './i18n/index.js';
 
 /** Las teclas que mueven la barrita. Un Tab que pasa por ella no la hace sonar. */
@@ -65,5 +71,36 @@ export function SoundControl({ sound }: SoundControlProps): JSX.Element {
         </div>
       )}
     </span>
+  );
+}
+
+/** Enciende o apaga la notificación del sistema. null donde el navegador no la tiene. */
+export function NotifyButton({ notify }: { notify: SystemNotifyState }): JSX.Element | null {
+  if (!notify.supported) return null;
+  return (
+    <button
+      className={`icon-button${notify.enabled ? '' : ' icon-button-muted'}`}
+      onClick={notify.toggle}
+      title={notifyButtonTitle(notify.enabled, notify.permission)}
+      aria-pressed={notify.enabled}
+    >
+      <BellIcon />
+    </button>
+  );
+}
+
+/** Una campana de trazo, como el resto de los iconos: un emoji cambia de color y de forma según el sistema. */
+function BellIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <path
+        d="M4 11V7a4 4 0 0 1 8 0v4l1.2 1.5H2.8L4 11zM6.6 14a1.5 1.5 0 0 0 2.8 0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

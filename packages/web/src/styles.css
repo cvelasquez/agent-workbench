@@ -169,9 +169,21 @@ kbd {
   border-color: var(--warning);
 }
 
-.status-failed {
+.status-failed,
+.status-revoked {
   color: var(--danger);
   border-color: var(--danger);
+}
+
+/* Esta ventana entro como equipo remoto (hito 37): una pastilla, como la del estado. */
+.remote-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  white-space: nowrap;
+  cursor: help;
 }
 
 .meta {
@@ -3649,6 +3661,108 @@ kbd {
 
 .status-line-actions .primary-button {
   margin-top: 0;
+}
+
+/*
+  Dialogo del acceso remoto (hito 37). Reusa el estado, el fragmento para copiar
+  y las filas de botones de los otros dos dialogos; lo propio es el puerto y la
+  lista de equipos.
+*/
+.remote-port {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.remote-port .modal-hint {
+  margin: 0;
+}
+
+.remote-port-input,
+.remote-host-select,
+.remote-device-input {
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.remote-port-input {
+  width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+
+.remote-port-input:focus,
+.remote-host-select:focus,
+.remote-device-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.remote-port .remote-port-invalid {
+  color: var(--danger);
+}
+
+.remote-devices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remote-device {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+
+.remote-device:first-child {
+  border-top: none;
+}
+
+.remote-device-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.remote-device-label {
+  max-width: 100%;
+  padding: 0;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.remote-device-label:hover {
+  color: var(--accent);
+}
+
+.remote-device-input {
+  width: min(260px, 100%);
+}
+
+.remote-device-seen,
+.remote-device-paired {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.remote-device-connected {
+  color: var(--accent);
+}
+
+.remote-device .remote-device-confirm {
+  color: var(--danger);
 }
 
 .shortcut-list {

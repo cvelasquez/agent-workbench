@@ -6,6 +6,10 @@
  * `planChimes`, pura; acá sólo se ejecuta con temporizadores, y se guarda la
  * preferencia, en `localStorage` como el tema: es de esta pantalla, no del
  * espacio de trabajo.
+ *
+ * Desde el hito 37 el mismo plan dispara también la notificación del sistema
+ * (§6.20.1, `system-notification.ts`): avisa lo mismo y cuando lo mismo, pero
+ * sólo con la ventana fuera de la vista, y se enciende aparte del sonido.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,8 +24,35 @@ import {
   parseStoredSound,
   parseStoredVolume,
   planChimes,
+  type Chime,
 } from './notification-sound.js';
+import {
+  NOTIFY_STORAGE_KEY,
+  parseStoredNotify,
+  readNotifyPermission,
+  requestNotifyPermission,
+  shouldNotify,
+  showSystemNotification,
+  windowInView,
+  type NotifyPermission,
+} from './system-notification.js';
 import { readStored, writeStored } from './window-prefs.js';
+
+/** La notificación del sistema: si se puede, si está encendida y con qué permiso. */
+export interface SystemNotifyState {
+  /** false donde el navegador no la tiene: el botón no se dibuja. */
+  supported: boolean;
+  enabled: boolean;
+  permission: NotifyPermission;
+  toggle: () => void;
+}
+
+/** Lo que el aviso del sistema necesita saber de las pestañas. */
+export interface NotifyTabs {
+  nameOf: (terminalId: TerminalId) => string;
+  /** El clic en el aviso: activa esa pestaña. */
+  activate: (terminalId: TerminalId) => void;
+}
 
 export interface NotificationSoundState {
   enabled: boolean;
@@ -32,10 +63,12 @@ export interface NotificationSoundState {
   setVolume: (volume: number) => void;
   /** Al soltarla: suena una vez, para oír lo que se eligió. */
   previewVolume: () => void;
+  notify: SystemNotifyState;
 }
 
 export function useNotificationSound(
   activity: ReadonlyMap<TerminalId, TerminalActivity>,
+  tabs: NotifyTabs,
 ): NotificationSoundState {
   const [enabled, setEnabled] = useState(() => readStored(SOUND_STORAGE_KEY, true, parseStoredSound));
   const enabledRef = useRef(enabled);
@@ -45,6 +78,25 @@ export function useNotificationSound(
   );
   const volumeRef = useRef(volume);
   volumeRef.current = volume;
+
+  const [permission, setPermission] = useState<NotifyPermission>(() => readNotifyPermission());
+  const [notifyEnabled, setNotifyEnabled] = useState(() => readStored(NOTIFY_STORAGE_KEY, false, parseStoredNotify));
+  const notifyEnabledRef = useRef(notifyEnabled);
+  notifyEnabledRef.current = notifyEnabled;
+  // Por ref: el nombre de una pestaña cambia sin que eso tenga que rearmar los plazos.
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+
+  /** El aviso del sistema de una pestaña. El permiso se mira en el momento: el usuario lo puede quitar. */
+  const notifySystem = useCallback((chime: Chime, terminalId: TerminalId): void => {
+    if (!shouldNotify(notifyEnabledRef.current, readNotifyPermission(), windowInView())) return;
+    showSystemNotification({
+      chime,
+      terminalId,
+      tabName: tabsRef.current.nameOf(terminalId),
+      onClick: () => tabsRef.current.activate(terminalId),
+    });
+  }, []);
 
   const playerRef = useRef<ChimePlayer | null>(null);
   const previousRef = useRef<ReadonlyMap<TerminalId, TerminalActivity>>(new Map());
@@ -88,16 +140,19 @@ export function useNotificationSound(
     // "terminó" en espera lo silencia también. Dos pestañas que se frenan en
     // el mismo latido suenan una vez.
     if (plan.now.length > 0 && enabledRef.current) playerRef.current?.play('attention');
+    // El sonido es uno por latido; el aviso del sistema, uno por pestaña: dice cuál.
+    for (const terminalId of plan.now) notifySystem('attention', terminalId);
     for (const terminalId of plan.later) {
       timers.set(
         terminalId,
         window.setTimeout(() => {
           timers.delete(terminalId);
           if (enabledRef.current) playerRef.current?.play('done');
+          notifySystem('done', terminalId);
         }, DONE_HOLD_MS),
       );
     }
-  }, [activity]);
+  }, [activity, notifySystem]);
 
   // Al desmontar no queda ningún plazo vivo.
   useEffect(() => {
@@ -137,5 +192,32 @@ export function useNotificationSound(
     playerRef.current?.play('done');
   }, []);
 
-  return { enabled, toggle, volume, setVolume, previewVolume };
+  /*
+    Encenderla pide el permiso, y sólo queda encendida si el navegador lo dio.
+    Con el permiso negado no se puede volver a pedir desde la página: el botón
+    lo dice y el usuario lo cambia en los ajustes del sitio.
+  */
+  const toggleNotify = useCallback(() => {
+    if (notifyEnabledRef.current) {
+      setNotifyEnabled(false);
+      writeStored(NOTIFY_STORAGE_KEY, 'off');
+      return;
+    }
+    void requestNotifyPermission().then((next) => {
+      setPermission(next);
+      if (next !== 'granted') return;
+      setNotifyEnabled(true);
+      writeStored(NOTIFY_STORAGE_KEY, 'on');
+    });
+  }, []);
+
+  const notify: SystemNotifyState = {
+    supported: permission !== 'unsupported',
+    // Guardada encendida pero con el permiso quitado después: no está encendida.
+    enabled: notifyEnabled && permission === 'granted',
+    permission,
+    toggle: toggleNotify,
+  };
+
+  return { enabled, toggle, volume, setVolume, previewVolume, notify };
 }

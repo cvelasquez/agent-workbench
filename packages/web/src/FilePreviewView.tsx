@@ -30,7 +30,8 @@ interface FilePreviewViewProps {
    * alcanza —un binario, un archivo cortado—: antes el texto mandaba al menu
    * contextual del arbol, que desde aca ya no se ve.
    */
-  onOpenWithSystem: () => void;
+  /** null en una ventana remota (hito 37): abriria el archivo en el escritorio del anfitrion. */
+  onOpenWithSystem: (() => void) | null;
 }
 
 export function FilePreviewView({ preview, onOpenWithSystem }: FilePreviewViewProps): JSX.Element {
@@ -65,11 +66,12 @@ export function FilePreviewView({ preview, onOpenWithSystem }: FilePreviewViewPr
     [preview.text, preview.binary],
   );
 
-  const openButton = (
-    <button className="primary-button primary-button-small preview-open" onClick={onOpenWithSystem}>
-      {t('files.menu.openWithSystem')}
-    </button>
-  );
+  const openButton =
+    onOpenWithSystem === null ? null : (
+      <button className="primary-button primary-button-small preview-open" onClick={onOpenWithSystem}>
+        {t('files.menu.openWithSystem')}
+      </button>
+    );
 
   if (preview.binary) {
     return (

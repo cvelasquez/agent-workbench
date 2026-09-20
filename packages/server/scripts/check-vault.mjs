@@ -552,9 +552,11 @@ const status = (overrides = {}) => ({
   check('1 textos: la barra dibuja la linea solo si vaultLineText no es null, sin la linea "Copia propia apagada" (C9)',
     /const vaultLine = vaultLineText\(vault\);/.test(sidebarSource) && /\{vaultLine !== null && \(/.test(sidebarSource) &&
     !/copia propia apagada/i.test(sidebarSource) && !/copia propia apagada/i.test(appSource));
+  // Desde el hito 37 una fila "copia" tampoco se abre en una ventana remota
+  // (`onOpenVaultSession` null): abriria su Markdown en el escritorio del anfitrion.
   check('1 textos: las marcas de la fila salen de sessionVaultView y una fila nativa sigue deshabilitada como antes',
     /const vaultView = sessionVaultView\(session\);/.test(sidebarSource) &&
-    /const openable = vaultView\.copy \|\| \(canOpen && resumable\);/.test(sidebarSource) &&
+    /const openable = vaultView\.copy \? onOpenVaultSession !== null : canOpen && resumable;/.test(sidebarSource) &&
     /disabled=\{!openable\}/.test(sidebarSource));
   const chooseAt = appSource.indexOf('vault.chooseDir(pickerId);');
   check('1 textos: la carpeta se manda con el selector abierto, antes de cerrarlo',
@@ -1737,6 +1739,8 @@ const agentsWith = (agent, history) => ({
 // --- 10. Ajustes ---
 {
   const { SettingsStore, defaultAppSettings, parseAppSettings } = settingsModule;
+  // Los ajustes traen ademas el acceso remoto (hito 37), apagado: lo cubre `check-remote-access.mjs`.
+  const REMOTE_OFF = { enabled: false, port: 24837 };
   const folder = path.join(root, 'ajustes');
   const file = path.join(folder, 'settings.json');
   const warnings = [];
@@ -1744,7 +1748,8 @@ const agentsWith = (agent, history) => ({
   const store = new SettingsStore(file, { platform: 'win32', log });
   await store.load();
   check('10 ajustes sin archivo: apagada, carpeta por defecto, 64 000; y leer no crea nada',
-    same(store.get(), { version: 1, vault: { enabled: false, dir: null, toolResultMaxChars: 64_000 } }) && !(await fileExists(folder)), show(store.get()));
+    same(store.get(), { version: 1, vault: { enabled: false, dir: null, toolResultMaxChars: 64_000 }, remote: REMOTE_OFF }) &&
+    !(await fileExists(folder)), show(store.get()));
   check('10 ajustes: no hay everEnabled (C18)', !('everEnabled' in store.get().vault) && !('everEnabled' in defaultAppSettings().vault));
 
   await mkdir(folder, { recursive: true });
@@ -1771,7 +1776,7 @@ const agentsWith = (agent, history) => ({
 
   await store.update({ vault: { enabled: true, dir: 'D:\\Copias' } });
   check('10 ajustes: update escribe enseguida, sin temporales, y get lo refleja',
-    same(JSON.parse(await readFile(file, 'utf8')), { version: 1, vault: { enabled: true, dir: 'D:\\Copias', toolResultMaxChars: 64_000 } }) &&
+    same(JSON.parse(await readFile(file, 'utf8')), { version: 1, vault: { enabled: true, dir: 'D:\\Copias', toolResultMaxChars: 64_000 }, remote: REMOTE_OFF }) &&
     store.get().vault.dir === 'D:\\Copias' && (await namesIn(folder)).every((name) => !name.endsWith('.tmp')), show(store.get()));
   const rejected = await store.update({ vault: { dir: 'relativa' } }).then(() => false, () => true);
   check('10 ajustes: una carpeta relativa en update se rechaza y no cambia nada',

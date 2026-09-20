@@ -52,7 +52,8 @@ interface VaultDialogProps {
   onMeasure: () => void;
   onSetEnabled: (enabled: boolean) => void;
   onChangeDir: () => void;
-  onReveal: () => void;
+  /** null en una ventana remota (hito 37): la carpeta se abriria en el escritorio del anfitrion. */
+  onReveal: (() => void) | null;
   onDismissProblem: () => void;
   onClose: () => void;
 }
@@ -141,7 +142,8 @@ interface VaultDialogBodyProps {
   onMeasure: () => void;
   onSetEnabled: (enabled: boolean) => void;
   onChangeDir: () => void;
-  onReveal: () => void;
+  /** null en una ventana remota (hito 37): la carpeta se abriria en el escritorio del anfitrion. */
+  onReveal: (() => void) | null;
 }
 
 function VaultDialogBody({
@@ -289,9 +291,11 @@ function VaultDialogBody({
         >
           {t('vault.dialog.changeDir')}
         </button>
-        <button className="link-button" onClick={onReveal} title={t('vault.dialog.openFolderTitle')}>
-          {t('vault.dialog.openFolder')}
-        </button>
+        {onReveal !== null && (
+          <button className="link-button" onClick={onReveal} title={t('vault.dialog.openFolderTitle')}>
+            {t('vault.dialog.openFolder')}
+          </button>
+        )}
       </div>
       {status.previousDir !== null && <p className="modal-hint">{vaultPreviousDirText(status.previousDir)}</p>}
 

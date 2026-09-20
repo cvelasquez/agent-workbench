@@ -107,6 +107,12 @@ export interface Workspace {
   environmentNotice: EnvironmentNoticeId | null;
   /** "PowerShell", "bash"... o null si el servidor no encontro ninguna consola. */
   shellName: string | null;
+  /**
+   * Esta ventana entro como equipo remoto (hito 37): se esconde lo que el
+   * servidor igual le negaria —administrar el acceso remoto, y lo que abre una
+   * ventana en el escritorio del anfitrion—.
+   */
+  remoteClient: boolean;
   /** Pestanas de la CLI. Son las unicas que aparecen en la barra de pestanas. */
   terminals: TerminalDescriptor[];
   /** Consolas del sistema. Viven en la columna derecha, no en la barra. */
@@ -196,6 +202,7 @@ export function useWorkspace(): Workspace {
   const [platform, setPlatform] = useState('');
   const [defaultCwd, setDefaultCwd] = useState('');
   const [shellName, setShellName] = useState<string | null>(null);
+  const [remoteClient, setRemoteClient] = useState(false);
   const [allTerminals, setAllTerminals] = useState<TerminalDescriptor[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [indexStatus, setIndexStatus] = useState<IndexStatus>(EMPTY_INDEX_STATUS);
@@ -307,6 +314,7 @@ export function useWorkspace(): Workspace {
           setPlatform(message.platform);
           setDefaultCwd(message.defaultCwd);
           setShellName(message.shellName);
+          setRemoteClient(message.remoteClient);
           break;
 
         case 'terminal.list': {
@@ -450,6 +458,8 @@ export function useWorkspace(): Workspace {
           if (message.code === 'vault-failed') break;
           // Y la busqueda global (hito 29): lo dice su linea de estado, en la barra.
           if (message.code === 'search-failed') break;
+          // Y el acceso remoto (hito 37): lo dice su dialogo. Ver `useRemoteAccess`.
+          if (message.code === 'remote-failed') break;
           setError({ message: serverTextMessage(message.text), at: Date.now() });
           // Un fallo al abrir la CLI no puede dejar el boton diciendo
           // "Abriendo…" para siempre. Ni "Relanzando…".
@@ -693,6 +703,7 @@ export function useWorkspace(): Workspace {
     defaultCwd,
     environmentNotice: summary.environmentNotice,
     shellName,
+    remoteClient,
     terminals,
     shells,
     /** Hito 31: las pedidas que el servidor todavia no confirmo. */

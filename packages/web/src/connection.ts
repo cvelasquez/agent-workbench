@@ -9,6 +9,7 @@
  */
 
 import {
+  REMOTE_REVOKED_CLOSE_CODE,
   TOKEN_QUERY_PARAM,
   WS_PATH,
   encodeClientMessage,
@@ -18,7 +19,11 @@ import {
 } from '@agent-workbench/shared';
 import { sessionToken } from './session-token.js';
 
-export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'failed';
+/**
+ * `revoked` (hito 37): esta ventana entro como equipo remoto y el anfitrion lo
+ * revoco, o apago el acceso remoto. No se reintenta: la credencial ya no entra.
+ */
+export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'failed' | 'revoked';
 
 type MessageHandler = (message: ServerMessage) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
@@ -102,9 +107,14 @@ export class AgentConnection {
       for (const handler of this.messageHandlers) handler(message);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event: CloseEvent) => {
       this.socket = null;
       if (this.closedByUs) return;
+      // El servidor cerro a proposito: reconectar seria chocar contra un 403 sin fin.
+      if (event.code === REMOTE_REVOKED_CLOSE_CODE) {
+        this.setStatus('revoked');
+        return;
+      }
       this.setStatus('reconnecting');
       this.scheduleReconnect();
     };

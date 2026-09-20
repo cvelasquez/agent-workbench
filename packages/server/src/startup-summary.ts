@@ -27,7 +27,7 @@
  * sabe en que idioma esta nadie, y el ingles es el idioma por defecto.
  */
 
-import type { AgentId, ServerText, StatusLineState } from '@agent-workbench/shared';
+import type { AgentId, RemoteAccessState, ServerText, StatusLineState } from '@agent-workbench/shared';
 
 export interface StartupAgent {
   id: AgentId;
@@ -66,6 +66,33 @@ export function statusLineStartupText(state: StatusLineState): string {
       return 'disabled with enabled: false';
     case 'unreadable':
       return "couldn't read its settings.json";
+  }
+}
+
+/** Rotulo de la linea del acceso remoto (hito 37). */
+export const REMOTE_ACCESS_LABEL = 'Remote access';
+
+/**
+ * La linea del acceso remoto, o null. **Apagado no hay linea**: quien no lo usa
+ * ve el arranque de siempre, que es la regla de todo lo opcional de este
+ * archivo. Encendido conviene verlo en cada arranque: es lo que deja entrar a
+ * otro equipo.
+ */
+export function remoteAccessStartupLine(
+  state: RemoteAccessState,
+  port: number,
+  pairedDevices: number,
+): string | null {
+  switch (state) {
+    case 'off':
+      return null;
+    case 'active':
+      return `  ${REMOTE_ACCESS_LABEL}  on, port ${port}, ${pairedDevices} paired device${pairedDevices === 1 ? '' : 's'}`;
+    case 'port-busy':
+      return `  ${REMOTE_ACCESS_LABEL}  NOT WORKING: port ${port} is busy (another Agent Workbench, or another program)`;
+    case 'restart-needed':
+      // Al arrancar no pasa: el puerto se acaba de elegir con estos mismos ajustes.
+      return `  ${REMOTE_ACCESS_LABEL}  on, takes effect after a restart`;
   }
 }
 

@@ -77,6 +77,15 @@ export function appSettingsPath(): string {
 }
 
 /**
+ * Los equipos emparejados para el acceso remoto (hito 37). Aparte de
+ * `settings.json` a proposito: ese lo reescribe entero cada build con lo que
+ * conoce, y una anterior que comparta la carpeta se los llevaria.
+ */
+export function remoteDevicesPath(): string {
+  return path.join(appConfigDir(), 'remote-devices.json');
+}
+
+/**
  * Notas sueltas del usuario: el texto en un JSON, las imagenes en una carpeta
  * al lado. Archivo propio por el mismo motivo que las archivadas: que
  * `workspace.json` se reescriba con cada pestana no tiene por que tocar esto.

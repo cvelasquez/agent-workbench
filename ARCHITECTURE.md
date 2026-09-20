@@ -71,6 +71,45 @@ remote-execution vector.
 - The guard runs **before reading**, not only before writing: a versioned file
   that is a link to somewhere outside the project isn't opened.
 
+**Remote access doesn't loosen any of this** (`remote-access.ts`,
+`remote-access-service.ts`, `security.ts`). Another computer on the network uses
+the app through an SSH tunnel the user opens, so the connection still arrives on
+`127.0.0.1` with a loopback `Host` and `Origin`, and those checks are untouched —
+a valid credential presented under the machine's network name is still a 403.
+What it adds, off by default:
+
+- A **fixed port** instead of the ephemeral one (a tunnel needs a stable port).
+  It is chosen at startup; if it's taken, the server falls back to an ephemeral
+  one and says so, rather than not starting.
+- A **second credential**, because the per-start token is only visible on the
+  host's console. A device is paired with a one-time code the host asks for
+  (8 characters, 5 minutes, dead after 5 wrong attempts, never compared when no
+  code is active), presented as `/?pair=…`; it is exchanged for a long-lived
+  `HttpOnly` cookie. The server stores only a SHA-256 of it, in
+  `remote-devices.json` — its own file, because `settings.json` is rewritten
+  whole by whatever build saves it. Every route still requires a credential: the
+  code is a one-time one.
+- The server can't tell a remote client by its address — everything is
+  loopback — so it tells it **by the credential it came in with**
+  (`remoteRefusal`). A paired device can't manage remote access (enable, pair,
+  revoke), so a stolen device cookie can't mint more devices, and it isn't
+  served what would open a window on the host's desktop (`files.reveal`,
+  `vault.reveal`, `vault.openSession`, `vault.exportProject`). The UI hides
+  those; the server is what refuses them.
+- Turning it **on** needs a restart (the port); turning it **off**, or revoking
+  a device, takes effect at once and closes that device's sockets with a code
+  that tells the page to stop reconnecting.
+
+- **The files are the truth, not memory.** Two instances of the app share the
+  configuration folder and only one owns the fixed port. While remote access is
+  on, each instance checks `settings.json` and `remote-devices.json` every two
+  seconds and re-reads them before any change, so revoking a device or turning
+  remote access off from the *other* instance takes effect on the one that is
+  serving, and a stale list can't bring a revoked device back.
+
+The app never enables, configures or probes the SSH server: that stays with the
+user.
+
 ---
 
 ## 2. Layout
@@ -236,7 +275,8 @@ touch credentials.
 ### Where the app writes
 
 - Its own configuration directory: tabs, index cache, notes, archived
-  sessions, settings, and the history copy (or the folder the user picks).
+  sessions, settings, the paired devices of remote access (hashes only), and
+  the history copy (or the folder the user picks).
 - The system temp folder: pasted images and attachments, per-tab CLI logs,
   temporary database copies. Folders are created `0o700`, files `0o600`.
 - **One place inside a project: shared memory** — `.agents/memory/`, the text
@@ -256,7 +296,9 @@ The web has no test runner; the server has `pnpm check`, a chain of scripts in
 JSONL follower (lines split across reads, UTF-8 cut in half), the context
 window, `git status --porcelain=v2 -z` parsing, the path guard, the shared
 memory bridge, every adapter's event mapping, the history copy, handoff, global
-search and the nine locale files.
+search, remote access (pairing codes, device credentials, what a paired device
+is refused, and that with it off nothing of it is accepted) and the nine locale
+files.
 
 Two rules for writing one:
 

@@ -20,6 +20,13 @@ Only the latest published version is supported.
 - The server listens **only on `127.0.0.1`**, on an ephemeral port.
 - A random per-start token is required by the WebSocket and every HTTP route,
   and requests with a foreign `Origin` are rejected.
+- **Remote access is off by default and never opens the app to the network.**
+  With it on, the port is a fixed one —still on `127.0.0.1`— and another
+  computer reaches it through an SSH tunnel that you set up. That computer is
+  paired once with a one-time code and then presents its own credential, of
+  which the app stores only a hash. A paired device can't pair or revoke
+  others, and can't make the host open files or folders with its own apps. The
+  `Host` and `Origin` checks apply to it as well.
 - **No telemetry and no outgoing network calls.** The CLIs you launch talk to
   their providers exactly as they do in a plain terminal.
 - The app **never reads, stores or forwards credentials** of any CLI, has no
@@ -38,4 +45,9 @@ The full list of what is read and what is never opened, per CLI, is in
 Anything that breaks one of the statements above: a way to reach the server
 from another origin or machine, to read or write outside a tab's folder, to
 make the app open a credentials file, or to execute a command through a crafted
-session id, file name or history file.
+session id, file name or history file. With remote access: a way in without
+pairing, a pairing code that works twice or survives its attempts, a revoked
+device that still gets in, or a paired device doing what only the host may.
+
+Reaching the machine over SSH is outside the app: it's your system's SSH server,
+with your user's login. The README recommends a key restricted to the tunnel.

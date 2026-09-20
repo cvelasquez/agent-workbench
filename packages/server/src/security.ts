@@ -7,13 +7,22 @@
  *
  * Tres capas, todas obligatorias:
  *   1. bind solo a 127.0.0.1 (lo aplica index.ts al escuchar)
- *   2. token aleatorio por arranque, exigido en HTTP y en el upgrade del WS
+ *   2. una credencial, exigida en HTTP y en el upgrade del WS: el token
+ *      aleatorio de este arranque o, con el acceso remoto encendido, la de un
+ *      equipo emparejado
  *   3. chequeo de Origin y Host, contra paginas maliciosas y DNS rebinding
+ *
+ * El acceso remoto (hito 37, CLAUDE.md 14) no afloja ninguna: el otro equipo
+ * llega por un tunel SSH, asi que la conexion sigue entrando por 127.0.0.1 y con
+ * `Host` y `Origin` de loopback. Lo unico que suma es la segunda credencial de
+ * la capa 2, que no cambia en cada arranque porque desde el otro equipo no se ve
+ * la consola de este.
  */
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
-import { TOKEN_QUERY_PARAM } from '@agent-workbench/shared';
+import { PAIR_QUERY_PARAM, TOKEN_QUERY_PARAM } from '@agent-workbench/shared';
+import type { DeviceVerifier } from './remote-access.js';
 
 /** Solo estas interfaces son validas. Nunca 0.0.0.0. */
 export const LOOPBACK_HOST = '127.0.0.1';
@@ -108,16 +117,67 @@ export function matchToken(request: IncomingMessage, expected: string): TokenMat
   return null;
 }
 
-export function hasValidToken(request: IncomingMessage, expected: string): boolean {
-  return matchToken(request, expected) !== null;
-}
-
 /**
  * Cookie de sesion: sin Max-Age, muere al cerrar el navegador.
  * SameSite=Strict para que no viaje en peticiones originadas por otro sitio.
  */
 export function buildTokenCookie(token: string): string {
   return `${TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; SameSite=Strict; HttpOnly`;
+}
+
+/**
+ * Cookie de un equipo emparejado (hito 37). Al reves que la de sesion, dura:
+ * el otro equipo tiene que poder volver manana, con esta app reiniciada.
+ *
+ * Tiene el mismo limite conocido que `TOKEN_COOKIE`, y aca pesa mas porque no
+ * muere con el arranque: las cookies ignoran el puerto, asi que otro servidor
+ * que escuche en el `localhost` **del otro equipo** la recibe. Por eso un
+ * equipo se puede revocar, y por eso no sirve para emparejar otros
+ * (`remoteRefusal`).
+ *
+ * Sin `Secure`: viaja por `http://localhost`, y el tramo de red va dentro de SSH.
+ */
+export const DEVICE_COOKIE = 'agent_workbench_device';
+
+/** 400 dias: el tope que aceptan los navegadores. Se renueva en cada carga de la pagina. */
+const DEVICE_COOKIE_MAX_AGE_S = 400 * 24 * 60 * 60;
+
+export function buildDeviceCookie(credential: string): string {
+  return `${DEVICE_COOKIE}=${encodeURIComponent(credential)}; Path=/; Max-Age=${DEVICE_COOKIE_MAX_AGE_S}; SameSite=Strict; HttpOnly`;
+}
+
+/** Con que entro una peticion: el token de este arranque, o la credencial de un equipo emparejado. */
+export type Credential =
+  | { kind: 'session'; source: TokenSource }
+  | { kind: 'device'; deviceId: string; credential: string };
+
+/**
+ * La credencial de una peticion, o null.
+ *
+ * Manda el token del arranque: es el de quien esta sentado en este equipo.
+ * `devices` es null con el acceso remoto apagado, y ahi la cookie de un equipo
+ * no se mira siquiera. La credencial de equipo entra **solo** por su cookie: ni
+ * por la direccion —quedaria en el historial— ni como si fuera el token.
+ */
+export function matchCredential(
+  request: IncomingMessage,
+  token: string,
+  devices: DeviceVerifier | null,
+): Credential | null {
+  const session = matchToken(request, token);
+  if (session !== null) return { kind: 'session', source: session.source };
+  if (devices === null) return null;
+
+  const credential = readCookie(request, DEVICE_COOKIE);
+  if (credential === null) return null;
+  const device = devices.match(credential);
+  return device === null ? null : { kind: 'device', deviceId: device.id, credential };
+}
+
+/** El codigo para emparejar que trae la direccion, tal como lo tecleo alguien, o null. */
+export function readPairingCode(request: IncomingMessage): string | null {
+  const code = requestUrl(request)?.searchParams.get(PAIR_QUERY_PARAM) ?? null;
+  return code !== null && code.length > 0 ? code : null;
 }
 
 /**
@@ -164,17 +224,26 @@ export function hasValidOrigin(request: IncomingMessage, port: number): boolean 
 
 export type RejectionReason = 'bad-host' | 'bad-origin' | 'bad-token';
 
+export type Authorization =
+  | { ok: true; credential: Credential }
+  | { ok: false; reason: RejectionReason };
+
 /**
  * Chequeo unico que aplican tanto las rutas HTTP como el upgrade del WebSocket.
- * Devuelve null si la peticion es aceptable.
+ *
+ * `Host` y `Origin` van **antes** que la credencial, y valen igual para un
+ * equipo emparejado: con una credencial buena pero llegando por el nombre de
+ * red del equipo (`192.168.1.20:24837`) no se entra. Por el tunel se llega como
+ * `localhost`, y es la unica forma.
  */
-export function rejectRequest(
+export function authorizeRequest(
   request: IncomingMessage,
   port: number,
   token: string,
-): RejectionReason | null {
-  if (!hasValidHost(request, port)) return 'bad-host';
-  if (!hasValidOrigin(request, port)) return 'bad-origin';
-  if (!hasValidToken(request, token)) return 'bad-token';
-  return null;
+  devices: DeviceVerifier | null,
+): Authorization {
+  if (!hasValidHost(request, port)) return { ok: false, reason: 'bad-host' };
+  if (!hasValidOrigin(request, port)) return { ok: false, reason: 'bad-origin' };
+  const credential = matchCredential(request, token, devices);
+  return credential === null ? { ok: false, reason: 'bad-token' } : { ok: true, credential };
 }

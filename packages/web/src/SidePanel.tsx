@@ -88,7 +88,7 @@ interface SidePanelProps {
    * "Insertar como @ruta": la CLI de la pestana no menciona archivos asi.
    */
   onInsert?: (text: string) => void;
-  onReveal: (path: string) => void;
+  onReveal: ((path: string) => void) | null;
   onHide: () => void;
 }
 

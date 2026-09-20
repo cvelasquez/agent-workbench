@@ -50,7 +50,11 @@ import { useNotes } from './useNotes.js';
 import { THEME_ICON, themeTitle, useTheme } from './useTheme.js';
 import { useNotificationSound } from './useNotificationSound.js';
 import { useThreadFont } from './useThreadFont.js';
-import { SoundControl } from './SoundControl.js';
+import { NotifyButton, SoundControl } from './SoundControl.js';
+import { tabNameFor } from './system-notification.js';
+import { useRemoteAccess } from './useRemoteAccess.js';
+import { RemoteAccessDialog } from './RemoteAccessDialog.js';
+import { remoteStateText } from './remote-access-ui.js';
 import { NotesPanel } from './NotesPanel.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
@@ -67,6 +71,7 @@ const STATUS_LABEL_KEYS: Record<ConnectionStatus, MessageKey> = {
   open: 'app.status.open',
   reconnecting: 'app.status.reconnecting',
   failed: 'app.status.failed',
+  revoked: 'app.status.revoked',
 };
 
 /**
@@ -166,10 +171,23 @@ export function App(): JSX.Element {
     dismissHandoff,
     prefills,
     prefillApplied,
+    remoteClient,
   } = workspace;
 
   const theme = useTheme();
-  const sound = useNotificationSound(activity);
+  /*
+    Lo que la notificacion del sistema (hito 37) necesita de las pestanas: como
+    se llama la que aviso, y activarla cuando se hace clic en el aviso.
+  */
+  const notifyTabs = useMemo(
+    () => ({
+      nameOf: (terminalId: TerminalId) =>
+        tabNameFor(terminals.find((terminal) => terminal.terminalId === terminalId)),
+      activate: setActiveTerminal,
+    }),
+    [terminals, setActiveTerminal],
+  );
+  const sound = useNotificationSound(activity, notifyTabs);
   const threadFont = useThreadFont();
   const activeTerminal = terminals.find((t) => t.terminalId === activeTerminalId) ?? null;
 
@@ -240,6 +258,14 @@ export function App(): JSX.Element {
   */
   const vault = useVault(connection);
   const [vaultDialogVisible, setVaultDialogVisible] = useState(false);
+
+  /*
+    El acceso remoto (hito 37). El estado solo le llega a una ventana del
+    anfitrion: en una que entro como equipo remoto queda en null y el boton no
+    se dibuja.
+  */
+  const remote = useRemoteAccess(connection);
+  const [remoteDialogVisible, setRemoteDialogVisible] = useState(false);
 
   /*
     El buscador global (hito 29), sobre la copia. Solo con otra CLI y con algo
@@ -956,6 +982,21 @@ export function App(): JSX.Element {
         </button>
         <LocaleMenu />
         <SoundControl sound={sound} />
+        <NotifyButton notify={sound.notify} />
+        {remote.status !== null && !remoteClient && (
+          <button
+            className={`icon-button${remote.status.state === 'active' ? ' icon-button-on' : ''}`}
+            onClick={() => setRemoteDialogVisible(true)}
+            title={`${t('app.header.remoteAccess')} — ${remoteStateText(remote.status.state, remote.status.port)}`}
+          >
+            ⇄
+          </button>
+        )}
+        {remoteClient && (
+          <span className="remote-badge" title={t('app.header.remoteBadgeTitle')}>
+            {t('app.header.remoteBadge')}
+          </span>
+        )}
         <button
           className="icon-button"
           onClick={() => setShortcutsVisible(true)}
@@ -974,6 +1015,12 @@ export function App(): JSX.Element {
           si el panel esta, se ve.
         */}
       </header>
+
+      {/*
+        El anfitrion revoco este equipo, o apago el acceso remoto (hito 37). La
+        pagina no reintenta: volver es emparejarse de nuevo desde alla.
+      */}
+      {status === 'revoked' && <div className="banner banner-error">{t('app.banner.revoked')}</div>}
 
       {!cliAvailable && cliMissingMessage !== null && (
         // Respeta los saltos de linea: sin ninguna CLI, el texto de la primera
@@ -1071,8 +1118,10 @@ export function App(): JSX.Element {
             onNewProject={() => setPickerFor('project')}
             vault={vault.status}
             onOpenVault={() => setVaultDialogVisible(true)}
-            onOpenVaultSession={(session) => vault.openSession(session.agent, session.sessionId)}
-            onExportProject={vault.exportProject}
+            onOpenVaultSession={
+              remoteClient ? null : (session) => vault.openSession(session.agent, session.sessionId)
+            }
+            onExportProject={remoteClient ? null : vault.exportProject}
             exporting={vault.exporting}
             lastExported={vault.lastExported}
             onContinueSession={(session, target) =>
@@ -1335,7 +1384,7 @@ export function App(): JSX.Element {
                 plans={plans}
                 memory={memory}
                 onInsert={activeControls.fileMentions ? insertIntoTerminal : undefined}
-                onReveal={revealPath}
+                onReveal={remoteClient ? null : revealPath}
                 onHide={togglePanel}
               />
 
@@ -1497,9 +1546,25 @@ export function App(): JSX.Element {
           onMeasure={vault.measure}
           onSetEnabled={vault.setEnabled}
           onChangeDir={() => setPickerFor('vault')}
-          onReveal={vault.reveal}
+          onReveal={remoteClient ? null : vault.reveal}
           onDismissProblem={vault.dismissProblem}
           onClose={() => setVaultDialogVisible(false)}
+        />
+      )}
+
+      {remoteDialogVisible && remote.status !== null && !remoteClient && (
+        <RemoteAccessDialog
+          status={remote.status}
+          pairing={remote.pairing}
+          problem={remote.problem}
+          onSetEnabled={remote.setEnabled}
+          onSetPort={remote.setPort}
+          onStartPairing={remote.startPairing}
+          onCancelPairing={remote.cancelPairing}
+          onRenameDevice={remote.renameDevice}
+          onRevokeDevice={remote.revokeDevice}
+          onDismissProblem={remote.dismissProblem}
+          onClose={() => setRemoteDialogVisible(false)}
         />
       )}
 

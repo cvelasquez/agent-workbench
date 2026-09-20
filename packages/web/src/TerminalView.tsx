@@ -178,6 +178,31 @@ export function TerminalView({
     resizeObserver.observe(container);
     window.addEventListener('resize', scheduleFit);
 
+    /*
+      Dos pantallas mirando la misma pestana (hito 37): esta ventana y la del
+      otro equipo, de otro tamano. La pty tiene **un** tamano, y el servidor se
+      queda con el ultimo que le mandaron; una ventana solo lo manda cuando su
+      caja cambia, asi que al volver a esta despues de usar la otra, la CLI
+      seguia dibujada para aquella hasta que alguien movia un divisor.
+
+      Al recuperar el foco, o al volver a estar a la vista, la terminal que se
+      ve reclama su tamano aunque para ella no haya cambiado (`force`). La que
+      nadie mira queda desacomodada, y se acomoda sola cuando le toque. Con una
+      sola ventana es un `resize` con el mismo tamano, como el que ya manda
+      activar una pestana.
+    */
+    const reclaimSize = (): void => {
+      if (document.visibilityState !== 'visible' || !hasBox()) return;
+      try {
+        fitAddon.fit();
+      } catch {
+        return;
+      }
+      sendResize(true);
+    };
+    window.addEventListener('focus', reclaimSize);
+    document.addEventListener('visibilitychange', reclaimSize);
+
     // Teclas del usuario -> pty. Sin filtro, sin excepciones.
     const dataSubscription = terminal.onData((data) => {
       connection.send({ type: 'input', terminalId, data });
@@ -230,6 +255,8 @@ export function TerminalView({
     return () => {
       window.clearTimeout(resizeTimer);
       window.removeEventListener('resize', scheduleFit);
+      window.removeEventListener('focus', reclaimSize);
+      document.removeEventListener('visibilitychange', reclaimSize);
       resizeObserver.disconnect();
       dataSubscription.dispose();
       offMessage();

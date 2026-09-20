@@ -189,8 +189,12 @@ interface FilesPanelProps {
    * ofrece "Insertar como @ruta".
    */
   onInsert?: (text: string) => void;
-  /** Pide al servidor que abra la ruta con la aplicacion del sistema. */
-  onReveal: (path: string) => void;
+  /**
+   * Pide al servidor que abra la ruta con la aplicacion del sistema. null en una
+   * ventana que entro como equipo remoto (hito 37): se abriria en el escritorio
+   * del anfitrion, y no se ofrece.
+   */
+  onReveal: ((path: string) => void) | null;
 }
 
 export function FilesPanel({
@@ -263,14 +267,18 @@ export function FilesPanel({
                   onSelect: () => onInsert(`@${relativePath}`),
                 },
               ]),
-          {
-            // "Abrir con la app del sistema" y no "abrir en el editor": lo que
-            // se abre lo decide la asociacion de archivos de Windows, no
-            // nosotros. Verificado — un `.md` puede terminar en el navegador,
-            // y prometer un editor seria mentir sobre lo que hace el boton.
-            label: t('files.menu.openWithSystem'),
-            onSelect: () => onReveal(relativePath),
-          },
+          ...(onReveal === null
+            ? []
+            : [
+                {
+                  // "Abrir con la app del sistema" y no "abrir en el editor": lo que
+                  // se abre lo decide la asociacion de archivos de Windows, no
+                  // nosotros. Verificado — un `.md` puede terminar en el navegador,
+                  // y prometer un editor seria mentir sobre lo que hace el boton.
+                  label: t('files.menu.openWithSystem'),
+                  onSelect: () => onReveal(relativePath),
+                },
+              ]),
         ],
       });
     },
@@ -295,7 +303,10 @@ export function FilesPanel({
           <p className="panel-note">{t('files.readingFile')}</p>
         ) : (
           preview !== null && (
-            <FilePreviewView preview={preview} onOpenWithSystem={() => onReveal(preview.path)} />
+            <FilePreviewView
+              preview={preview}
+              onOpenWithSystem={onReveal === null ? null : () => onReveal(preview.path)}
+            />
           )
         )}
         {menu !== null && (
@@ -326,13 +337,15 @@ export function FilesPanel({
         >
           <EyeIcon open={showHidden} />
         </button>
-        <button
-          className="icon-button"
-          onClick={() => onReveal('')}
-          title={t('files.revealFolder')}
-        >
-          <FolderIcon />
-        </button>
+        {onReveal !== null && (
+          <button
+            className="icon-button"
+            onClick={() => onReveal('')}
+            title={t('files.revealFolder')}
+          >
+            <FolderIcon />
+          </button>
+        )}
         <button className="icon-button" onClick={refresh} title={t('files.refresh')}>
           ⟳
         </button>
@@ -411,7 +424,7 @@ function SearchResults({
 }: {
   view: FilesView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
-  onReveal: (path: string) => void;
+  onReveal: ((path: string) => void) | null;
   onCopyPath: (path: string) => void;
 }): JSX.Element {
   const { results, searching, openFile, toggleDirectory } = view;
@@ -455,7 +468,7 @@ function SearchResults({
               onCopy={() => onCopyPath(entry.path)}
             />
 
-            {entry.kind === 'dir' && (
+            {entry.kind === 'dir' && onReveal !== null && (
               <button
                 className="tree-action"
                 onClick={() => onReveal(entry.path)}
@@ -482,7 +495,7 @@ interface TreeLevelProps {
   depth: number;
   view: FilesView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
-  onReveal: (path: string) => void;
+  onReveal: ((path: string) => void) | null;
   onCopyPath: (path: string) => void;
 }
 
@@ -541,7 +554,7 @@ interface TreeRowProps {
   depth: number;
   view: FilesView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
-  onReveal: (path: string) => void;
+  onReveal: ((path: string) => void) | null;
   onCopyPath: (path: string) => void;
 }
 
@@ -601,7 +614,7 @@ function TreeRow({
           onCopy={() => onCopyPath(entry.path)}
         />
 
-        {entry.kind === 'dir' && (
+        {entry.kind === 'dir' && onReveal !== null && (
           <button
             className="tree-action"
             onClick={() => onReveal(entry.path)}
