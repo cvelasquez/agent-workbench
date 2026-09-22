@@ -20,6 +20,14 @@ change behavior.
 - **System notifications.** A bell button in the header: "finished" and "is
   waiting for you", with the tab's name, shown only when the window isn't in
   view. Same rule as the notification sound; each browser keeps its own choice.
+- **A phone-sized layout.** Under 640 px the interface becomes a single
+  column: the projects sidebar slides in from the left, the active tab sits in
+  the header and opens the list of tabs, and a strip switches between the
+  conversation, the CLI, changes, files, plans, memory, notes and the console.
+  The CLI view adds a row of keys a phone keyboard lacks (Esc, Tab, arrows,
+  Ctrl+C). On any touch screen, what used to appear on hover is always visible,
+  and a long press selects a session row. `/?tab=<id>` in the address opens
+  that tab. Nothing changes on a desktop-sized window.
 
 ### Fixed
 

@@ -34,7 +34,7 @@ import { globalSearchVisible, searchHitAction } from './global-search-ui.js';
 import { ShortcutsDialog } from './ShortcutsDialog.js';
 import { StatusLineDialog } from './StatusLineDialog.js';
 import { Sidebar } from './Sidebar.js';
-import { SidePanel, type PanelTab } from './SidePanel.js';
+import { SidePanel, changeCount, type PanelTab } from './SidePanel.js';
 import { TabBar } from './TabBar.js';
 import { TerminalView } from './TerminalView.js';
 import { useCliActivity } from './useCliActivity.js';
@@ -56,6 +56,17 @@ import { useRemoteAccess } from './useRemoteAccess.js';
 import { RemoteAccessDialog } from './RemoteAccessDialog.js';
 import { remoteStateText } from './remote-access-ui.js';
 import { NotesPanel } from './NotesPanel.js';
+import { NarrowShell } from './NarrowShell.js';
+import {
+  NARROW_VIEW_STORAGE_KEY,
+  narrowViews,
+  panelTabOf,
+  parseStoredNarrowView,
+  resolveNarrowView,
+  type NarrowView,
+} from './narrow-layout.js';
+import { useNarrow } from './useNarrow.js';
+import { requestedTab } from './session-token.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
 import { useLocale } from './i18n/useLocale.js';
@@ -268,6 +279,56 @@ export function App(): JSX.Element {
   const [remoteDialogVisible, setRemoteDialogVisible] = useState(false);
 
   /*
+    La vista angosta (hito 38, §6.25). Debajo de 640 px el cuerpo de tres
+    columnas se reemplaza por `NarrowShell`: una columna y una tira de vistas.
+    La vista elegida se guarda en su propia clave, aparte de lo de la PC, y se
+    resuelve contra las que la pestana activa ofrece: sin planes no hay vista
+    de planes, y sin pestana quedan el chat —el estado vacio— y las notas.
+  */
+  const narrow = useNarrow();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const leaveDrawer = useCallback(() => setDrawerOpen(false), []);
+  const [narrowViewWanted, setNarrowViewWanted] = useState<NarrowView>(() =>
+    readStored<NarrowView>(NARROW_VIEW_STORAGE_KEY, 'chat', parseStoredNarrowView),
+  );
+  const narrowAvailable = useMemo(
+    () => narrowViews({ hasTab: activeTerminal !== null, plansAvailable: activeControls.plansAvailable }),
+    [activeTerminal, activeControls.plansAvailable],
+  );
+  const narrowView = resolveNarrowView(narrowViewWanted, narrowAvailable);
+  const changeNarrowView = useCallback((view: NarrowView) => {
+    setNarrowViewWanted(view);
+    writeStored(NARROW_VIEW_STORAGE_KEY, view);
+  }, []);
+
+  /*
+    `/?tab=<id>` (hito 38): la pestana que pide la direccion se activa cuando
+    llega la primera lista, y solo si esta en ella. Es lo que abre el aviso del
+    telefono. El oyente se engancha despues del de `useWorkspace`, que elige la
+    activa de siempre en el mismo mensaje: el ultimo `set` gana.
+  */
+  const pendingTab = useRef<string | null>(requestedTab);
+  useEffect(() => {
+    if (pendingTab.current === null) return;
+    return connection.onMessage((message) => {
+      if (message.type !== 'terminal.list' || pendingTab.current === null) return;
+      const wanted = pendingTab.current;
+      pendingTab.current = null;
+      if (message.terminals.some((terminal) => terminal.terminalId === wanted && terminal.kind === 'agent')) {
+        setActiveTerminal(wanted);
+      }
+    });
+  }, [connection, setActiveTerminal]);
+
+  /** Una tecla de la fila de la vista CLI (hito 38): a la pty, como si la hubiera tecleado xterm. */
+  const sendTerminalKey = useCallback(
+    (data: string) => {
+      if (activeTerminalId !== null) connection.send({ type: 'input', terminalId: activeTerminalId, data });
+    },
+    [connection, activeTerminalId],
+  );
+
+  /*
     El buscador global (hito 29), sobre la copia. Solo con otra CLI y con algo
     en la copia: si no, la barra es la de siempre. El texto que un acierto deja
     en el buscador del hilo espera aca a que la vista lo tome: si no habia
@@ -456,11 +517,14 @@ export function App(): JSX.Element {
     delante, que es un lector de directorios del lado del servidor.
   */
   const conversation = useConversation(connection, activeTerminalId);
-  const git = useGit(connection, panelOpen ? activeTerminalId : null);
-  const files = useFiles(
-    connection,
-    panelOpen && shownPanelTab === 'files' ? activeTerminalId : null,
-  );
+  /*
+    En la vista angosta (hito 38) no hay panel que abrir: los contadores de la
+    tira necesitan git y la memoria siempre, y los archivos, con su vista.
+  */
+  const panelFollowing = narrow ? activeTerminal !== null : panelOpen;
+  const filesShown = narrow ? narrowView === 'files' : panelOpen && shownPanelTab === 'files';
+  const git = useGit(connection, panelFollowing ? activeTerminalId : null);
+  const files = useFiles(connection, filesShown ? activeTerminalId : null);
   /*
     Los planes se escuchan siempre, no solo con la solapa delante: la lista
     llega con la conversacion —no se pide— y es lo que alimenta el contador de
@@ -475,13 +539,13 @@ export function App(): JSX.Element {
     al entrar—. El watcher del servidor mira un puñado de nombres del proyecto
     y no recorre nada, asi que tenerlo prendido no cuesta lo que un arbol.
   */
-  const memory = useMemory(connection, panelOpen ? activeTerminalId : null);
+  const memory = useMemory(connection, panelFollowing ? activeTerminalId : null);
 
   /*
     La CLI esta a la vista si su solapa esta delante y el panel abierto. Si no,
     lo que escriba se cuenta como no visto y la solapa lo avisa con un punto.
   */
-  const cliVisible = panelOpen && shownPanelTab === 'cli';
+  const cliVisible = narrow ? narrowView === 'cli' : panelOpen && shownPanelTab === 'cli';
 
   /*
     Modelo y esfuerzo en uso, leidos del archivo de sesion.
@@ -959,62 +1023,361 @@ export function App(): JSX.Element {
         : (activeTerminal.cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ??
           activeTerminal.cwd);
 
-  return (
-    <div className="app">
-      <header className="app-header">
-        <span className="app-name">Agent Workbench</span>
-        <span className={`status status-${status}`}>{t(STATUS_LABEL_KEYS[status])}</span>
-        {activeTerminal !== null && (
-          <span className="meta" title={activeTerminal.cwd}>
-            {activeTerminal.cwd}
-          </span>
-        )}
-        <span className="header-spacer" />
-        {cliVersion !== null && (
-          <span className="meta meta-dim">{t('app.header.cliVersion', { version: cliVersion })}</span>
-        )}
-        <button
-          className="icon-button"
-          onClick={theme.cycle}
-          title={themeTitle(theme.preference)}
-        >
-          {THEME_ICON[theme.preference]}
-        </button>
-        <LocaleMenu />
-        <SoundControl sound={sound} />
-        <NotifyButton notify={sound.notify} />
-        {remote.status !== null && !remoteClient && (
+  /*
+    Las piezas del cuerpo, armadas una sola vez (hito 38). El cuerpo de tres
+    columnas y el cascaron angosto las montan de dos formas, y cablearlas dos
+    veces es como una de las dos se queda sin un cambio. Lo que depende de la
+    disposicion —cerrar el cajon al elegir, que solapa del panel se ve— va en
+    cada pieza, con `narrow`.
+  */
+  const sidebarElement = (
+    <Sidebar
+      projects={projects}
+      indexStatus={indexStatus}
+      disabled={!cliAvailable}
+      onOpenProject={(cwd, agent) => {
+        leaveDrawer();
+        openTerminal({ cwd, ...(agent !== undefined ? { agent } : {}) });
+      }}
+      agents={agents}
+      offerAgentChoice={offerAgentChoice}
+      agentForProject={(project) =>
+        projectAgent(terminals, project, platform, agents, defaultAgent)
+      }
+      onOpenSession={(cwd, session) => {
+        leaveDrawer();
+        openTerminal({
+          cwd,
+          resumeSessionId: session.sessionId,
+          // La CLI de la sesion, no la de la ultima pestana del proyecto:
+          // reanudar un id con otra CLI no encontraria nada.
+          agent: session.agent,
+          label: sessionTitleText(session.title, session.titleSource),
+        });
+      }}
+      canResume={(agent) => sessionResumable(agents, agent)}
+      platform={platform}
+      onRefresh={refreshIndex}
+      openSessionIds={openSessionIds}
+      openBlocked={(cwd) => openBlockedFor(pendingOpens, cwd, platform)}
+      onArchive={archiveSessions}
+      onHide={narrow ? leaveDrawer : toggleSidebar}
+      width={sidebarWidth}
+      onNewProject={() => {
+        leaveDrawer();
+        setPickerFor('project');
+      }}
+      vault={vault.status}
+      onOpenVault={() => {
+        leaveDrawer();
+        setVaultDialogVisible(true);
+      }}
+      onOpenVaultSession={
+        remoteClient ? null : (session) => vault.openSession(session.agent, session.sessionId)
+      }
+      onExportProject={remoteClient ? null : vault.exportProject}
+      exporting={vault.exporting}
+      lastExported={vault.lastExported}
+      onContinueSession={(session, target) => {
+        leaveDrawer();
+        continueSession(
+          { agent: session.agent, sessionId: session.sessionId },
+          target,
+          continuationTabLabel(sessionTitleText(session.title, session.titleSource)),
+        );
+      }}
+      globalSearch={
+        globalSearchShown ? { ...globalSearch, vaultEnabled: vault.status?.enabled === true } : null
+      }
+      onOpenSearchHit={(hit, threadQuery) => {
+        leaveDrawer();
+        openSearchHit(hit, threadQuery);
+      }}
+    />
+  );
+
+  const chatStack = (
+    <div className="chat-stack">
+      {terminals.length === 0 ? (
+        <div className="empty-state">
+          <p>{t('app.empty.noTabs')}</p>
+          <p className="empty-hint">{t('app.empty.hint')}</p>
+          {cliAvailable && defaultCwd.length > 0 && (
+            <button
+              className="primary-button"
+              onClick={() => openTerminal({ cwd: defaultCwd })}
+              disabled={newTabBlocked}
+              title={newTabBlockedTitle ?? undefined}
+            >
+              {newTabBlocked ? t('app.empty.opening') : t('app.empty.newSession', { cwd: defaultCwd })}
+            </button>
+          )}
+        </div>
+      ) : (
+        <ConversationView
+          view={conversation}
+          threadFont={threadFont}
+          onRewind={activeControls.rewind ? rewind : undefined}
+          questionsAnswerable={activeControls.questionsAnswerable}
+          contextWindowSource={activeControls.contextWindowSource}
+          instructionsFile={instructionsFileFor(activeAgent)}
+          onGoToCli={() => {
+            if (narrow) {
+              changeNarrowView('cli');
+              return;
+            }
+            // Escondida, la solapa no alcanza: hay que traer la columna.
+            if (!panelOpen) togglePanel();
+            changePanelTab('cli');
+          }}
+          /*
+            Una pestana restaurada llega **dormida**: la conversacion se
+            lee entera y no hay ningun proceso detras. El boton de abrir
+            la CLI vive al pie del hilo, que es donde uno se da cuenta de
+            que no puede escribir.
+          */
+          cliPresence={
+            activeTerminal === null || activeTerminal.alive
+              ? 'live'
+              : activeTerminal.sleeping
+                ? 'sleeping'
+                : 'exited'
+          }
+          exitCode={activeTerminal?.exitCode ?? null}
+          waking={activeTerminalId !== null && waking.has(activeTerminalId)}
+          onWakeCli={() => {
+            if (activeTerminalId !== null) wakeTerminal(activeTerminalId);
+          }}
+          discovering={activeDiscovering}
+          continueTargets={activeContinueTargets}
+          continueBlockedReason={continueBlockedReason(
+            activeTerminal?.sessionId ?? '',
+            activeDiscovering,
+            conversation.events.length > 0,
+          )}
+          onContinue={
+            activeTerminal === null || activeAgent === null
+              ? undefined
+              : (target) =>
+                  continueSession(
+                    { agent: activeAgent, sessionId: activeTerminal.sessionId },
+                    target,
+                    continuationTabLabel(activeSessionTitle ?? activeTerminal.label),
+                  )
+          }
+          searchRequest={threadSearch}
+          onSearchRequestApplied={threadSearchApplied}
+          toolCallNotice={toolCallNotice}
+          serverClosed={
+            activeServerClosed === null || serverClosedNotice === null
+              ? null
+              : { state: activeServerClosed, text: serverClosedNotice }
+          }
+          statusLineState={activeStatusLine?.state ?? null}
+          onConfigureStatusLine={
+            activeStatusLine === null ? undefined : () => setStatusLineDialogVisible(true)
+          }
+        />
+      )}
+    </div>
+  );
+
+  const composerElement = (
+    <>
+      {activeTerminal !== null && (
+        <Composer
+          connection={connection}
+          terminalId={activeTerminalId}
+          alive={activeTerminal.alive}
+          sleeping={activeTerminal.sleeping}
+          imagesAllowed={activeControls.imagesAllowed}
+          blockedReason={blockedReason}
+          prefills={prefills}
+          onPrefillApplied={prefillApplied}
+          notice={handoffNotice}
+          onDismissNotice={activeTerminalId === null ? undefined : () => dismissHandoff(activeTerminalId)}
+          /* El aviso de una continuacion dura hasta el primer envio de esa pestana. */
+          onSubmitted={dismissHandoff}
+          leading={
+            activeControls.modeCycle === null ? undefined : (
+              <ModeControl
+                mode={conversation.permissionMode}
+                cycle={activeControls.modeCycle}
+                disabled={!activeTerminal.alive}
+                waitingFor={conversation.waitingFor}
+                statusKnown={statusKnown}
+                onChange={conversation.setPermissionMode}
+              />
+            )
+          }
+          controls={
+            activeControls.models === null && activeControls.efforts === null ? undefined : (
+              <AgentControls
+                models={activeControls.models}
+                efforts={activeControls.efforts}
+                model={currentModel}
+                effort={currentEffort}
+                modelProvisional={modelProvisional}
+                effortProvisional={effortProvisional}
+                savesChoice={savesModelChoiceFor(activeAgent)}
+                disabled={!activeTerminal.alive}
+                onCommand={sendCommand}
+              />
+            )
+          }
+        />
+      )}
+    </>
+  );
+
+  const sidePanelElement =
+    activeTerminal === null ? null : (
+      <SidePanel
+        tab={narrow ? (panelTabOf(narrowView) ?? shownPanelTab) : shownPanelTab}
+        plansAvailable={activeControls.plansAvailable}
+        hidden={narrow ? panelTabOf(narrowView) === null : !panelVisible}
+        onTabChange={narrow ? changeNarrowView : changePanelTab}
+        title={panelTitle}
+        cwd={activeTerminal.cwd}
+        platform={platform}
+        cli={
+          <div className="terminal-stack">
+            {terminals.map((terminal) => (
+              <TerminalView
+                key={terminal.terminalId}
+                terminalId={terminal.terminalId}
+                connection={connection}
+                active={terminal.terminalId === activeTerminalId}
+                theme={theme.resolved}
+                /*
+                  La terminal no se lleva el foco sola.
+
+                  Lo hacia al activarse una pestana, desde un
+                  `setTimeout(0)` que corre **despues** del foco que pide
+                  el cuadro de escritura: ganaba siempre la terminal. El
+                  resultado era que abrir una pestana y empezar a
+                  escribir mandaba el texto a la CLI —interpretado como
+                  teclas, no como mensaje— en vez de al cuadro.
+
+                  Desde el hito 7 el centro es la conversacion y el foco
+                  arranca en el cuadro (CLAUDE.md 7). Quien quiera
+                  teclear en la CLI hace clic en ella, que es lo que uno
+                  hace con una terminal.
+                */
+                autoFocus={false}
+              />
+            ))}
+          </div>
+        }
+        cliUnseen={cliUnseen}
+        expanded={panelExpanded}
+        onToggleExpanded={toggleExpanded}
+        git={git}
+        files={files}
+        plans={plans}
+        memory={memory}
+        onInsert={activeControls.fileMentions ? insertIntoTerminal : undefined}
+        onReveal={remoteClient ? null : revealPath}
+        onHide={togglePanel}
+      />
+    );
+
+  const consoleElement =
+    activeTerminal === null ? null : (
+      <ConsolePane
+        connection={connection}
+        shells={consoleShells}
+        activeShellId={activeShell?.terminalId ?? null}
+        cwd={activeTerminal.cwd}
+        shellName={shellName}
+        theme={theme.resolved}
+        onSelect={setActiveShellId}
+        onOpen={openConsoleHere}
+        onCloseShell={closeShell}
+        onCollapse={narrow ? () => changeNarrowView('chat') : toggleConsole}
+      />
+    );
+
+  const notesElement = (
+    <NotesPanel
+      notes={notes}
+      fill={narrow || activeTerminal === null}
+      onSendNote={
+        activeTerminal === null || !activeControls.noteSendable
+          ? null
+          : (noteId) => {
+              const cwd = activeTerminal.cwd;
+              openTerminal({
+                cwd,
+                ...(activeTerminal.agent !== null ? { agent: activeTerminal.agent } : {}),
+                onOpened: (terminal) =>
+                  connection.send({
+                    type: 'notes.send',
+                    noteId,
+                    terminalId: terminal.terminalId,
+                  }),
+              });
+            }
+      }
+      sendTargetCwd={activeTerminal?.cwd ?? null}
+    />
+  );
+
+  /* La consola en la columna de la PC: el divisor, el hueco con su alto y la barra plegada. */
+  const consoleColumn =
+    activeTerminal === null ? null : (
+      <>
+        {consoleVisible ? (
+          <>
+            {/*
+              El divisor solo tiene sentido si hay dos cosas que repartir.
+              Con el panel escondido la consola se lleva la columna entera.
+            */}
+            {panelVisible && (
+              <div
+                className="hdivider"
+                {...consoleDivider}
+                title={t('app.divider.consoleHeight')}
+              />
+            )}
+            <div
+              className="console-slot"
+              style={panelVisible ? { height: `${consoleHeight}px` } : { flex: '1 1 auto' }}
+            >
+              {consoleElement}
+            </div>
+          </>
+        ) : (
+          /*
+            Plegada, la consola deja su barra al pie de la columna.
+
+            Es la misma idea que las notas de la barra lateral: una
+            seccion que vive donde se la usa y se despliega de un clic, en
+            vez de un interruptor lejos. Y como esta dentro de la columna
+            derecha, con el panel escondido no estorba: ahi lo que se ve
+            es la pestañita vertical, y esta vuelve con ella.
+          */
           <button
-            className={`icon-button${remote.status.state === 'active' ? ' icon-button-on' : ''}`}
-            onClick={() => setRemoteDialogVisible(true)}
-            title={`${t('app.header.remoteAccess')} — ${remoteStateText(remote.status.state, remote.status.port)}`}
+            className="strip-collapsed"
+            onClick={toggleConsole}
+            title={
+              shellName === null
+                ? t('console.openAnyIn', { cwd: activeTerminal.cwd })
+                : t('console.openIn', { shell: shellName, cwd: activeTerminal.cwd })
+            }
           >
-            ⇄
+            <span className="strip-collapsed-arrow">▸</span>
+            <span>{shellName ?? t('console.name')}</span>
+            {consoleShells.length > 0 && (
+              <span className="strip-collapsed-count">{consoleShells.length}</span>
+            )}
           </button>
         )}
-        {remoteClient && (
-          <span className="remote-badge" title={t('app.header.remoteBadgeTitle')}>
-            {t('app.header.remoteBadge')}
-          </span>
-        )}
-        <button
-          className="icon-button"
-          onClick={() => setShortcutsVisible(true)}
-          title={t('app.header.shortcuts')}
-        >
-          ?
-        </button>
-        {/*
-          Sin los interruptores de "Proyectos", "Panel" y "Consola".
+      </>
+    );
 
-          Los tres estaban aca arriba y los tres hacian lo mismo que ahora hace
-          el borde de lo que esconden: una pestañita en el sitio donde el panel
-          acaba de desaparecer. Un interruptor a dos metros del hueco obliga a
-          buscar arriba lo que uno esta mirando abajo, y encima el estado
-          "encendido" del boton repetia una informacion que la pantalla ya da —
-          si el panel esta, se ve.
-        */}
-      </header>
+  const banners = (
+    <>
 
       {/*
         El anfitrion revoco este equipo, o apago el acceso remoto (hito 37). La
@@ -1064,434 +1427,11 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      <div className="app-body">
-        {/*
-          Escondida la barra, queda su pestañita.
+    </>
+  );
 
-          A diferencia de las otras dos, esta se dibuja **siempre** que la barra
-          este oculta, aunque no haya ninguna pestaña abierta: es el unico
-          camino para abrir un proyecto, y sin ella una ventana recien abierta
-          con la barra escondida no tendria como empezar.
-        */}
-        {!sidebarVisible && (
-          <button
-            className="panel-peek panel-peek-left"
-            onClick={toggleSidebar}
-            title={t('app.sidebar.show')}
-          >
-            <span className="panel-peek-arrow">›</span>
-            <span className="panel-peek-label">{t('app.sidebar.name')}</span>
-          </button>
-        )}
-
-        {sidebarVisible && (
-          <Sidebar
-            projects={projects}
-            indexStatus={indexStatus}
-            disabled={!cliAvailable}
-            onOpenProject={(cwd, agent) =>
-              openTerminal({ cwd, ...(agent !== undefined ? { agent } : {}) })
-            }
-            agents={agents}
-            offerAgentChoice={offerAgentChoice}
-            agentForProject={(project) =>
-              projectAgent(terminals, project, platform, agents, defaultAgent)
-            }
-            onOpenSession={(cwd, session) =>
-              openTerminal({
-                cwd,
-                resumeSessionId: session.sessionId,
-                // La CLI de la sesion, no la de la ultima pestana del proyecto:
-                // reanudar un id con otra CLI no encontraria nada.
-                agent: session.agent,
-                label: sessionTitleText(session.title, session.titleSource),
-              })
-            }
-            canResume={(agent) => sessionResumable(agents, agent)}
-            platform={platform}
-            onRefresh={refreshIndex}
-            openSessionIds={openSessionIds}
-            openBlocked={(cwd) => openBlockedFor(pendingOpens, cwd, platform)}
-            onArchive={archiveSessions}
-            onHide={toggleSidebar}
-            width={sidebarWidth}
-            onNewProject={() => setPickerFor('project')}
-            vault={vault.status}
-            onOpenVault={() => setVaultDialogVisible(true)}
-            onOpenVaultSession={
-              remoteClient ? null : (session) => vault.openSession(session.agent, session.sessionId)
-            }
-            onExportProject={remoteClient ? null : vault.exportProject}
-            exporting={vault.exporting}
-            lastExported={vault.lastExported}
-            onContinueSession={(session, target) =>
-              continueSession(
-                { agent: session.agent, sessionId: session.sessionId },
-                target,
-                continuationTabLabel(sessionTitleText(session.title, session.titleSource)),
-              )
-            }
-            globalSearch={
-              globalSearchShown ? { ...globalSearch, vaultEnabled: vault.status?.enabled === true } : null
-            }
-            onOpenSearchHit={openSearchHit}
-          />
-        )}
-
-        {sidebarVisible && (
-          <div className="divider" {...sidebarDivider} title={t('app.divider.width')} />
-        )}
-
-        <main
-          className={`workspace${columnExpanded && rightColumnOpen ? ' workspace-narrow' : ''}`}
-        >
-          <TabBar
-            terminals={terminals}
-            activeTerminalId={activeTerminalId}
-            activity={activity}
-            canOpen={cliAvailable && defaultCwd.length > 0}
-            onSelect={setActiveTerminal}
-            onClose={closeTerminal}
-            onRename={renameTerminal}
-            onReorder={reorderTabs}
-            onNew={(agent) =>
-              openTerminal({ cwd: newTabCwd, ...(agent !== undefined ? { agent } : {}) })
-            }
-            agents={agents}
-            offerAgentChoice={offerAgentChoice}
-            newTabAgent={newTabAgent}
-            pendingOpens={pendingOpens}
-            platform={platform}
-            newTabBlockedTitle={newTabBlockedTitle}
-          />
-
-          <div className="chat-stack">
-            {terminals.length === 0 ? (
-              <div className="empty-state">
-                <p>{t('app.empty.noTabs')}</p>
-                <p className="empty-hint">{t('app.empty.hint')}</p>
-                {cliAvailable && defaultCwd.length > 0 && (
-                  <button
-                    className="primary-button"
-                    onClick={() => openTerminal({ cwd: defaultCwd })}
-                    disabled={newTabBlocked}
-                    title={newTabBlockedTitle ?? undefined}
-                  >
-                    {newTabBlocked ? t('app.empty.opening') : t('app.empty.newSession', { cwd: defaultCwd })}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <ConversationView
-                view={conversation}
-                threadFont={threadFont}
-                onRewind={activeControls.rewind ? rewind : undefined}
-                questionsAnswerable={activeControls.questionsAnswerable}
-                contextWindowSource={activeControls.contextWindowSource}
-                instructionsFile={instructionsFileFor(activeAgent)}
-                onGoToCli={() => {
-                  // Escondida, la solapa no alcanza: hay que traer la columna.
-                  if (!panelOpen) togglePanel();
-                  changePanelTab('cli');
-                }}
-                /*
-                  Una pestana restaurada llega **dormida**: la conversacion se
-                  lee entera y no hay ningun proceso detras. El boton de abrir
-                  la CLI vive al pie del hilo, que es donde uno se da cuenta de
-                  que no puede escribir.
-                */
-                cliPresence={
-                  activeTerminal === null || activeTerminal.alive
-                    ? 'live'
-                    : activeTerminal.sleeping
-                      ? 'sleeping'
-                      : 'exited'
-                }
-                exitCode={activeTerminal?.exitCode ?? null}
-                waking={activeTerminalId !== null && waking.has(activeTerminalId)}
-                onWakeCli={() => {
-                  if (activeTerminalId !== null) wakeTerminal(activeTerminalId);
-                }}
-                discovering={activeDiscovering}
-                continueTargets={activeContinueTargets}
-                continueBlockedReason={continueBlockedReason(
-                  activeTerminal?.sessionId ?? '',
-                  activeDiscovering,
-                  conversation.events.length > 0,
-                )}
-                onContinue={
-                  activeTerminal === null || activeAgent === null
-                    ? undefined
-                    : (target) =>
-                        continueSession(
-                          { agent: activeAgent, sessionId: activeTerminal.sessionId },
-                          target,
-                          continuationTabLabel(activeSessionTitle ?? activeTerminal.label),
-                        )
-                }
-                searchRequest={threadSearch}
-                onSearchRequestApplied={threadSearchApplied}
-                toolCallNotice={toolCallNotice}
-                serverClosed={
-                  activeServerClosed === null || serverClosedNotice === null
-                    ? null
-                    : { state: activeServerClosed, text: serverClosedNotice }
-                }
-                statusLineState={activeStatusLine?.state ?? null}
-                onConfigureStatusLine={
-                  activeStatusLine === null ? undefined : () => setStatusLineDialogVisible(true)
-                }
-              />
-            )}
-          </div>
-
-          {activeTerminal !== null && (
-            <Composer
-              connection={connection}
-              terminalId={activeTerminalId}
-              alive={activeTerminal.alive}
-              sleeping={activeTerminal.sleeping}
-              imagesAllowed={activeControls.imagesAllowed}
-              blockedReason={blockedReason}
-              prefills={prefills}
-              onPrefillApplied={prefillApplied}
-              notice={handoffNotice}
-              onDismissNotice={activeTerminalId === null ? undefined : () => dismissHandoff(activeTerminalId)}
-              /* El aviso de una continuacion dura hasta el primer envio de esa pestana. */
-              onSubmitted={dismissHandoff}
-              leading={
-                activeControls.modeCycle === null ? undefined : (
-                  <ModeControl
-                    mode={conversation.permissionMode}
-                    cycle={activeControls.modeCycle}
-                    disabled={!activeTerminal.alive}
-                    waitingFor={conversation.waitingFor}
-                    statusKnown={statusKnown}
-                    onChange={conversation.setPermissionMode}
-                  />
-                )
-              }
-              controls={
-                activeControls.models === null && activeControls.efforts === null ? undefined : (
-                  <AgentControls
-                    models={activeControls.models}
-                    efforts={activeControls.efforts}
-                    model={currentModel}
-                    effort={currentEffort}
-                    modelProvisional={modelProvisional}
-                    effortProvisional={effortProvisional}
-                    savesChoice={savesModelChoiceFor(activeAgent)}
-                    disabled={!activeTerminal.alive}
-                    onCommand={sendCommand}
-                  />
-                )
-              }
-            />
-          )}
-        </main>
-
-        {/*
-          La columna derecha se monta siempre que haya una pestana, aunque este
-          escondida, y se colapsa con CSS.
-
-          El motivo es la terminal, que vive adentro: desmontarla soltaria el
-          enganche y la repintaria entera con el replay cada vez que alguien
-          aprieta Alt+P. Colapsada mide 0 px, y de eso se ocupa `TerminalView`,
-          que con el contenedor sin caja no mide ni le avisa nada al pty.
-
-          Sin pestana la columna trae solo las notas (hito 36).
-        */}
-        <>
-            {/*
-              Escondida la columna, queda una pestanita en el borde para
-              devolverla.
-
-              El interruptor de la cabecera ya existia y hacia lo mismo, pero
-              esta a dos metros de donde acaba de desaparecer el panel: quien
-              lo esconde sin querer con `Alt+P` lo busca donde estaba, no
-              arriba. Es un boton y no una zona sensible al mouse porque una
-              columna que reaparece sola al pasar por el borde es peor que una
-              que no reaparece.
-            */}
-            {!rightColumnOpen && (
-              <button
-                className="panel-peek"
-                onClick={togglePanel}
-                title={t('app.panel.show')}
-              >
-                <span className="panel-peek-arrow">‹</span>
-                <span className="panel-peek-label">{t('app.panel.name')}</span>
-              </button>
-            )}
-
-            {rightColumnOpen && (
-              <div
-                className="divider"
-                {...panelDivider}
-                title={t('app.divider.width')}
-              />
-            )}
-            <div
-              className={`panel-slot${rightColumnOpen ? '' : ' panel-slot-collapsed'}${
-                rightColumnOpen && columnExpanded ? ' panel-slot-expanded' : ''
-              }`}
-              style={rightColumnOpen && !columnExpanded ? { width: `${panelWidth}px` } : undefined}
-            >
-              {activeTerminal !== null && (
-              <>
-              <SidePanel
-                tab={shownPanelTab}
-                plansAvailable={activeControls.plansAvailable}
-                hidden={!panelVisible}
-                onTabChange={changePanelTab}
-                title={panelTitle}
-                cwd={activeTerminal.cwd}
-                platform={platform}
-                cli={
-                  <div className="terminal-stack">
-                    {terminals.map((terminal) => (
-                      <TerminalView
-                        key={terminal.terminalId}
-                        terminalId={terminal.terminalId}
-                        connection={connection}
-                        active={terminal.terminalId === activeTerminalId}
-                        theme={theme.resolved}
-                        /*
-                          La terminal no se lleva el foco sola.
-
-                          Lo hacia al activarse una pestana, desde un
-                          `setTimeout(0)` que corre **despues** del foco que pide
-                          el cuadro de escritura: ganaba siempre la terminal. El
-                          resultado era que abrir una pestana y empezar a
-                          escribir mandaba el texto a la CLI —interpretado como
-                          teclas, no como mensaje— en vez de al cuadro.
-
-                          Desde el hito 7 el centro es la conversacion y el foco
-                          arranca en el cuadro (CLAUDE.md 7). Quien quiera
-                          teclear en la CLI hace clic en ella, que es lo que uno
-                          hace con una terminal.
-                        */
-                        autoFocus={false}
-                      />
-                    ))}
-                  </div>
-                }
-                cliUnseen={cliUnseen}
-                expanded={panelExpanded}
-                onToggleExpanded={toggleExpanded}
-                git={git}
-                files={files}
-                plans={plans}
-                memory={memory}
-                onInsert={activeControls.fileMentions ? insertIntoTerminal : undefined}
-                onReveal={remoteClient ? null : revealPath}
-                onHide={togglePanel}
-              />
-
-              {consoleVisible ? (
-                <>
-                  {/*
-                    El divisor solo tiene sentido si hay dos cosas que repartir.
-                    Con el panel escondido la consola se lleva la columna entera.
-                  */}
-                  {panelVisible && (
-                    <div
-                      className="hdivider"
-                      {...consoleDivider}
-                      title={t('app.divider.consoleHeight')}
-                    />
-                  )}
-                  <div
-                    className="console-slot"
-                    style={panelVisible ? { height: `${consoleHeight}px` } : { flex: '1 1 auto' }}
-                  >
-                    <ConsolePane
-                      connection={connection}
-                      shells={consoleShells}
-                      activeShellId={activeShell?.terminalId ?? null}
-                      cwd={activeTerminal.cwd}
-                      shellName={shellName}
-                      theme={theme.resolved}
-                      onSelect={setActiveShellId}
-                      onOpen={openConsoleHere}
-                      onCloseShell={closeShell}
-                      onCollapse={toggleConsole}
-                    />
-                  </div>
-                </>
-              ) : (
-                /*
-                  Plegada, la consola deja su barra al pie de la columna.
-
-                  Es la misma idea que las notas de la barra lateral: una
-                  seccion que vive donde se la usa y se despliega de un clic, en
-                  vez de un interruptor lejos. Y como esta dentro de la columna
-                  derecha, con el panel escondido no estorba: ahi lo que se ve
-                  es la pestañita vertical, y esta vuelve con ella.
-                */
-                <button
-                  className="strip-collapsed"
-                  onClick={toggleConsole}
-                  title={
-                    shellName === null
-                      ? t('console.openAnyIn', { cwd: activeTerminal.cwd })
-                      : t('console.openIn', { shell: shellName, cwd: activeTerminal.cwd })
-                  }
-                >
-                  <span className="strip-collapsed-arrow">▸</span>
-                  <span>{shellName ?? t('console.name')}</span>
-                  {consoleShells.length > 0 && (
-                    <span className="strip-collapsed-count">{consoleShells.length}</span>
-                  )}
-                </button>
-              )}
-              </>
-              )}
-
-              {/*
-                Las notas, al pie de la columna (hito 36). Estaban al pie de la
-                barra de proyectos, que es la columna que mas se esconde; esta
-                es la que casi siempre queda abierta, y una idea que se cruza
-                se anota sin traer nada de vuelta. Siguen sin ser de ninguna
-                pestana: que compartan columna con el panel es por donde se las
-                tiene a mano, no porque sean de el.
-
-                Mandar una nota abre una conversacion **nueva** en el proyecto
-                que se esta mirando, y le pasa la nota entera. El id de la
-                pestana lo asigna el servidor, asi que el envio espera al
-                `terminal.opened` en vez de adivinarlo.
-
-                Con la CLI de la pestana activa, dicha explicitamente, y solo si
-                esa CLI avisa cuando esta lista: el servidor espera esa senal
-                antes de pegar, y sin ella rechaza la nota con la pestana nueva
-                ya abierta y sin que nadie la haya pedido.
-              */}
-              <NotesPanel
-                notes={notes}
-                fill={activeTerminal === null}
-                onSendNote={
-                  activeTerminal === null || !activeControls.noteSendable
-                    ? null
-                    : (noteId) => {
-                        const cwd = activeTerminal.cwd;
-                        openTerminal({
-                          cwd,
-                          ...(activeTerminal.agent !== null ? { agent: activeTerminal.agent } : {}),
-                          onOpened: (terminal) =>
-                            connection.send({
-                              type: 'notes.send',
-                              noteId,
-                              terminalId: terminal.terminalId,
-                            }),
-                        });
-                      }
-                }
-                sendTargetCwd={activeTerminal?.cwd ?? null}
-              />
-            </div>
-        </>
-      </div>
-
+  const dialogs = (
+    <>
       {/*
         Se dibuja con la status line de la pestana activa, la de ahora: al
         pegar el fragmento y comprobar, el estado de arriba cambia en el sitio.
@@ -1583,6 +1523,266 @@ export function App(): JSX.Element {
           onClose={() => setPickerFor(null)}
         />
       )}
+    </>
+  );
+
+  if (narrow) {
+    return (
+      <div className="app app-narrow">
+        <NarrowShell
+          banners={banners}
+          status={status}
+          statusLabel={t(STATUS_LABEL_KEYS[status])}
+          terminals={terminals}
+          activeTerminalId={activeTerminalId}
+          activity={activity}
+          agents={agents}
+          offerAgentChoice={offerAgentChoice}
+          newTabAgent={newTabAgent}
+          canOpen={cliAvailable && defaultCwd.length > 0}
+          newTabBlockedTitle={newTabBlockedTitle}
+          onSelectTab={setActiveTerminal}
+          onCloseTab={closeTerminal}
+          onRenameTab={renameTerminal}
+          onNewTab={(agent) => openTerminal({ cwd: newTabCwd, ...(agent !== undefined ? { agent } : {}) })}
+          drawer={sidebarElement}
+          drawerOpen={drawerOpen}
+          onDrawerChange={setDrawerOpen}
+          menu={{
+            cwd: activeTerminal?.cwd ?? null,
+            cliVersion,
+            themeIcon: THEME_ICON[theme.preference],
+            themeTitle: themeTitle(theme.preference),
+            onCycleTheme: theme.cycle,
+            sound,
+            remote:
+              remote.status !== null && !remoteClient
+                ? {
+                    title: `${t('app.header.remoteAccess')} — ${remoteStateText(remote.status.state, remote.status.port)}`,
+                    active: remote.status.state === 'active',
+                    onOpen: () => setRemoteDialogVisible(true),
+                  }
+                : null,
+            remoteClient,
+            onShortcuts: () => setShortcutsVisible(true),
+          }}
+          view={narrowView}
+          views={narrowAvailable}
+          onViewChange={changeNarrowView}
+          badges={{
+            changes: changeCount(git.status),
+            plans: plans.plans.length,
+            memory: memory.status?.installed === true ? memory.status.notes.length : 0,
+            cliUnseen,
+          }}
+          chat={
+            <>
+              {chatStack}
+              {composerElement}
+            </>
+          }
+          panel={sidePanelElement}
+          notes={notesElement}
+          console={consoleElement}
+          onTerminalKey={sendTerminalKey}
+        />
+        {dialogs}
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <span className="app-name">Agent Workbench</span>
+        <span className={`status status-${status}`}>{t(STATUS_LABEL_KEYS[status])}</span>
+        {activeTerminal !== null && (
+          <span className="meta" title={activeTerminal.cwd}>
+            {activeTerminal.cwd}
+          </span>
+        )}
+        <span className="header-spacer" />
+        {cliVersion !== null && (
+          <span className="meta meta-dim">{t('app.header.cliVersion', { version: cliVersion })}</span>
+        )}
+        <button
+          className="icon-button"
+          onClick={theme.cycle}
+          title={themeTitle(theme.preference)}
+        >
+          {THEME_ICON[theme.preference]}
+        </button>
+        <LocaleMenu />
+        <SoundControl sound={sound} />
+        <NotifyButton notify={sound.notify} />
+        {remote.status !== null && !remoteClient && (
+          <button
+            className={`icon-button${remote.status.state === 'active' ? ' icon-button-on' : ''}`}
+            onClick={() => setRemoteDialogVisible(true)}
+            title={`${t('app.header.remoteAccess')} — ${remoteStateText(remote.status.state, remote.status.port)}`}
+          >
+            ⇄
+          </button>
+        )}
+        {remoteClient && (
+          <span className="remote-badge" title={t('app.header.remoteBadgeTitle')}>
+            {t('app.header.remoteBadge')}
+          </span>
+        )}
+        <button
+          className="icon-button"
+          onClick={() => setShortcutsVisible(true)}
+          title={t('app.header.shortcuts')}
+        >
+          ?
+        </button>
+        {/*
+          Sin los interruptores de "Proyectos", "Panel" y "Consola".
+
+          Los tres estaban aca arriba y los tres hacian lo mismo que ahora hace
+          el borde de lo que esconden: una pestañita en el sitio donde el panel
+          acaba de desaparecer. Un interruptor a dos metros del hueco obliga a
+          buscar arriba lo que uno esta mirando abajo, y encima el estado
+          "encendido" del boton repetia una informacion que la pantalla ya da —
+          si el panel esta, se ve.
+        */}
+      </header>
+
+      {banners}
+
+      <div className="app-body">
+        {/*
+          Escondida la barra, queda su pestañita.
+
+          A diferencia de las otras dos, esta se dibuja **siempre** que la barra
+          este oculta, aunque no haya ninguna pestaña abierta: es el unico
+          camino para abrir un proyecto, y sin ella una ventana recien abierta
+          con la barra escondida no tendria como empezar.
+        */}
+        {!sidebarVisible && (
+          <button
+            className="panel-peek panel-peek-left"
+            onClick={toggleSidebar}
+            title={t('app.sidebar.show')}
+          >
+            <span className="panel-peek-arrow">›</span>
+            <span className="panel-peek-label">{t('app.sidebar.name')}</span>
+          </button>
+        )}
+
+        {sidebarVisible && sidebarElement}
+
+        {sidebarVisible && (
+          <div className="divider" {...sidebarDivider} title={t('app.divider.width')} />
+        )}
+
+        <main
+          className={`workspace${columnExpanded && rightColumnOpen ? ' workspace-narrow' : ''}`}
+        >
+          <TabBar
+            terminals={terminals}
+            activeTerminalId={activeTerminalId}
+            activity={activity}
+            canOpen={cliAvailable && defaultCwd.length > 0}
+            onSelect={setActiveTerminal}
+            onClose={closeTerminal}
+            onRename={renameTerminal}
+            onReorder={reorderTabs}
+            onNew={(agent) =>
+              openTerminal({ cwd: newTabCwd, ...(agent !== undefined ? { agent } : {}) })
+            }
+            agents={agents}
+            offerAgentChoice={offerAgentChoice}
+            newTabAgent={newTabAgent}
+            pendingOpens={pendingOpens}
+            platform={platform}
+            newTabBlockedTitle={newTabBlockedTitle}
+          />
+
+          {chatStack}
+
+          {composerElement}
+        </main>
+
+        {/*
+          La columna derecha se monta siempre que haya una pestana, aunque este
+          escondida, y se colapsa con CSS.
+
+          El motivo es la terminal, que vive adentro: desmontarla soltaria el
+          enganche y la repintaria entera con el replay cada vez que alguien
+          aprieta Alt+P. Colapsada mide 0 px, y de eso se ocupa `TerminalView`,
+          que con el contenedor sin caja no mide ni le avisa nada al pty.
+
+          Sin pestana la columna trae solo las notas (hito 36).
+        */}
+        <>
+            {/*
+              Escondida la columna, queda una pestanita en el borde para
+              devolverla.
+
+              El interruptor de la cabecera ya existia y hacia lo mismo, pero
+              esta a dos metros de donde acaba de desaparecer el panel: quien
+              lo esconde sin querer con `Alt+P` lo busca donde estaba, no
+              arriba. Es un boton y no una zona sensible al mouse porque una
+              columna que reaparece sola al pasar por el borde es peor que una
+              que no reaparece.
+            */}
+            {!rightColumnOpen && (
+              <button
+                className="panel-peek"
+                onClick={togglePanel}
+                title={t('app.panel.show')}
+              >
+                <span className="panel-peek-arrow">‹</span>
+                <span className="panel-peek-label">{t('app.panel.name')}</span>
+              </button>
+            )}
+
+            {rightColumnOpen && (
+              <div
+                className="divider"
+                {...panelDivider}
+                title={t('app.divider.width')}
+              />
+            )}
+            <div
+              className={`panel-slot${rightColumnOpen ? '' : ' panel-slot-collapsed'}${
+                rightColumnOpen && columnExpanded ? ' panel-slot-expanded' : ''
+              }`}
+              style={rightColumnOpen && !columnExpanded ? { width: `${panelWidth}px` } : undefined}
+            >
+              {activeTerminal !== null && (
+              <>
+              {sidePanelElement}
+
+              {consoleColumn}
+              </>
+              )}
+
+              {/*
+                Las notas, al pie de la columna (hito 36). Estaban al pie de la
+                barra de proyectos, que es la columna que mas se esconde; esta
+                es la que casi siempre queda abierta, y una idea que se cruza
+                se anota sin traer nada de vuelta. Siguen sin ser de ninguna
+                pestana: que compartan columna con el panel es por donde se las
+                tiene a mano, no porque sean de el.
+
+                Mandar una nota abre una conversacion **nueva** en el proyecto
+                que se esta mirando, y le pasa la nota entera. El id de la
+                pestana lo asigna el servidor, asi que el envio espera al
+                `terminal.opened` en vez de adivinarlo.
+
+                Con la CLI de la pestana activa, dicha explicitamente, y solo si
+                esa CLI avisa cuando esta lista: el servidor espera esa senal
+                antes de pegar, y sin ella rechaza la nota con la pestana nueva
+                ya abierta y sin que nadie la haya pedido.
+              */}
+              {notesElement}
+            </div>
+        </>
+      </div>
+
+      {dialogs}
     </div>
   );
 }

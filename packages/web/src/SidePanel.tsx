@@ -39,7 +39,7 @@ export const PANEL_TABS: readonly { id: PanelTab; labelKey: MessageKey }[] = [
 ];
 
 /** Cuantos archivos tocados mostrar en la pastilla de la pestana "Cambios". */
-function changeCount(status: GitStatus): number {
+export function changeCount(status: GitStatus): number {
   if (status.state !== 'ready') return 0;
   // Un archivo modificado y ademas preparado aparece dos veces en la lista,
   // pero como archivo tocado es uno solo.

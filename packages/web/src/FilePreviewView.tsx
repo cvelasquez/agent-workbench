@@ -32,9 +32,15 @@ interface FilePreviewViewProps {
    */
   /** null en una ventana remota (hito 37): abriria el archivo en el escritorio del anfitrion. */
   onOpenWithSystem: (() => void) | null;
+  /**
+   * Escribe `@ruta` en la terminal. Estaba solo en el menu contextual del
+   * arbol, que con el dedo no se abre solo (hito 38): aca queda a la vista.
+   * Ausente si la CLI no menciona archivos asi.
+   */
+  onInsert?: () => void;
 }
 
-export function FilePreviewView({ preview, onOpenWithSystem }: FilePreviewViewProps): JSX.Element {
+export function FilePreviewView({ preview, onOpenWithSystem, onInsert }: FilePreviewViewProps): JSX.Element {
   const [html, setHtml] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,12 +72,20 @@ export function FilePreviewView({ preview, onOpenWithSystem }: FilePreviewViewPr
     [preview.text, preview.binary],
   );
 
-  const openButton =
-    onOpenWithSystem === null ? null : (
-      <button className="primary-button primary-button-small preview-open" onClick={onOpenWithSystem}>
-        {t('files.menu.openWithSystem')}
-      </button>
-    );
+  const openButton = (
+    <div className="preview-actions">
+      {onInsert !== undefined && (
+        <button className="primary-button primary-button-small preview-open" onClick={onInsert}>
+          {t('files.menu.insertMention')}
+        </button>
+      )}
+      {onOpenWithSystem !== null && (
+        <button className="primary-button primary-button-small preview-open" onClick={onOpenWithSystem}>
+          {t('files.menu.openWithSystem')}
+        </button>
+      )}
+    </div>
+  );
 
   if (preview.binary) {
     return (

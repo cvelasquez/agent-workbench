@@ -113,7 +113,7 @@ function PendingTab({ placement }: { placement: PendingTabPlacement }): JSX.Elem
  * `prefers-reduced-motion` deja de latir y queda como el de "parado" — una cosa
  * que se mueve sola en la barra es exactamente lo que esa preferencia evita.
  */
-function TabStatus({
+export function TabStatus({
   terminal,
   activity,
   statusLine,
@@ -156,7 +156,7 @@ function TabStatus({
   return <span className="tab-dot" title={restingDotTitle(activity, statusLine)} />;
 }
 
-function defaultLabel(terminal: TerminalDescriptor): string {
+export function defaultTabLabel(terminal: TerminalDescriptor): string {
   if (terminal.label.length > 0) return terminal.label;
   const parts = terminal.cwd.split(/[\\/]/).filter((part) => part.length > 0);
   const folder = parts[parts.length - 1] ?? terminal.cwd;
@@ -198,7 +198,7 @@ export function TabBar({
 
   const startEditing = (terminal: TerminalDescriptor): void => {
     setEditingId(terminal.terminalId);
-    setDraftLabel(terminal.label.length > 0 ? terminal.label : defaultLabel(terminal));
+    setDraftLabel(terminal.label.length > 0 ? terminal.label : defaultTabLabel(terminal));
   };
 
   const commitEditing = (): void => {
@@ -282,7 +282,7 @@ export function TabBar({
                   {terminal.agent !== null && tabBadgeVisible(offerAgentChoice, terminal.agent) && (
                     <AgentBadge agent={terminal.agent} agents={agents} />
                   )}
-                  {defaultLabel(terminal)}
+                  {defaultTabLabel(terminal)}
                 </span>
                 <button
                   className="tab-close"

@@ -306,6 +306,7 @@ export function FilesPanel({
             <FilePreviewView
               preview={preview}
               onOpenWithSystem={onReveal === null ? null : () => onReveal(preview.path)}
+              onInsert={onInsert === undefined ? undefined : () => onInsert(`@${preview.path}`)}
             />
           )
         )}

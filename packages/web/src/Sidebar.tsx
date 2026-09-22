@@ -29,6 +29,7 @@ import {
   type VaultStatus,
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
+import { LongPressButton } from './LongPressButton.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import {
   continueTargets,
@@ -1018,8 +1019,10 @@ export function Sidebar({
                           isSelected ? ' session-selected' : ''
                         }`}
                       >
-                        <button
+                        <LongPressButton
                           className="session-item"
+                          // Con el dedo no hay Ctrl: el toque largo selecciona (hito 38).
+                          onLongPress={() => toggleSelected(session.sessionId)}
                           onClick={(event) => {
                             // Ctrl/Cmd+clic selecciona en vez de abrir: limpiar
                             // veinte sesiones de prueba de a una son veinte
@@ -1067,7 +1070,7 @@ export function Sidebar({
                             {sessionTitleText(session.title, session.titleSource)}
                           </span>
                           <span className="session-meta">{formatWhen(session.updatedAt)}</span>
-                        </button>
+                        </LongPressButton>
 
                         {/*
                           Continuar con otra CLI (hito 29). Solo con otra

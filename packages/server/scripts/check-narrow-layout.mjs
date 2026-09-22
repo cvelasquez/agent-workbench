@@ -1,0 +1,159 @@
+/**
+ * Chequeo de la vista angosta (hito 38, §6.25).
+ *
+ *   npx tsx scripts/check-narrow-layout.mjs
+ *
+ * Lo que se rompe en silencio: una vista que se ofrece sin pestaña, un `tab`
+ * de la dirección que se toma sin mirarle la forma, una tecla de la fila que
+ * manda otra secuencia, y —lo que más cuesta ver usando la app en una PC— una
+ * regla CSS de la vista angosta que se sale de sus dos `@media` y cambia el
+ * escritorio. Importa `narrow-layout.ts`, que no tiene JSX ni toca el
+ * navegador, y lee `styles.css` e `index.html` como texto.
+ */
+
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  NARROW_MAX_WIDTH,
+  NARROW_MEDIA_QUERY,
+  NARROW_VIEWS,
+  TAB_QUERY_PARAM,
+  TERMINAL_KEYS,
+  TOUCH_MEDIA_QUERY,
+  isNarrowView,
+  narrowViewLabelKey,
+  narrowViews,
+  panelTabOf,
+  parseStoredNarrowView,
+  readTabParam,
+  resolveNarrowView,
+  withoutParams,
+} from '../../web/src/narrow-layout.ts';
+import { setLocale, t } from '../../web/src/i18n/index.ts';
+
+// Los textos de la interfaz salen de `t()` (§6.23): se comparan con el español.
+await setLocale('es');
+
+const WEB = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web');
+
+let failures = 0;
+const check = (label, ok, extra = '') => {
+  console.log(`${ok ? 'OK  ' : 'FALLO'} ${label}${extra ? ' — ' + extra : ''}`);
+  if (!ok) failures++;
+};
+const json = (value) => JSON.stringify(value);
+
+// --- 1. El punto de corte y las vistas -----------------------------------------
+{
+  check('el punto de corte es 640 px, y las dos consultas lo dicen',
+    NARROW_MAX_WIDTH === 640 && NARROW_MEDIA_QUERY === '(max-width: 640px)' && TOUCH_MEDIA_QUERY === '(hover: none)');
+  check('las ocho vistas, en el orden de la tira',
+    json(NARROW_VIEWS) === json(['chat', 'cli', 'git', 'files', 'plans', 'memory', 'notes', 'console']));
+  check('sin pestaña solo hay chat (el estado vacío) y notas',
+    json(narrowViews({ hasTab: false, plansAvailable: true })) === json(['chat', 'notes']));
+  check('con pestaña y sin planes, todas menos planes',
+    json(narrowViews({ hasTab: true, plansAvailable: false })) === json(['chat', 'cli', 'git', 'files', 'memory', 'notes', 'console']));
+  check('con planes, en su lugar', json(narrowViews({ hasTab: true, plansAvailable: true })) === json([...NARROW_VIEWS]));
+  const some = narrowViews({ hasTab: true, plansAvailable: false });
+  check('la vista pedida se muestra si se ofrece; si no, chat',
+    resolveNarrowView('files', some) === 'files' && resolveNarrowView('plans', some) === 'chat' &&
+    resolveNarrowView('cli', ['chat', 'notes']) === 'chat');
+  check('la guardada se lee, y otra cosa no',
+    parseStoredNarrowView('git') === 'git' && parseStoredNarrowView('panel') === null && parseStoredNarrowView('') === null &&
+    isNarrowView('console') && !isNarrowView('Chat'));
+  check('las solapas del panel de la PC son cinco vistas; chat, notas y consola no',
+    ['cli', 'git', 'files', 'plans', 'memory'].every((view) => panelTabOf(view) === view) &&
+    ['chat', 'notes', 'console'].every((view) => panelTabOf(view) === null));
+  check('cada vista tiene su texto',
+    NARROW_VIEWS.every((view) => typeof t(narrowViewLabelKey(view)) === 'string' && t(narrowViewLabelKey(view)).length > 0) &&
+    t(narrowViewLabelKey('chat')) === 'Chat' && t(narrowViewLabelKey('git')) === 'Cambios' && t(narrowViewLabelKey('notes')) === 'Notas');
+}
+
+// --- 2. `?tab=` en la dirección ---------------------------------------------------
+{
+  check('el parámetro se llama tab', TAB_QUERY_PARAM === 'tab');
+  check('se lee, también junto al token',
+    readTabParam('?tab=3b1f0c2e-9a2f-4c1b-8f3e-1234567890ab') === '3b1f0c2e-9a2f-4c1b-8f3e-1234567890ab' &&
+    readTabParam('?token=abc&tab=x_y-Z9') === 'x_y-Z9');
+  check('sin él, o con una forma que no es un id, null',
+    readTabParam('') === null && readTabParam('?token=abc') === null && readTabParam('?tab=') === null &&
+    readTabParam('?tab=a%20b') === null && readTabParam('?tab=<script>') === null && readTabParam(`?tab=${'a'.repeat(81)}`) === null);
+  check('quitar parámetros conserva los demás, y sin ninguno no queda ni el signo',
+    withoutParams('?token=abc&tab=x&renderer=webgl', ['token', 'tab']) === '?renderer=webgl' &&
+    withoutParams('?token=abc&tab=x', ['token', 'tab']) === '' && withoutParams('', ['tab']) === '');
+}
+
+// --- 3. La fila de teclas -----------------------------------------------------------
+{
+  const byId = new Map(TERMINAL_KEYS.map((key) => [key.id, key]));
+  check('ocho teclas, cada una con su secuencia',
+    TERMINAL_KEYS.length === 8 && TERMINAL_KEYS.every((key) => key.data.length > 0 && key.label.length > 0) &&
+    new Set(TERMINAL_KEYS.map((key) => key.id)).size === 8);
+  check('Esc, Tab y Shift+Tab mandan lo que manda un teclado',
+    byId.get('esc')?.data === '\x1b' && byId.get('tab')?.data === '\t' && byId.get('shift-tab')?.data === '\x1b[Z');
+  check('las flechas, en la forma que leen las CLIs',
+    byId.get('up')?.data === '\x1b[A' && byId.get('down')?.data === '\x1b[B' && byId.get('left')?.data === '\x1b[D' && byId.get('right')?.data === '\x1b[C');
+  check('Ctrl+C es el byte 3', byId.get('interrupt')?.data === '\x03');
+  check('cada tecla tiene su texto', TERMINAL_KEYS.every((key) => t(key.titleKey).length > 0));
+}
+
+// --- 4. El CSS de la vista angosta no se sale de sus @media ---------------------
+{
+  const css = readFileSync(join(WEB, 'src', 'styles.css'), 'utf8');
+  /** El cuerpo del bloque `@media <query>`, por conteo de llaves. */
+  const mediaBlock = (query) => {
+    const starts = [];
+    for (let at = css.indexOf(`@media ${query}`); at !== -1; at = css.indexOf(`@media ${query}`, at + 1)) starts.push(at);
+    if (starts.length !== 1) return { count: starts.length, body: '' };
+    const open = css.indexOf('{', starts[0]);
+    let depth = 0;
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return { count: 1, body: css.slice(open + 1, i) };
+      }
+    }
+    return { count: 1, body: '' };
+  };
+  /** Los selectores de un bloque, uno por regla y por coma, sin comentarios. */
+  const selectors = (body) =>
+    body
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('}')
+      .map((rule) => rule.split('{')[0]?.trim() ?? '')
+      .filter((selector) => selector.length > 0)
+      .flatMap((selector) => selector.split(',').map((part) => part.trim()));
+
+  const narrow = mediaBlock(NARROW_MEDIA_QUERY);
+  check('hay un solo bloque @media de la vista angosta, y no está vacío', narrow.count === 1 && narrow.body.trim().length > 0);
+  const narrowSelectors = selectors(narrow.body);
+  const loose = narrowSelectors.filter((selector) => !/^(\.app-narrow\b|\.narrow-)/.test(selector));
+  check(`las ${narrowSelectors.length} reglas de la vista angosta llevan .app-narrow o .narrow-: el escritorio no las ve`,
+    narrowSelectors.length > 20 && loose.length === 0, loose.slice(0, 5).join(' | '));
+
+  const touch = mediaBlock(TOUCH_MEDIA_QUERY);
+  check('hay un solo bloque @media táctil', touch.count === 1 && touch.body.trim().length > 0);
+  const touchSelectors = selectors(touch.body);
+  const ALLOWED_TOUCH = /^(\.session-action|\.session-continue|\.session-row|\.project-action|\.project-actions|\.tab-close|\.chip-remove|\.turn-actions|\.tree-action|\.strip-tab-close|\.icon-button|\.tree-item|\.session-item|\.project-row|\.tab\b|\.question-option|\.side-panel-tab|\.strip-tab\b|\.link-button|\.narrow-)/;
+  const foreign = touchSelectors.filter((selector) => !ALLOWED_TOUCH.test(selector));
+  check('el bloque táctil solo toca lo que aparecía con el mouse y los objetivos táctiles', foreign.length === 0, foreign.slice(0, 5).join(' | '));
+  check('lo que aparecía con el mouse queda visible en táctil',
+    ['.session-action', '.project-action', '.session-continue', '.tab-close', '.chip-remove', '.turn-actions', '.tree-action']
+      .every((selector) => touchSelectors.some((rule) => rule.startsWith(selector))));
+  check('fuera de los dos @media no hay ninguna regla .narrow-',
+    !/^\s*\.narrow-/m.test(css.replace(narrow.body, '').replace(touch.body, '')));
+}
+
+// --- 5. El viewport -------------------------------------------------------------------
+{
+  const html = readFileSync(join(WEB, 'index.html'), 'utf8');
+  const viewport = /<meta\s+name="viewport"\s+content="([^"]+)"/.exec(html)?.[1] ?? '';
+  check('el viewport llega a los bordes y se achica con el teclado en pantalla',
+    /width=device-width/.test(viewport) && /viewport-fit=cover/.test(viewport) && /interactive-widget=resizes-content/.test(viewport), viewport);
+  check('theme-color, para la barra del sistema', /<meta name="theme-color"/.test(html));
+}
+
+console.log(failures === 0 ? '\nTodo bien.' : `\n${failures} fallo(s).`);
+process.exit(failures === 0 ? 0 : 1);
