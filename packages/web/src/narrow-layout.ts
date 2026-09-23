@@ -15,7 +15,11 @@
 import type { MessageKey } from './i18n/index.js';
 import type { PanelTab } from './SidePanel.js';
 
-export const NARROW_MAX_WIDTH = 640;
+/**
+ * 768 y no 640: una tablet vertical (768 a 834 px) queda mejor con una columna
+ * que con tres apretadas, y en horizontal (1024 o mas) le entra el escritorio.
+ */
+export const NARROW_MAX_WIDTH = 768;
 export const NARROW_MEDIA_QUERY = `(max-width: ${NARROW_MAX_WIDTH}px)`;
 export const TOUCH_MEDIA_QUERY = '(hover: none)';
 

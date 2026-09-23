@@ -1190,6 +1190,8 @@ export function App(): JSX.Element {
           terminalId={activeTerminalId}
           alive={activeTerminal.alive}
           sleeping={activeTerminal.sleeping}
+
+          activity={activity.get(activeTerminal.terminalId)}
           imagesAllowed={activeControls.imagesAllowed}
           blockedReason={blockedReason}
           prefills={prefills}

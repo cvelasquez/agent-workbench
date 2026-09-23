@@ -46,8 +46,8 @@ const json = (value) => JSON.stringify(value);
 
 // --- 1. El punto de corte y las vistas -----------------------------------------
 {
-  check('el punto de corte es 640 px, y las dos consultas lo dicen',
-    NARROW_MAX_WIDTH === 640 && NARROW_MEDIA_QUERY === '(max-width: 640px)' && TOUCH_MEDIA_QUERY === '(hover: none)');
+  check('el punto de corte es 768 px (una tablet vertical entra), y las dos consultas lo dicen',
+    NARROW_MAX_WIDTH === 768 && NARROW_MEDIA_QUERY === '(max-width: 768px)' && TOUCH_MEDIA_QUERY === '(hover: none)');
   check('las ocho vistas, en el orden de la tira',
     json(NARROW_VIEWS) === json(['chat', 'cli', 'git', 'files', 'plans', 'memory', 'notes', 'console']));
   check('sin pestaña solo hay chat (el estado vacío) y notas',

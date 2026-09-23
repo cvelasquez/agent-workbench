@@ -1,6 +1,6 @@
 /**
  * El cascarón de la vista angosta (hito 38, §6.25): una sola columna, para un
- * teléfono o una ventana de menos de 640 px.
+ * teléfono, una tablet vertical o una ventana de menos de 768 px.
  *
  * Las piezas son las de siempre —la barra de proyectos, el hilo, el cuadro, el
  * panel, las notas, la consola—; lo que cambia es dónde van. `App` las arma y

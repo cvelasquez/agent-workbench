@@ -4988,13 +4988,13 @@ kbd {
 /* ---------- la vista angosta (hito 38, §6.25) ---------- */
 
 /*
-  Debajo de 640 px el cuerpo de tres columnas se reemplaza por `NarrowShell`:
+  Debajo de 768 px el cuerpo de tres columnas se reemplaza por `NarrowShell`:
   una cabecera de tres cosas, una tira de vistas y una sola columna. Todo lo de
   este bloque lleva `.app-narrow` o `.narrow-` delante, y `check-narrow-layout`
   lo exige: es lo que garantiza que el escritorio no vea ninguna de estas
   reglas. Lo tactil, que no depende del ancho, esta en el bloque siguiente.
 */
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .app-narrow {
     /* `dvh`: con el teclado en pantalla la ventana se achica, y el cuadro sube con ella. */
     height: 100dvh;

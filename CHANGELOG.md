@@ -20,7 +20,7 @@ change behavior.
 - **System notifications.** A bell button in the header: "finished" and "is
   waiting for you", with the tab's name, shown only when the window isn't in
   view. Same rule as the notification sound; each browser keeps its own choice.
-- **A phone-sized layout.** Under 640 px the interface becomes a single
+- **A phone-sized layout.** Under 768 px the interface becomes a single
   column: the projects sidebar slides in from the left, the active tab sits in
   the header and opens the list of tabs, and a strip switches between the
   conversation, the CLI, changes, files, plans, memory, notes and the console.

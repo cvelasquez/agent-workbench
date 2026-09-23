@@ -26,7 +26,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TerminalId } from '@agent-workbench/shared';
+import type { TerminalActivity, TerminalId } from '@agent-workbench/shared';
 import { mergePrefill } from './agent-ui.js';
 import {
   assembleMessage,
@@ -66,6 +66,13 @@ interface Draft {
   items: Attachment[];
 }
 
+/**
+ * Los borradores, por pestana, **fuera del componente**: cambiar de ancho
+ * cambia de cascaron (hito 38, §6.25) y el cuadro se vuelve a montar. Con el
+ * mapa adentro, el mensaje a medio escribir se perdia en ese cambio.
+ */
+const DRAFTS = new Map<TerminalId, Draft>();
+
 interface ComposerProps {
   connection: AgentConnection;
   terminalId: TerminalId | null;
@@ -77,6 +84,13 @@ interface ComposerProps {
    * ya corrio y se murio.
    */
   sleeping?: boolean;
+  /**
+   * Que hace la CLI de la pestana. "Detener" se dibuja solo si puede haber
+   * algo que detener: trabajando, esperando, o sin estado conocido (una CLI
+   * que no lo publica). Libre, el boton no tiene sentido y le quita lugar a
+   * "Enviar" en pantallas angostas.
+   */
+  activity?: TerminalActivity;
   /** Controles extra a la derecha de la barra (modelo, esfuerzo). */
   controls?: JSX.Element;
   /**
@@ -124,6 +138,7 @@ export function Composer({
   terminalId,
   alive,
   sleeping = false,
+  activity,
   controls,
   leading,
   imagesAllowed = true,
@@ -214,7 +229,6 @@ export function Composer({
     terminal, que era lo correcto cuando la terminal era la pantalla. Ahora se
     abre una pestana para escribirle algo al agente.
   */
-  const drafts = useRef(new Map<TerminalId, Draft>());
   const shown = useRef<TerminalId | null>(null);
 
   // Espejos de lo ultimo escrito. El efecto de abajo no puede depender de
@@ -233,15 +247,24 @@ export function Composer({
     shown.current = terminalId;
 
     if (previous !== null) {
-      drafts.current.set(previous, { text: textRef.current, items: itemsRef.current });
+      DRAFTS.set(previous, { text: textRef.current, items: itemsRef.current });
     }
 
-    const draft = terminalId === null ? undefined : drafts.current.get(terminalId);
+    const draft = terminalId === null ? undefined : DRAFTS.get(terminalId);
     setText(draft?.text ?? '');
     replaceAttachments(draft?.items ?? []);
 
     if (terminalId !== null) textareaRef.current?.focus();
   }, [terminalId, replaceAttachments]);
+
+  // Al desmontar —cambio de cascaron— lo escrito queda guardado para la vuelta.
+  useEffect(
+    () => () => {
+      const current = shown.current;
+      if (current !== null) DRAFTS.set(current, { text: textRef.current, items: itemsRef.current });
+    },
+    [],
+  );
 
   /*
     Un texto prellenado (hito 29) va al borrador de su pestana: al cuadro si es
@@ -262,8 +285,8 @@ export function Composer({
       if (prefill.terminalId === shown.current) {
         setText((current) => mergePrefill(current, prefill.text));
       } else {
-        const draft = drafts.current.get(prefill.terminalId);
-        drafts.current.set(prefill.terminalId, {
+        const draft = DRAFTS.get(prefill.terminalId);
+        DRAFTS.set(prefill.terminalId, {
           text: mergePrefill(draft?.text ?? '', prefill.text),
           items: draft?.items ?? [],
         });
@@ -509,14 +532,16 @@ export function Composer({
         {leading}
         <span className="composer-spacer" />
         {controls}
-        <button
-          className="composer-stop"
-          onClick={interrupt}
-          disabled={disabled}
-          title={t('composer.stopTitle')}
-        >
-          {t('composer.stop')}
-        </button>
+        {alive && activity !== 'idle' && (
+          <button
+            className="composer-stop"
+            onClick={interrupt}
+            disabled={disabled}
+            title={t('composer.stopTitle')}
+          >
+            {t('composer.stop')}
+          </button>
+        )}
         <button
           className="composer-send"
           onClick={submit}

@@ -279,7 +279,7 @@ a plain `ssh you@your-computer` with that key: it should be refused.
 **From a phone.** Through the same tunnel, a phone browser gets a
 single-column layout: the projects sidebar as a drawer, the tabs in the header,
 and a strip that switches between the conversation, the CLI, changes, files and
-the rest. It appears on any window narrower than 640 px.
+the rest. It appears on any window narrower than 768 px (a tablet held upright, too).
 
 **Notifications.** The bell button in the header turns on system notifications:
 "finished" and "is waiting for you", with the tab's name, only when the window
