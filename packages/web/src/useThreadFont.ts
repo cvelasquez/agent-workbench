@@ -8,7 +8,7 @@
  * de las demas solapas no cambia.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useLayoutEffect, useState } from 'react';
 import {
   DEFAULT_THREAD_FONT_SIZE,
   THREAD_FONT_STORAGE_KEY,
@@ -29,7 +29,12 @@ export function useThreadFont(): ThreadFontState {
     readStored(THREAD_FONT_STORAGE_KEY, DEFAULT_THREAD_FONT_SIZE, parseThreadFontSize),
   );
 
-  useEffect(() => {
+  /*
+    Antes de que el cuadro de escritura mida su alto: sus efectos corren antes
+    que los de `App`, y con un efecto comun el cuadro media con el tamano
+    anterior. Los de layout corren todos antes que cualquier efecto comun.
+  */
+  useLayoutEffect(() => {
     document.documentElement.dataset['threadFont'] = size;
   }, [size]);
 

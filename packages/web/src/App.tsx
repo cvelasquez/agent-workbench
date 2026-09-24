@@ -1201,6 +1201,7 @@ export function App(): JSX.Element {
           onDismissNotice={activeTerminalId === null ? undefined : () => dismissHandoff(activeTerminalId)}
           /* El aviso de una continuacion dura hasta el primer envio de esa pestana. */
           onSubmitted={dismissHandoff}
+          fontSize={threadFont.size}
           leading={
             activeControls.modeCycle === null ? undefined : (
               <ModeControl

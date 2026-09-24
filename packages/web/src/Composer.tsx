@@ -38,6 +38,7 @@ import {
 import { formatBytes } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
+import type { ThreadFontSize } from './thread-font.js';
 import type { ComposerPrefill } from './useWorkspace.js';
 import { useComposerAttachments, type Attachment } from './useComposerAttachments.js';
 import { useDragSize } from './useDragSize.js';
@@ -131,6 +132,11 @@ interface ComposerProps {
   onDismissNotice?: () => void;
   /** Se mando algo desde el cuadro de esa pestana. */
   onSubmitted?: (terminalId: TerminalId) => void;
+  /**
+   * El tamano de letra del hilo, que el cuadro comparte (§6.22). Solo para
+   * volver a medir el alto cuando cambia.
+   */
+  fontSize?: ThreadFontSize;
 }
 
 export function Composer({
@@ -148,6 +154,7 @@ export function Composer({
   notice = null,
   onDismissNotice,
   onSubmitted,
+  fontSize,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -175,11 +182,21 @@ export function Composer({
     const element = textareaRef.current;
     if (element === null) return;
     element.style.height = 'auto';
-    const height = resizing ? maxHeight : Math.min(element.scrollHeight, maxHeight);
+    /*
+      `scrollHeight` no cuenta el borde, y el alto de la caja si lo cuenta
+      (`box-sizing: border-box`). Sin sumarlo le faltaban 2 px al cuadro: con la
+      letra normal o la grande el texto desbordaba, y con el cuadro vacio se veia
+      la barra de scroll. La barra solo hace falta cuando el texto pasa el tope.
+    */
+    const border = element.offsetHeight - element.clientHeight;
+    const needed = element.scrollHeight + border;
+    const height = resizing ? maxHeight : Math.min(needed, maxHeight);
     element.style.height = `${height}px`;
+    element.style.overflowY = needed > height ? 'auto' : 'hidden';
   }, [maxHeight, resizing]);
 
-  useEffect(resize, [text, resize]);
+  // La letra del hilo tambien cambia el alto de una linea: se vuelve a medir.
+  useEffect(resize, [text, resize, fontSize]);
 
   /*
     El divisor mide contra el borde de **abajo** del cuadro, que no se mueve: el
