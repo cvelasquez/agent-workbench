@@ -26,7 +26,7 @@ import {
 } from './agent-ui.js';
 import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
-import { Composer } from './Composer.js';
+import { Composer, type ComposerInsert } from './Composer.js';
 import { ConsolePane } from './ConsolePane.js';
 import { ConversationView } from './ConversationView.js';
 import { FolderPicker } from './FolderPicker.js';
@@ -745,6 +745,17 @@ export function App(): JSX.Element {
     [connection, activeTerminalId],
   );
 
+  /*
+    Una ruta del arbol de archivos para el cuadro de escritura (§6.4), donde
+    esta el cursor. El cuadro deja aca su funcion de insertar y el arbol la
+    llama dentro de su clic: ver `insertPath` en `Composer.tsx`.
+  */
+  const composerInsertRef = useRef<ComposerInsert | null>(null);
+  const insertIntoComposer = useCallback(
+    (text: string) => composerInsertRef.current?.(text, !narrow),
+    [narrow],
+  );
+
   /**
    * Manda un comando de barra a la CLI.
    *
@@ -1222,6 +1233,7 @@ export function App(): JSX.Element {
           /* El aviso de una continuacion dura hasta el primer envio de esa pestana. */
           onSubmitted={dismissHandoff}
           fontSize={threadFont.size}
+          insertRef={composerInsertRef}
           leading={
             activeControls.modeCycle === null ? undefined : (
               <ModeControl
@@ -1301,6 +1313,7 @@ export function App(): JSX.Element {
         plans={plans}
         memory={memory}
         onInsert={activeControls.fileMentions && activeTerminal.alive ? insertIntoTerminal : undefined}
+        onInsertPath={insertIntoComposer}
         onReveal={remoteClient ? null : revealPath}
         onHide={togglePanel}
       />

@@ -89,6 +89,8 @@ interface SidePanelProps {
    * "Insertar como @ruta": la CLI de la pestana no menciona archivos asi.
    */
   onInsert?: (text: string) => void;
+  /** Pone una ruta del arbol en el cuadro de escritura, donde esta el cursor. */
+  onInsertPath: (text: string) => void;
   onReveal: ((path: string) => void) | null;
   onHide: () => void;
 }
@@ -110,6 +112,7 @@ export function SidePanel({
   plans,
   memory,
   onInsert,
+  onInsertPath,
   onReveal,
   onHide,
 }: SidePanelProps): JSX.Element {
@@ -191,6 +194,7 @@ export function SidePanel({
             cwd={cwd}
             platform={platform}
             onInsert={onInsert}
+            onInsertPath={onInsertPath}
             onReveal={onReveal}
           />
         )}

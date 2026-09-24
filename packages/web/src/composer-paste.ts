@@ -65,7 +65,7 @@ export function referencedPasteNumbers(text: string): number[] {
 }
 
 export interface ReferenceInsertion {
-  /** Lo escrito, con la marca. */
+  /** Lo escrito, con la marca (o la ruta). */
   readonly text: string;
   /** Lo que se inserto: la marca, con un espacio a cada lado si hacia falta. */
   readonly inserted: string;
@@ -93,13 +93,57 @@ export function insertPasteReference(
   selectionEnd: number,
   n: number,
 ): ReferenceInsertion {
-  const start = Math.max(0, Math.min(selectionStart, text.length));
-  const end = Math.max(start, Math.min(selectionEnd, text.length));
-  const before = start > 0 ? text.charAt(start - 1) : '';
-  const after = end < text.length ? text.charAt(end) : '';
+  const { start, end, before, after } = aroundSelection(text, selectionStart, selectionEnd);
   const inserted = `${before !== '' && NEEDS_SPACE_BEFORE.test(before) ? ' ' : ''}${pasteReference(n)}${
     after !== '' && NEEDS_SPACE_AFTER.test(after) ? ' ' : ''
   }`;
+  return spliceInsertion(text, start, end, inserted);
+}
+
+/**
+ * Lo que pide un espacio antes de una ruta: como con la marca, pero tambien una
+ * comilla, porque una ruta termina en comillas y dos seguidas no pueden quedar
+ * pegadas (`"a""b"`).
+ */
+const PATH_NEEDS_SPACE_BEFORE = /[^\s([{¿¡«]/u;
+/** Lo que pide un espacio despues: una letra, un numero o una comilla pegados. */
+const PATH_NEEDS_SPACE_AFTER = /[\p{L}\p{N}"'«]/u;
+
+/**
+ * Pone una ruta del arbol de archivos donde esta el cursor (§6.4), reemplazando
+ * lo seleccionado, con los espacios que hagan falta a cada lado. Al final de lo
+ * escrito deja uno mas, para seguir escribiendo o poner otra ruta.
+ */
+export function insertPathAtCursor(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number,
+  path: string,
+): ReferenceInsertion {
+  const { start, end, before, after } = aroundSelection(text, selectionStart, selectionEnd);
+  const spaceBefore = before !== '' && PATH_NEEDS_SPACE_BEFORE.test(before);
+  const spaceAfter = after === '' || PATH_NEEDS_SPACE_AFTER.test(after);
+  const inserted = `${spaceBefore ? ' ' : ''}${path}${spaceAfter ? ' ' : ''}`;
+  return spliceInsertion(text, start, end, inserted);
+}
+
+/** La seleccion dentro del texto, y lo que queda justo antes y justo despues. */
+function aroundSelection(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number,
+): { start: number; end: number; before: string; after: string } {
+  const start = Math.max(0, Math.min(selectionStart, text.length));
+  const end = Math.max(start, Math.min(selectionEnd, text.length));
+  return {
+    start,
+    end,
+    before: start > 0 ? text.charAt(start - 1) : '',
+    after: end < text.length ? text.charAt(end) : '',
+  };
+}
+
+function spliceInsertion(text: string, start: number, end: number, inserted: string): ReferenceInsertion {
   return {
     text: `${text.slice(0, start)}${inserted}${text.slice(end)}`,
     inserted,

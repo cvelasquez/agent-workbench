@@ -31,6 +31,7 @@ import { mergePrefill } from './agent-ui.js';
 import {
   assembleMessage,
   insertPasteReference,
+  insertPathAtCursor,
   pastedChipLabel,
   referencedPasteNumbers,
   removePasteReferences,
@@ -60,6 +61,13 @@ const MIN_TEXTAREA_PX = 90;
 const DEFAULT_TEXTAREA_PX = 260;
 const MAX_TEXTAREA_PX = 720;
 const TEXTAREA_HEIGHT_KEY = 'agent-workbench.composer-height';
+
+/**
+ * Pone un texto en el cuadro, donde esta el cursor: la ruta de un archivo del
+ * arbol (§6.4). `focus` lleva el foco al cuadro; no en la vista angosta, donde
+ * el cuadro esta en otra vista y el foco abriria el teclado encima del arbol.
+ */
+export type ComposerInsert = (text: string, focus: boolean) => void;
 
 /** Lo que queda escrito en una pestana y todavia no se mando. */
 interface Draft {
@@ -137,6 +145,11 @@ interface ComposerProps {
    * volver a medir el alto cuando cambia.
    */
   fontSize?: ThreadFontSize;
+  /**
+   * Donde el cuadro deja su funcion de insertar, para que la llame el arbol de
+   * archivos **dentro de su clic** (ver `insertPath`).
+   */
+  insertRef?: React.MutableRefObject<ComposerInsert | null>;
 }
 
 export function Composer({
@@ -155,6 +168,7 @@ export function Composer({
   onDismissNotice,
   onSubmitted,
   fontSize,
+  insertRef,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -380,6 +394,50 @@ export function Composer({
       setText(element.value);
     }
   }, []);
+
+  /*
+    Una ruta del arbol de archivos (§6.4), sin pasar por el portapapeles: antes
+    el boton la copiaba y habia que pegarla, y lo que el usuario tenia copiado
+    se perdia. Va donde esta el cursor, como la marca de un texto pegado y con
+    `insertText`: Ctrl+Z la saca. Con el cuadro apagado —la pestana sin CLI— no
+    se puede escribir ahi: va al final del borrador y espera a que se abra.
+
+    La llama el arbol **dentro de su clic**, no un efecto de aca con un pedido
+    en el estado. Probado: desde un efecto, React devolvia el valor viejo al
+    cuadro en medio del `insertText` y despues ponia el nuevo a mano, y un
+    valor puesto a mano borra lo que Ctrl+Z tenia para deshacer. Adentro de un
+    evento pasa lo mismo que con un pegado, que si se deshace.
+  */
+  const insertPath = useCallback<ComposerInsert>((path, focus) => {
+    const element = textareaRef.current;
+    if (element === null || element.disabled) {
+      setText((current) => insertPathAtCursor(current, current.length, current.length, path).text);
+      return;
+    }
+    const { inserted } = insertPathAtCursor(element.value, element.selectionStart, element.selectionEnd, path);
+    let done = false;
+    if (focus) {
+      // El foco no mueve la seleccion: el texto cae donde estaba el cursor.
+      element.focus();
+      try {
+        done = document.execCommand('insertText', false, inserted);
+      } catch {
+        done = false;
+      }
+    }
+    if (!done) {
+      element.setRangeText(inserted, element.selectionStart, element.selectionEnd, 'end');
+      setText(element.value);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (insertRef === undefined) return;
+    insertRef.current = insertPath;
+    return () => {
+      if (insertRef.current === insertPath) insertRef.current = null;
+    };
+  }, [insertRef, insertPath]);
 
   const onPaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {

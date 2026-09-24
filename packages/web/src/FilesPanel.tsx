@@ -17,15 +17,16 @@
  *    que se esta mirando, son justo lo que se busca. Quedan visibles igual
  *    cuando la fila tiene el foco del teclado, para que no sean inalcanzables
  *    sin mouse.
- *  - **Cada tipo de fila ofrece lo que sirve para el.** Un archivo se copia:
+ *  - **Cada tipo de fila ofrece lo que sirve para el.** Un archivo se nombra:
  *    lo que uno hace con un archivo del arbol es nombrarselo al agente, y para
  *    eso alcanza con la ruta. Un directorio ademas se abre en el explorador,
  *    que es lo unico que se puede hacer con una carpeta desde afuera.
- *  - **La ruta se copia entre comillas.** Va a parar al cuadro de conversacion,
- *    y `D:\Agent Workbench\...` sin comillas se corta en el primer espacio —
- *    es la misma razon por la que las imagenes pegadas se nombran `@"ruta"`
- *    (CLAUDE.md 5.3). El menu contextual sigue dando las rutas crudas, para
- *    cuando el destino no es el chat.
+ *  - **La ruta va directo al cuadro de escritura, entre comillas.** Hasta la
+ *    0.4.0 el boton la copiaba y habia que pegarla, y lo que el usuario tenia
+ *    en el portapapeles se perdia. Entre comillas porque `D:\Agent Workbench\...`
+ *    sin ellas se corta en el primer espacio — es la misma razon por la que las
+ *    imagenes pegadas se nombran `@"ruta"` (CLAUDE.md 5.3). El menu contextual
+ *    sigue copiando las rutas crudas, para cuando el destino no es el chat.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -115,6 +116,35 @@ function EyeIcon({ open }: { open: boolean }): JSX.Element {
   );
 }
 
+/**
+ * Icono de poner la ruta en el mensaje: una flecha que baja a una linea de
+ * texto. No es el de copiar, porque ya no copia: deja la ruta en el cuadro.
+ */
+function InsertIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <rect
+        x="1.5"
+        y="10"
+        width="13"
+        height="4.5"
+        rx="1.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M8 1.5v6.2M5.4 5.3L8 7.9l2.6-2.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** Acuse de copiado. */
 function CheckIcon(): JSX.Element {
   return (
@@ -132,21 +162,25 @@ function CheckIcon(): JSX.Element {
 }
 
 /**
- * Boton de copiar con acuse.
+ * Boton con acuse: un tilde durante un segundo despues del clic.
  *
- * El acuse no es adorno: copiar al portapapeles no cambia nada en pantalla, y
- * sin senal la unica forma de saber si el clic hizo algo es ir a pegar a otro
- * lado. Vuelve solo al icono normal al segundo, asi que no deja la fila con un
- * estado raro pegado.
+ * El acuse no es adorno: ni copiar al portapapeles ni poner la ruta en el
+ * cuadro cambian nada alrededor del boton, y sin senal la unica forma de saber
+ * si el clic hizo algo es ir a mirar a otro lado. Vuelve solo al icono normal,
+ * asi que no deja la fila con un estado raro pegado.
  */
-export function CopyPathButton({
+function AckButton({
   className,
   title,
-  onCopy,
+  doneTitle,
+  icon,
+  onAction,
 }: {
   className: string;
   title: string;
-  onCopy: () => void;
+  doneTitle: string;
+  icon: JSX.Element;
+  onAction: () => void;
 }): JSX.Element {
   const [done, setDone] = useState(false);
   const timer = useRef<number | null>(null);
@@ -161,7 +195,7 @@ export function CopyPathButton({
 
   const click = (event: React.MouseEvent): void => {
     event.stopPropagation();
-    onCopy();
+    onAction();
     setDone(true);
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setDone(false), 1_200);
@@ -171,10 +205,52 @@ export function CopyPathButton({
     <button
       className={done ? `${className} tree-action-done` : className}
       onClick={click}
-      title={done ? t('common.copied') : title}
+      title={done ? doneTitle : title}
     >
-      {done ? <CheckIcon /> : <CopyIcon />}
+      {done ? <CheckIcon /> : icon}
     </button>
+  );
+}
+
+/** Boton de copiar una ruta, con acuse. Lo usa la solapa Memoria. */
+export function CopyPathButton({
+  className,
+  title,
+  onCopy,
+}: {
+  className: string;
+  title: string;
+  onCopy: () => void;
+}): JSX.Element {
+  return (
+    <AckButton
+      className={className}
+      title={title}
+      doneTitle={t('common.copied')}
+      icon={<CopyIcon />}
+      onAction={onCopy}
+    />
+  );
+}
+
+/** Boton de poner una ruta en el cuadro de escritura, con acuse. */
+function InsertPathButton({
+  className,
+  title,
+  onInsert,
+}: {
+  className: string;
+  title: string;
+  onInsert: () => void;
+}): JSX.Element {
+  return (
+    <AckButton
+      className={className}
+      title={title}
+      doneTitle={t('files.pathInserted')}
+      icon={<InsertIcon />}
+      onAction={onInsert}
+    />
   );
 }
 
@@ -189,6 +265,8 @@ interface FilesPanelProps {
    * ofrece "Insertar como @ruta".
    */
   onInsert?: (text: string) => void;
+  /** Pone texto en el cuadro de escritura, donde esta el cursor. */
+  onInsertPath: (text: string) => void;
   /**
    * Pide al servidor que abra la ruta con la aplicacion del sistema. null en una
    * ventana que entro como equipo remoto (hito 37): se abriria en el escritorio
@@ -202,6 +280,7 @@ export function FilesPanel({
   cwd,
   platform,
   onInsert,
+  onInsertPath,
   onReveal,
 }: FilesPanelProps): JSX.Element {
   const {
@@ -235,16 +314,16 @@ export function FilesPanel({
   }, []);
 
   /**
-   * Lo que deja el boton de copiar de una fila.
+   * Lo que el boton de una fila deja en el cuadro de escritura.
    *
-   * Absoluta y entre comillas: absoluta porque sirve igual pegada en el chat,
-   * en otra terminal o en el explorador, y entre comillas porque la ruta de
-   * este proyecto tiene un espacio y sin ellas el destino la corta por la
-   * mitad.
+   * Lo mismo que copiaba hasta la 0.4.0, para que el agente reciba lo de
+   * siempre: absoluta, que no depende de donde este parado, y entre comillas,
+   * porque la ruta de este proyecto tiene un espacio y sin ellas se corta por
+   * la mitad.
    */
-  const copyQuoted = useCallback(
-    (relativePath: string) => copy(`"${absolutePathOf(relativePath)}"`),
-    [absolutePathOf, copy],
+  const insertQuoted = useCallback(
+    (relativePath: string) => onInsertPath(`"${absolutePathOf(relativePath)}"`),
+    [absolutePathOf, onInsertPath],
   );
 
   const openMenu = useCallback(
@@ -326,10 +405,10 @@ export function FilesPanel({
         <span className="panel-subhead-title" title={cwd}>
           {cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? cwd}
         </span>
-        <CopyPathButton
+        <InsertPathButton
           className="icon-button"
-          title={t('files.copyFolderPath')}
-          onCopy={() => copyQuoted('')}
+          title={t('files.insertFolderPath')}
+          onInsert={() => insertQuoted('')}
         />
         <button
           className={showHidden ? 'icon-button icon-button-on' : 'icon-button'}
@@ -384,7 +463,7 @@ export function FilesPanel({
             view={view}
             onContextMenu={openMenu}
             onReveal={onReveal}
-            onCopyPath={copyQuoted}
+            onInsertPath={insertQuoted}
           />
         ) : root === undefined ? (
           <p className="panel-note">
@@ -397,7 +476,7 @@ export function FilesPanel({
             view={view}
             onContextMenu={openMenu}
             onReveal={onReveal}
-            onCopyPath={copyQuoted}
+            onInsertPath={insertQuoted}
           />
         )}
       </div>
@@ -421,12 +500,12 @@ function SearchResults({
   view,
   onContextMenu,
   onReveal,
-  onCopyPath,
+  onInsertPath,
 }: {
   view: FilesView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
   onReveal: ((path: string) => void) | null;
-  onCopyPath: (path: string) => void;
+  onInsertPath: (path: string) => void;
 }): JSX.Element {
   const { results, searching, openFile, toggleDirectory } = view;
 
@@ -463,10 +542,10 @@ function SearchResults({
               )}
             </button>
 
-            <CopyPathButton
+            <InsertPathButton
               className="tree-action"
-              title={t('files.copyPath', { name: entry.name })}
-              onCopy={() => onCopyPath(entry.path)}
+              title={t('files.insertPath', { name: entry.name })}
+              onInsert={() => onInsertPath(entry.path)}
             />
 
             {entry.kind === 'dir' && onReveal !== null && (
@@ -497,7 +576,7 @@ interface TreeLevelProps {
   view: FilesView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
   onReveal: ((path: string) => void) | null;
-  onCopyPath: (path: string) => void;
+  onInsertPath: (path: string) => void;
 }
 
 function TreeLevel({
@@ -506,7 +585,7 @@ function TreeLevel({
   view,
   onContextMenu,
   onReveal,
-  onCopyPath,
+  onInsertPath,
 }: TreeLevelProps): JSX.Element | null {
   const { listings, loading } = view;
   const listing = listings.get(path);
@@ -525,7 +604,7 @@ function TreeLevel({
           view={view}
           onContextMenu={onContextMenu}
           onReveal={onReveal}
-          onCopyPath={onCopyPath}
+          onInsertPath={onInsertPath}
         />
       ))}
 
@@ -556,7 +635,7 @@ interface TreeRowProps {
   view: FilesView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
   onReveal: ((path: string) => void) | null;
-  onCopyPath: (path: string) => void;
+  onInsertPath: (path: string) => void;
 }
 
 function TreeRow({
@@ -565,7 +644,7 @@ function TreeRow({
   view,
   onContextMenu,
   onReveal,
-  onCopyPath,
+  onInsertPath,
 }: TreeRowProps): JSX.Element {
   const { expanded, toggleDirectory, openFile } = view;
   const isOpen = entry.kind === 'dir' && expanded.has(entry.path);
@@ -605,14 +684,14 @@ function TreeRow({
         </button>
 
         {/*
-          Copiar va primero y esta en las dos clases de fila, asi que el boton
-          mas usado cae siempre en el mismo lugar: no hay que mirar cual es
-          cual antes de hacer clic.
+          Poner la ruta en el mensaje va primero y esta en las dos clases de
+          fila, asi que el boton mas usado cae siempre en el mismo lugar: no hay
+          que mirar cual es cual antes de hacer clic.
         */}
-        <CopyPathButton
+        <InsertPathButton
           className="tree-action"
-          title={t('files.copyPath', { name: entry.name })}
-          onCopy={() => onCopyPath(entry.path)}
+          title={t('files.insertPath', { name: entry.name })}
+          onInsert={() => onInsertPath(entry.path)}
         />
 
         {entry.kind === 'dir' && onReveal !== null && (
@@ -633,7 +712,7 @@ function TreeRow({
           view={view}
           onContextMenu={onContextMenu}
           onReveal={onReveal}
-          onCopyPath={onCopyPath}
+          onInsertPath={onInsertPath}
         />
       )}
     </li>

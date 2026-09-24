@@ -55,6 +55,7 @@ import {
 import {
   assembleMessage,
   insertPasteReference,
+  insertPathAtCursor,
   nextPasteNumber,
   pasteEndLine,
   pasteReference,
@@ -665,6 +666,33 @@ check('el titulo dice que hay y que pone el clic', threadFontTitle('m') === 'Tam
   check('un mensaje sin textos pegados, como siempre', toTitle('  hola\n mundo ') === 'hola mundo');
 }
 
+// ---------------------------------------------------------------------------
+// La ruta del árbol de archivos en el cuadro (§6.4)
+// ---------------------------------------------------------------------------
+
+{
+  const show = (value) => JSON.stringify(value);
+  const path = '"D:\\Mi App\\src\\a.ts"';
+  const put = (text, start, end = start) => insertPathAtCursor(text, start, end, path);
+
+  const empty = put('', 0);
+  check('en un cuadro vacío: la ruta y un espacio para seguir escribiendo',
+    empty.text === `${path} ` && empty.caret === empty.text.length, show(empty));
+  check('al final, pegada a una palabra: un espacio antes', put('mira', 4).text === `mira ${path} `, show(put('mira', 4)));
+  check('al final, después de un espacio: sin otro', put('mira ', 5).text === `mira ${path} `, show(put('mira ', 5)));
+  const twice = insertPathAtCursor(empty.text, empty.caret, empty.caret, '"b"');
+  check('dos rutas seguidas quedan separadas', twice.text === `${path} "b" `, show(twice));
+  check('justo después de una comilla, también separadas', put('"a"', 3).text === `"a" ${path} `, show(put('"a"', 3)));
+  const middle = put('abcd', 2);
+  check('en medio de una palabra: un espacio a cada lado y el cursor después de la ruta',
+    middle.text === `ab ${path} cd` && middle.caret === `ab ${path} `.length, show(middle));
+  check('antes de un espacio: sin otro después', put('mira y', 4).text === `mira ${path} y`, show(put('mira y', 4)));
+  check('antes de una coma: sin espacio después', put('mira, y', 4).text === `mira ${path}, y`, show(put('mira, y', 4)));
+  check('entre paréntesis: sin espacios', put('()', 1).text === `(${path})`, show(put('()', 1)));
+  check('con texto seleccionado: la ruta lo reemplaza', put('cambia ESTO por', 7, 11).text === `cambia ${path} por`,
+    show(put('cambia ESTO por', 7, 11)));
+  check('un cursor fuera del texto cae al final', put('ab', 99).text === `ab ${path} `, show(put('ab', 99)));
+}
 await rm(dir, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);
