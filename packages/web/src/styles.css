@@ -1388,6 +1388,19 @@ kbd {
   flex: 0 0 auto;
 }
 
+/*
+  El cuadrito del color del proyecto, junto a su nombre: en la cabecera del
+  panel en la PC, y junto a la pestaña a la vista en el teléfono. Es el mismo
+  color del subrayado de las pestañas, para ver de un vistazo a qué proyecto va
+  lo que se escribe.
+*/
+.project-swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
 .side-panel-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -5115,14 +5128,6 @@ kbd {
     flex: 0 0 auto;
     color: var(--text-dim);
     font-size: 11px;
-  }
-
-  /* El cuadrito del color del proyecto, junto al nombre de la pestaña a la vista. */
-  .narrow-project-swatch {
-    flex: 0 0 auto;
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
   }
 
   .app-narrow .banner {

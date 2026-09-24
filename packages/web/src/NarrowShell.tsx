@@ -42,6 +42,7 @@ import { t } from './i18n/index.js';
 import { LocaleMenu } from './LocaleMenu.js';
 import {
   NATIVE_BACK_HOOK,
+  PHONE_APP_DISCONNECT_URL,
   PHONE_APP_SETTINGS_URL,
   insidePhoneApp,
   narrowBackAction,
@@ -237,7 +238,7 @@ export function NarrowShell({
                 activity={activity.get(activeTerminal.terminalId)}
                 statusLine={statusLineOf(activeTerminal)}
               />
-              <span className="narrow-project-swatch" style={{ background: projectColor(activeTerminal.cwd) }} />
+              <span className="project-swatch" style={{ background: projectColor(activeTerminal.cwd) }} />
               <span className="narrow-current-label">{defaultTabLabel(activeTerminal)}</span>
             </>
           )}
@@ -498,6 +499,9 @@ function MenuSheet({
       {insidePhoneApp(navigator.userAgent) && (
         <div className="narrow-menu-row">
           <span className="narrow-menu-label">{t('narrow.menu.phoneApp')}</span>
+          <a className="link-button" href={PHONE_APP_DISCONNECT_URL} onClick={onClose}>
+            {t('narrow.menu.phoneAppDisconnect')}
+          </a>
           <a className="link-button" href={PHONE_APP_SETTINGS_URL} onClick={onClose}>
             {t('narrow.menu.phoneAppSettings')}
           </a>

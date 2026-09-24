@@ -23,6 +23,7 @@ import { GitPanel } from './GitPanel.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { MemoryPanel } from './MemoryPanel.js';
 import { PlansPanel } from './PlansPanel.js';
+import { projectColor } from './project-color.js';
 import type { FilesView } from './useFiles.js';
 import type { GitView } from './useGit.js';
 import type { MemoryView } from './useMemory.js';
@@ -120,6 +121,7 @@ export function SidePanel({
   return (
     <section className={`side-panel${hidden ? ' side-panel-hidden' : ''}`} aria-hidden={hidden}>
       <header className="side-panel-header">
+        {cwd.length > 0 && <span className="project-swatch" style={{ background: projectColor(cwd) }} />}
         <span className="side-panel-title" title={cwd}>
           {title}
         </span>

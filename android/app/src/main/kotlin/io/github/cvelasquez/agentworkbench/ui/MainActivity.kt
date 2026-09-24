@@ -56,7 +56,8 @@ import io.github.cvelasquez.agentworkbench.watch.AgentNotifier
  *  - Un aviso tocado abre su pestaña: `/?tab=<id>`, que la web respeta desde la
  *    Fase A.
  *  - La hoja `⋮` de la web ofrece los ajustes de la app con una dirección
- *    `agentworkbench://settings`, que el visor intercepta. Nada de puentes de
+ *    `agentworkbench://settings`, que el visor intercepta (y `…://disconnect`,
+ *    que corta el túnel). Nada de puentes de
  *    JavaScript hacia el teléfono.
  */
 class MainActivity : Activity() {
@@ -284,6 +285,11 @@ class MainActivity : Activity() {
             val url = request.url
             if (url.scheme == "agentworkbench" && url.host == "settings") {
                 startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+                return true
+            }
+            // "Desconectar" de la hoja ⋮: corta el túnel y queda la capa con "Conectar".
+            if (url.scheme == "agentworkbench" && url.host == "disconnect") {
+                TunnelService.stop(this@MainActivity)
                 return true
             }
             val local = url.scheme == "http" && (url.host == "127.0.0.1" || url.host == "localhost") && url.port == pc.appPort

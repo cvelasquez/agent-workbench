@@ -142,6 +142,12 @@ export const PHONE_APP_UA_TOKEN = 'AgentWorkbenchAndroid/';
 export const PHONE_APP_SETTINGS_URL = 'agentworkbench://settings';
 
 /**
+ * La que la app intercepta para cortar el túnel. El teléfono sigue emparejado:
+ * la app muestra "Desconectado" y un botón para volver a conectar.
+ */
+export const PHONE_APP_DISCONNECT_URL = 'agentworkbench://disconnect';
+
+/**
  * La función global que llama la app con el botón Atrás de Android. Devuelve
  * true si cerró o cambió algo; con false, la app se va al fondo.
  */

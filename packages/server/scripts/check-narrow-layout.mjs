@@ -19,6 +19,7 @@ import {
   NARROW_MEDIA_QUERY,
   NARROW_VIEWS,
   NATIVE_BACK_HOOK,
+  PHONE_APP_DISCONNECT_URL,
   PHONE_APP_SETTINGS_URL,
   PHONE_APP_UA_TOKEN,
   TAB_QUERY_PARAM,
@@ -164,9 +165,12 @@ const json = (value) => JSON.stringify(value);
   check('la app se reconoce por su marca en el user agent, y un navegador no',
     insidePhoneApp('Mozilla/5.0 (Linux; Android 15; wv) Chrome/124.0 Mobile Safari/537.36 AgentWorkbenchAndroid/0.1.0') &&
     !insidePhoneApp('Mozilla/5.0 (Linux; Android 15) Chrome/124.0 Mobile Safari/537.36') && PHONE_APP_UA_TOKEN === 'AgentWorkbenchAndroid/');
-  check('el contrato con la app: la función de Atrás y la dirección de los ajustes',
-    NATIVE_BACK_HOOK === 'agentWorkbenchBack' && PHONE_APP_SETTINGS_URL === 'agentworkbench://settings');
-  check('la fila de la app tiene sus textos', t('narrow.menu.phoneApp') === 'App del teléfono' && t('narrow.menu.phoneAppSettings') === 'Ajustes');
+  check('el contrato con la app: la función de Atrás y las direcciones de ajustes y desconectar',
+    NATIVE_BACK_HOOK === 'agentWorkbenchBack' && PHONE_APP_SETTINGS_URL === 'agentworkbench://settings' &&
+    PHONE_APP_DISCONNECT_URL === 'agentworkbench://disconnect');
+  check('la fila de la app tiene sus textos',
+    t('narrow.menu.phoneApp') === 'App del teléfono' && t('narrow.menu.phoneAppSettings') === 'Ajustes' &&
+    t('narrow.menu.phoneAppDisconnect') === 'Desconectar');
 }
 
 // --- 5. El viewport -------------------------------------------------------------------
