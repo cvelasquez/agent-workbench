@@ -15,6 +15,7 @@ import {
   REMOTE_MAX_PORT,
   REMOTE_MIN_PORT,
   isRemotePort,
+  type PhoneAuthorizeShell,
   type RemoteAccessState,
   type RemoteAccessStatus,
   type RemoteDeviceSummary,
@@ -96,6 +97,18 @@ export function deviceSeenText(device: RemoteDeviceSummary, now: number = Date.n
 
 export function devicePairedText(device: RemoteDeviceSummary, now: number = Date.now()): string {
   return t('remote.device.paired', { when: formatWhen(device.createdAt, now) });
+}
+
+/** Dónde se pega la línea que autoriza la llave del teléfono (hito 38). */
+export function phoneAuthorizeText(shell: PhoneAuthorizeShell): string {
+  switch (shell) {
+    case 'powershell-admin':
+      return t('remote.phone.authorize.admin');
+    case 'powershell':
+      return t('remote.phone.authorize.powershell');
+    case 'terminal':
+      return t('remote.phone.authorize.terminal');
+  }
 }
 
 /**

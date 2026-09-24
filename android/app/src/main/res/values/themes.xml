@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  El tema del sistema, claro u oscuro según el teléfono, sin barra de acción:
+  cada pantalla dibuja su encabezado. Desde la API 35 la ventana va de borde a
+  borde y cada pantalla se aparta de las barras del sistema por su cuenta
+  (Insets.kt).
+-->
+<resources>
+    <style name="Theme.AgentWorkbench" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

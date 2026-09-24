@@ -12,10 +12,15 @@
  *
  * El código se olvida en cuanto deja de estar vigente —se usó, venció o se pidió
  * otro desde otra ventana—: lo dice `pairingActive` del estado.
+ *
+ * **Emparejar un teléfono** (hito 38) usa el mismo código, más una llave SSH que
+ * el servidor arma en memoria y conserva mientras esta ventana no cancele: si el
+ * código vence, se pide otro sin autorizar otra llave. Los dos emparejamientos
+ * comparten el código, así que empezar uno borra lo que mostraba el otro.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import type { RemoteAccessStatus, RemotePairingCode, ServerMessage } from '@agent-workbench/shared';
+import type { RemoteAccessStatus, RemotePairingCode, RemotePhonePairing, ServerMessage } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
 import { serverTextMessage } from './i18n/server-text.js';
 
@@ -24,12 +29,18 @@ export interface RemoteAccessApi {
   status: RemoteAccessStatus | null;
   /** El código que pidió esta ventana, mientras siga vigente. */
   pairing: RemotePairingCode | null;
+  /** El emparejamiento de un teléfono que pidió esta ventana, mientras su código siga vigente. */
+  phonePairing: RemotePhonePairing | null;
+  /** Esta ventana pidió emparejar un teléfono y no lo canceló: el servidor guarda la llave. */
+  phoneStarted: boolean;
   /** El último pedido que falló, con el texto del servidor. */
   problem: string | null;
   setEnabled: (enabled: boolean) => void;
   setPort: (port: number) => void;
   startPairing: () => void;
   cancelPairing: () => void;
+  startPhonePairing: () => void;
+  cancelPhonePairing: () => void;
   renameDevice: (deviceId: string, label: string) => void;
   revokeDevice: (deviceId: string) => void;
   dismissProblem: () => void;
@@ -38,6 +49,8 @@ export interface RemoteAccessApi {
 export function useRemoteAccess(connection: AgentConnection): RemoteAccessApi {
   const [status, setStatus] = useState<RemoteAccessStatus | null>(null);
   const [pairing, setPairing] = useState<RemotePairingCode | null>(null);
+  const [phonePairing, setPhonePairing] = useState<RemotePhonePairing | null>(null);
+  const [phoneStarted, setPhoneStarted] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,11 +58,20 @@ export function useRemoteAccess(connection: AgentConnection): RemoteAccessApi {
       switch (message.type) {
         case 'remote.status':
           setStatus(message.status);
-          if (!message.status.pairingActive) setPairing(null);
+          if (!message.status.pairingActive) {
+            setPairing(null);
+            setPhonePairing(null);
+          }
           break;
 
         case 'remote.pairing.code':
           setPairing(message.pairing);
+          setPhonePairing(null);
+          break;
+
+        case 'remote.phone.pairing':
+          setPhonePairing(message.pairing);
+          setPairing(null);
           break;
 
         case 'error':
@@ -63,7 +85,12 @@ export function useRemoteAccess(connection: AgentConnection): RemoteAccessApi {
       }
     });
     // El código era de la conexión que se cayó: el estado vuelve solo al conectar.
-    const offReopen = connection.onReopen(() => setPairing(null));
+    const offReopen = connection.onReopen(() => {
+      setPairing(null);
+      // La llave era de la conexión que se cayó: el servidor ya la olvidó.
+      setPhonePairing(null);
+      setPhoneStarted(false);
+    });
     return () => {
       offMessage();
       offReopen();
@@ -96,6 +123,18 @@ export function useRemoteAccess(connection: AgentConnection): RemoteAccessApi {
     connection.send({ type: 'remote.pairing.cancel' });
   }, [connection]);
 
+  const startPhonePairing = useCallback(() => {
+    setProblem(null);
+    setPhoneStarted(true);
+    connection.send({ type: 'remote.phone.start' });
+  }, [connection]);
+
+  const cancelPhonePairing = useCallback(() => {
+    setPhonePairing(null);
+    setPhoneStarted(false);
+    connection.send({ type: 'remote.phone.cancel' });
+  }, [connection]);
+
   const renameDevice = useCallback(
     (deviceId: string, label: string) => {
       setProblem(null);
@@ -117,11 +156,15 @@ export function useRemoteAccess(connection: AgentConnection): RemoteAccessApi {
   return {
     status,
     pairing,
+    phonePairing,
+    phoneStarted,
     problem,
     setEnabled,
     setPort,
     startPairing,
     cancelPairing,
+    startPhonePairing,
+    cancelPhonePairing,
     renameDevice,
     revokeDevice,
     dismissProblem,

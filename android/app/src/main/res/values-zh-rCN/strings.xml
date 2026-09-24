@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Emparejar -->
+    <string name="pair_title">与电脑配对</string>
+    <string name="pair_intro">这个应用通过家里网络中的 SSH 隧道，显示你电脑上运行的 Agent Workbench。不经过互联网。</string>
+    <string name="pair_steps">1. 在电脑上的 Agent Workbench 中打开“远程访问”，选择“配对手机”。远程访问和电脑的 SSH 服务器都需要开启。\n2. 按提示把显示的那一行粘贴到电脑上。\n3. 扫描显示的代码。</string>
+    <string name="pair_scan">扫描代码</string>
+    <string name="pair_paste">改为粘贴代码的文本</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">使用</string>
+    <string name="pair_invalid">这不是 Agent Workbench 的配对代码，或者来自其他版本的应用。</string>
+    <string name="pair_confirm">以 %2$s 的身份与“%1$s”配对？</string>
+    <string name="pair_confirm_ok">配对</string>
+    <string name="pair_connecting">正在连接 %1$s…</string>
+    <string name="pair_waiting_key">你的电脑还不接受这部手机的密钥。把对话框里的那一行粘贴到电脑上：手机会继续尝试。</string>
+    <string name="pair_redeeming">正在配对…</string>
+    <string name="pair_code_rejected">代码已过期或已被使用。在电脑上通过“配对手机”获取新的代码，再扫描一次：你粘贴的那一行仍然有效。</string>
+    <string name="scan_prompt">把摄像头对准电脑屏幕上的代码</string>
+    <string name="cancel">取消</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">正在连接 %1$s…</string>
+    <string name="status_connected">已连接到 %1$s</string>
+    <string name="status_disconnected">已断开</string>
+    <string name="status_retrying">没有连接。%1$d 秒后重试。</string>
+    <string name="problem_pc_not_found">在这个网络中找不到你的电脑。手机是否连着同一个 Wi‑Fi，电脑是否开着？</string>
+    <string name="problem_ssh_closed">你的电脑在网络上，但它的 SSH 服务器没有响应。它需要开启：README 里说明了方法。</string>
+    <string name="problem_key_rejected">你的电脑不接受这部手机的密钥。请在“远程访问”中重新配对。</string>
+    <string name="problem_host_key_changed">你电脑的 SSH 指纹变了（现在是 %1$s）。如果你没有重装它的 SSH 服务器，请不要连接。若要信任它，请忘记这台电脑并重新配对。</string>
+    <string name="problem_app_not_running">你电脑上的 Agent Workbench 没有响应。它是否已打开，并开启了远程访问？</string>
+    <string name="problem_not_accepted">你的电脑没有接受这部手机：可能远程访问已关闭，或者这部手机已被撤销。如果已被撤销，请重新配对。</string>
+    <string name="problem_local_port_busy">这部手机上的其他应用正在使用隧道需要的端口 %1$d。</string>
+    <string name="problem_other">连接失败：%1$s</string>
+    <string name="problem_not_paired">这部手机没有与任何电脑配对。</string>
+    <string name="action_retry">重试</string>
+    <string name="action_settings">设置</string>
+    <string name="action_pair_again">重新配对</string>
+    <string name="action_disconnect">断开连接</string>
+    <string name="load_error">无法加载界面：%1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">与电脑的连接</string>
+    <string name="channel_connection_description">按照 Android 的要求，在手机保持连接期间显示。</string>
+    <string name="channel_agent">智能体提醒</string>
+    <string name="channel_agent_description">当智能体完成工作或在等你时。</string>
+    <string name="notify_done">“%1$s”已完成</string>
+    <string name="notify_attention">“%1$s”在等你</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">设置</string>
+    <string name="settings_computer">电脑</string>
+    <string name="settings_fingerprint">SSH 指纹：%1$s</string>
+    <string name="settings_notices">提醒</string>
+    <string name="settings_notify">智能体完成工作或在等你时提醒</string>
+    <string name="settings_notify_system">提醒的系统设置</string>
+    <string name="settings_battery">电池</string>
+    <string name="settings_battery_hint">为了在手机闲置时提醒不延迟，请让应用在没有电池限制的情况下运行。</string>
+    <string name="settings_battery_open">打开应用的电池设置</string>
+    <string name="settings_connection">连接</string>
+    <string name="settings_connect">连接</string>
+    <string name="settings_disconnect">断开连接</string>
+    <string name="settings_forget">忘记这台电脑</string>
+    <string name="settings_forget_confirm">手机会删除它用于这台电脑的密钥和凭据。要再次使用，需要重新配对。也请在电脑的“远程访问”中撤销它。</string>
+    <string name="settings_forget_ok">忘记</string>
+    <string name="settings_about">Agent Workbench %1$s · 开源（MIT）</string>
+    <string name="settings_privacy">隐私</string>
+    <string name="shortcut_settings">设置</string>
+</resources>

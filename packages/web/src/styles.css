@@ -3765,6 +3765,21 @@ kbd {
   color: var(--danger);
 }
 
+/* Hito 38: la línea que autoriza la llave del teléfono es larga y se copia entera. */
+.remote-phone-command {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Siempre negro sobre blanco, con su margen: un QR invertido no lo lee cualquier cámara. */
+.remote-phone-qr {
+  display: block;
+  width: min(280px, 100%);
+  height: auto;
+  margin: 8px 0;
+  border-radius: 4px;
+}
+
 .shortcut-list {
   margin: 0;
 }
@@ -5377,9 +5392,10 @@ kbd {
     border-top: none;
   }
 
+  /* La etiqueta no se achica: un valor largo se corta él, con puntos suspensivos,
+     en vez de dibujarse encima de la etiqueta. */
   .narrow-menu-label {
-    flex: 1 1 auto;
-    min-width: 0;
+    flex: 1 0 auto;
   }
 
   .narrow-menu-value {
@@ -5391,6 +5407,12 @@ kbd {
     text-align: right;
     color: var(--text-dim);
     font-size: 12px;
+  }
+
+  /* Una explicación, no una ruta: se parte en líneas en vez de cortarse. */
+  .narrow-menu-value-wrap {
+    padding-block: 8px;
+    white-space: normal;
   }
 
   .narrow-menu-row .icon-button {

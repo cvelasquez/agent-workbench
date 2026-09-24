@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Emparejar -->
+    <string name="pair_title">コンピューターとペアリング</string>
+    <string name="pair_intro">このアプリは、あなたのコンピューターで動いている Agent Workbench を、家のネットワーク内の SSH トンネル経由で表示します。インターネットは通りません。</string>
+    <string name="pair_steps">1. コンピューターの Agent Workbench で「リモートアクセス」を開き、「スマートフォンをペアリング」を選びます。リモートアクセスとコンピューターの SSH サーバーがオンになっている必要があります。\n2. 表示された行を、指示どおりコンピューターに貼り付けます。\n3. 表示されたコードを読み取ります。</string>
+    <string name="pair_scan">コードを読み取る</string>
+    <string name="pair_paste">代わりにコードのテキストを貼り付ける</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">使う</string>
+    <string name="pair_invalid">Agent Workbench のペアリングコードではないか、別のバージョンのものです。</string>
+    <string name="pair_confirm">%2$s として「%1$s」とペアリングしますか？</string>
+    <string name="pair_confirm_ok">ペアリング</string>
+    <string name="pair_connecting">%1$s に接続しています…</string>
+    <string name="pair_waiting_key">コンピューターがまだこのスマートフォンの鍵を受け入れていません。ダイアログの行をコンピューターに貼り付けてください。スマートフォンは試行を続けます。</string>
+    <string name="pair_redeeming">ペアリングしています…</string>
+    <string name="pair_code_rejected">コードの期限が切れたか、すでに使われています。コンピューターで「スマートフォンをペアリング」から新しいコードを出し、もう一度読み取ってください。貼り付けた行はそのまま有効です。</string>
+    <string name="scan_prompt">コンピューターの画面に表示されたコードにカメラを向けてください</string>
+    <string name="cancel">キャンセル</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">%1$s に接続しています…</string>
+    <string name="status_connected">%1$s に接続しました</string>
+    <string name="status_disconnected">切断中</string>
+    <string name="status_retrying">接続がありません。%1$d 秒後に再試行します。</string>
+    <string name="problem_pc_not_found">このネットワークでコンピューターが見つかりません。スマートフォンは同じ Wi‑Fi に接続していて、コンピューターの電源は入っていますか？</string>
+    <string name="problem_ssh_closed">コンピューターはネットワーク上にありますが、SSH サーバーが応答しません。オンにする必要があります。方法は README にあります。</string>
+    <string name="problem_key_rejected">コンピューターがこのスマートフォンの鍵を受け入れません。「リモートアクセス」からもう一度ペアリングしてください。</string>
+    <string name="problem_host_key_changed">コンピューターの SSH フィンガープリントが変わりました（現在は %1$s）。SSH サーバーを再インストールしていない場合は、接続しないでください。信頼するには、このコンピューターを削除してペアリングし直してください。</string>
+    <string name="problem_app_not_running">コンピューターの Agent Workbench が応答しません。リモートアクセスをオンにして開いていますか？</string>
+    <string name="problem_not_accepted">コンピューターがこのスマートフォンを受け入れませんでした。リモートアクセスがオフになっているか、スマートフォンが取り消された可能性があります。取り消された場合は、もう一度ペアリングしてください。</string>
+    <string name="problem_local_port_busy">このスマートフォンの別のアプリが、トンネルに必要なポート %1$d を使っています。</string>
+    <string name="problem_other">接続に失敗しました：%1$s</string>
+    <string name="problem_not_paired">このスマートフォンはどのコンピューターともペアリングされていません。</string>
+    <string name="action_retry">再試行</string>
+    <string name="action_settings">設定</string>
+    <string name="action_pair_again">もう一度ペアリング</string>
+    <string name="action_disconnect">切断</string>
+    <string name="load_error">画面を読み込めませんでした：%1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">コンピューターとの接続</string>
+    <string name="channel_connection_description">スマートフォンが接続を開いている間、Android の要件により表示されます。</string>
+    <string name="channel_agent">エージェントの通知</string>
+    <string name="channel_agent_description">エージェントが完了したとき、またはあなたを待っているとき。</string>
+    <string name="notify_done">「%1$s」が完了しました</string>
+    <string name="notify_attention">「%1$s」があなたを待っています</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">設定</string>
+    <string name="settings_computer">コンピューター</string>
+    <string name="settings_fingerprint">SSH フィンガープリント：%1$s</string>
+    <string name="settings_notices">通知</string>
+    <string name="settings_notify">エージェントが完了したとき、または待っているときに通知する</string>
+    <string name="settings_notify_system">通知のシステム設定</string>
+    <string name="settings_battery">バッテリー</string>
+    <string name="settings_battery_hint">スマートフォンが待機中でも通知が遅れないように、アプリをバッテリーの制限なしで動かしてください。</string>
+    <string name="settings_battery_open">アプリのバッテリー設定を開く</string>
+    <string name="settings_connection">接続</string>
+    <string name="settings_connect">接続</string>
+    <string name="settings_disconnect">切断</string>
+    <string name="settings_forget">このコンピューターを削除</string>
+    <string name="settings_forget_confirm">スマートフォンは、このコンピューター用の鍵と認証情報を削除します。再び使うには、もう一度ペアリングする必要があります。コンピューター側でも「リモートアクセス」で取り消してください。</string>
+    <string name="settings_forget_ok">削除</string>
+    <string name="settings_about">Agent Workbench %1$s · オープンソース（MIT）</string>
+    <string name="settings_privacy">プライバシー</string>
+    <string name="shortcut_settings">設定</string>
+</resources>

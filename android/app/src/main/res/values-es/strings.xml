@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Emparejar -->
+    <string name="pair_title">Emparejar con tu equipo</string>
+    <string name="pair_intro">Esta app muestra el Agent Workbench que corre en tu equipo, por un túnel SSH dentro de la red de tu casa. Nada pasa por internet.</string>
+    <string name="pair_steps">1. En tu equipo, en Agent Workbench, abre «Acceso remoto» y elige «Emparejar un teléfono». El acceso remoto y el servidor SSH del equipo tienen que estar encendidos.\n2. Pega en tu equipo la línea que te muestra, donde te dice.\n3. Escanea el código que te muestra.</string>
+    <string name="pair_scan">Escanear código</string>
+    <string name="pair_paste">Pegar el texto del código</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">Usar</string>
+    <string name="pair_invalid">Eso no es un código para emparejar de Agent Workbench, o es de otra versión de la app.</string>
+    <string name="pair_confirm">¿Emparejar con «%1$s» como %2$s?</string>
+    <string name="pair_confirm_ok">Emparejar</string>
+    <string name="pair_connecting">Conectando con %1$s…</string>
+    <string name="pair_waiting_key">Tu equipo todavía no acepta la llave de este teléfono. Pega en tu equipo la línea del diálogo: el teléfono sigue intentando.</string>
+    <string name="pair_redeeming">Emparejando…</string>
+    <string name="pair_code_rejected">El código venció o ya se usó. En tu equipo, pide uno nuevo con «Emparejar un teléfono» y vuelve a escanear: la línea que pegaste sigue valiendo.</string>
+    <string name="scan_prompt">Apunta la cámara al código que está en la pantalla de tu equipo</string>
+    <string name="cancel">Cancelar</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">Conectando con %1$s…</string>
+    <string name="status_connected">Conectado a %1$s</string>
+    <string name="status_disconnected">Desconectado</string>
+    <string name="status_retrying">Sin conexión. Vuelvo a intentar en %1$d s.</string>
+    <string name="problem_pc_not_found">No encuentro tu equipo en esta red. ¿El teléfono está en el mismo wifi, y el equipo encendido?</string>
+    <string name="problem_ssh_closed">Tu equipo está en la red, pero su servidor SSH no responde. Tiene que estar encendido: el README explica cómo.</string>
+    <string name="problem_key_rejected">Tu equipo no acepta la llave de este teléfono. Vuelve a emparejarlo desde «Acceso remoto».</string>
+    <string name="problem_host_key_changed">La huella SSH de tu equipo cambió (ahora es %1$s). Si no reinstalaste su servidor SSH, no te conectes. Para confiar en ella, olvida este equipo y vuelve a emparejarlo.</string>
+    <string name="problem_app_not_running">Agent Workbench no responde en tu equipo. ¿Está abierto, con el acceso remoto encendido?</string>
+    <string name="problem_not_accepted">Tu equipo no aceptó este teléfono: puede que el acceso remoto esté apagado o que lo hayan revocado. Si lo revocaron, vuelve a emparejarlo.</string>
+    <string name="problem_local_port_busy">Otra app de este teléfono está usando el puerto %1$d, que necesita el túnel.</string>
+    <string name="problem_other">La conexión falló: %1$s</string>
+    <string name="problem_not_paired">Este teléfono no está emparejado con ningún equipo.</string>
+    <string name="action_retry">Reintentar</string>
+    <string name="action_settings">Ajustes</string>
+    <string name="action_pair_again">Emparejar de nuevo</string>
+    <string name="action_disconnect">Desconectar</string>
+    <string name="load_error">No se pudo cargar la interfaz: %1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">Conexión con tu equipo</string>
+    <string name="channel_connection_description">Se muestra mientras el teléfono mantiene la conexión abierta, como exige Android.</string>
+    <string name="channel_agent">Avisos del agente</string>
+    <string name="channel_agent_description">Cuando un agente termina o te espera.</string>
+    <string name="notify_done">«%1$s» terminó</string>
+    <string name="notify_attention">«%1$s» te espera</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_computer">Equipo</string>
+    <string name="settings_fingerprint">Huella SSH: %1$s</string>
+    <string name="settings_notices">Avisos</string>
+    <string name="settings_notify">Avisar cuando un agente termina o te espera</string>
+    <string name="settings_notify_system">Ajustes del sistema para los avisos</string>
+    <string name="settings_battery">Batería</string>
+    <string name="settings_battery_hint">Para que los avisos no se demoren con el teléfono quieto, deja que la app funcione sin restricciones de batería.</string>
+    <string name="settings_battery_open">Abrir los ajustes de batería de la app</string>
+    <string name="settings_connection">Conexión</string>
+    <string name="settings_connect">Conectar</string>
+    <string name="settings_disconnect">Desconectar</string>
+    <string name="settings_forget">Olvidar este equipo</string>
+    <string name="settings_forget_confirm">El teléfono borra su llave y su credencial para este equipo. Para volver a usarlo tendrás que emparejarlo de nuevo. En el equipo, revócalo también en «Acceso remoto».</string>
+    <string name="settings_forget_ok">Olvidar</string>
+    <string name="settings_about">Agent Workbench %1$s · código abierto (MIT)</string>
+    <string name="settings_privacy">Privacidad</string>
+    <string name="shortcut_settings">Ajustes</string>
+</resources>

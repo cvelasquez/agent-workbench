@@ -21,6 +21,10 @@
  *    `input` que xterm.
  *
  * `Escape` cierra el cajón o la hoja abierta, en captura, como los diálogos.
+ *
+ * Dentro de la app de Android (hito 38) el botón Atrás del teléfono llama a
+ * `window.agentWorkbenchBack`, que cierra lo de más arriba o vuelve al chat
+ * (`narrowBackAction`), y la hoja `⋮` ofrece los ajustes de la app.
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -36,7 +40,14 @@ import { AgentSplitButton } from './AgentSplitButton.js';
 import type { ConnectionStatus } from './connection.js';
 import { t } from './i18n/index.js';
 import { LocaleMenu } from './LocaleMenu.js';
-import { narrowViewLabelKey, type NarrowView } from './narrow-layout.js';
+import {
+  NATIVE_BACK_HOOK,
+  PHONE_APP_SETTINGS_URL,
+  insidePhoneApp,
+  narrowBackAction,
+  narrowViewLabelKey,
+  type NarrowView,
+} from './narrow-layout.js';
 import { NotifyButton, SoundControl } from './SoundControl.js';
 import { TabStatus, defaultTabLabel } from './TabBar.js';
 import { TerminalKeys } from './TerminalKeys.js';
@@ -147,6 +158,46 @@ export function NarrowShell({
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [drawerOpen, sheet, onDrawerChange]);
+
+  /*
+    El botón Atrás de la app de Android (hito 38). La app llama a esta función
+    y, si devuelve false, se va al fondo. Lee el estado del momento por una
+    referencia: se registra una sola vez.
+  */
+  const backState = useRef({ sheet, drawerOpen, view, onDrawerChange, onViewChange });
+  backState.current = { sheet, drawerOpen, view, onDrawerChange, onViewChange };
+  useEffect(() => {
+    const hooks = window as unknown as Record<string, unknown>;
+    hooks[NATIVE_BACK_HOOK] = (): boolean => {
+      const current = backState.current;
+      const action = narrowBackAction({
+        dialogOpen: document.querySelector('.modal-backdrop') !== null,
+        sheetOpen: current.sheet !== null,
+        drawerOpen: current.drawerOpen,
+        view: current.view,
+      });
+      switch (action) {
+        case 'close-dialog':
+          // Los diálogos se cierran con Escape, en captura sobre window.
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          return true;
+        case 'close-sheet':
+          setSheet(null);
+          return true;
+        case 'close-drawer':
+          current.onDrawerChange(false);
+          return true;
+        case 'show-chat':
+          current.onViewChange('chat');
+          return true;
+        case null:
+          return false;
+      }
+    };
+    return () => {
+      delete hooks[NATIVE_BACK_HOOK];
+    };
+  }, []);
 
   // La vista activa se trae a la vista en la tira, que se desliza.
   const activeViewRef = useRef<HTMLButtonElement | null>(null);
@@ -403,7 +454,7 @@ function MenuSheet({
       {menu.remoteClient && (
         <div className="narrow-menu-row">
           <span className="narrow-menu-label">{t('app.header.remoteBadge')}</span>
-          <span className="narrow-menu-value">{t('app.header.remoteBadgeTitle')}</span>
+          <span className="narrow-menu-value narrow-menu-value-wrap">{t('app.header.remoteBadgeTitle')}</span>
         </div>
       )}
       <div className="narrow-menu-row">
@@ -439,6 +490,14 @@ function MenuSheet({
           >
             ⇄
           </button>
+        </div>
+      )}
+      {insidePhoneApp(navigator.userAgent) && (
+        <div className="narrow-menu-row">
+          <span className="narrow-menu-label">{t('narrow.menu.phoneApp')}</span>
+          <a className="link-button" href={PHONE_APP_SETTINGS_URL} onClick={onClose}>
+            {t('narrow.menu.phoneAppSettings')}
+          </a>
         </div>
       )}
       <div className="narrow-menu-row">

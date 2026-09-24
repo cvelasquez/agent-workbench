@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  El robot de la interfaz web (packages/web/public/favicon.svg), sin referencia a
+  ninguna CLI ni a su fabricante (§2.3). Las mismas formas en una grilla de
+  32, llevadas al centro de los 108 dp del ícono adaptable y dentro de su zona
+  segura. Todas las partes de la cara van en sentido horario: se suman donde se
+  tocan (la antena y su poste).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.875"
+        android:scaleY="1.875"
+        android:translateX="24"
+        android:translateY="27.75">
+        <!-- antena, cabeza y orejas -->
+        <path
+            android:fillColor="@color/icon_face"
+            android:pathData="M13.8,4a2.2,2.2 0,1 1,4.4 0a2.2,2.2 0,1 1,-4.4 0z M16,4h0a1,1 0,0 1,1 1v2a1,1 0,0 1,-1 1h0a1,1 0,0 1,-1 -1v-2a1,1 0,0 1,1 -1z M11,8h10a5,5 0,0 1,5 5v6a5,5 0,0 1,-5 5h-10a5,5 0,0 1,-5 -5v-6a5,5 0,0 1,5 -5z M4.25,13h0a1.25,1.25 0,0 1,1.25 1.25v3.5a1.25,1.25 0,0 1,-1.25 1.25h0a1.25,1.25 0,0 1,-1.25 -1.25v-3.5a1.25,1.25 0,0 1,1.25 -1.25z M27.75,13h0a1.25,1.25 0,0 1,1.25 1.25v3.5a1.25,1.25 0,0 1,-1.25 1.25h0a1.25,1.25 0,0 1,-1.25 -1.25v-3.5a1.25,1.25 0,0 1,1.25 -1.25z" />
+        <!-- ojos y boca -->
+        <path
+            android:fillColor="@color/icon_features"
+            android:pathData="M9.6,15a2.4,2.4 0,1 1,4.8 0a2.4,2.4 0,1 1,-4.8 0z M17.6,15a2.4,2.4 0,1 1,4.8 0a2.4,2.4 0,1 1,-4.8 0z M12,19.5h8a1,1 0,0 1,1 1h0a1,1 0,0 1,-1 1h-8a1,1 0,0 1,-1 -1h0a1,1 0,0 1,1 -1z" />
+    </group>
+</vector>

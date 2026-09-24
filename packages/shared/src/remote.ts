@@ -138,3 +138,43 @@ export function parseRemotePairingCode(value: unknown): RemotePairingCode | null
   const expiresAt = asFiniteNumber(record['expiresAt']);
   return code === null || expiresAt === null ? null : { code, expiresAt };
 }
+
+// ---- El teléfono (hito 38, §15) ------------------------------------------------
+
+/**
+ * Dónde pega el usuario la línea que autoriza la llave del teléfono. En Windows
+ * depende de si su usuario es administrador —el OpenSSH de Windows lee otra
+ * lista para ellos, y escribirla pide una consola de administrador—; fuera de
+ * Windows es una terminal.
+ */
+export type PhoneAuthorizeShell = 'powershell-admin' | 'powershell' | 'terminal';
+export const PHONE_AUTHORIZE_SHELLS: readonly PhoneAuthorizeShell[] = ['powershell-admin', 'powershell', 'terminal'];
+
+/**
+ * Emparejar un teléfono (hito 38): lo que ve **sólo** la ventana que lo pidió.
+ *
+ * `payload` es el texto del código QR y lleva la llave privada del teléfono,
+ * que este equipo arma en memoria y no guarda: por eso no va en el estado que
+ * reciben las demás ventanas, y la interfaz no ofrece copiarlo.
+ */
+export interface RemotePhonePairing {
+  payload: string;
+  /** La línea que el usuario pega en este equipo para autorizar la llave. */
+  authorizeCommand: string;
+  shell: PhoneAuthorizeShell;
+  /** El código de un solo uso que va dentro del QR, con su guion. */
+  code: string;
+  expiresAt: number;
+}
+
+export function parseRemotePhonePairing(value: unknown): RemotePhonePairing | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const payload = asNonEmptyString(record['payload']);
+  const authorizeCommand = asNonEmptyString(record['authorizeCommand']);
+  const shell = asLiteral(record['shell'], PHONE_AUTHORIZE_SHELLS);
+  const code = asNonEmptyString(record['code']);
+  const expiresAt = asFiniteNumber(record['expiresAt']);
+  if (payload === null || authorizeCommand === null || shell === null || code === null || expiresAt === null) return null;
+  return { payload, authorizeCommand, shell, code, expiresAt };
+}

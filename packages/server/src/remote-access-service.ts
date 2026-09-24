@@ -23,6 +23,7 @@
  *    equipo revocado. Apagado no corre nada.
  */
 
+import { execFile } from 'node:child_process';
 import { randomBytes as cryptoRandomBytes, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import {
@@ -31,9 +32,20 @@ import {
   ServerTextError,
   isRemotePort,
   serverText,
+  type PhoneAuthorizeShell,
   type RemoteAccessStatus,
   type RemotePairingCode,
+  type RemotePhonePairing,
 } from '@agent-workbench/shared';
+import {
+  PHONE_SEED_BYTES,
+  PHONE_SSH_PORT,
+  authorizeShellFromGroups,
+  ed25519PublicKey,
+  phoneAuthorizeCommand,
+  phoneAuthorizedKeysEntry,
+  phonePairingPayload,
+} from './phone-pairing.js';
 import {
   DeviceBook,
   PairingDesk,
@@ -60,6 +72,20 @@ export interface RemoteHostInfo {
   hostNames: string[];
 }
 
+/**
+ * Dónde pega el usuario la línea que autoriza la llave del teléfono (hito 38).
+ * En Windows se le pregunta a `whoami` si el usuario es administrador; si no
+ * contesta, se supone que sí, que es lo común en un equipo de casa.
+ */
+export function detectAuthorizeShell(): Promise<PhoneAuthorizeShell> {
+  if (process.platform !== 'win32') return Promise.resolve('terminal');
+  return new Promise((resolve) => {
+    execFile('whoami', ['/groups', '/fo', 'csv', '/nh'], { windowsHide: true, timeout: 5_000 }, (error, stdout) => {
+      resolve(error === null ? authorizeShellFromGroups(String(stdout)) : 'powershell-admin');
+    });
+  });
+}
+
 /** Se relee en cada estado: la IP cambia cuando el wifi se reconecta. */
 export function detectHostInfo(): RemoteHostInfo {
   let user = '';
@@ -80,6 +106,8 @@ export interface RemoteAccessOptions {
   now?: () => number;
   randomBytes?: RandomBytes;
   log?: Pick<Console, 'log' | 'warn'>;
+  /** Fija, para las pruebas. Sin ella se le pregunta al sistema una vez. */
+  authorizeShell?: () => Promise<PhoneAuthorizeShell>;
 }
 
 export interface RedeemedPairing {
@@ -97,6 +125,15 @@ export class RemoteAccessService {
   private readonly log: Pick<Console, 'log' | 'warn'>;
   private readonly book: DeviceBook;
   private readonly desk: PairingDesk;
+  private readonly randomBytes: RandomBytes;
+  private readonly authorizeShell: () => Promise<PhoneAuthorizeShell>;
+  private authorizeShellCache: Promise<PhoneAuthorizeShell> | null = null;
+  /**
+   * La semilla de la llave del teléfono que se está emparejando (hito 38). Sólo
+   * en memoria, y sólo mientras dure ese emparejamiento: se olvida al
+   * cancelarlo, al canjearse el código o al cerrarse la ventana que lo pidió.
+   */
+  private phoneSeed: Buffer | null = null;
 
   private readonly changeListeners = new Set<() => void>();
   private readonly revokedListeners = new Set<(deviceId: string | null) => void>();
@@ -120,6 +157,8 @@ export class RemoteAccessService {
     this.now = options.now ?? (() => Date.now());
     this.log = options.log ?? console;
     const randomBytes = options.randomBytes ?? ((size: number) => cryptoRandomBytes(size));
+    this.randomBytes = randomBytes;
+    this.authorizeShell = options.authorizeShell ?? detectAuthorizeShell;
     this.book = new DeviceBook({ now: this.now, randomBytes, randomId: () => randomUUID() });
     this.desk = new PairingDesk({ now: this.now, randomBytes });
   }
@@ -271,6 +310,52 @@ export class RemoteAccessService {
     this.emitChange();
   }
 
+  /**
+   * Empareja un teléfono (hito 38, §15): un código de un solo uso y la llave SSH
+   * que va con él en el QR. La llave es la misma mientras no se cancele: si el
+   * código vence antes de que el teléfono lo use, el usuario pide otro y no
+   * tiene que autorizar otra llave.
+   *
+   * La dirección lleva el puerto en el que escucha este arranque, que es el que
+   * el teléfono va a reenviar.
+   */
+  async startPhonePairing(): Promise<RemotePhonePairing> {
+    const pairing = this.startPairing();
+    this.phoneSeed ??= this.randomBytes(PHONE_SEED_BYTES);
+    const seed = this.phoneSeed;
+    this.authorizeShellCache ??= this.authorizeShell();
+    const shell = await this.authorizeShellCache;
+    const host = this.host ?? detectHostInfo();
+    const [pcName = '', ...addresses] = host.hostNames;
+    const appPort = this.listening.port;
+    return {
+      payload: phonePairingPayload({
+        pcName,
+        hosts: addresses.length > 0 ? addresses : [pcName],
+        sshPort: PHONE_SSH_PORT,
+        user: host.user,
+        appPort,
+        code: pairing.code.replace('-', ''),
+        seed,
+      }),
+      authorizeCommand: phoneAuthorizeCommand(phoneAuthorizedKeysEntry(ed25519PublicKey(seed), appPort), shell),
+      shell,
+      code: pairing.code,
+      expiresAt: pairing.expiresAt,
+    };
+  }
+
+  /** Olvida la llave del teléfono y da de baja el código. */
+  cancelPhonePairing(): void {
+    this.phoneSeed = null;
+    this.cancelPairing();
+  }
+
+  /** Para el chequeo: si todavía hay una llave de teléfono en memoria. */
+  get phoneKeyHeld(): boolean {
+    return this.phoneSeed !== null;
+  }
+
   private stopPairing(): void {
     this.desk.cancel();
     if (this.pairingTimer !== null) clearTimeout(this.pairingTimer);
@@ -319,7 +404,9 @@ export class RemoteAccessService {
 
     // El código ya quedó gastado. Se relee antes de sumar: la lista que se
     // escribe tiene que ser la de ahora, no la que recordaba esta instancia.
+    // La llave de un teléfono, si la había, ya viajó: no se guarda más.
     this.stopPairing();
+    this.phoneSeed = null;
     await this.sync();
     const enrolled = this.accepting() ? this.book.enroll(deviceLabelFromUserAgent(userAgent)) : null;
     if (enrolled === null) {
@@ -409,6 +496,7 @@ export class RemoteAccessService {
   /** Frena los relojes. Lo que quede por guardar lo escribe `flush()`. */
   dispose(): void {
     this.stopPairing();
+    this.phoneSeed = null;
     if (this.pollTimer !== null) clearInterval(this.pollTimer);
     this.pollTimer = null;
   }

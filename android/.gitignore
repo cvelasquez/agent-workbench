@@ -1,0 +1,13 @@
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+captures/
+.cxx/
+.externalNativeBuild/
+# Las llaves de firma nunca entran al repositorio: la de subida vive en el equipo de quien publica.
+*.jks
+*.keystore
+keystore.properties

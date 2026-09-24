@@ -1,0 +1,5 @@
+# El script de Gradle corre en Linux (el CI) y el .bat en Windows: cada uno con
+# su final de línea, sin importar la configuración de git de quien commitea.
+/gradlew        text eol=lf
+*.bat           text eol=crlf
+*.jar           binary

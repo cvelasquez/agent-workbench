@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El ícono del atajo a los ajustes: una rueda simple, del acento. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@color/accent"
+        android:fillType="evenOdd"
+        android:pathData="M10.5,2h3l0.5,2.6a7.6,7.6 0,0 1,1.9 0.8l2.2,-1.5 2.1,2.1 -1.5,2.2a7.6,7.6 0,0 1,0.8 1.9L22,10.5v3l-2.6,0.5a7.6,7.6 0,0 1,-0.8 1.9l1.5,2.2 -2.1,2.1 -2.2,-1.5a7.6,7.6 0,0 1,-1.9 0.8L13.5,22h-3l-0.5,-2.6a7.6,7.6 0,0 1,-1.9 -0.8l-2.2,1.5 -2.1,-2.1 1.5,-2.2a7.6,7.6 0,0 1,-0.8 -1.9L2,13.5v-3l2.6,-0.5a7.6,7.6 0,0 1,0.8 -1.9L3.9,5.9 6,3.8 8.2,5.3a7.6,7.6 0,0 1,1.9 -0.8z M12,8.5a3.5,3.5 0,1 0,0 7a3.5,3.5 0,1 0,0 -7z" />
+</vector>

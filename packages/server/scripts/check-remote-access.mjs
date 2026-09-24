@@ -14,6 +14,11 @@
  * cada extremo es un 403 sin explicación—, y cuándo sale una notificación del
  * sistema (§6.20.1).
  *
+ * Desde el hito 38, el teléfono (§15): la llave que viaja en el QR —que la
+ * pública sea la de esa semilla, que la línea que se pega la restrinja al
+ * túnel y no deje ejecutar nada, que el QR no lleve nada de más— y que sólo la
+ * pida y la vea una ventana del anfitrión.
+ *
  * Nunca toca la carpeta de configuración real: los ajustes y los equipos van a
  * una carpeta temporal del chequeo. No abre ningún puerto ni carga node-pty.
  */
@@ -58,6 +63,18 @@ import {
   readPairingCode,
 } from '../src/security.ts';
 import { SettingsStore, parseAppSettings } from '../src/settings-store.ts';
+import {
+  PHONE_KEY_COMMENT,
+  PHONE_PAYLOAD_PREFIX,
+  authorizeShellFromGroups,
+  ed25519PublicKey,
+  parsePhonePairingPayload,
+  phoneAuthorizeCommand,
+  phoneAuthorizedKeysEntry,
+  phonePairingPayload,
+  sshEd25519PublicKey,
+} from '../src/phone-pairing.ts';
+import { qrMatrix, qrModuleDark } from '../../web/src/qr-code.ts';
 import { remoteAccessStartupLine } from '../src/startup-summary.ts';
 import { setLocale } from '../../web/src/i18n/index.ts';
 import {
@@ -69,6 +86,7 @@ import {
   pairingUrl,
   parsePortInput,
   remoteStateText,
+  phoneAuthorizeText,
   remoteUrl,
   sshTunnelCommand,
 } from '../../web/src/remote-access-ui.ts';
@@ -610,6 +628,125 @@ try {
       tabNameFor({ label: 'Backend', cwd: 'D:\\Mi App' }) === 'Backend' &&
       tabNameFor({ label: '', cwd: 'D:\\Proyectos\\Mi App\\' }) === 'Mi App' &&
       tabNameFor({ label: '', cwd: '/home/ana/mi-app' }) === 'mi-app' && tabNameFor(undefined) === '');
+  }
+  // --- 14. El teléfono (hito 38, §15) -------------------------------------------
+  {
+    // RFC 8032, prueba 1: la pública de esa semilla es esa.
+    const rfcSeed = Buffer.from('9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60', 'hex');
+    check('la pública Ed25519 sale de la semilla, como dice la RFC 8032',
+      ed25519PublicKey(rfcSeed).toString('hex') === 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a');
+    check('una semilla que no tiene 32 bytes no es una llave',
+      (() => { try { ed25519PublicKey(Buffer.alloc(31)); return false; } catch { return true; } })());
+    const publicLine = sshEd25519PublicKey(ed25519PublicKey(rfcSeed));
+    check('la pública va en el formato de OpenSSH',
+      publicLine === 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea', publicLine);
+
+    const entry = phoneAuthorizedKeysEntry(ed25519PublicKey(rfcSeed), 24837);
+    const options = entry.split(' ')[0];
+    check('la línea deja solo el túnel hacia el puerto de la app, y no ejecuta nada',
+      options === 'restrict,port-forwarding,permitopen="127.0.0.1:24837",command="exit"', options);
+    check('la línea lleva la pública y dice de dónde salió',
+      entry.endsWith(`${publicLine} ${PHONE_KEY_COMMENT}`) && !entry.includes("'"));
+
+    const admin = phoneAuthorizeCommand(entry, 'powershell-admin');
+    check('administrador: la lista de administradores, con permisos por SID y sin nombres de grupo',
+      admin.includes('administrators_authorized_keys') && admin.includes("'*S-1-5-32-544:F'") && admin.includes("'*S-1-5-18:F'") &&
+      admin.includes('/inheritance:r') && !/Administrators|Administradores|SYSTEM:/.test(admin));
+    const plain = phoneAuthorizeCommand(entry, 'powershell');
+    check('usuario común: su authorized_keys, sin tocar permisos',
+      plain.includes('$HOME\\.ssh\\authorized_keys') && !plain.includes('icacls') && !plain.includes('administrators'));
+    const unix = phoneAuthorizeCommand(entry, 'terminal');
+    check('macOS y Linux: ~/.ssh con los permisos que pide StrictModes',
+      unix.includes('~/.ssh/authorized_keys') && unix.includes('chmod 700 ~/.ssh') && unix.includes('chmod 600'));
+    check('en los tres la línea va entera y entre comillas simples',
+      [admin, plain, unix].every((command) => command.includes(`'${entry}'`)));
+    check('whoami con el grupo de administradores es la consola de administrador; sin él, la común',
+      authorizeShellFromGroups('"BUILTIN\\Administradores","Alias","S-1-5-32-544","Grupo usado solo para denegar"') === 'powershell-admin' &&
+      authorizeShellFromGroups('"BUILTIN\\Usuarios","Alias","S-1-5-32-545","Grupo obligatorio"') === 'powershell');
+
+    const payload = phonePairingPayload({
+      pcName: 'PC Ana', hosts: ['192.168.1.20', '10.0.0.5'], sshPort: 22, user: 'Ana Pérez', appPort: 24837, code: 'K7QMX2RD', seed: rfcSeed,
+    });
+    const back = parsePhonePairingPayload(payload);
+    check('el QR se lee igual que se escribió',
+      back !== null && back.pcName === 'PC Ana' && json(back.hosts) === json(['192.168.1.20', '10.0.0.5']) && back.sshPort === 22 &&
+      back.user === 'Ana Pérez' && back.appPort === 24837 && back.code === 'K7QMX2RD' && back.seed.equals(rfcSeed), payload);
+    const keys = [...new URLSearchParams(payload.slice(PHONE_PAYLOAD_PREFIX.length)).keys()];
+    check('el QR lleva exactamente lo que necesita el teléfono: ni el token ni nada de más',
+      json(keys) === json(['v', 'n', 'h', 'p', 'u', 'a', 'c', 'k']) && payload.startsWith(PHONE_PAYLOAD_PREFIX), json(keys));
+    check('el QR es ASCII: el generador codifica bytes', /^[\x21-\x7e]+$/.test(payload));
+    check('otra versión, un prefijo ajeno o una semilla corta no se leen',
+      parsePhonePairingPayload(payload.replace('v=1', 'v=2')) === null &&
+      parsePhonePairingPayload(payload.replace('agentworkbench://pair?', 'https://x/?')) === null &&
+      parsePhonePairingPayload(payload.replace(/k=[^&]+/, 'k=AAAA')) === null);
+
+    // El servicio: sólo con el acceso activo, y la llave vive mientras no se cancele.
+    const makePhoneService = async (name, enabled) => {
+      const settings = new SettingsStore(path.join(workDir, name, 'settings.json'), { log: { warn: () => undefined } });
+      await settings.load();
+      if (enabled) await settings.update({ remote: { enabled: true, port: REMOTE_DEFAULT_PORT } });
+      const service = new RemoteAccessService({
+        settings,
+        store: new RemoteDevicesStore(path.join(workDir, name, 'remote-devices.json'), { warn: () => undefined }),
+        listening: { port: REMOTE_DEFAULT_PORT, fixed: enabled, fixedPortBusy: false },
+        host: { user: 'ana', hostNames: ['PC-ANA', '192.168.1.20'] },
+        now: fakeClock().now,
+        randomBytes: (size) => Buffer.from(Array.from({ length: size }, (_, i) => (i * 7 + size) % 256)),
+        log: { log: () => undefined, warn: () => undefined },
+        authorizeShell: async () => 'powershell-admin',
+      });
+      await service.load();
+      return service;
+    };
+    const offPhone = await makePhoneService('phone-off', false);
+    check('apagado no se empareja un teléfono',
+      await offPhone.startPhonePairing().then(() => false, (error) => error instanceof ServerTextError && error.text.key === 'remoteNotActive'));
+
+    const phone = await makePhoneService('phone-on', true);
+    const first = await phone.startPhonePairing();
+    const firstFields = parsePhonePairingPayload(first.payload);
+    check('encendido: el QR lleva este equipo, su IP, el usuario, el puerto de este arranque y el código vigente',
+      firstFields !== null && firstFields.pcName === 'PC-ANA' && json(firstFields.hosts) === json(['192.168.1.20']) &&
+      firstFields.user === 'ana' && firstFields.appPort === REMOTE_DEFAULT_PORT && firstFields.sshPort === 22 &&
+      firstFields.code === first.code.replace('-', '') && phone.status().pairingActive, first.payload);
+    check('la línea que se pega es la de esa llave, para la consola que corresponde',
+      first.shell === 'powershell-admin' &&
+      first.authorizeCommand.includes(sshEd25519PublicKey(ed25519PublicKey(firstFields?.seed ?? Buffer.alloc(32)))));
+    const second = await phone.startPhonePairing();
+    const secondFields = parsePhonePairingPayload(second.payload);
+    check('pedir otro código conserva la llave: no hay que autorizar otra',
+      secondFields !== null && firstFields !== null && secondFields.seed.equals(firstFields.seed) &&
+      second.authorizeCommand === first.authorizeCommand && phone.phoneKeyHeld);
+    phone.cancelPhonePairing();
+    check('cancelar olvida la llave y da de baja el código', !phone.phoneKeyHeld && !phone.status().pairingActive);
+    const third = await phone.startPhonePairing();
+    const redeemed = await phone.redeemPairing(third.code, 'Mozilla/5.0 AgentWorkbenchAndroid/0.1.0 (Android 15; Galaxy A16)');
+    check('canjeado el código, la llave ya viajó y no se guarda; el equipo lleva el nombre del teléfono',
+      redeemed !== null && !phone.phoneKeyHeld && phone.status().devices.some((device) => device.label === 'Galaxy A16 · Android'));
+
+    check('un equipo remoto no puede emparejar un teléfono',
+      remoteRefusal('remote.phone.start', true)?.key === 'remoteHostOnly' && remoteRefusal('remote.phone.cancel', true)?.key === 'remoteHostOnly' &&
+      remoteRefusal('remote.phone.start', false) === null);
+    check('el nombre del teléfono, acotado; sin nombre, Android',
+      deviceLabelFromUserAgent(`AgentWorkbenchAndroid/0.1.0 (Android 15; ${'x'.repeat(70)})`).length <= REMOTE_DEVICE_LABEL_MAX_CHARS &&
+      deviceLabelFromUserAgent('AgentWorkbenchAndroid/0.1.0 (Android 15;  )') === 'Android');
+
+    check('el protocolo: los dos pedidos y la respuesta',
+      parseClientMessage(json({ type: 'remote.phone.start' }))?.type === 'remote.phone.start' &&
+      parseClientMessage(json({ type: 'remote.phone.cancel' }))?.type === 'remote.phone.cancel' &&
+      parseServerMessage(json({ type: 'remote.phone.pairing', pairing: first }))?.type === 'remote.phone.pairing' &&
+      parseServerMessage(json({ type: 'remote.phone.pairing', pairing: { ...first, shell: 'cmd' } })) === null);
+
+    const matrix = qrMatrix(first.payload);
+    const finder = (row, col) =>
+      qrModuleDark(matrix, row, col) && qrModuleDark(matrix, row, col + 6) && qrModuleDark(matrix, row + 6, col) &&
+      qrModuleDark(matrix, row + 2, col + 2) && !qrModuleDark(matrix, row + 1, col + 1);
+    check('el QR tiene el tamaño de una versión y sus tres marcas de esquina',
+      matrix.size >= 21 && (matrix.size - 17) % 4 === 0 && finder(0, 0) && finder(0, matrix.size - 7) && finder(matrix.size - 7, 0),
+      `${matrix.size} módulos`);
+    check('la interfaz dice dónde pegar la línea',
+      /PowerShell como administrador/.test(phoneAuthorizeText('powershell-admin')) &&
+      /en PowerShell\.$/.test(phoneAuthorizeText('powershell')) && /una terminal/.test(phoneAuthorizeText('terminal')));
   }
 } finally {
   await rm(workDir, { recursive: true, force: true });

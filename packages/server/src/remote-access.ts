@@ -299,11 +299,23 @@ export function privateIpv4Addresses(
 }
 
 /**
+ * Cómo se presenta la app de Android (hito 38) al emparejarse: su nombre, su
+ * versión y, entre paréntesis, la versión de Android y el nombre del teléfono.
+ */
+export const PHONE_APP_USER_AGENT = /AgentWorkbenchAndroid\/\S+ \(Android [^;)]*; ([^)]{1,80})\)/;
+
+/**
  * Un nombre para el equipo recién emparejado, `Chrome · Windows`. Es un punto
  * de partida —el usuario lo cambia— y no lleva palabras que traducir.
  */
 export function deviceLabelFromUserAgent(userAgent: string | undefined): string {
   if (userAgent === undefined) return 'Device';
+  // La app del teléfono (hito 38) dice el nombre del teléfono, que es lo que el usuario reconoce.
+  const phone = PHONE_APP_USER_AGENT.exec(userAgent);
+  if (phone !== null) {
+    const name = cleanDeviceLabel(phone[1] ?? '');
+    return name.length > 0 ? cleanDeviceLabel(`${name} · Android`) : 'Android';
+  }
   // El orden importa: Edge y Opera también dicen "Chrome", y Chrome dice "Safari".
   const browser = /Edg\//.test(userAgent)
     ? 'Edge'
@@ -340,6 +352,8 @@ const HOST_ONLY: ReadonlySet<ClientMessageType> = new Set<ClientMessageType>([
   'remote.pairing.cancel',
   'remote.device.rename',
   'remote.device.revoke',
+  'remote.phone.start',
+  'remote.phone.cancel',
 ]);
 
 /**

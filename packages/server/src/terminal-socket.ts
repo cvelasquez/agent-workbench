@@ -187,6 +187,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   */
   const remoteSockets = new Map<WebSocket, string>();
 
+  /** La ventana que pidio emparejar un telefono: si se cierra, la llave se olvida. */
+  let phonePairingOwner: WebSocket | null = null;
+
   /** Solo a las ventanas del anfitrion: el estado del acceso remoto no se le cuenta a un equipo remoto. */
   const broadcastToHost = (message: ServerMessage): void => {
     const payload = encodeServerMessage(message);
@@ -2029,6 +2032,24 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           remote.cancelPairing();
           break;
 
+        /*
+          El telefono (hito 38): la respuesta lleva su llave privada dentro del
+          texto del QR, asi que va solo a esta ventana, y si esta ventana se
+          cierra sin cancelar, la llave se olvida igual (`teardown`).
+        */
+        case 'remote.phone.start':
+          phonePairingOwner = socket;
+          void remote
+            .startPhonePairing()
+            .then((pairing) => send(socket, { type: 'remote.phone.pairing', pairing }))
+            .catch((error: unknown) => sendRemoteError(socket, error));
+          break;
+
+        case 'remote.phone.cancel':
+          if (phonePairingOwner === socket) phonePairingOwner = null;
+          remote.cancelPhonePairing();
+          break;
+
         case 'remote.device.rename':
           void remote
             .renameDevice(message.deviceId, message.label)
@@ -2051,6 +2072,10 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
     const teardown = (): void => {
       // Se quitan los oyentes de este socket. Las terminales siguen vivas.
+      if (phonePairingOwner === socket) {
+        phonePairingOwner = null;
+        remote.cancelPhonePairing();
+      }
       globalSearch.cancel();
       pickers.closeAll();
       registry.detachAll(listener);

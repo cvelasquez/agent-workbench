@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Los textos de la app, en inglés como los de la web (§6.23): inglés es el
+  idioma por defecto y los otros ocho van en values-<idioma>. El nombre del
+  producto no se traduce.
+-->
+<resources>
+    <string name="app_name" translatable="false">Agent Workbench</string>
+
+    <!-- Emparejar -->
+    <string name="pair_title">Pair with your computer</string>
+    <string name="pair_intro">This app shows the Agent Workbench that runs on your computer, through an SSH tunnel on your home network. Nothing goes through the internet.</string>
+    <string name="pair_steps">1. On your computer, in Agent Workbench, open “Remote access” and choose “Pair a phone”. Remote access and the computer’s SSH server have to be on.\n2. Paste the line it shows into your computer, where it says.\n3. Scan the code it shows.</string>
+    <string name="pair_scan">Scan code</string>
+    <string name="pair_paste">Paste the code’s text instead</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">Use</string>
+    <string name="pair_invalid">That isn’t an Agent Workbench pairing code, or it comes from another version of the app.</string>
+    <string name="pair_confirm">Pair with “%1$s” as %2$s?</string>
+    <string name="pair_confirm_ok">Pair</string>
+    <string name="pair_connecting">Connecting to %1$s…</string>
+    <string name="pair_waiting_key">Your computer doesn’t accept this phone’s key yet. Paste the line from the dialog into your computer: the phone keeps trying.</string>
+    <string name="pair_redeeming">Pairing…</string>
+    <string name="pair_code_rejected">The code expired or was already used. On your computer, ask for a new one with “Pair a phone” and scan it again: the line you pasted still counts.</string>
+    <string name="scan_prompt">Point the camera at the code on your computer’s screen</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">Connecting to %1$s…</string>
+    <string name="status_connected">Connected to %1$s</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_retrying">No connection. Trying again in %1$d s.</string>
+    <string name="problem_pc_not_found">Can’t find your computer on this network. Is the phone on the same Wi‑Fi, and the computer on?</string>
+    <string name="problem_ssh_closed">Your computer is on the network, but its SSH server isn’t answering. It has to be on: the README explains how.</string>
+    <string name="problem_key_rejected">Your computer doesn’t accept this phone’s key. Pair it again from “Remote access”.</string>
+    <string name="problem_host_key_changed">Your computer’s SSH fingerprint changed (now %1$s). If you didn’t reinstall its SSH server, don’t connect. To trust it, forget this computer and pair again.</string>
+    <string name="problem_app_not_running">Agent Workbench isn’t answering on your computer. Is it open, with remote access on?</string>
+    <string name="problem_not_accepted">Your computer didn’t accept this phone: remote access may be off, or the phone was revoked. If it was revoked, pair it again.</string>
+    <string name="problem_local_port_busy">Another app on this phone is using port %1$d, which the tunnel needs.</string>
+    <string name="problem_other">The connection failed: %1$s</string>
+    <string name="problem_not_paired">This phone isn’t paired with a computer.</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_settings">Settings</string>
+    <string name="action_pair_again">Pair again</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="load_error">Couldn’t load the interface: %1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">Connection to your computer</string>
+    <string name="channel_connection_description">Shown while the phone keeps the connection open, as Android requires.</string>
+    <string name="channel_agent">Agent notices</string>
+    <string name="channel_agent_description">When an agent finishes or is waiting for you.</string>
+    <string name="notify_done">“%1$s” finished</string>
+    <string name="notify_attention">“%1$s” is waiting for you</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_computer">Computer</string>
+    <!-- «PC · usuario@dirección[:puerto]»: son datos, no se traducen. -->
+    <string name="settings_computer_address" translatable="false">%1$s · %2$s@%3$s%4$s</string>
+    <string name="settings_fingerprint">SSH fingerprint: %1$s</string>
+    <string name="settings_notices">Notices</string>
+    <string name="settings_notify">Notify when an agent finishes or is waiting for you</string>
+    <string name="settings_notify_system">System settings for notices</string>
+    <string name="settings_battery">Battery</string>
+    <string name="settings_battery_hint">So notices aren’t delayed while the phone is idle, let the app run without battery restrictions.</string>
+    <string name="settings_battery_open">Open the app’s battery settings</string>
+    <string name="settings_connection">Connection</string>
+    <string name="settings_connect">Connect</string>
+    <string name="settings_disconnect">Disconnect</string>
+    <string name="settings_forget">Forget this computer</string>
+    <string name="settings_forget_confirm">The phone deletes its key and its credential for this computer. To use it again, you’ll have to pair it again. On the computer, also revoke it in “Remote access”.</string>
+    <string name="settings_forget_ok">Forget</string>
+    <string name="settings_about">Agent Workbench %1$s · open source (MIT)</string>
+    <string name="settings_privacy">Privacy</string>
+    <string name="shortcut_settings">Settings</string>
+</resources>

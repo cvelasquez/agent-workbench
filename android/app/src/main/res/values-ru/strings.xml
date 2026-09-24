@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Emparejar -->
+    <string name="pair_title">Сопряжение с компьютером</string>
+    <string name="pair_intro">Это приложение показывает Agent Workbench, запущенный на вашем компьютере, через SSH-туннель внутри домашней сети. Ничего не идёт через интернет.</string>
+    <string name="pair_steps">1. На компьютере в Agent Workbench откройте «Удалённый доступ» и выберите «Сопрячь телефон». Удалённый доступ и SSH-сервер компьютера должны быть включены.\n2. Вставьте на компьютере показанную строку туда, куда сказано.\n3. Отсканируйте показанный код.</string>
+    <string name="pair_scan">Сканировать код</string>
+    <string name="pair_paste">Вставить текст кода вместо этого</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">Использовать</string>
+    <string name="pair_invalid">Это не код сопряжения Agent Workbench, или он из другой версии приложения.</string>
+    <string name="pair_confirm">Выполнить сопряжение с «%1$s» как %2$s?</string>
+    <string name="pair_confirm_ok">Сопрячь</string>
+    <string name="pair_connecting">Подключение к %1$s…</string>
+    <string name="pair_waiting_key">Ваш компьютер пока не принимает ключ этого телефона. Вставьте на компьютере строку из диалога: телефон продолжает попытки.</string>
+    <string name="pair_redeeming">Сопряжение…</string>
+    <string name="pair_code_rejected">Срок кода истёк, или он уже использован. На компьютере получите новый через «Сопрячь телефон» и отсканируйте снова: вставленная строка по-прежнему действует.</string>
+    <string name="scan_prompt">Наведите камеру на код на экране компьютера</string>
+    <string name="cancel">Отмена</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">Подключение к %1$s…</string>
+    <string name="status_connected">Подключено к %1$s</string>
+    <string name="status_disconnected">Отключено</string>
+    <string name="status_retrying">Нет соединения. Повтор через %1$d с.</string>
+    <string name="problem_pc_not_found">Не удаётся найти компьютер в этой сети. Телефон в той же сети Wi‑Fi, а компьютер включён?</string>
+    <string name="problem_ssh_closed">Компьютер в сети, но его SSH-сервер не отвечает. Он должен быть включён: как это сделать, описано в README.</string>
+    <string name="problem_key_rejected">Компьютер не принимает ключ этого телефона. Выполните сопряжение заново в «Удалённом доступе».</string>
+    <string name="problem_host_key_changed">SSH-отпечаток компьютера изменился (теперь %1$s). Если вы не переустанавливали его SSH-сервер, не подключайтесь. Чтобы доверять ему, забудьте этот компьютер и выполните сопряжение заново.</string>
+    <string name="problem_app_not_running">Agent Workbench на компьютере не отвечает. Он открыт, и удалённый доступ включён?</string>
+    <string name="problem_not_accepted">Компьютер не принял этот телефон: возможно, удалённый доступ выключен или телефон отозван. Если он отозван, выполните сопряжение заново.</string>
+    <string name="problem_local_port_busy">Другое приложение на этом телефоне использует порт %1$d, нужный туннелю.</string>
+    <string name="problem_other">Не удалось подключиться: %1$s</string>
+    <string name="problem_not_paired">Этот телефон не сопряжён ни с одним компьютером.</string>
+    <string name="action_retry">Повторить</string>
+    <string name="action_settings">Настройки</string>
+    <string name="action_pair_again">Сопрячь заново</string>
+    <string name="action_disconnect">Отключить</string>
+    <string name="load_error">Не удалось загрузить интерфейс: %1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">Соединение с компьютером</string>
+    <string name="channel_connection_description">Показывается, пока телефон держит соединение открытым, как того требует Android.</string>
+    <string name="channel_agent">Уведомления агента</string>
+    <string name="channel_agent_description">Когда агент закончил работу или ждёт вас.</string>
+    <string name="notify_done">«%1$s»: готово</string>
+    <string name="notify_attention">«%1$s» ждёт вас</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_computer">Компьютер</string>
+    <string name="settings_fingerprint">SSH-отпечаток: %1$s</string>
+    <string name="settings_notices">Уведомления</string>
+    <string name="settings_notify">Уведомлять, когда агент закончил работу или ждёт вас</string>
+    <string name="settings_notify_system">Системные настройки уведомлений</string>
+    <string name="settings_battery">Батарея</string>
+    <string name="settings_battery_hint">Чтобы уведомления не задерживались, пока телефон в покое, разрешите приложению работать без ограничений батареи.</string>
+    <string name="settings_battery_open">Открыть настройки батареи приложения</string>
+    <string name="settings_connection">Соединение</string>
+    <string name="settings_connect">Подключить</string>
+    <string name="settings_disconnect">Отключить</string>
+    <string name="settings_forget">Забыть этот компьютер</string>
+    <string name="settings_forget_confirm">Телефон удалит свой ключ и учётные данные для этого компьютера. Чтобы снова им пользоваться, придётся заново выполнить сопряжение. На компьютере также отзовите его в «Удалённом доступе».</string>
+    <string name="settings_forget_ok">Забыть</string>
+    <string name="settings_about">Agent Workbench %1$s · открытый код (MIT)</string>
+    <string name="settings_privacy">Конфиденциальность</string>
+    <string name="shortcut_settings">Настройки</string>
+</resources>

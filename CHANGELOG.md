@@ -28,6 +28,16 @@ change behavior.
   Ctrl+C). On any touch screen, what used to appear on hover is always visible,
   and a long press selects a session row. `/?tab=<id>` in the address opens
   that tab. Nothing changes on a desktop-sized window.
+- **An Android app** (`android/`, not on Google Play yet). It opens the SSH
+  tunnel itself, shows the interface in the phone-sized layout, keeps the
+  connection in the background and notifies "finished" and "is waiting for
+  you" even with the screen off; tapping a notification opens that tab.
+  Android's Back closes what's open in the interface before leaving the app.
+  See "The Android app" in the README and [`PRIVACY.md`](PRIVACY.md).
+- **Pair a phone**, in the remote access dialog: a QR code with the phone's
+  SSH key and a one-time code, and the line that adds that key to
+  `authorized_keys`, already restricted to the tunnel. The key is generated in
+  memory and never written to disk.
 
 ### Fixed
 

@@ -99,6 +99,15 @@ What it adds, off by default:
 - Turning it **on** needs a restart (the port); turning it **off**, or revoking
   a device, takes effect at once and closes that device's sockets with a code
   that tells the page to stop reconnecting.
+- **Pairing a phone** (`phone-pairing.ts`) adds a key to that code. The host
+  generates an Ed25519 key in memory, puts its 32-byte seed in the QR along
+  with its addresses, the SSH user, the app's port and the code, and gives the
+  user the `authorized_keys` line for its public half:
+  `restrict,port-forwarding,permitopen="127.0.0.1:<port>",command="exit"`
+  (`restrict` alone still allows commands). Only the window that asked
+  receives it, and the seed is dropped when the code is used, cancelled or
+  that window goes away. The app still doesn't write `authorized_keys`: the
+  user pastes the line.
 
 - **The files are the truth, not memory.** Two instances of the app share the
   configuration folder and only one owns the fixed port. While remote access is
@@ -139,6 +148,7 @@ packages/
   web/        Vite, React 18, xterm.js, highlight.js
     src/i18n/   the interface texts, nine languages
   shared/     the protocol types, shared by both sides
+android/        the Android app: Kotlin and Gradle, outside the workspace (section 7)
 scripts/
   build-npm.mjs   builds the npm package into dist-npm/
   demo/           made-up data and four simulated CLIs, for screenshots
@@ -298,7 +308,7 @@ window, `git status --porcelain=v2 -z` parsing, the path guard, the shared
 memory bridge, every adapter's event mapping, the history copy, handoff, global
 search, remote access (pairing codes, device credentials, what a paired device
 is refused, and that with it off nothing of it is accepted) and the nine locale
-files.
+files. The Android app has its own tests, on the JVM (section 7).
 
 Two rules for writing one:
 
@@ -320,3 +330,49 @@ working notes, which are in Spanish and aren't part of the repository. You
 don't need them: a comment that cites a section also states the reason in
 place, and this file carries the rules. If one doesn't, that's a bug in the
 comment — open an issue.
+
+---
+
+## 7. The Android app
+
+`android/` is a native shell around the web interface (Kotlin, Gradle, minSdk
+29, targetSdk 36), not a second interface: what it shows is what the computer
+serves, in the phone-sized layout the web already has (`narrow-layout.ts`).
+The shell adds what a browser tab can't do on a phone.
+
+- **The tunnel** (`tunnel/`). A foreground service of type `connectedDevice`
+  opens an SSH connection with sshlib and forwards the phone's
+  `127.0.0.1:<port>` to the computer's `127.0.0.1:<port>`: the same port on
+  both ends, because the server checks the `Host`. It tries the addresses from
+  the QR in order, pins the host key on the first connection and accepts only
+  that key's algorithm afterwards, pings every 15 s, and reconnects with growing
+  waits (1 s to 5 min) that a network change cuts short. A changed fingerprint,
+  or a credential the server refuses, stops it until the user acts.
+- **The viewer** (`ui/MainActivity.kt`). A WebView on
+  `http://127.0.0.1:<port>/`, with the device credential set as its cookie. The
+  web and the shell know each other through three things, and a change to one
+  side needs the other:
+  - the user-agent token `AgentWorkbenchAndroid/`, which the web reads
+    (`insidePhoneApp`) and the server turns into the device's name;
+  - `window.agentWorkbenchBack()`, which the narrow layout registers and the
+    shell calls for Android's Back: it closes a dialog, the sheet or the
+    drawer, or goes back to the chat, and returns false when nothing is left,
+    so the app goes to the background;
+  - the link `agentworkbench://settings`, which the web shows only inside the
+    app and the shell opens as its settings screen.
+- **The activity watcher** (`watch/`). A second WebSocket, from OkHttp with the
+  same credential, that reads only `hello`, `terminal.list` and
+  `terminal.activity`. It applies the notification sound's rule —"is waiting
+  for you" at once, "finished" when idle holds for 1.5 s, nothing for the first
+  batch after connecting and nothing for `unknown` or `offline`— and stays
+  quiet while the viewer is on screen, where the interface itself chimes.
+- **Storage** (`store/`). The SSH key's seed and the credential are encrypted
+  with AES-GCM under a key from the Android Keystore; the rest is plain
+  preferences. Backups are off.
+- **No Google services.** The QR scanner is ZXing, and there's no Firebase,
+  analytics or crash reporting.
+
+Its tests run on the JVM (`./gradlew :app:testDebugUnitTest`): the QR payload
+parser, the notification rule with a fake clock, the message reader and the
+phone's identity. One more opens a real tunnel against an SSH server named by
+environment variables, and skips when they aren't set.

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Emparejar -->
+    <string name="pair_title">Mit Ihrem Computer koppeln</string>
+    <string name="pair_intro">Diese App zeigt das Agent Workbench, das auf Ihrem Computer läuft, über einen SSH-Tunnel in Ihrem Heimnetz. Nichts geht über das Internet.</string>
+    <string name="pair_steps">1. Öffnen Sie auf Ihrem Computer in Agent Workbench „Fernzugriff“ und wählen Sie „Telefon koppeln“. Der Fernzugriff und der SSH-Server des Computers müssen eingeschaltet sein.\n2. Fügen Sie auf dem Computer die angezeigte Zeile ein, wo es angegeben ist.\n3. Scannen Sie den angezeigten Code.</string>
+    <string name="pair_scan">Code scannen</string>
+    <string name="pair_paste">Stattdessen den Text des Codes einfügen</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">Verwenden</string>
+    <string name="pair_invalid">Das ist kein Kopplungscode von Agent Workbench, oder er stammt aus einer anderen Version der App.</string>
+    <string name="pair_confirm">Mit „%1$s“ als %2$s koppeln?</string>
+    <string name="pair_confirm_ok">Koppeln</string>
+    <string name="pair_connecting">Verbindung zu %1$s wird hergestellt…</string>
+    <string name="pair_waiting_key">Ihr Computer akzeptiert den Schlüssel dieses Telefons noch nicht. Fügen Sie auf dem Computer die Zeile aus dem Dialog ein: Das Telefon versucht es weiter.</string>
+    <string name="pair_redeeming">Wird gekoppelt…</string>
+    <string name="pair_code_rejected">Der Code ist abgelaufen oder wurde schon benutzt. Fordern Sie auf dem Computer mit „Telefon koppeln“ einen neuen an und scannen Sie ihn erneut: Die eingefügte Zeile gilt weiterhin.</string>
+    <string name="scan_prompt">Richten Sie die Kamera auf den Code auf dem Bildschirm Ihres Computers</string>
+    <string name="cancel">Abbrechen</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">Verbindung zu %1$s wird hergestellt…</string>
+    <string name="status_connected">Verbunden mit %1$s</string>
+    <string name="status_disconnected">Getrennt</string>
+    <string name="status_retrying">Keine Verbindung. Neuer Versuch in %1$d s.</string>
+    <string name="problem_pc_not_found">Ihr Computer ist in diesem Netz nicht zu finden. Ist das Telefon im selben WLAN und der Computer eingeschaltet?</string>
+    <string name="problem_ssh_closed">Ihr Computer ist im Netz, aber sein SSH-Server antwortet nicht. Er muss eingeschaltet sein: Das README erklärt, wie.</string>
+    <string name="problem_key_rejected">Ihr Computer akzeptiert den Schlüssel dieses Telefons nicht. Koppeln Sie es erneut über „Fernzugriff“.</string>
+    <string name="problem_host_key_changed">Der SSH-Fingerabdruck Ihres Computers hat sich geändert (jetzt %1$s). Wenn Sie seinen SSH-Server nicht neu installiert haben, verbinden Sie sich nicht. Um ihm zu vertrauen, vergessen Sie diesen Computer und koppeln Sie ihn erneut.</string>
+    <string name="problem_app_not_running">Agent Workbench antwortet auf Ihrem Computer nicht. Ist es geöffnet, mit eingeschaltetem Fernzugriff?</string>
+    <string name="problem_not_accepted">Ihr Computer hat dieses Telefon nicht akzeptiert: Der Fernzugriff ist vielleicht ausgeschaltet, oder das Telefon wurde widerrufen. Wenn es widerrufen wurde, koppeln Sie es erneut.</string>
+    <string name="problem_local_port_busy">Eine andere App auf diesem Telefon verwendet den Port %1$d, den der Tunnel braucht.</string>
+    <string name="problem_other">Die Verbindung ist fehlgeschlagen: %1$s</string>
+    <string name="problem_not_paired">Dieses Telefon ist mit keinem Computer gekoppelt.</string>
+    <string name="action_retry">Erneut versuchen</string>
+    <string name="action_settings">Einstellungen</string>
+    <string name="action_pair_again">Erneut koppeln</string>
+    <string name="action_disconnect">Trennen</string>
+    <string name="load_error">Die Oberfläche konnte nicht geladen werden: %1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">Verbindung zu Ihrem Computer</string>
+    <string name="channel_connection_description">Wird angezeigt, solange das Telefon die Verbindung offen hält, wie Android es verlangt.</string>
+    <string name="channel_agent">Hinweise des Agenten</string>
+    <string name="channel_agent_description">Wenn ein Agent fertig ist oder auf Sie wartet.</string>
+    <string name="notify_done">„%1$s“ ist fertig</string>
+    <string name="notify_attention">„%1$s“ wartet auf Sie</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_computer">Computer</string>
+    <string name="settings_fingerprint">SSH-Fingerabdruck: %1$s</string>
+    <string name="settings_notices">Hinweise</string>
+    <string name="settings_notify">Benachrichtigen, wenn ein Agent fertig ist oder auf Sie wartet</string>
+    <string name="settings_notify_system">Systemeinstellungen für Hinweise</string>
+    <string name="settings_battery">Akku</string>
+    <string name="settings_battery_hint">Damit sich Hinweise nicht verzögern, wenn das Telefon ruht, lassen Sie die App ohne Akkubeschränkungen laufen.</string>
+    <string name="settings_battery_open">Akkueinstellungen der App öffnen</string>
+    <string name="settings_connection">Verbindung</string>
+    <string name="settings_connect">Verbinden</string>
+    <string name="settings_disconnect">Trennen</string>
+    <string name="settings_forget">Diesen Computer vergessen</string>
+    <string name="settings_forget_confirm">Das Telefon löscht seinen Schlüssel und seine Zugangsdaten für diesen Computer. Um es wieder zu verwenden, müssen Sie es erneut koppeln. Widerrufen Sie es auf dem Computer auch unter „Fernzugriff“.</string>
+    <string name="settings_forget_ok">Vergessen</string>
+    <string name="settings_about">Agent Workbench %1$s · Open Source (MIT)</string>
+    <string name="settings_privacy">Datenschutz</string>
+    <string name="shortcut_settings">Einstellungen</string>
+</resources>

@@ -49,6 +49,12 @@
  * credencial: el codigo para emparejar va solo al socket que lo pidio, y la
  * credencial de un equipo no viaja nunca por el WebSocket.
  *
+ * Lo que agrega el hito 38 sin subir la version: `remote.phone.start`,
+ * `remote.phone.cancel` y `remote.phone.pairing`, para emparejar la app de
+ * Android (CLAUDE.md 14.9). `remote.phone.pairing` si lleva un secreto -la
+ * semilla de la llave SSH del telefono, dentro del texto del QR-, y por eso va
+ * solo al socket que lo pidio, como el codigo.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -145,8 +151,10 @@ import {
   cleanDeviceLabel,
   parseRemoteAccessStatus,
   parseRemotePairingCode,
+  parseRemotePhonePairing,
   type RemoteAccessStatus,
   type RemotePairingCode,
+  type RemotePhonePairing,
 } from './remote.js';
 import { parseServerText, type ServerText } from './server-text.js';
 
@@ -821,6 +829,21 @@ export interface ClientRemoteDeviceRevokeMessage {
 }
 
 /**
+ * Empareja un teléfono (hito 38): un código de un solo uso y, la primera vez,
+ * una llave SSH nueva, armada en memoria. Mientras la ventana no lo cancele, la
+ * llave se conserva: pedir otro código no obliga a autorizar otra. Llega en
+ * `remote.phone.pairing`, sólo a quien lo pidió.
+ */
+export interface ClientRemotePhoneStartMessage {
+  type: 'remote.phone.start';
+}
+
+/** Olvida la llave y el código: se cerró el diálogo. */
+export interface ClientRemotePhoneCancelMessage {
+  type: 'remote.phone.cancel';
+}
+
+/**
  * Continuar una sesion con otra CLI, en la carpeta de esa sesion (hito 29).
  *
  * El servidor arma un transcript de los ultimos turnos, abre una pestana de
@@ -954,7 +977,9 @@ export type ClientMessage =
   | ClientRemotePairingStartMessage
   | ClientRemotePairingCancelMessage
   | ClientRemoteDeviceRenameMessage
-  | ClientRemoteDeviceRevokeMessage;
+  | ClientRemoteDeviceRevokeMessage
+  | ClientRemotePhoneStartMessage
+  | ClientRemotePhoneCancelMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -1433,6 +1458,15 @@ export interface ServerRemotePairingCodeMessage {
   pairing: RemotePairingCode;
 }
 
+/**
+ * Lo que pidio `remote.phone.start` (hito 38), solo al socket que lo pidio:
+ * lleva la llave privada del telefono dentro del texto del QR.
+ */
+export interface ServerRemotePhonePairingMessage {
+  type: 'remote.phone.pairing';
+  pairing: RemotePhonePairing;
+}
+
 /** Como llega a la CLI nueva el mensaje de continuacion. */
 export type HandoffDelivery = 'sending' | 'prefilled';
 export const HANDOFF_DELIVERIES: readonly HandoffDelivery[] = ['sending', 'prefilled'];
@@ -1617,6 +1651,7 @@ export type ServerMessage =
   | ServerGlobalSearchMessage
   | ServerRemoteStatusMessage
   | ServerRemotePairingCodeMessage
+  | ServerRemotePhonePairingMessage
   | ServerErrorMessage;
 
 export type ServerMessageType = ServerMessage['type'];
@@ -2108,6 +2143,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const deviceId = asNonEmptyString(record['deviceId']);
       return deviceId === null ? null : { type: 'remote.device.revoke', deviceId };
     }
+    case 'remote.phone.start':
+      return { type: 'remote.phone.start' };
+    case 'remote.phone.cancel':
+      return { type: 'remote.phone.cancel' };
     default:
       return null;
   }
@@ -2541,6 +2580,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     case 'remote.pairing.code': {
       const pairing = parseRemotePairingCode(record['pairing']);
       return pairing === null ? null : { type: 'remote.pairing.code', pairing };
+    }
+    case 'remote.phone.pairing': {
+      const pairing = parseRemotePhonePairing(record['pairing']);
+      return pairing === null ? null : { type: 'remote.phone.pairing', pairing };
     }
     case 'search.results': {
       const searchId = asNonEmptyString(record['searchId']);

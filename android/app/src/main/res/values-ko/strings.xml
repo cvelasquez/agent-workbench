@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Emparejar -->
+    <string name="pair_title">컴퓨터와 페어링</string>
+    <string name="pair_intro">이 앱은 컴퓨터에서 실행 중인 Agent Workbench를 집 네트워크 안의 SSH 터널로 보여 줍니다. 인터넷을 거치지 않습니다.</string>
+    <string name="pair_steps">1. 컴퓨터의 Agent Workbench에서 “원격 접속”을 열고 “휴대폰 페어링”을 선택하세요. 원격 접속과 컴퓨터의 SSH 서버가 켜져 있어야 합니다.\n2. 표시되는 줄을 안내에 따라 컴퓨터에 붙여 넣으세요.\n3. 표시되는 코드를 스캔하세요.</string>
+    <string name="pair_scan">코드 스캔</string>
+    <string name="pair_paste">대신 코드의 텍스트 붙여 넣기</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">사용</string>
+    <string name="pair_invalid">Agent Workbench의 페어링 코드가 아니거나, 다른 버전의 앱에서 만든 코드입니다.</string>
+    <string name="pair_confirm">%2$s(으)로 “%1$s”와 페어링할까요?</string>
+    <string name="pair_confirm_ok">페어링</string>
+    <string name="pair_connecting">%1$s에 연결하는 중…</string>
+    <string name="pair_waiting_key">컴퓨터가 아직 이 휴대폰의 키를 받아들이지 않습니다. 대화 상자의 줄을 컴퓨터에 붙여 넣으세요. 휴대폰은 계속 시도합니다.</string>
+    <string name="pair_redeeming">페어링하는 중…</string>
+    <string name="pair_code_rejected">코드가 만료되었거나 이미 사용되었습니다. 컴퓨터에서 “휴대폰 페어링”으로 새 코드를 받아 다시 스캔하세요. 붙여 넣은 줄은 그대로 유효합니다.</string>
+    <string name="scan_prompt">컴퓨터 화면의 코드에 카메라를 비추세요</string>
+    <string name="cancel">취소</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">%1$s에 연결하는 중…</string>
+    <string name="status_connected">%1$s에 연결됨</string>
+    <string name="status_disconnected">연결 끊김</string>
+    <string name="status_retrying">연결이 없습니다. %1$d초 후에 다시 시도합니다.</string>
+    <string name="problem_pc_not_found">이 네트워크에서 컴퓨터를 찾을 수 없습니다. 휴대폰이 같은 Wi‑Fi에 있고 컴퓨터가 켜져 있나요?</string>
+    <string name="problem_ssh_closed">컴퓨터는 네트워크에 있지만 SSH 서버가 응답하지 않습니다. 켜져 있어야 합니다. 방법은 README에 있습니다.</string>
+    <string name="problem_key_rejected">컴퓨터가 이 휴대폰의 키를 받아들이지 않습니다. “원격 접속”에서 다시 페어링하세요.</string>
+    <string name="problem_host_key_changed">컴퓨터의 SSH 지문이 바뀌었습니다(현재 %1$s). SSH 서버를 다시 설치하지 않았다면 연결하지 마세요. 신뢰하려면 이 컴퓨터를 삭제하고 다시 페어링하세요.</string>
+    <string name="problem_app_not_running">컴퓨터에서 Agent Workbench가 응답하지 않습니다. 원격 접속을 켠 상태로 열려 있나요?</string>
+    <string name="problem_not_accepted">컴퓨터가 이 휴대폰을 받아들이지 않았습니다. 원격 접속이 꺼져 있거나 휴대폰이 취소되었을 수 있습니다. 취소되었다면 다시 페어링하세요.</string>
+    <string name="problem_local_port_busy">이 휴대폰의 다른 앱이 터널에 필요한 %1$d번 포트를 사용하고 있습니다.</string>
+    <string name="problem_other">연결에 실패했습니다: %1$s</string>
+    <string name="problem_not_paired">이 휴대폰은 어떤 컴퓨터와도 페어링되어 있지 않습니다.</string>
+    <string name="action_retry">다시 시도</string>
+    <string name="action_settings">설정</string>
+    <string name="action_pair_again">다시 페어링</string>
+    <string name="action_disconnect">연결 끊기</string>
+    <string name="load_error">화면을 불러오지 못했습니다: %1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">컴퓨터와의 연결</string>
+    <string name="channel_connection_description">휴대폰이 연결을 열어 두는 동안 Android의 요구에 따라 표시됩니다.</string>
+    <string name="channel_agent">에이전트 알림</string>
+    <string name="channel_agent_description">에이전트가 작업을 마치거나 기다리고 있을 때.</string>
+    <string name="notify_done">“%1$s” 작업 완료</string>
+    <string name="notify_attention">“%1$s”이(가) 기다리고 있습니다</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">설정</string>
+    <string name="settings_computer">컴퓨터</string>
+    <string name="settings_fingerprint">SSH 지문: %1$s</string>
+    <string name="settings_notices">알림</string>
+    <string name="settings_notify">에이전트가 작업을 마치거나 기다릴 때 알림</string>
+    <string name="settings_notify_system">알림 시스템 설정</string>
+    <string name="settings_battery">배터리</string>
+    <string name="settings_battery_hint">휴대폰이 대기 중일 때도 알림이 늦지 않도록, 앱을 배터리 제한 없이 실행되게 하세요.</string>
+    <string name="settings_battery_open">앱의 배터리 설정 열기</string>
+    <string name="settings_connection">연결</string>
+    <string name="settings_connect">연결</string>
+    <string name="settings_disconnect">연결 끊기</string>
+    <string name="settings_forget">이 컴퓨터 삭제</string>
+    <string name="settings_forget_confirm">휴대폰이 이 컴퓨터용 키와 자격 증명을 삭제합니다. 다시 사용하려면 다시 페어링해야 합니다. 컴퓨터에서도 “원격 접속”에서 취소하세요.</string>
+    <string name="settings_forget_ok">삭제</string>
+    <string name="settings_about">Agent Workbench %1$s · 오픈 소스(MIT)</string>
+    <string name="settings_privacy">개인정보 보호</string>
+    <string name="shortcut_settings">설정</string>
+</resources>

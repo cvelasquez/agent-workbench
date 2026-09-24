@@ -1498,11 +1498,15 @@ export function App(): JSX.Element {
         <RemoteAccessDialog
           status={remote.status}
           pairing={remote.pairing}
+          phonePairing={remote.phonePairing}
+          phoneStarted={remote.phoneStarted}
           problem={remote.problem}
           onSetEnabled={remote.setEnabled}
           onSetPort={remote.setPort}
           onStartPairing={remote.startPairing}
           onCancelPairing={remote.cancelPairing}
+          onStartPhonePairing={remote.startPhonePairing}
+          onCancelPhonePairing={remote.cancelPhonePairing}
           onRenameDevice={remote.renameDevice}
           onRevokeDevice={remote.revokeDevice}
           onDismissProblem={remote.dismissProblem}

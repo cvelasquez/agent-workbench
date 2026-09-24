@@ -14,6 +14,10 @@
  *  2. **En el otro equipo, cada vez**: el comando del túnel, armado para copiar.
  *  3. **Emparejar, una vez por equipo**: un código de un solo uso en una
  *     dirección. Sólo lo ve esta ventana, y se olvida cuando deja de valer.
+ *  4. **Un teléfono** (hito 38): la línea que autoriza su llave, para pegar en
+ *     este equipo, y un código QR que lleva la llave y el código. El QR no se
+ *     ofrece para copiar: lleva una llave privada, y el portapapeles puede
+ *     sincronizarse con otros equipos.
  *
  * Encender pide reiniciar —el puerto se elige al arrancar— y el diálogo avisa
  * que eso cierra las CLIs abiertas. Apagar corta en el acto.
@@ -24,7 +28,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { RemoteAccessStatus, RemoteDeviceSummary, RemotePairingCode } from '@agent-workbench/shared';
+import type { RemoteAccessStatus, RemoteDeviceSummary, RemotePairingCode, RemotePhonePairing } from '@agent-workbench/shared';
 import { t } from './i18n/index.js';
 import {
   canPair,
@@ -35,11 +39,13 @@ import {
   pairingSecondsLeft,
   pairingUrl,
   parsePortInput,
+  phoneAuthorizeText,
   portRangeText,
   remoteStateText,
   remoteUrl,
   sshTunnelCommand,
 } from './remote-access-ui.js';
+import { QR_QUIET_ZONE, qrMatrix } from './qr-code.js';
 
 /** Cuánto dura el tilde de "copiado". Como el del árbol de archivos. */
 const COPIED_MS = 1_000;
@@ -49,11 +55,15 @@ const REVOKE_CONFIRM_MS = 4_000;
 interface RemoteAccessDialogProps {
   status: RemoteAccessStatus;
   pairing: RemotePairingCode | null;
+  phonePairing: RemotePhonePairing | null;
+  phoneStarted: boolean;
   problem: string | null;
   onSetEnabled: (enabled: boolean) => void;
   onSetPort: (port: number) => void;
   onStartPairing: () => void;
   onCancelPairing: () => void;
+  onStartPhonePairing: () => void;
+  onCancelPhonePairing: () => void;
   onRenameDevice: (deviceId: string, label: string) => void;
   onRevokeDevice: (deviceId: string) => void;
   onDismissProblem: () => void;
@@ -63,11 +73,15 @@ interface RemoteAccessDialogProps {
 export function RemoteAccessDialog({
   status,
   pairing,
+  phonePairing,
+  phoneStarted,
   problem,
   onSetEnabled,
   onSetPort,
   onStartPairing,
   onCancelPairing,
+  onStartPhonePairing,
+  onCancelPhonePairing,
   onRenameDevice,
   onRevokeDevice,
   onDismissProblem,
@@ -75,7 +89,7 @@ export function RemoteAccessDialog({
 }: RemoteAccessDialogProps): JSX.Element {
   const [host, setHost] = useState(() => defaultHostName(status.hostNames));
   const [portText, setPortText] = useState(String(status.port));
-  const [copied, setCopied] = useState<'command' | 'pairing' | null>(null);
+  const [copied, setCopied] = useState<'command' | 'pairing' | 'phone' | null>(null);
   const copiedTimer = useRef<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -85,6 +99,8 @@ export function RemoteAccessDialog({
   */
   const close = (): void => {
     if (pairing !== null) onCancelPairing();
+    // La llave del teléfono vive en el servidor mientras esta ventana no cancele.
+    if (phoneStarted) onCancelPhonePairing();
     onClose();
   };
   const closeRef = useRef(close);
@@ -104,11 +120,11 @@ export function RemoteAccessDialog({
 
   // La cuenta regresiva del código, sólo mientras hay uno.
   useEffect(() => {
-    if (pairing === null) return;
+    if (pairing === null && phonePairing === null) return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [pairing]);
+  }, [pairing, phonePairing]);
 
   useEffect(
     () => () => {
@@ -127,7 +143,7 @@ export function RemoteAccessDialog({
     if (!status.hostNames.includes(host)) setHost(defaultHostName(status.hostNames));
   }, [status.hostNames, host]);
 
-  const copy = (what: 'command' | 'pairing', text: string): void => {
+  const copy = (what: 'command' | 'pairing' | 'phone', text: string): void => {
     void navigator.clipboard
       .writeText(text)
       .then(() => {
@@ -271,6 +287,41 @@ export function RemoteAccessDialog({
             </>
           )}
 
+          <h3 className="modal-section">{t('remote.phone.title')}</h3>
+          {phonePairing === null ? (
+            <>
+              <p className="modal-hint">{t('remote.phone.hint')}</p>
+              <div className="vault-actions">
+                <button className="primary-button" onClick={onStartPhonePairing} disabled={!canPair(status)}>
+                  {t('remote.phone.start')}
+                </button>
+                {!canPair(status) && <span className="modal-hint">{t('remote.pair.needsActive')}</span>}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="modal-hint">{phoneAuthorizeText(phonePairing.shell)}</p>
+              <div className="status-line-fragment">
+                <pre className="tool-pre remote-phone-command">{phonePairing.authorizeCommand}</pre>
+                <button className="link-button" onClick={() => copy('phone', phonePairing.authorizeCommand)}>
+                  {copied === 'phone' ? <>✓ {t('remote.copied')}</> : t('remote.copy')}
+                </button>
+              </div>
+              <p className="modal-hint">{t('remote.phone.authorizeOnce')}</p>
+              <p className="modal-hint">{t('remote.phone.scan')}</p>
+              <PhoneQr payload={phonePairing.payload} />
+              <p className="modal-hint">{t('remote.phone.secret')}</p>
+              <p className="modal-hint">
+                {t('remote.pair.expires', { time: formatCountdown(pairingSecondsLeft(phonePairing.expiresAt, now)) })}
+              </p>
+              <div className="vault-actions">
+                <button className="link-button" onClick={onCancelPhonePairing}>
+                  {t('remote.pair.cancel')}
+                </button>
+              </div>
+            </>
+          )}
+
           <h3 className="modal-section">{t('remote.devices')}</h3>
           {status.devices.length === 0 ? (
             <p className="modal-hint">{t('remote.devices.empty')}</p>
@@ -289,6 +340,27 @@ export function RemoteAccessDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * El código QR del teléfono: negro sobre blanco con su margen, aunque el tema
+ * sea oscuro, y del ancho del diálogo hasta un tope que se lee de lejos.
+ */
+function PhoneQr({ payload }: { payload: string }): JSX.Element {
+  const matrix = qrMatrix(payload);
+  const side = matrix.size + QR_QUIET_ZONE * 2;
+  return (
+    <svg
+      className="remote-phone-qr"
+      viewBox={`${-QR_QUIET_ZONE} ${-QR_QUIET_ZONE} ${side} ${side}`}
+      role="img"
+      aria-label={t('remote.phone.qrLabel')}
+      shapeRendering="crispEdges"
+    >
+      <rect x={-QR_QUIET_ZONE} y={-QR_QUIET_ZONE} width={side} height={side} fill="#fff" />
+      <path d={matrix.path} fill="#000" />
+    </svg>
   );
 }
 

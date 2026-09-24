@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Emparejar -->
+    <string name="pair_title">Parear com o seu computador</string>
+    <string name="pair_intro">Este app mostra o Agent Workbench que roda no seu computador, por um túnel SSH dentro da rede da sua casa. Nada passa pela internet.</string>
+    <string name="pair_steps">1. No seu computador, no Agent Workbench, abra “Acesso remoto” e escolha “Parear um celular”. O acesso remoto e o servidor SSH do computador precisam estar ligados.\n2. Cole no computador a linha que ele mostra, onde ele indicar.\n3. Leia o código que ele mostra.</string>
+    <string name="pair_scan">Ler código</string>
+    <string name="pair_paste">Colar o texto do código</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">Usar</string>
+    <string name="pair_invalid">Isso não é um código de pareamento do Agent Workbench, ou é de outra versão do app.</string>
+    <string name="pair_confirm">Parear com “%1$s” como %2$s?</string>
+    <string name="pair_confirm_ok">Parear</string>
+    <string name="pair_connecting">Conectando a %1$s…</string>
+    <string name="pair_waiting_key">O seu computador ainda não aceita a chave deste celular. Cole no computador a linha da janela: o celular continua tentando.</string>
+    <string name="pair_redeeming">Pareando…</string>
+    <string name="pair_code_rejected">O código expirou ou já foi usado. No computador, peça um novo com “Parear um celular” e leia de novo: a linha que você colou continua valendo.</string>
+    <string name="scan_prompt">Aponte a câmera para o código na tela do seu computador</string>
+    <string name="cancel">Cancelar</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">Conectando a %1$s…</string>
+    <string name="status_connected">Conectado a %1$s</string>
+    <string name="status_disconnected">Desconectado</string>
+    <string name="status_retrying">Sem conexão. Tentando de novo em %1$d s.</string>
+    <string name="problem_pc_not_found">Não encontro o seu computador nesta rede. O celular está no mesmo Wi‑Fi, e o computador ligado?</string>
+    <string name="problem_ssh_closed">O seu computador está na rede, mas o servidor SSH dele não responde. Ele precisa estar ligado: o README explica como.</string>
+    <string name="problem_key_rejected">O seu computador não aceita a chave deste celular. Pareie de novo em “Acesso remoto”.</string>
+    <string name="problem_host_key_changed">A impressão digital SSH do seu computador mudou (agora é %1$s). Se você não reinstalou o servidor SSH dele, não conecte. Para confiar nela, esqueça este computador e pareie de novo.</string>
+    <string name="problem_app_not_running">O Agent Workbench não responde no seu computador. Ele está aberto, com o acesso remoto ligado?</string>
+    <string name="problem_not_accepted">O seu computador não aceitou este celular: o acesso remoto pode estar desligado, ou o celular foi revogado. Se foi revogado, pareie de novo.</string>
+    <string name="problem_local_port_busy">Outro app deste celular está usando a porta %1$d, de que o túnel precisa.</string>
+    <string name="problem_other">A conexão falhou: %1$s</string>
+    <string name="problem_not_paired">Este celular não está pareado com nenhum computador.</string>
+    <string name="action_retry">Tentar de novo</string>
+    <string name="action_settings">Configurações</string>
+    <string name="action_pair_again">Parear de novo</string>
+    <string name="action_disconnect">Desconectar</string>
+    <string name="load_error">Não foi possível carregar a interface: %1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">Conexão com o seu computador</string>
+    <string name="channel_connection_description">Aparece enquanto o celular mantém a conexão aberta, como o Android exige.</string>
+    <string name="channel_agent">Avisos do agente</string>
+    <string name="channel_agent_description">Quando um agente termina ou está esperando por você.</string>
+    <string name="notify_done">“%1$s” terminou</string>
+    <string name="notify_attention">“%1$s” está esperando por você</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">Configurações</string>
+    <string name="settings_computer">Computador</string>
+    <string name="settings_fingerprint">Impressão digital SSH: %1$s</string>
+    <string name="settings_notices">Avisos</string>
+    <string name="settings_notify">Avisar quando um agente termina ou está esperando por você</string>
+    <string name="settings_notify_system">Configurações do sistema para os avisos</string>
+    <string name="settings_battery">Bateria</string>
+    <string name="settings_battery_hint">Para os avisos não atrasarem com o celular parado, deixe o app funcionar sem restrições de bateria.</string>
+    <string name="settings_battery_open">Abrir as configurações de bateria do app</string>
+    <string name="settings_connection">Conexão</string>
+    <string name="settings_connect">Conectar</string>
+    <string name="settings_disconnect">Desconectar</string>
+    <string name="settings_forget">Esquecer este computador</string>
+    <string name="settings_forget_confirm">O celular apaga a chave e a credencial dele para este computador. Para usar de novo, você terá que parear de novo. No computador, revogue-o também em “Acesso remoto”.</string>
+    <string name="settings_forget_ok">Esquecer</string>
+    <string name="settings_about">Agent Workbench %1$s · código aberto (MIT)</string>
+    <string name="settings_privacy">Privacidade</string>
+    <string name="shortcut_settings">Configurações</string>
+</resources>

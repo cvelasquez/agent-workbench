@@ -267,14 +267,18 @@ the other computer (`ssh-keygen -t ed25519`) and add its public half to
 front:
 
 ```
-restrict,port-forwarding,permitopen="127.0.0.1:24837" ssh-ed25519 AAAA… other-computer
+restrict,port-forwarding,permitopen="127.0.0.1:24837",command="exit" ssh-ed25519 AAAA… other-computer
 ```
 
-On Windows, if your user is an administrator, that file is
+`restrict` on its own still lets the key run commands (it only refuses a
+terminal, agent forwarding and other ports); `command="exit"` is what closes
+that door, and the tunnel never asks for a command. On Windows, if your user is
+an administrator, that file is
 `C:\ProgramData\ssh\administrators_authorized_keys` and it must be writable
 only by Administrators and SYSTEM; otherwise it's
 `%USERPROFILE%\.ssh\authorized_keys`. To check that the restriction holds, try
-a plain `ssh you@your-computer` with that key: it should be refused.
+`ssh you@your-computer whoami` with that key: it should print nothing and end
+at once, while the `-N -L` tunnel keeps working.
 
 **From a phone.** Through the same tunnel, a phone browser gets a
 single-column layout: the projects sidebar as a drawer, the tabs in the header,
@@ -286,6 +290,46 @@ the rest. It appears on any window narrower than 768 px (a tablet held upright, 
 isn't in view. They follow the same rule as the notification sound, so they
 come from the CLIs that publish their status. Each browser remembers its own
 choice, and the sound plays on every screen that has the app open.
+
+### The Android app (optional)
+
+An app for Android 10 and later opens the tunnel for you and shows the same
+interface, served by your computer, in the phone-sized layout. It keeps the
+connection open in the background and notifies you when an agent finishes or is
+waiting for you, with the screen off too; tapping a notification opens that
+tab. When the Wi‑Fi comes back, it reconnects on its own.
+
+It needs remote access on and the computer's SSH server running (steps 1 and 2
+above). It isn't on Google Play yet: to install it now, build it from
+[`android/`](android/) as [`CONTRIBUTING.md`](CONTRIBUTING.md#the-android-app)
+explains.
+
+**Pairing, once:**
+
+1. In the ⇄ dialog, choose **Pair a phone**. It shows a line to paste in a
+   terminal on this computer, and a QR code. On Windows, if your user is an
+   administrator, the line goes in PowerShell *as administrator*; the dialog
+   says so.
+2. Paste the line. It adds the phone's key to `authorized_keys`, already
+   restricted to the tunnel: with that key the phone reaches the app's port and
+   nothing else — no terminal and no commands.
+3. Scan the QR with the app. The code works once and for five minutes, and the
+   dialog has to stay open until the phone connects.
+
+The QR carries the phone's private SSH key. This computer generates it, keeps
+it only in memory until the phone uses it and never writes it to disk: don't
+share a picture of that QR. The phone saves your computer's SSH fingerprint on
+the first connection, and if it ever changes, the app refuses to connect and
+tells you.
+
+**To remove a phone**, **Revoke** it in the dialog and delete its line from
+`authorized_keys` (it ends in `agent-workbench-phone`). On the phone,
+**Settings → Forget this computer** deletes its key and its credential.
+
+If notifications arrive late while the phone sits idle, let the app run without
+battery restrictions: **Settings → Open the app's battery settings**. What the
+app keeps on the phone and the permissions it asks for are in
+[`PRIVACY.md`](PRIVACY.md).
 
 ---
 
@@ -343,7 +387,8 @@ untouched.
 Nothing leaves your machine. No telemetry, no analytics, no outgoing network
 calls at all. The exception is the CLI itself at work: the one you open in a
 tab, and the OpenCode server described below, talk to the model provider just
-as they would if you opened them by hand.
+as they would if you opened them by hand. The Android app talks only to your
+computer; [`PRIVACY.md`](PRIVACY.md) lists what it keeps on the phone.
 
 **It never touches your credentials.** There's no login in the interface: if
 you aren't logged in, you log in inside the CLI's terminal and the app doesn't
@@ -505,6 +550,7 @@ packages/
     src/agents/   one adapter per CLI: the only part of the server that knows each one
   web/       Vite, React, xterm.js, highlight.js
   shared/    the protocol types, with no `any` at the edges
+android/     the Android app, in Kotlin: the SSH tunnel, a viewer for the interface, the notifications
 ```
 
 A single process serves the interface and the WebSocket on the same port: with
@@ -525,9 +571,10 @@ on what that CLI declares.
 [`ARCHITECTURE.md`](ARCHITECTURE.md) has the hard rules, the code map, what is
 read from each CLI and what is never opened. [`CONTRIBUTING.md`](CONTRIBUTING.md)
 covers how to work on the repository, [`SECURITY.md`](SECURITY.md) how to report
-a vulnerability, and [`CHANGELOG.md`](CHANGELOG.md) what changed in each
-version. Code comments are in Spanish. The screenshots in this README come from
-`pnpm demo:shots`, on made-up data.
+a vulnerability, [`PRIVACY.md`](PRIVACY.md) what is collected (nothing), and
+[`CHANGELOG.md`](CHANGELOG.md) what changed in each version. Code comments are
+in Spanish. The screenshots in this README come from `pnpm demo:shots`, on
+made-up data.
 
 ---
 

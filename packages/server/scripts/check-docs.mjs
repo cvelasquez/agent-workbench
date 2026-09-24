@@ -62,7 +62,7 @@ const refFiles = readdirSync(DOCS)
 const docs = new Map([['CLAUDE.md', readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8')]]);
 for (const name of refFiles) docs.set(`docs/${name}`, readFileSync(join(DOCS, name), 'utf8'));
 
-// ---- A. las catorce secciones existen, y una sola vez ----------------------
+// ---- A. las quince secciones existen, y una sola vez ----------------------
 
 /** Todos los encabezados numerados: `## 4.`, `### 4.9.2`, … */
 const headings = new Map(); // "4.9.2" -> [archivo, …]
@@ -78,10 +78,10 @@ for (const [name, text] of docs) {
 }
 
 const top = [];
-for (let n = 1; n <= 14; n++) top.push(String(n));
+for (let n = 1; n <= 15; n++) top.push(String(n));
 const faltan = top.filter((n) => !headings.has(n));
 const repes = top.filter((n) => (headings.get(n) ?? []).length > 1);
-check('A1 las secciones 1 a 14 existen', faltan.length === 0, faltan.join(', '));
+check('A1 las secciones 1 a 15 existen', faltan.length === 0, faltan.join(', '));
 check(
   'A2 ninguna seccion de primer nivel esta en dos archivos',
   repes.length === 0,

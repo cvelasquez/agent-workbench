@@ -88,3 +88,31 @@ jobs:
       - name: Install the tarball and start the app
         shell: bash
         run: node .github/scripts/smoke.mjs agent-workbench-*.tgz
+
+  # The Android app: its JVM tests and a debug APK (not signed for publishing).
+  # It lives in android/, outside the pnpm workspace; nothing of it reaches the
+  # npm package.
+  android:
+    name: Android app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v5
+      # A pull request could swap the wrapper JAR for anything: check it's Gradle's.
+      - uses: gradle/actions/wrapper-validation@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Android SDK packages the build uses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "build-tools;35.0.0" > /dev/null
+      - name: Tests, lint and the debug APK
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Los colores de la interfaz web (styles.css): el acento del tema claro y el del oscuro. -->
+<resources>
+    <color name="accent">#2C7F6C</color>
+    <color name="accent_on_dark">#5FB3A1</color>
+    <color name="icon_face">#F2F6F5</color>
+    <color name="icon_features">#1D5348</color>
+    <color name="danger">#C1382B</color>
+    <color name="surface">#F7F8F8</color>
+    <color name="surface_dark">#1A1D25</color>
+</resources>

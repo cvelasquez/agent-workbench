@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Emparejar -->
+    <string name="pair_title">Associer à votre ordinateur</string>
+    <string name="pair_intro">Cette application affiche l’Agent Workbench qui tourne sur votre ordinateur, par un tunnel SSH dans le réseau de votre maison. Rien ne passe par Internet.</string>
+    <string name="pair_steps">1. Sur votre ordinateur, dans Agent Workbench, ouvrez « Accès à distance » et choisissez « Associer un téléphone ». L’accès à distance et le serveur SSH de l’ordinateur doivent être activés.\n2. Collez sur l’ordinateur la ligne qu’il affiche, là où il l’indique.\n3. Scannez le code qu’il affiche.</string>
+    <string name="pair_scan">Scanner le code</string>
+    <string name="pair_paste">Coller le texte du code</string>
+    <string name="pair_paste_hint">agentworkbench://pair?…</string>
+    <string name="pair_use">Utiliser</string>
+    <string name="pair_invalid">Ce n’est pas un code d’association d’Agent Workbench, ou il vient d’une autre version de l’application.</string>
+    <string name="pair_confirm">Associer à « %1$s » en tant que %2$s ?</string>
+    <string name="pair_confirm_ok">Associer</string>
+    <string name="pair_connecting">Connexion à %1$s…</string>
+    <string name="pair_waiting_key">Votre ordinateur n’accepte pas encore la clé de ce téléphone. Collez sur l’ordinateur la ligne de la fenêtre : le téléphone continue d’essayer.</string>
+    <string name="pair_redeeming">Association…</string>
+    <string name="pair_code_rejected">Le code a expiré ou a déjà servi. Sur l’ordinateur, demandez-en un nouveau avec « Associer un téléphone » et scannez-le à nouveau : la ligne que vous avez collée reste valable.</string>
+    <string name="scan_prompt">Visez le code affiché sur l’écran de votre ordinateur</string>
+    <string name="cancel">Annuler</string>
+
+    <!-- El estado de la conexión -->
+    <string name="status_connecting">Connexion à %1$s…</string>
+    <string name="status_connected">Connecté à %1$s</string>
+    <string name="status_disconnected">Déconnecté</string>
+    <string name="status_retrying">Pas de connexion. Nouvel essai dans %1$d s.</string>
+    <string name="problem_pc_not_found">Votre ordinateur est introuvable sur ce réseau. Le téléphone est-il sur le même Wi‑Fi, et l’ordinateur allumé ?</string>
+    <string name="problem_ssh_closed">Votre ordinateur est sur le réseau, mais son serveur SSH ne répond pas. Il doit être activé : le README explique comment.</string>
+    <string name="problem_key_rejected">Votre ordinateur n’accepte pas la clé de ce téléphone. Associez-le à nouveau depuis « Accès à distance ».</string>
+    <string name="problem_host_key_changed">L’empreinte SSH de votre ordinateur a changé (c’est maintenant %1$s). Si vous n’avez pas réinstallé son serveur SSH, ne vous connectez pas. Pour lui faire confiance, oubliez cet ordinateur et associez-le à nouveau.</string>
+    <string name="problem_app_not_running">Agent Workbench ne répond pas sur votre ordinateur. Est-il ouvert, avec l’accès à distance activé ?</string>
+    <string name="problem_not_accepted">Votre ordinateur n’a pas accepté ce téléphone : l’accès à distance est peut-être désactivé, ou le téléphone a été révoqué. S’il a été révoqué, associez-le à nouveau.</string>
+    <string name="problem_local_port_busy">Une autre application de ce téléphone utilise le port %1$d, dont le tunnel a besoin.</string>
+    <string name="problem_other">La connexion a échoué : %1$s</string>
+    <string name="problem_not_paired">Ce téléphone n’est associé à aucun ordinateur.</string>
+    <string name="action_retry">Réessayer</string>
+    <string name="action_settings">Réglages</string>
+    <string name="action_pair_again">Associer à nouveau</string>
+    <string name="action_disconnect">Déconnecter</string>
+    <string name="load_error">Impossible de charger l’interface : %1$s</string>
+
+    <!-- Avisos -->
+    <string name="channel_connection">Connexion à votre ordinateur</string>
+    <string name="channel_connection_description">Affichée tant que le téléphone garde la connexion ouverte, comme l’exige Android.</string>
+    <string name="channel_agent">Alertes de l’agent</string>
+    <string name="channel_agent_description">Quand un agent a terminé ou vous attend.</string>
+    <string name="notify_done">« %1$s » a terminé</string>
+    <string name="notify_attention">« %1$s » vous attend</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">Réglages</string>
+    <string name="settings_computer">Ordinateur</string>
+    <string name="settings_fingerprint">Empreinte SSH : %1$s</string>
+    <string name="settings_notices">Alertes</string>
+    <string name="settings_notify">Alerter quand un agent a terminé ou vous attend</string>
+    <string name="settings_notify_system">Réglages du système pour les alertes</string>
+    <string name="settings_battery">Batterie</string>
+    <string name="settings_battery_hint">Pour que les alertes ne tardent pas quand le téléphone est au repos, laissez l’application fonctionner sans restriction de batterie.</string>
+    <string name="settings_battery_open">Ouvrir les réglages de batterie de l’application</string>
+    <string name="settings_connection">Connexion</string>
+    <string name="settings_connect">Connecter</string>
+    <string name="settings_disconnect">Déconnecter</string>
+    <string name="settings_forget">Oublier cet ordinateur</string>
+    <string name="settings_forget_confirm">Le téléphone efface sa clé et ses identifiants pour cet ordinateur. Pour s’en servir à nouveau, il faudra l’associer à nouveau. Sur l’ordinateur, révoquez-le aussi dans « Accès à distance ».</string>
+    <string name="settings_forget_ok">Oublier</string>
+    <string name="settings_about">Agent Workbench %1$s · open source (MIT)</string>
+    <string name="settings_privacy">Confidentialité</string>
+    <string name="shortcut_settings">Réglages</string>
+</resources>

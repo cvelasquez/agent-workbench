@@ -130,6 +130,47 @@ export interface TerminalKey {
  * interceptar lo que teclea xterm, y las dos combinaciones que las CLIs usan
  * de verdad son Ctrl+C y Shift+Tab, que van como teclas propias.
  */
+// ---- La app del teléfono (hito 38, Fase B) ---------------------------------------
+
+/**
+ * Lo que la app de Android le suma al user agent de su visor. Con eso la hoja `⋮`
+ * ofrece los ajustes de la app, que en un navegador no existen.
+ */
+export const PHONE_APP_UA_TOKEN = 'AgentWorkbenchAndroid/';
+
+/** La dirección que la app intercepta para abrir sus ajustes: no es una página. */
+export const PHONE_APP_SETTINGS_URL = 'agentworkbench://settings';
+
+/**
+ * La función global que llama la app con el botón Atrás de Android. Devuelve
+ * true si cerró o cambió algo; con false, la app se va al fondo.
+ */
+export const NATIVE_BACK_HOOK = 'agentWorkbenchBack';
+
+export function insidePhoneApp(userAgent: string): boolean {
+  return userAgent.includes(PHONE_APP_UA_TOKEN);
+}
+
+export type NarrowBackAction = 'close-dialog' | 'close-sheet' | 'close-drawer' | 'show-chat' | null;
+
+/**
+ * Qué hace el botón Atrás del teléfono: cierra lo que esté más arriba —un
+ * diálogo, una hoja, el cajón—, y sin nada encima vuelve al chat. Ya en el chat
+ * no hay nada que deshacer, y la app se va al fondo con la conexión abierta.
+ */
+export function narrowBackAction(state: {
+  dialogOpen: boolean;
+  sheetOpen: boolean;
+  drawerOpen: boolean;
+  view: NarrowView;
+}): NarrowBackAction {
+  if (state.dialogOpen) return 'close-dialog';
+  if (state.sheetOpen) return 'close-sheet';
+  if (state.drawerOpen) return 'close-drawer';
+  if (state.view !== 'chat') return 'show-chat';
+  return null;
+}
+
 export const TERMINAL_KEYS: readonly TerminalKey[] = [
   { id: 'esc', label: 'Esc', data: '\x1b', titleKey: 'narrow.keys.esc' },
   { id: 'tab', label: 'Tab', data: '\t', titleKey: 'narrow.keys.tab' },

@@ -18,10 +18,15 @@ import {
   NARROW_MAX_WIDTH,
   NARROW_MEDIA_QUERY,
   NARROW_VIEWS,
+  NATIVE_BACK_HOOK,
+  PHONE_APP_SETTINGS_URL,
+  PHONE_APP_UA_TOKEN,
   TAB_QUERY_PARAM,
   TERMINAL_KEYS,
   TOUCH_MEDIA_QUERY,
+  insidePhoneApp,
   isNarrowView,
+  narrowBackAction,
   narrowViewLabelKey,
   narrowViews,
   panelTabOf,
@@ -144,6 +149,24 @@ const json = (value) => JSON.stringify(value);
       .every((selector) => touchSelectors.some((rule) => rule.startsWith(selector))));
   check('fuera de los dos @media no hay ninguna regla .narrow-',
     !/^\s*\.narrow-/m.test(css.replace(narrow.body, '').replace(touch.body, '')));
+}
+
+// --- 4b. La app del teléfono (hito 38, Fase B) -------------------------------------
+{
+  const closed = { dialogOpen: false, sheetOpen: false, drawerOpen: false };
+  check('Atrás cierra lo de más arriba primero: diálogo, hoja, cajón',
+    narrowBackAction({ dialogOpen: true, sheetOpen: true, drawerOpen: true, view: 'cli' }) === 'close-dialog' &&
+    narrowBackAction({ dialogOpen: false, sheetOpen: true, drawerOpen: true, view: 'cli' }) === 'close-sheet' &&
+    narrowBackAction({ dialogOpen: false, sheetOpen: false, drawerOpen: true, view: 'cli' }) === 'close-drawer');
+  check('sin nada encima vuelve al chat, y en el chat no hace nada: la app se va al fondo',
+    narrowBackAction({ ...closed, view: 'git' }) === 'show-chat' && narrowBackAction({ ...closed, view: 'console' }) === 'show-chat' &&
+    narrowBackAction({ ...closed, view: 'chat' }) === null);
+  check('la app se reconoce por su marca en el user agent, y un navegador no',
+    insidePhoneApp('Mozilla/5.0 (Linux; Android 15; wv) Chrome/124.0 Mobile Safari/537.36 AgentWorkbenchAndroid/0.1.0') &&
+    !insidePhoneApp('Mozilla/5.0 (Linux; Android 15) Chrome/124.0 Mobile Safari/537.36') && PHONE_APP_UA_TOKEN === 'AgentWorkbenchAndroid/');
+  check('el contrato con la app: la función de Atrás y la dirección de los ajustes',
+    NATIVE_BACK_HOOK === 'agentWorkbenchBack' && PHONE_APP_SETTINGS_URL === 'agentworkbench://settings');
+  check('la fila de la app tiene sus textos', t('narrow.menu.phoneApp') === 'App del teléfono' && t('narrow.menu.phoneAppSettings') === 'Ajustes');
 }
 
 // --- 5. El viewport -------------------------------------------------------------------
