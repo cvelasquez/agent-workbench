@@ -134,6 +134,7 @@
   "common.close": "닫기",
   "common.closeEsc": "닫기 (Esc)",
   "common.copied": "복사됨",
+  "common.copyCode": "코드 복사",
   "common.dismissNotice": "알림 닫기",
   "common.gotIt": "확인",
   "composer.attach": "파일 첨부",

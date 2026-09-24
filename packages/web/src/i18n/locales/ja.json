@@ -134,6 +134,7 @@
   "common.close": "閉じる",
   "common.closeEsc": "閉じる (Esc)",
   "common.copied": "コピーしました",
+  "common.copyCode": "コードをコピー",
   "common.dismissNotice": "通知を閉じる",
   "common.gotIt": "了解",
   "composer.attach": "ファイルを添付",

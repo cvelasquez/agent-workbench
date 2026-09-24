@@ -140,6 +140,7 @@
   "common.close": "Close",
   "common.closeEsc": "Close (Esc)",
   "common.copied": "Copied",
+  "common.copyCode": "Copy code",
   "common.dismissNotice": "Dismiss the notice",
   "common.gotIt": "Got it",
   "composer.attach": "Attach a file",

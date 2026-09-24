@@ -18,7 +18,8 @@
  * ponerlo.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { t } from './i18n/index.js';
 import { nextInlineToken } from './inline-markup.js';
 
 /** Resalta las coincidencias de la busqueda dentro de un tramo de texto. */
@@ -141,9 +142,41 @@ function renderInline(
   return nodes;
 }
 
-/** Bloque de codigo, con resaltado si hay gramatica para ese lenguaje. */
+/**
+ * Bloque de codigo, con resaltado si hay gramatica para ese lenguaje, y un
+ * boton que copia solo ese bloque.
+ *
+ * El boton existe porque copiar el mensaje entero se lleva el texto de
+ * alrededor, y lo que se quiere pegar en una consola son las tres lineas del
+ * bloque. Va con el nombre del lenguaje en un envoltorio y no adentro del
+ * `pre`: el `pre` se desplaza de costado con las lineas largas, y lo que va
+ * adentro se iba con el desplazamiento.
+ */
 function CodeBlock({ code, language }: { code: string; language: string | null }): JSX.Element {
   const [html, setHtml] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | null>(null);
+
+  // Un bloque que se desmonta a mitad del acuse no deja un timer suelto.
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  // Con acuse: copiar no cambia nada en pantalla, y sin senal no se sabe si el
+  // clic hizo algo hasta ir a pegar.
+  const copy = (): void => {
+    void navigator.clipboard
+      .writeText(code)
+      .then(() => {
+        setCopied(true);
+        if (timer.current !== null) window.clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => setCopied(false), 1_200);
+      })
+      .catch(() => setCopied(false));
+  };
 
   useEffect(() => {
     let active = true;
@@ -162,12 +195,24 @@ function CodeBlock({ code, language }: { code: string; language: string | null }
   }, [code, language]);
 
   return (
-    <pre className="md-code hljs">
-      {language !== null && <span className="md-code-lang">{language}</span>}
-      {/* Lo que entra aca sale siempre de highlight.js, que escapa. Sin
-          gramatica, el texto se renderiza como texto. */}
-      {html === null ? <code>{code}</code> : <code dangerouslySetInnerHTML={{ __html: html }} />}
-    </pre>
+    <div className="md-code-wrap">
+      <pre className="md-code hljs">
+        {/* Lo que entra aca sale siempre de highlight.js, que escapa. Sin
+            gramatica, el texto se renderiza como texto. */}
+        {html === null ? <code>{code}</code> : <code dangerouslySetInnerHTML={{ __html: html }} />}
+      </pre>
+      <div className="md-code-tools">
+        {language !== null && <span className="md-code-lang">{language}</span>}
+        <button
+          className="md-code-copy"
+          onClick={copy}
+          title={copied ? t('common.copied') : t('common.copyCode')}
+          aria-label={t('common.copyCode')}
+        >
+          {copied ? '✓' : '⧉'}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -314,6 +359,9 @@ export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.E
     // --- listas ---
     if (BULLET.test(line) || NUMBERED.test(line)) {
       const ordered = NUMBERED.test(line);
+      // El numero con el que arranca: un bloque de codigo en el medio parte la
+      // lista en dos, y la segunda tiene que seguir en el 3, no volver al 1.
+      const start = ordered ? Number(NUMBERED.exec(line)?.[1] ?? '1') : 1;
       const items: string[] = [];
       while (index < lines.length) {
         const current = lines[index] ?? '';
@@ -339,7 +387,7 @@ export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.E
       blocks.push({
         key,
         node: ordered ? (
-          <ol key={key} className="md-list">
+          <ol key={key} className="md-list" start={start === 1 ? undefined : start}>
             {children}
           </ol>
         ) : (

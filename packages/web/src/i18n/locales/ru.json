@@ -152,6 +152,7 @@
   "common.close": "Закрыть",
   "common.closeEsc": "Закрыть (Esc)",
   "common.copied": "Скопировано",
+  "common.copyCode": "Копировать код",
   "common.dismissNotice": "Закрыть уведомление",
   "common.gotIt": "Понятно",
   "composer.attach": "Прикрепить файл",

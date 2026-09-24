@@ -140,6 +140,7 @@
   "common.close": "Fechar",
   "common.closeEsc": "Fechar (Esc)",
   "common.copied": "Copiado",
+  "common.copyCode": "Copiar o código",
   "common.dismissNotice": "Dispensar o aviso",
   "common.gotIt": "Entendi",
   "composer.attach": "Anexar um arquivo",

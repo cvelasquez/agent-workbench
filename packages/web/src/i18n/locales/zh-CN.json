@@ -134,6 +134,7 @@
   "common.close": "关闭",
   "common.closeEsc": "关闭（Esc）",
   "common.copied": "已复制",
+  "common.copyCode": "复制代码",
   "common.dismissNotice": "关闭此提示",
   "common.gotIt": "知道了",
   "composer.attach": "附加文件",

@@ -142,11 +142,11 @@ const json = (value) => JSON.stringify(value);
   const touch = mediaBlock(TOUCH_MEDIA_QUERY);
   check('hay un solo bloque @media táctil', touch.count === 1 && touch.body.trim().length > 0);
   const touchSelectors = selectors(touch.body);
-  const ALLOWED_TOUCH = /^(\.session-action|\.session-continue|\.session-row|\.project-action|\.project-actions|\.tab-close|\.chip-remove|\.turn-actions|\.tree-action|\.strip-tab-close|\.icon-button|\.tree-item|\.session-item|\.project-row|\.tab\b|\.question-option|\.side-panel-tab|\.strip-tab\b|\.link-button|\.narrow-)/;
+  const ALLOWED_TOUCH = /^(\.session-action|\.session-continue|\.session-row|\.project-action|\.project-actions|\.tab-close|\.chip-remove|\.turn-actions|\.tree-action|\.md-code-copy|\.strip-tab-close|\.icon-button|\.tree-item|\.session-item|\.project-row|\.tab\b|\.question-option|\.side-panel-tab|\.strip-tab\b|\.link-button|\.narrow-)/;
   const foreign = touchSelectors.filter((selector) => !ALLOWED_TOUCH.test(selector));
   check('el bloque táctil solo toca lo que aparecía con el mouse y los objetivos táctiles', foreign.length === 0, foreign.slice(0, 5).join(' | '));
   check('lo que aparecía con el mouse queda visible en táctil',
-    ['.session-action', '.project-action', '.session-continue', '.tab-close', '.chip-remove', '.turn-actions', '.tree-action']
+    ['.session-action', '.project-action', '.session-continue', '.tab-close', '.chip-remove', '.turn-actions', '.tree-action', '.md-code-copy']
       .every((selector) => touchSelectors.some((rule) => rule.startsWith(selector))));
   check('fuera de los dos @media no hay ninguna regla .narrow-',
     !/^\s*\.narrow-/m.test(css.replace(narrow.body, '').replace(touch.body, '')));

@@ -2011,6 +2011,9 @@ kbd {
 
 .turn-actions {
   position: absolute;
+  /* Por encima de un bloque de codigo al principio del mensaje, que tambien
+     va posicionado y lo tapaba. */
+  z-index: 1;
   top: 2px;
   right: 2px;
   display: flex;
@@ -2256,9 +2259,17 @@ kbd {
 }
 
 /* El bloque de codigo hace scroll adentro: nunca empuja el ancho del chat. */
-.md-code {
+/*
+  El bloque de codigo va en un envoltorio: el lenguaje y el boton de copiar
+  quedan fijos arriba a la derecha aunque el `pre` se desplace de costado.
+*/
+.md-code-wrap {
   position: relative;
   margin: 0 0 8px;
+}
+
+.md-code {
+  margin: 0;
   padding: 10px 12px;
   background: var(--chrome-alt);
   border: 1px solid var(--border);
@@ -2274,13 +2285,49 @@ kbd {
   line-height: 1.5;
 }
 
-.md-code-lang {
+.md-code-tools {
   position: absolute;
   top: 3px;
-  right: 8px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/*
+  Un mensaje que empieza con un bloque de codigo pone el copiar del bloque
+  justo debajo del copiar del mensaje (`.turn-actions`, arriba a la derecha del
+  turno). Solo en ese caso se corre a la izquierda.
+*/
+.turn-actions + .part-text > .md > .md-code-wrap:first-child > .md-code-tools {
+  right: 36px;
+}
+
+.md-code-lang {
   font-size: 9.5px;
   color: var(--text-dim);
   text-transform: lowercase;
+}
+
+/* Como las acciones de un turno: aparece al pasar el mouse por el bloque. */
+.md-code-copy {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--chrome-alt) 85%, transparent);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.md-code-wrap:hover .md-code-copy,
+.md-code-copy:focus-visible {
+  opacity: 1;
+}
+
+.md-code-copy:hover {
+  color: var(--text);
 }
 
 .md-table-wrap {
@@ -5586,7 +5633,8 @@ kbd {
   .tab-close,
   .chip-remove,
   .turn-actions,
-  .tree-action {
+  .tree-action,
+  .md-code-copy {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
