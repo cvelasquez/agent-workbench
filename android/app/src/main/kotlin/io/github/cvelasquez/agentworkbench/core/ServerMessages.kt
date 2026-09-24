@@ -17,6 +17,9 @@ sealed class ServerMessage {
     /** Una pestaña: lo que hace falta para nombrarla en un aviso. */
     data class Terminal(val terminalId: String, val label: String, val cwd: String) {
         val tabName: String get() = tabName(label, cwd)
+
+        /** El proyecto: la última carpeta de su ruta, aunque la pestaña se llame de otra forma. */
+        val projectName: String get() = tabName("", cwd)
     }
 
     companion object {
@@ -51,5 +54,12 @@ sealed class ServerMessage {
             if (label.isNotEmpty()) return label
             return cwd.split('\\', '/').lastOrNull { it.isNotEmpty() } ?: cwd
         }
+
+        /**
+         * El texto de un aviso, debajo de "«pestaña» terminó": de qué proyecto es y en
+         * qué PC. Con el proyecto a la vista se decide sin abrirlo si vale la pena ir.
+         */
+        fun noticeBody(projectName: String, pcName: String): String =
+            if (projectName.isEmpty()) pcName else "$projectName · $pcName"
     }
 }

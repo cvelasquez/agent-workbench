@@ -87,6 +87,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Orientation.apply(this)
         store = PcStore(this)
         val paired = store.load()
         val saved = store.credential()
@@ -107,6 +108,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (!::web.isInitialized) return
+        pickUpNewPairing()
         Tunnel.uiVisible = true
         AgentNotifier.cancelAll(this)
         stopObserving = Tunnel.observe(::render)
@@ -125,9 +127,32 @@ class MainActivity : Activity() {
         if (loaded) loadUi(tab) else pendingTab = tab
     }
 
+    /** Maneja sus cambios de pantalla (manifiesto): un plegable que se abre pasa a tablet acá. */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Orientation.apply(this)
+    }
+
     override fun onDestroy() {
         if (::web.isInitialized) web.destroy()
         super.onDestroy()
+    }
+
+    /**
+     * Emparejado otra vez sin que esta pantalla se cerrara. Es `singleTask`: al
+     * volver de emparejar, Android reusa esta misma, con la credencial vieja en
+     * memoria y la web parada en "Acceso revocado", que no reconecta a propósito.
+     * Si la credencial guardada cambió, se toma la nueva y la interfaz se carga
+     * de cero cuando el túnel esté arriba (`render`, que `observe` llama enseguida).
+     */
+    private fun pickUpNewPairing() {
+        val paired = store.load() ?: return
+        val saved = store.credential() ?: return
+        if (saved == credential) return
+        pc = paired
+        credential = saved
+        loaded = false
+        loading = false
     }
 
     private fun tabOf(intent: Intent?): String? =

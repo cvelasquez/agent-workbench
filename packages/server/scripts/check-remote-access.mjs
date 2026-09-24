@@ -82,12 +82,14 @@ import {
   defaultHostName,
   deviceSeenText,
   formatCountdown,
+  hostSshPlatform,
   pairingSecondsLeft,
   pairingUrl,
   parsePortInput,
   remoteStateText,
   phoneAuthorizeText,
   remoteUrl,
+  sshSetups,
   sshTunnelCommand,
 } from '../../web/src/remote-access-ui.ts';
 import {
@@ -583,6 +585,18 @@ try {
     check('sin usuario queda un marcador que se nota',
       sshTunnelCommand({ ...status, sshUser: '' }, 'PC-ANA').endsWith('USER@PC-ANA'));
     check('el otro equipo abre localhost, nunca el nombre de red', remoteUrl(REMOTE_DEFAULT_PORT) === `http://localhost:${REMOTE_DEFAULT_PORT}`);
+
+    // El paso 1 dice cómo encender SSH sin mandar al README: tiene que decir lo mismo que él.
+    const setups = sshSetups();
+    check('el paso 1 ofrece los tres sistemas, en orden', json(setups.map((setup) => setup.platform)) === json(['win32', 'darwin', 'linux']));
+    check('se abre el sistema de este equipo, y uno desconocido cuenta como Linux',
+      hostSshPlatform('win32') === 'win32' && hostSshPlatform('darwin') === 'darwin' &&
+      hostSshPlatform('linux') === 'linux' && hostSshPlatform('freebsd') === 'linux' && hostSshPlatform('') === 'linux');
+    const readme = await readFile(new URL('../../../README.md', import.meta.url), 'utf8');
+    const missing = setups
+      .flatMap((setup) => (setup.command ?? '').split('\n'))
+      .filter((line) => line.length > 0 && !readme.includes(line));
+    check('cada línea que el paso 1 da para pegar es la de la guía del README', missing.length === 0, missing.join(' | '));
 
     const url = pairingUrl(REMOTE_DEFAULT_PORT, 'K7QM-X2RD');
     check('la dirección para emparejar lleva el código', url === `http://localhost:${REMOTE_DEFAULT_PORT}/?${PAIR_QUERY_PARAM}=K7QM-X2RD`, url);

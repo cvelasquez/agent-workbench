@@ -1109,12 +1109,43 @@ kbd {
   border-color: var(--accent);
 }
 
-.composer-send,
-.composer-stop {
-  padding: 5px 14px;
-  border-radius: 5px;
-  font-size: 12px;
+/*
+  Enviar y Detener, como íconos redondos dentro del cuadro, abajo a la derecha.
+  El cuadro deja a la derecha el lugar de uno o de dos, para que el texto no
+  pase por debajo.
+*/
+.composer-field {
+  position: relative;
+  display: flex;
+}
+
+.composer-field .composer-input {
+  min-height: 38px;
+  padding-right: 44px;
+}
+
+.composer-field-two .composer-input {
+  padding-right: 78px;
+}
+
+.composer-field-actions {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  display: flex;
+  gap: 6px;
+}
+
+.composer-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
   border: 1px solid var(--border);
+  background: var(--chrome-alt);
   color: var(--text-dim);
 }
 
@@ -1122,14 +1153,13 @@ kbd {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--surface);
-  font-weight: 600;
 }
 
 .composer-send:disabled {
-  background: none;
+  background: var(--chrome-alt);
   border-color: var(--border);
   color: var(--text-dim);
-  font-weight: 400;
+  opacity: 0.6;
 }
 
 .composer-stop:hover:not(:disabled) {
@@ -3708,6 +3738,33 @@ kbd {
   color: var(--danger);
 }
 
+/* Los sistemas del paso 1 y "¿No conecta?": plegados, uno por fila. */
+.remote-os {
+  margin: 4px 0;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.remote-os-summary {
+  padding: 4px 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.remote-os[open] {
+  padding-bottom: 8px;
+}
+
+.remote-os .modal-hint {
+  margin: 4px 0;
+}
+
+.remote-trouble {
+  margin: 0;
+  padding-left: 16px;
+}
+
 .remote-devices {
   margin: 0;
   padding: 0;
@@ -5060,6 +5117,14 @@ kbd {
     font-size: 11px;
   }
 
+  /* El cuadrito del color del proyecto, junto al nombre de la pestaña a la vista. */
+  .narrow-project-swatch {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
   .app-narrow .banner {
     padding-left: 12px;
     padding-right: 12px;
@@ -5196,9 +5261,19 @@ kbd {
     display: none;
   }
 
-  .app-narrow .composer-send,
-  .app-narrow .composer-stop {
-    min-height: 40px;
+  /* Un dedo acierta en 36 px; el cuadro reserva ese lugar. */
+  .app-narrow .composer-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .app-narrow .composer-field .composer-input {
+    min-height: 46px;
+    padding-right: 50px;
+  }
+
+  .app-narrow .composer-field-two .composer-input {
+    padding-right: 92px;
   }
 
   /* La barra de "esperando" y el medidor, en una linea. */
@@ -5321,11 +5396,13 @@ kbd {
     gap: 2px;
   }
 
+  /* La rayita del color del proyecto, el mismo del subrayado de las pestañas de la PC. */
   .narrow-tab-row {
     display: flex;
     align-items: center;
     gap: 4px;
     border-radius: 6px;
+    box-shadow: inset 4px 0 0 var(--tab-project-color, transparent);
   }
 
   .narrow-tab-active {

@@ -43,6 +43,8 @@
     <string name="channel_connection_description">Se muestra mientras el teléfono mantiene la conexión abierta, como exige Android.</string>
     <string name="channel_agent">Avisos del agente</string>
     <string name="channel_agent_description">Cuando un agente termina o te espera.</string>
+    <string name="channel_agent_done">Un agente terminó</string>
+    <string name="channel_agent_attention">Un agente te espera</string>
     <string name="notify_done">«%1$s» terminó</string>
     <string name="notify_attention">«%1$s» te espera</string>
 

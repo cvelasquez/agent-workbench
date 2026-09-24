@@ -27,7 +27,7 @@
  * (`narrowBackAction`), y la hoja `⋮` ofrece los ajustes de la app.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type {
   AgentId,
   AgentInfo,
@@ -48,6 +48,7 @@ import {
   narrowViewLabelKey,
   type NarrowView,
 } from './narrow-layout.js';
+import { projectColor } from './project-color.js';
 import { NotifyButton, SoundControl } from './SoundControl.js';
 import { TabStatus, defaultTabLabel } from './TabBar.js';
 import { TerminalKeys } from './TerminalKeys.js';
@@ -236,6 +237,7 @@ export function NarrowShell({
                 activity={activity.get(activeTerminal.terminalId)}
                 statusLine={statusLineOf(activeTerminal)}
               />
+              <span className="narrow-project-swatch" style={{ background: projectColor(activeTerminal.cwd) }} />
               <span className="narrow-current-label">{defaultTabLabel(activeTerminal)}</span>
             </>
           )}
@@ -372,6 +374,7 @@ function TabSheet({
           <li
             key={terminal.terminalId}
             className={`narrow-tab-row${terminal.terminalId === activeTerminalId ? ' narrow-tab-active' : ''}`}
+            style={{ '--tab-project-color': projectColor(terminal.cwd) } as CSSProperties}
           >
             {editing ? (
               <input

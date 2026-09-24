@@ -1,3 +1,6 @@
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -58,6 +61,81 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+/**
+ * Los dos sonidos de los avisos, "terminó" y "te espera": los mismos de la web
+ * (`CHIMES` de `packages/web/src/notification-sound.ts`), escritos como WAV al
+ * compilar. Como en la web, en el repositorio no hay ningún archivo de audio,
+ * sólo las notas.
+ *
+ * La diferencia es el volumen: la web suena bajo y el usuario lo sube con su
+ * barrita; acá el archivo va al máximo sin saturar, y manda el volumen de
+ * notificaciones del teléfono, que la app no puede pasar.
+ */
+abstract class ChimeSoundsTask : DefaultTask() {
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    private data class Note(val frequency: Double, val at: Double, val duration: Double)
+
+    @TaskAction
+    fun write() {
+        val raw = outputDirectory.get().dir("raw").asFile.apply { mkdirs() }
+        // Si cambian las notas de la web, cambian acá.
+        val chimes = mapOf(
+            "chime_done" to listOf(Note(880.0, 0.0, 0.18), Note(659.25, 0.14, 0.28)),
+            "chime_attention" to listOf(Note(659.25, 0.0, 0.18), Note(987.77, 0.14, 0.28)),
+        )
+        for ((name, notes) in chimes) raw.resolve("$name.wav").writeBytes(wav(synthesize(notes)))
+    }
+
+    /** Las mismas envolventes que la web: ataque de 12 ms y caída exponencial hasta la duración. */
+    private fun synthesize(notes: List<Note>): DoubleArray {
+        val floor = 0.0001
+        val attack = 0.012
+        val length = notes.maxOf { it.at + it.duration } + 0.02
+        val samples = DoubleArray((length * SAMPLE_RATE).toInt())
+        for (note in notes) {
+            val first = (note.at * SAMPLE_RATE).toInt()
+            val last = minOf(samples.size, ((note.at + note.duration + 0.02) * SAMPLE_RATE).toInt())
+            for (index in first until last) {
+                val t = index.toDouble() / SAMPLE_RATE - note.at
+                val gain = when {
+                    t < attack -> floor * Math.pow(1.0 / floor, t / attack)
+                    t < note.duration -> Math.pow(floor, (t - attack) / (note.duration - attack))
+                    else -> 0.0
+                }
+                samples[index] += gain * Math.sin(2 * Math.PI * note.frequency * t)
+            }
+        }
+        val peak = samples.maxOf { Math.abs(it) }
+        return DoubleArray(samples.size) { samples[it] / peak * 0.95 }
+    }
+
+    /** PCM de 16 bits, mono. */
+    private fun wav(samples: DoubleArray): ByteArray {
+        val data = samples.size * 2
+        val buffer = ByteBuffer.allocate(44 + data).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.put("RIFF".toByteArray()).putInt(36 + data).put("WAVE".toByteArray())
+        buffer.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(1)
+            .putInt(SAMPLE_RATE).putInt(SAMPLE_RATE * 2).putShort(2).putShort(16)
+        buffer.put("data".toByteArray()).putInt(data)
+        for (sample in samples) buffer.putShort((sample * Short.MAX_VALUE).toInt().toShort())
+        return buffer.array()
+    }
+
+    private companion object {
+        const val SAMPLE_RATE = 44_100
+    }
+}
+
+val chimeSounds = tasks.register<ChimeSoundsTask>("chimeSounds")
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(chimeSounds, ChimeSoundsTask::outputDirectory)
     }
 }
 

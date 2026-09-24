@@ -394,6 +394,8 @@ export function Composer({
   const hasSomething =
     text.trim().length > 0 ||
     attachments.items.some((item) => item.kind !== 'text' || item.text.trim().length > 0);
+  const showStop = alive && activity !== 'idle';
+  const showSend = hasSomething || !showStop;
 
   return (
     <div
@@ -460,6 +462,15 @@ export function Composer({
         </div>
       )}
 
+      {/*
+        Enviar y Detener son íconos dentro del cuadro, abajo a la derecha: como
+        botones de texto ocupaban una fila entera en el teléfono. Detener
+        aparece mientras el agente trabaja y Enviar cuando hay algo escrito;
+        con el agente trabajando y un texto listo, los dos, porque mandar
+        mientras trabaja sigue valiendo. Con el cuadro vacío y el agente
+        quieto, Enviar queda apagado: el lugar no salta al escribir.
+      */}
+      <div className={`composer-field${showStop && showSend ? ' composer-field-two' : ''}`}>
       <textarea
         ref={textareaRef}
         className="composer-input"
@@ -485,6 +496,42 @@ export function Composer({
         onPaste={onPaste}
         spellCheck={false}
       />
+        <div className="composer-field-actions">
+          {showStop && (
+            <button
+              className="composer-icon composer-stop"
+              onClick={interrupt}
+              disabled={disabled}
+              title={t('composer.stopTitle')}
+              aria-label={t('composer.stop')}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+              </svg>
+            </button>
+          )}
+          {showSend && (
+            <button
+              className="composer-icon composer-send"
+              onClick={submit}
+              disabled={disabled || !hasSomething || blockedReason !== null}
+              title={blockedReason ?? t('composer.sendTitle')}
+              aria-label={t('composer.send')}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path
+                  d="M12 19V5M5.5 11.5 12 5l6.5 6.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
 
       {/*
         Sin cartel de atajos.
@@ -532,24 +579,6 @@ export function Composer({
         {leading}
         <span className="composer-spacer" />
         {controls}
-        {alive && activity !== 'idle' && (
-          <button
-            className="composer-stop"
-            onClick={interrupt}
-            disabled={disabled}
-            title={t('composer.stopTitle')}
-          >
-            {t('composer.stop')}
-          </button>
-        )}
-        <button
-          className="composer-send"
-          onClick={submit}
-          disabled={disabled || !hasSomething || blockedReason !== null}
-          title={blockedReason ?? t('composer.sendTitle')}
-        >
-          {t('composer.send')}
-        </button>
       </div>
     </div>
   );

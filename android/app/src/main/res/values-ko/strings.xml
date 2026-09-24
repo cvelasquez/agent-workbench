@@ -43,6 +43,8 @@
     <string name="channel_connection_description">휴대폰이 연결을 열어 두는 동안 Android의 요구에 따라 표시됩니다.</string>
     <string name="channel_agent">에이전트 알림</string>
     <string name="channel_agent_description">에이전트가 작업을 마치거나 기다리고 있을 때.</string>
+    <string name="channel_agent_done">에이전트 작업 완료</string>
+    <string name="channel_agent_attention">에이전트가 기다리는 중</string>
     <string name="notify_done">“%1$s” 작업 완료</string>
     <string name="notify_attention">“%1$s”이(가) 기다리고 있습니다</string>
 

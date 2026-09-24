@@ -43,6 +43,8 @@
     <string name="channel_connection_description">Показывается, пока телефон держит соединение открытым, как того требует Android.</string>
     <string name="channel_agent">Уведомления агента</string>
     <string name="channel_agent_description">Когда агент закончил работу или ждёт вас.</string>
+    <string name="channel_agent_done">Агент закончил работу</string>
+    <string name="channel_agent_attention">Агент ждёт вас</string>
     <string name="notify_done">«%1$s»: готово</string>
     <string name="notify_attention">«%1$s» ждёт вас</string>
 

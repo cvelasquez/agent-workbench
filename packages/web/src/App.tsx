@@ -1501,6 +1501,7 @@ export function App(): JSX.Element {
           phonePairing={remote.phonePairing}
           phoneStarted={remote.phoneStarted}
           problem={remote.problem}
+          platform={platform}
           onSetEnabled={remote.setEnabled}
           onSetPort={remote.setPort}
           onStartPairing={remote.startPairing}

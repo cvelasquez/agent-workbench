@@ -33,4 +33,14 @@ class ServerMessagesTest {
         assertEquals("mi-app", ServerMessage.tabName("", "/home/ana/mi-app"))
         assertEquals("", ServerMessage.tabName("", ""))
     }
+
+    @Test
+    fun `el aviso nombra el proyecto de la pestaña y la PC, aunque la pestaña tenga otro nombre`() {
+        val renamed = ServerMessage.Terminal("t2", "Backend", "D:\\Proyectos\\Mi App\\")
+        assertEquals("Mi App", renamed.projectName)
+        assertEquals("Mi App · Laptop", ServerMessage.noticeBody(renamed.projectName, "Laptop"))
+        assertEquals("web", ServerMessage.Terminal("t3", "", "/home/ana/web").projectName)
+        // Sin carpeta (no debería pasar), sólo la PC: nada de un "· Laptop" suelto.
+        assertEquals("Laptop", ServerMessage.noticeBody("", "Laptop"))
+    }
 }

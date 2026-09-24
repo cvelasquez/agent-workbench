@@ -50,6 +50,8 @@
     <string name="channel_connection_description">Shown while the phone keeps the connection open, as Android requires.</string>
     <string name="channel_agent">Agent notices</string>
     <string name="channel_agent_description">When an agent finishes or is waiting for you.</string>
+    <string name="channel_agent_done">An agent finished</string>
+    <string name="channel_agent_attention">An agent is waiting for you</string>
     <string name="notify_done">“%1$s” finished</string>
     <string name="notify_attention">“%1$s” is waiting for you</string>
 

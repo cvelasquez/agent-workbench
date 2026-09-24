@@ -9,8 +9,8 @@
  * Va en el orden en que se hace:
  *
  *  1. **En este equipo, una vez**: encender el servidor SSH. La app no lo hace
- *     ni lo detecta —es un cambio del sistema que pide administrador—: remite a
- *     la guía del README.
+ *     ni lo detecta —es un cambio del sistema que pide administrador—: muestra
+ *     cómo, sistema por sistema, con el de este equipo abierto.
  *  2. **En el otro equipo, cada vez**: el comando del túnel, armado para copiar.
  *  3. **Emparejar, una vez por equipo**: un código de un solo uso en una
  *     dirección. Sólo lo ve esta ventana, y se olvida cuando deja de valer.
@@ -36,6 +36,7 @@ import {
   devicePairedText,
   deviceSeenText,
   formatCountdown,
+  hostSshPlatform,
   pairingSecondsLeft,
   pairingUrl,
   parsePortInput,
@@ -43,6 +44,7 @@ import {
   portRangeText,
   remoteStateText,
   remoteUrl,
+  sshSetups,
   sshTunnelCommand,
 } from './remote-access-ui.js';
 import { QR_QUIET_ZONE, qrMatrix } from './qr-code.js';
@@ -58,6 +60,8 @@ interface RemoteAccessDialogProps {
   phonePairing: RemotePhonePairing | null;
   phoneStarted: boolean;
   problem: string | null;
+  /** `process.platform` de este equipo: qué sistema del paso 1 se muestra abierto. */
+  platform: string;
   onSetEnabled: (enabled: boolean) => void;
   onSetPort: (port: number) => void;
   onStartPairing: () => void;
@@ -76,6 +80,7 @@ export function RemoteAccessDialog({
   phonePairing,
   phoneStarted,
   problem,
+  platform,
   onSetEnabled,
   onSetPort,
   onStartPairing,
@@ -89,7 +94,7 @@ export function RemoteAccessDialog({
 }: RemoteAccessDialogProps): JSX.Element {
   const [host, setHost] = useState(() => defaultHostName(status.hostNames));
   const [portText, setPortText] = useState(String(status.port));
-  const [copied, setCopied] = useState<'command' | 'pairing' | 'phone' | null>(null);
+  const [copied, setCopied] = useState<'command' | 'pairing' | 'phone' | 'ssh' | null>(null);
   const copiedTimer = useRef<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -143,7 +148,7 @@ export function RemoteAccessDialog({
     if (!status.hostNames.includes(host)) setHost(defaultHostName(status.hostNames));
   }, [status.hostNames, host]);
 
-  const copy = (what: 'command' | 'pairing' | 'phone', text: string): void => {
+  const copy = (what: 'command' | 'pairing' | 'phone' | 'ssh', text: string): void => {
     void navigator.clipboard
       .writeText(text)
       .then(() => {
@@ -227,7 +232,25 @@ export function RemoteAccessDialog({
 
           <h3 className="modal-section">{t('remote.step.host')}</h3>
           <p className="modal-hint">{t('remote.step.hostHint')}</p>
-          <p className="modal-hint">{t('remote.vpnHint')}</p>
+          {/*
+            Los tres sistemas plegados, con el de este equipo abierto: lo mismo
+            que la guía del README, sin mandar a leerla. Un solo `copied` para
+            los tres: se copia uno a la vez.
+          */}
+          {sshSetups().map((setup) => (
+            <details key={setup.platform} className="remote-os" open={setup.platform === hostSshPlatform(platform)}>
+              <summary className="remote-os-summary">{setup.label}</summary>
+              <p className="modal-hint">{setup.hint}</p>
+              {setup.command !== null && (
+                <div className="status-line-fragment">
+                  <pre className="tool-pre">{setup.command}</pre>
+                  <button className="link-button" onClick={() => copy('ssh', setup.command ?? '')}>
+                    {copied === 'ssh' ? <>✓ {t('remote.copied')}</> : t('remote.copy')}
+                  </button>
+                </div>
+              )}
+            </details>
+          ))}
 
           <h3 className="modal-section">{t('remote.step.tunnel')}</h3>
           <p className="modal-hint">{t('remote.step.tunnelHint')}</p>
@@ -256,7 +279,15 @@ export function RemoteAccessDialog({
               {copied === 'command' ? <>✓ {t('remote.copied')}</> : t('remote.copy')}
             </button>
           </div>
-          {status.sshUser.length > 0 && <p className="modal-hint">{t('remote.userHint', { user: status.sshUser })}</p>}
+          {/* Lo que casi nunca hace falta, plegado: el paso se lee de un vistazo. */}
+          <details className="remote-os">
+            <summary className="remote-os-summary">{t('remote.trouble')}</summary>
+            <ul className="remote-trouble">
+              <li className="modal-hint">{t('remote.trouble.network')}</li>
+              <li className="modal-hint">{t('remote.vpnHint')}</li>
+              {status.sshUser.length > 0 && <li className="modal-hint">{t('remote.userHint', { user: status.sshUser })}</li>}
+            </ul>
+          </details>
 
           <h3 className="modal-section">{t('remote.step.pair')}</h3>
           {pairing === null || pairUrl === null ? (

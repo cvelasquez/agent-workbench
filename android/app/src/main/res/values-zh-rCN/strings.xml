@@ -43,6 +43,8 @@
     <string name="channel_connection_description">按照 Android 的要求，在手机保持连接期间显示。</string>
     <string name="channel_agent">智能体提醒</string>
     <string name="channel_agent_description">当智能体完成工作或在等你时。</string>
+    <string name="channel_agent_done">智能体已完成</string>
+    <string name="channel_agent_attention">智能体在等你</string>
     <string name="notify_done">“%1$s”已完成</string>
     <string name="notify_attention">“%1$s”在等你</string>
 

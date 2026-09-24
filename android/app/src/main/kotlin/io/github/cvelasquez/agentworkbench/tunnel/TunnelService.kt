@@ -54,6 +54,16 @@ class TunnelService : Service() {
             context.startForegroundService(Intent(context, TunnelService::class.java))
         }
 
+        /**
+         * Recién emparejado: conecta con la credencial nueva. Si el servicio seguía
+         * vivo y parado en "no aceptado" (el teléfono estaba revocado), eso se olvida:
+         * con `start` a secas se quedaba ahí y había que cerrar la app.
+         */
+        fun startAfterPairing(context: Context) {
+            PcStore(context).connectionWanted = true
+            context.startForegroundService(Intent(context, TunnelService::class.java).setAction(ACTION_RETRY))
+        }
+
         /** Corta ya la espera y vuelve a intentar. */
         fun retry(context: Context) {
             context.startForegroundService(Intent(context, TunnelService::class.java).setAction(ACTION_RETRY))

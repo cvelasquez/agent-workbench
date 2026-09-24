@@ -36,6 +36,7 @@ class SettingsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Orientation.apply(this)
         setContentView(R.layout.activity_settings)
         edgeToEdge()
         store = PcStore(this)

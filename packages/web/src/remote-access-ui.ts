@@ -111,6 +111,48 @@ export function phoneAuthorizeText(shell: PhoneAuthorizeShell): string {
   }
 }
 
+/** Un sistema en el paso 1: cómo se enciende su servidor SSH. */
+export interface SshSetup {
+  /** El `process.platform` que le corresponde, para abrir de entrada el de este equipo. */
+  platform: 'win32' | 'darwin' | 'linux';
+  /** El nombre del sistema: no se traduce. */
+  label: string;
+  hint: string;
+  /** Lo que se pega, o null si se hace con clics. */
+  command: string | null;
+}
+
+/**
+ * El paso 1 del diálogo, sistema por sistema: lo mismo que la guía del README,
+ * para no mandar a nadie a leerla. La app no lo corre: pide administrador.
+ */
+export function sshSetups(): SshSetup[] {
+  return [
+    {
+      platform: 'win32',
+      label: 'Windows',
+      hint: t('remote.ssh.windows'),
+      command: [
+        'Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0',
+        'Start-Service sshd',
+        'Set-Service -Name sshd -StartupType Automatic',
+      ].join('\n'),
+    },
+    { platform: 'darwin', label: 'macOS', hint: t('remote.ssh.macos'), command: null },
+    {
+      platform: 'linux',
+      label: 'Linux',
+      hint: t('remote.ssh.linux'),
+      command: ['sudo apt install openssh-server', 'sudo systemctl enable --now ssh'].join('\n'),
+    },
+  ];
+}
+
+/** El sistema de este equipo, que el diálogo muestra abierto. Uno que no está en la lista cuenta como Linux. */
+export function hostSshPlatform(platform: string): SshSetup['platform'] {
+  return platform === 'win32' || platform === 'darwin' ? platform : 'linux';
+}
+
 /**
  * Se puede pedir un código: el acceso está encendido **y corriendo en el puerto
  * de los ajustes**. Con un reinicio pendiente no se ofrece: la dirección que se

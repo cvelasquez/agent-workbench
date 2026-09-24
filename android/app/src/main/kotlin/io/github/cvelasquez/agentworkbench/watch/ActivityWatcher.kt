@@ -51,7 +51,7 @@ class ActivityWatcher(
         Cancellable { handler.removeCallbacks(runnable) }
     }
     private val tracker = ActivityTracker(scheduler) { terminalId, chime -> notify(terminalId, chime) }
-    private val names = HashMap<String, String>()
+    private val tabs = HashMap<String, ServerMessage.Terminal>()
 
     private var socket: WebSocket? = null
     private var target: Target? = null
@@ -137,13 +137,13 @@ class ActivityWatcher(
     private fun handle(message: ServerMessage) {
         when (message) {
             is ServerMessage.TerminalList -> {
-                names.clear()
-                for (terminal in message.terminals) names[terminal.terminalId] = terminal.tabName
-                tracker.retainOnly(names.keys)
+                tabs.clear()
+                for (terminal in message.terminals) tabs[terminal.terminalId] = terminal
+                tracker.retainOnly(tabs.keys)
             }
             is ServerMessage.Activity -> tracker.onActivity(message.terminalId, message.activity)
             is ServerMessage.Closed -> {
-                names.remove(message.terminalId)
+                tabs.remove(message.terminalId)
                 tracker.forget(message.terminalId)
             }
             is ServerMessage.Hello, ServerMessage.Other -> Unit
@@ -153,7 +153,9 @@ class ActivityWatcher(
     private fun notify(terminalId: String, chime: Chime) {
         if (Tunnel.uiVisible || !store.notificationsEnabled) return
         val pcName = target?.pcName ?: return
-        AgentNotifier.show(context, terminalId, names[terminalId] ?: terminalId.take(8), chime, pcName)
+        val tab = tabs[terminalId]
+        val body = ServerMessage.noticeBody(tab?.projectName.orEmpty(), pcName)
+        AgentNotifier.show(context, terminalId, tab?.tabName ?: terminalId.take(8), chime, body)
     }
 
     private companion object {

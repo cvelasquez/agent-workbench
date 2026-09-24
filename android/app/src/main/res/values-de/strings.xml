@@ -43,6 +43,8 @@
     <string name="channel_connection_description">Wird angezeigt, solange das Telefon die Verbindung offen hält, wie Android es verlangt.</string>
     <string name="channel_agent">Hinweise des Agenten</string>
     <string name="channel_agent_description">Wenn ein Agent fertig ist oder auf Sie wartet.</string>
+    <string name="channel_agent_done">Ein Agent ist fertig</string>
+    <string name="channel_agent_attention">Ein Agent wartet auf Sie</string>
     <string name="notify_done">„%1$s“ ist fertig</string>
     <string name="notify_attention">„%1$s“ wartet auf Sie</string>
 

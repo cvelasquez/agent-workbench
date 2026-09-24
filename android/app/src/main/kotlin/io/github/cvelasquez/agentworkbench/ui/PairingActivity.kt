@@ -54,6 +54,7 @@ class PairingActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Orientation.apply(this)
         setContentView(R.layout.activity_pairing)
         edgeToEdge()
         status = findViewById(R.id.status)
@@ -184,7 +185,7 @@ class PairingActivity : Activity() {
                             PcStore(this).savePairing(payload, session.host, session.hostKeyAlgorithm, session.hostKey, redeemed.credential)
                             runOnUiThread {
                                 running = false
-                                TunnelService.start(this)
+                                TunnelService.startAfterPairing(this)
                                 startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
                                 finish()
                             }

@@ -2,10 +2,13 @@ package io.github.cvelasquez.agentworkbench.watch
 
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.net.Uri
 import io.github.cvelasquez.agentworkbench.R
 import io.github.cvelasquez.agentworkbench.core.Chime
 import io.github.cvelasquez.agentworkbench.ui.MainActivity
@@ -20,7 +23,13 @@ import io.github.cvelasquez.agentworkbench.ui.MainActivity
  */
 object AgentNotifier {
     const val CHANNEL_CONNECTION = "connection"
-    const val CHANNEL_AGENT = "agent"
+    /** Uno por sonido: Android fija el sonido al crear el canal y no deja cambiarlo. */
+    const val CHANNEL_DONE = "agent_done"
+    const val CHANNEL_ATTENTION = "agent_attention"
+    private const val GROUP_AGENT = "agent"
+
+    /** El canal de antes, con el sonido del teléfono. Se borra al arrancar. */
+    private const val OLD_CHANNEL_AGENT = "agent"
     private const val TAG_AGENT = "agent"
 
     fun createChannels(context: Context) {
@@ -31,14 +40,33 @@ object AgentNotifier {
                 setShowBadge(false)
             },
         )
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_AGENT, context.getString(R.string.channel_agent), NotificationManager.IMPORTANCE_HIGH).apply {
+        manager.deleteNotificationChannel(OLD_CHANNEL_AGENT)
+        manager.createNotificationChannelGroup(
+            NotificationChannelGroup(GROUP_AGENT, context.getString(R.string.channel_agent)).apply {
                 description = context.getString(R.string.channel_agent_description)
+            },
+        )
+        agentChannel(context, manager, CHANNEL_DONE, R.string.channel_agent_done, R.raw.chime_done)
+        agentChannel(context, manager, CHANNEL_ATTENTION, R.string.channel_agent_attention, R.raw.chime_attention)
+    }
+
+    /** Los sonidos de la web (`chimeSounds` en `build.gradle.kts`), no el del teléfono. */
+    private fun agentChannel(context: Context, manager: NotificationManager, id: String, name: Int, sound: Int) {
+        val uri = Uri.parse("android.resource://${context.packageName}/$sound")
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        manager.createNotificationChannel(
+            NotificationChannel(id, context.getString(name), NotificationManager.IMPORTANCE_HIGH).apply {
+                group = GROUP_AGENT
+                setSound(uri, attributes)
             },
         )
     }
 
-    fun show(context: Context, terminalId: String, tabName: String, chime: Chime, pcName: String) {
+    /** `body`: el proyecto y la PC (`ServerMessage.noticeBody`). */
+    fun show(context: Context, terminalId: String, tabName: String, chime: Chime, body: String) {
         val id = notificationId(terminalId)
         val open = PendingIntent.getActivity(
             context,
@@ -53,10 +81,10 @@ object AgentNotifier {
             Chime.DONE -> context.getString(R.string.notify_done, tabName)
             Chime.ATTENTION -> context.getString(R.string.notify_attention, tabName)
         }
-        val notification = Notification.Builder(context, CHANNEL_AGENT)
+        val notification = Notification.Builder(context, if (chime == Chime.DONE) CHANNEL_DONE else CHANNEL_ATTENTION)
             .setSmallIcon(R.drawable.ic_stat_agent)
             .setContentTitle(title)
-            .setContentText(pcName)
+            .setContentText(body)
             .setCategory(if (chime == Chime.ATTENTION) Notification.CATEGORY_REMINDER else Notification.CATEGORY_STATUS)
             .setAutoCancel(true)
             .setContentIntent(open)

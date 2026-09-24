@@ -43,6 +43,8 @@
     <string name="channel_connection_description">スマートフォンが接続を開いている間、Android の要件により表示されます。</string>
     <string name="channel_agent">エージェントの通知</string>
     <string name="channel_agent_description">エージェントが完了したとき、またはあなたを待っているとき。</string>
+    <string name="channel_agent_done">エージェントが完了</string>
+    <string name="channel_agent_attention">エージェントが待っています</string>
     <string name="notify_done">「%1$s」が完了しました</string>
     <string name="notify_attention">「%1$s」があなたを待っています</string>
 
