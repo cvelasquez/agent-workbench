@@ -1,7 +1,8 @@
 /**
  * La preferencia del tamano de letra del hilo (§6.22).
  *
- * Va a `localStorage`, como el tema y el alto del cuadro: es de esta pantalla.
+ * Se guarda por `window-prefs.ts`, como el tema y el alto del cuadro: es de
+ * esta pantalla.
  * El atributo va en `<html>` y no en el panel porque el cuadro de escritura
  * escala con el hilo y vive en otro componente; la hoja de estilos solo le da
  * valor a `--thread-scale` dentro del hilo y del cuadro, asi que el Markdown

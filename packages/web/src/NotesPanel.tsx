@@ -31,6 +31,7 @@ import { formatBytes, formatWhen } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
 import type { NotesApi } from './useNotes.js';
+import { readStored, writeStored } from './window-prefs.js';
 
 const OPEN_KEY = 'agent-workbench.notes-open';
 const ACTIVE_KEY = 'agent-workbench.notes-active';
@@ -38,22 +39,6 @@ const HEIGHT_KEY = 'agent-workbench.notes-height';
 
 const MIN_HEIGHT = 160;
 const DEFAULT_HEIGHT = 300;
-
-function readStored(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeStored(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Sin persistencia se sigue igual: es una preferencia, no un dato.
-  }
-}
 
 /**
  * El titulo de la solapa. Los respaldos de `noteTitle` ("Nota", "Imagen")
@@ -94,13 +79,17 @@ export function NotesPanel({
   sendTargetCwd,
   fill,
 }: NotesPanelProps): JSX.Element {
-  const [storedOpen, setOpen] = useState(() => readStored(OPEN_KEY) === 'true');
+  const [storedOpen, setOpen] = useState(() => readStored(OPEN_KEY, false, (raw) => raw === 'true'));
   const open = storedOpen || fill;
-  const [height, setHeight] = useState(() => {
-    const parsed = Number.parseInt(readStored(HEIGHT_KEY) ?? '', 10);
-    return Number.isFinite(parsed) ? Math.max(parsed, MIN_HEIGHT) : DEFAULT_HEIGHT;
-  });
-  const [storedActive, setStoredActive] = useState<string | null>(() => readStored(ACTIVE_KEY));
+  const [height, setHeight] = useState(() =>
+    readStored(HEIGHT_KEY, DEFAULT_HEIGHT, (raw) => {
+      const parsed = Number.parseInt(raw, 10);
+      return Number.isFinite(parsed) ? Math.max(parsed, MIN_HEIGHT) : null;
+    }),
+  );
+  const [storedActive, setStoredActive] = useState<string | null>(() =>
+    readStored<string | null>(ACTIVE_KEY, null, (raw) => raw),
+  );
   const [closing, setClosing] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);

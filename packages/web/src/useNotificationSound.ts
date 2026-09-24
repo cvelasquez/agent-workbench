@@ -4,7 +4,7 @@
  * Mira el mapa de actividad entero, no la pestaña activa: el caso que lo pide
  * es justamente no estar mirando. La decisión de qué suena es de
  * `planChimes`, pura; acá sólo se ejecuta con temporizadores, y se guarda la
- * preferencia, en `localStorage` como el tema: es de esta pantalla, no del
+ * preferencia, por `window-prefs.ts` como el tema: es de esta pantalla, no del
  * espacio de trabajo.
  *
  * Desde el hito 37 el mismo plan dispara también la notificación del sistema
@@ -228,7 +228,13 @@ export function useNotificationSound(
     lo dice y el usuario lo cambia en los ajustes del sitio.
   */
   const toggleNotify = useCallback(() => {
-    if (notifyEnabledRef.current) {
+    /*
+      Se apaga solo si esta encendida de verdad, con el permiso dado. La
+      preferencia sobrevive a que la app arranque en otro puerto (§6.26) y el
+      permiso del navegador no, porque es por puerto: guardada encendida y sin
+      permiso, el boton se ve apagado, y el clic tiene que pedirlo.
+    */
+    if (notifyEnabledRef.current && readNotifyPermission() === 'granted') {
       setNotifyEnabled(false);
       writeStored(NOTIFY_STORAGE_KEY, 'off');
       return;

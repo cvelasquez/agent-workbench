@@ -24,6 +24,10 @@
  *  - **El tamano de letra del hilo** (§6.22): el ciclo de tres pasos y lo que
  *    se acepta de `localStorage`. La web no tiene tests; se importa de aca.
  *
+ * Y desde las mejoras de la 0.4.0: la ruta que el arbol de archivos pone en el
+ * cuadro (§6.4), y la cookie donde van las preferencias de la ventana para que
+ * sobrevivan a que la app arranque en otro puerto.
+ *
  * Trabaja sobre una carpeta temporal propia.
  */
 
@@ -67,6 +71,13 @@ import {
   splitPastedBlocks,
 } from '../../web/src/composer-paste.ts';
 import { setLocale } from '../../web/src/i18n/index.ts';
+import {
+  PREFS_COOKIE,
+  encodePrefsCookie,
+  prefsCookieLine,
+  readPrefsCookie,
+} from '../../web/src/prefs-cookie.ts';
+import { DEVICE_COOKIE, TOKEN_COOKIE } from '../src/security.ts';
 
 // Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
 // con el español de siempre, así que lo fija antes de la primera comparación.
@@ -693,6 +704,50 @@ check('el titulo dice que hay y que pone el clic', threadFontTitle('m') === 'Tam
     show(put('cambia ESTO por', 7, 11)));
   check('un cursor fuera del texto cae al final', put('ab', 99).text === `ab ${path} `, show(put('ab', 99)));
 }
+
+// ---------------------------------------------------------------------------
+// Las preferencias de la ventana, en la cookie del equipo
+// ---------------------------------------------------------------------------
+
+{
+  const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+  const show = (map) => JSON.stringify([...map]);
+  const today = new Map([
+    ['agent-workbench.locale', 'es'],
+    ['agent-workbench.sound-volume', '0.35'],
+    ['agent-workbench.sound', 'on'],
+    ['agent-workbench.theme', 'dark'],
+    ['agent-workbench.thread-font', 'l'],
+    ['agent-workbench.panel-width', '640'],
+    ['agent-workbench.files.hidden', 'true'],
+    ['agent-workbench.notes-active', '3f2a9c1b-6519-41de-ac8e-2a2e6a94c4ce'],
+  ]);
+  const encoded = encodePrefsCookie(today);
+  const header = `otra=1; ${PREFS_COOKIE}=${encoded}; ${TOKEN_COOKIE}=abc`;
+  check('ida y vuelta: las preferencias de hoy vuelven iguales, entre otras cookies',
+    encoded !== null && same(readPrefsCookie(header), today), show(readPrefsCookie(header)));
+  check('el valor no trae nada que corte una cookie', encoded !== null && !/[;,\s]/.test(encoded));
+  check('solo entran las claves de la app',
+    same(readPrefsCookie(`${PREFS_COOKIE}=${encodePrefsCookie(new Map([['otra.clave', 'x'], ['agent-workbench.locale', 'es']]))}`),
+      new Map([['agent-workbench.locale', 'es']])));
+  check('sin la cookie, ninguna', readPrefsCookie('otra=1; y=2').size === 0 && readPrefsCookie('').size === 0);
+  check('ilegible o con otra forma, ninguna',
+    readPrefsCookie(`${PREFS_COOKIE}=%7Bno-json`).size === 0 &&
+      readPrefsCookie(`${PREFS_COOKIE}=${encodeURIComponent('["es"]')}`).size === 0 &&
+      readPrefsCookie(`${PREFS_COOKIE}=${encodeURIComponent('"es"')}`).size === 0);
+  // Otra pagina de 127.0.0.1 puede escribirla: se leen solo claves y textos con forma.
+  const hostile = readPrefsCookie(`${PREFS_COOKIE}=${encodeURIComponent(JSON.stringify({
+    locale: 'es', __proto__x: 'a', 'Mayus': 'b', 'con espacio': 'c', volumen: 3, largo: 'x'.repeat(201),
+  }))}`);
+  check('de una cookie ajena, solo lo que tiene forma de preferencia', same(hostile, new Map([['agent-workbench.locale', 'es']])), show(hostile));
+  const huge = new Map(Array.from({ length: 40 }, (_, i) => [`agent-workbench.clave-${i}`, 'x'.repeat(150)]));
+  check('pasado el tope no se escribe: quedan en localStorage', encodePrefsCookie(huge) === null);
+  const line = prefsCookieLine('abc');
+  check('la línea: todo el equipo y cualquier puerto, 400 días, SameSite=Strict, legible desde la página',
+    line === `${PREFS_COOKIE}=abc; Path=/; Max-Age=34560000; SameSite=Strict` && !/Domain|HttpOnly/i.test(line), line);
+  check('no choca con las cookies del servidor', PREFS_COOKIE !== TOKEN_COOKIE && PREFS_COOKIE !== DEVICE_COOKIE);
+}
+
 await rm(dir, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

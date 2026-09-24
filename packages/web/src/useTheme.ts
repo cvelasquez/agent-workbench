@@ -6,14 +6,15 @@
  * asi que quien tenga el sistema en automatico ve la app cambiar sola al
  * anochecer sin haber tocado nada.
  *
- * La preferencia vive en `localStorage` y no en el servidor: es de esta
- * pantalla, no del espacio de trabajo. Dos ventanas pueden tener temas
- * distintos sin pelearse. `localStorage` puede lanzar (modo privado, permisos),
- * asi que toda lectura y escritura va envuelta.
+ * La preferencia no va al servidor: es de esta pantalla, no del espacio de
+ * trabajo. Dos ventanas pueden tener temas distintos sin pelearse. Se guarda
+ * por `window-prefs.ts`, como las demas, y asi sobrevive a que la app arranque
+ * en otro puerto.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { t, type MessageKey } from './i18n/index.js';
+import { readStored, writeStored } from './window-prefs.js';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ResolvedTheme = 'light' | 'dark';
@@ -39,14 +40,11 @@ export const THEME_ICON: Readonly<Record<ThemePreference, string>> = {
   dark: '☾',
 };
 
+/** Sin nada guardado se arranca en automatico, que es el default de todos modos. */
 function readPreference(): ThemePreference {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw === 'light' || raw === 'dark' || raw === 'system') return raw;
-  } catch {
-    // Sin persistencia se arranca en automatico, que es el default de todos modos.
-  }
-  return 'system';
+  return readStored<ThemePreference>(STORAGE_KEY, 'system', (raw) =>
+    raw === 'light' || raw === 'dark' || raw === 'system' ? raw : null,
+  );
 }
 
 function systemPrefersDark(): boolean {
@@ -86,11 +84,7 @@ export function useTheme(): ThemeState {
   const cycle = useCallback(() => {
     setPreference((current) => {
       const next = ORDER[(ORDER.indexOf(current) + 1) % ORDER.length] ?? 'system';
-      try {
-        window.localStorage.setItem(STORAGE_KEY, next);
-      } catch {
-        // Es una preferencia, no un dato: sin persistencia se sigue igual.
-      }
+      writeStored(STORAGE_KEY, next);
       return next;
     });
   }, []);

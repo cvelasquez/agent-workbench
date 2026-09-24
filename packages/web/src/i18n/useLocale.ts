@@ -2,8 +2,9 @@
  * El idioma en el navegador (§6.23): detectarlo al abrir, guardar la elección,
  * `<html lang>` y volver a pintar al cambiar.
  *
- * La preferencia va a `localStorage`, como el tema: es de esta pantalla, no del
- * servidor ni del sistema. Dos ventanas pueden tener idiomas distintos.
+ * La preferencia se guarda por `window-prefs.ts`, como el tema: es de esta
+ * pantalla, no del servidor ni del sistema, y sobrevive a que la app arranque
+ * en otro puerto. Dos ventanas pueden tener idiomas distintos.
  *
  * Cambiar de idioma no recarga la página: `App` escucha con `useLocale()` y
  * vuelve a pintar desde la raíz. Así sobreviven los borradores del cuadro de
