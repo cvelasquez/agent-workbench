@@ -292,6 +292,11 @@ class MainActivity : Activity() {
                 TunnelService.stop(this@MainActivity)
                 return true
             }
+            // De dónde sale el sonido, elegido en la hoja ⋮ (`phoneChimeUrl` de la web).
+            if (url.scheme == "agentworkbench" && url.host == "chime") {
+                store.chimeFromPage = url.getQueryParameter("source") == "page"
+                return true
+            }
             val local = url.scheme == "http" && (url.host == "127.0.0.1" || url.host == "localhost") && url.port == pc.appPort
             if (local) return false
             // Un enlace de afuera se abre en el navegador, no en el visor de la app.
@@ -304,6 +309,10 @@ class MainActivity : Activity() {
             if (url.startsWith("http://127.0.0.1:")) {
                 loaded = true
                 if (Tunnel.status is TunnelStatus.Connected) hideOverlay()
+                // La preferencia del sonido vive en la página; la app se queda con una copia.
+                view.evaluateJavascript("(function(){try{return localStorage.getItem('agent-workbench.phone-chime');}catch(e){return null;}})()") {
+                    store.chimeFromPage = it == "\"page\""
+                }
             }
         }
 

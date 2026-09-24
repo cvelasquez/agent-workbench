@@ -45,6 +45,7 @@
     <string name="channel_agent_description">Когда агент закончил работу или ждёт вас.</string>
     <string name="channel_agent_done">Агент закончил работу</string>
     <string name="channel_agent_attention">Агент ждёт вас</string>
+    <string name="channel_agent_quiet">Уведомления агента без звука (звук воспроизводит страница)</string>
     <string name="notify_done">«%1$s»: готово</string>
     <string name="notify_attention">«%1$s» ждёт вас</string>
 
@@ -62,8 +63,10 @@
     <string name="settings_connect">Подключить</string>
     <string name="settings_disconnect">Отключить</string>
     <string name="settings_forget">Забыть этот компьютер</string>
-    <string name="settings_forget_confirm">Телефон удалит свой ключ и учётные данные для этого компьютера. Чтобы снова им пользоваться, придётся заново выполнить сопряжение. На компьютере также отзовите его в «Удалённом доступе».</string>
+    <string name="settings_forget_confirm">Телефон удалит свой ключ и учётные данные для этого компьютера, а компьютер уберёт его из сопряжённых устройств. Чтобы пользоваться им снова, выполните сопряжение заново.</string>
     <string name="settings_forget_ok">Забыть</string>
+    <string name="settings_forget_telling">Сообщаем компьютеру…</string>
+    <string name="settings_forget_offline">Не удалось связаться с компьютером: отзовите этот телефон и в «Удалённом доступе» на компьютере.</string>
     <string name="settings_about">Agent Workbench %1$s · открытый код (MIT)</string>
     <string name="settings_privacy">Конфиденциальность</string>
     <string name="shortcut_settings">Настройки</string>

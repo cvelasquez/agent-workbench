@@ -18,14 +18,20 @@ import {
   ChimePlayer,
   DEFAULT_VOLUME,
   DONE_HOLD_MS,
+  PHONE_CHIME_STORAGE_KEY,
   SOUND_STORAGE_KEY,
   VOLUME_STORAGE_KEY,
   clampVolume,
+  parsePhoneChimeSource,
   parseStoredSound,
   parseStoredVolume,
+  phoneChimeUrl,
   planChimes,
+  webChimeVolume,
   type Chime,
+  type PhoneChimeSource,
 } from './notification-sound.js';
+import { insidePhoneApp } from './narrow-layout.js';
 import {
   NOTIFY_STORAGE_KEY,
   parseStoredNotify,
@@ -64,6 +70,11 @@ export interface NotificationSoundState {
   /** Al soltarla: suena una vez, para oír lo que se eligió. */
   previewVolume: () => void;
   notify: SystemNotifyState;
+  /**
+   * Dentro de la app del teléfono, de dónde sale el sonido: del aviso de
+   * Android o de la página (`webChimeVolume`). null en un navegador.
+   */
+  phoneChime: { source: PhoneChimeSource; setSource: (source: PhoneChimeSource) => void } | null;
 }
 
 export function useNotificationSound(
@@ -78,6 +89,13 @@ export function useNotificationSound(
   );
   const volumeRef = useRef(volume);
   volumeRef.current = volume;
+
+  const [insideApp] = useState(() => typeof navigator !== 'undefined' && insidePhoneApp(navigator.userAgent));
+  const [chimeSource, setChimeSourceState] = useState<PhoneChimeSource>(() =>
+    readStored(PHONE_CHIME_STORAGE_KEY, 'system', parsePhoneChimeSource),
+  );
+  const chimeSourceRef = useRef(chimeSource);
+  chimeSourceRef.current = chimeSource;
 
   const [permission, setPermission] = useState<NotifyPermission>(() => readNotifyPermission());
   const [notifyEnabled, setNotifyEnabled] = useState(() => readStored(NOTIFY_STORAGE_KEY, false, parseStoredNotify));
@@ -101,6 +119,18 @@ export function useNotificationSound(
   const playerRef = useRef<ChimePlayer | null>(null);
   const previousRef = useRef<ReadonlyMap<TerminalId, TerminalActivity>>(new Map());
   const timersRef = useRef<Map<TerminalId, number>>(new Map());
+
+  /** Un aviso de la actividad: el volumen, o si suena, lo decide `webChimeVolume`. */
+  const playChime = useCallback(
+    (chime: Chime): void => {
+      const player = playerRef.current;
+      const level = webChimeVolume(insideApp, chimeSourceRef.current, enabledRef.current, volumeRef.current);
+      if (player === null || level === null) return;
+      player.volume = level;
+      player.play(chime);
+    },
+    [insideApp],
+  );
 
   // El navegador sólo deja sonar después de un gesto: el primer clic o tecla
   // despierta el contexto, y se deja de escuchar en cuanto quedó listo.
@@ -139,7 +169,7 @@ export function useNotificationSound(
     // La preferencia se mira al sonar, no al planificar: apagarla con un
     // "terminó" en espera lo silencia también. Dos pestañas que se frenan en
     // el mismo latido suenan una vez.
-    if (plan.now.length > 0 && enabledRef.current) playerRef.current?.play('attention');
+    if (plan.now.length > 0) playChime('attention');
     // El sonido es uno por latido; el aviso del sistema, uno por pestaña: dice cuál.
     for (const terminalId of plan.now) notifySystem('attention', terminalId);
     for (const terminalId of plan.later) {
@@ -147,12 +177,12 @@ export function useNotificationSound(
         terminalId,
         window.setTimeout(() => {
           timers.delete(terminalId);
-          if (enabledRef.current) playerRef.current?.play('done');
+          playChime('done');
           notifySystem('done', terminalId);
         }, DONE_HOLD_MS),
       );
     }
-  }, [activity, notifySystem]);
+  }, [activity, notifySystem, playChime]);
 
   // Al desmontar no queda ningún plazo vivo.
   useEffect(() => {
@@ -219,5 +249,23 @@ export function useNotificationSound(
     toggle: toggleNotify,
   };
 
-  return { enabled, toggle, volume, setVolume, previewVolume, notify };
+  /*
+    Elegir el origen en la app: se guarda, se le cuenta a la app —que desde ahí
+    saca sus avisos con o sin sonido— y, si es la página, suena una vez para
+    oírlo. El toque es el gesto que desbloquea el audio.
+  */
+  const setChimeSource = useCallback((source: PhoneChimeSource) => {
+    setChimeSourceState(source);
+    chimeSourceRef.current = source;
+    writeStored(PHONE_CHIME_STORAGE_KEY, source);
+    window.location.href = phoneChimeUrl(source);
+    if (source === 'page') {
+      playerRef.current?.unlock();
+      playChime('done');
+    }
+  }, [playChime]);
+
+  const phoneChime = insideApp ? { source: chimeSource, setSource: setChimeSource } : null;
+
+  return { enabled, toggle, volume, setVolume, previewVolume, notify, phoneChime };
 }

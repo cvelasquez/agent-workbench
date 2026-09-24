@@ -1,10 +1,16 @@
 package io.github.cvelasquez.agentworkbench.tunnel
 
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import java.io.IOException
 import java.net.URLDecoder
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Los pedidos HTTP a Agent Workbench **por el túnel**: al `127.0.0.1` del
@@ -19,7 +25,16 @@ object AppProbe {
     /** La cookie de un equipo emparejado (`DEVICE_COOKIE` en `security.ts`). */
     const val DEVICE_COOKIE = "agent_workbench_device"
 
+    /**
+     * Sin conexiones guardadas para reusar (`ConnectionPool(0, …)`): cada pedido
+     * abre la suya. Una guardada queda enganchada al reenviador de un túnel que
+     * ya murió —el de antes de "Olvidar", o el del emparejamiento— y el pedido
+     * siguiente fallaba con "no contesta" aunque la PC estuviera ahí; el segundo
+     * intento entraba (24-09-2026, `AppProbeTest`). Son pedidos al `127.0.0.1`
+     * del teléfono: abrir una conexión no cuesta nada.
+     */
     private val client = OkHttpClient.Builder()
+        .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
         .followRedirects(false)
         .followSslRedirects(false)
         .retryOnConnectionFailure(false)
@@ -87,6 +102,45 @@ object AppProbe {
             Check.NotReachable
         }
     }
+
+    /**
+     * "Olvidar este equipo": le pide a la app que revoque a este teléfono
+     * (`remote.device.forgetSelf`), con el túnel ya arriba. El acuse es el
+     * cierre 4001 con que el servidor echa a un equipo revocado. Bloquea hasta
+     * `timeoutMs`: se llama fuera del hilo principal. True si la PC lo revocó.
+     */
+    fun forgetSelf(appPort: Int, credential: String, userAgent: String, timeoutMs: Long = 5_000): Boolean {
+        val done = CountDownLatch(1)
+        val revoked = AtomicBoolean(false)
+        val request = Request.Builder()
+            .url("ws://127.0.0.1:$appPort/ws")
+            .header("Cookie", "$DEVICE_COOKIE=$credential")
+            .header("User-Agent", userAgent)
+            .build()
+        val socket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                webSocket.send("""{"type":"remote.device.forgetSelf"}""")
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                revoked.set(code == REVOKED_CLOSE_CODE)
+                webSocket.close(code, null)
+                done.countDown()
+            }
+
+            // Ya revocado (o el acceso apagado): el pedido de conexión da 403. También cuenta.
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                revoked.set(response?.code == 403)
+                done.countDown()
+            }
+        })
+        val answered = done.await(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!answered) socket.cancel()
+        return revoked.get()
+    }
+
+    /** `REMOTE_REVOKED_CLOSE_CODE` del servidor. */
+    private const val REVOKED_CLOSE_CODE = 4001
 
     /** El valor de la cookie del equipo entre las `Set-Cookie` de una respuesta, o null. */
     fun extractDeviceCookie(setCookieHeaders: List<String>): String? {

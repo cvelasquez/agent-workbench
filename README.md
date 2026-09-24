@@ -219,6 +219,9 @@ doesn't do this for you — it's a system change that needs administrator rights
   Set-Service -Name sshd -StartupType Automatic
   ```
 
+  The first line downloads and installs the server: it takes a few minutes and
+  shows "Running" meanwhile. Wait until the prompt comes back.
+
 - **macOS** — System Settings → General → Sharing → **Remote Login**.
 - **Linux** — install and enable your distribution's OpenSSH server
   (`sudo apt install openssh-server`, then `sudo systemctl enable --now ssh`).

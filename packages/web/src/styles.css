@@ -5502,6 +5502,26 @@ kbd {
     min-height: 40px;
   }
 
+  /* En la app del teléfono: de dónde sale el sonido, dos opciones y ninguna barrita. */
+  .narrow-chime-choice {
+    display: flex;
+    gap: 6px;
+  }
+
+  .narrow-chime-option {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .narrow-chime-option.is-on {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
   /* La barrita del volumen, en la hoja: siempre a la vista, y horizontal. */
   .narrow-menu-row .sound-volume {
     display: block;

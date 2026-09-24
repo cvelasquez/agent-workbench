@@ -844,6 +844,16 @@ export interface ClientRemotePhoneCancelMessage {
 }
 
 /**
+ * Un equipo emparejado se da de baja a sí mismo: "Olvidar este equipo" del
+ * teléfono (24-09-2026). No nombra ningún equipo: el servidor revoca el de la
+ * credencial con la que entró esta ventana, y a una ventana del anfitrión se lo
+ * rechaza. Sólo quita acceso, así que una credencial robada no gana nada.
+ */
+export interface ClientRemoteDeviceForgetSelfMessage {
+  type: 'remote.device.forgetSelf';
+}
+
+/**
  * Continuar una sesion con otra CLI, en la carpeta de esa sesion (hito 29).
  *
  * El servidor arma un transcript de los ultimos turnos, abre una pestana de
@@ -979,7 +989,8 @@ export type ClientMessage =
   | ClientRemoteDeviceRenameMessage
   | ClientRemoteDeviceRevokeMessage
   | ClientRemotePhoneStartMessage
-  | ClientRemotePhoneCancelMessage;
+  | ClientRemotePhoneCancelMessage
+  | ClientRemoteDeviceForgetSelfMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -2147,6 +2158,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return { type: 'remote.phone.start' };
     case 'remote.phone.cancel':
       return { type: 'remote.phone.cancel' };
+    case 'remote.device.forgetSelf':
+      return { type: 'remote.device.forgetSelf' };
     default:
       return null;
   }

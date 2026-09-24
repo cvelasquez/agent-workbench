@@ -45,6 +45,7 @@
     <string name="channel_agent_description">当智能体完成工作或在等你时。</string>
     <string name="channel_agent_done">智能体已完成</string>
     <string name="channel_agent_attention">智能体在等你</string>
+    <string name="channel_agent_quiet">无声的智能体提醒（由网页播放声音）</string>
     <string name="notify_done">“%1$s”已完成</string>
     <string name="notify_attention">“%1$s”在等你</string>
 
@@ -62,8 +63,10 @@
     <string name="settings_connect">连接</string>
     <string name="settings_disconnect">断开连接</string>
     <string name="settings_forget">忘记这台电脑</string>
-    <string name="settings_forget_confirm">手机会删除它用于这台电脑的密钥和凭据。要再次使用，需要重新配对。也请在电脑的“远程访问”中撤销它。</string>
+    <string name="settings_forget_confirm">手机会删除此电脑的密钥和凭据，电脑也会将它从已配对设备中移除。要再次使用，需要重新配对。</string>
     <string name="settings_forget_ok">忘记</string>
+    <string name="settings_forget_telling">正在通知电脑…</string>
+    <string name="settings_forget_offline">无法联系电脑：请也在电脑的“远程访问”中撤销此手机。</string>
     <string name="settings_about">Agent Workbench %1$s · 开源（MIT）</string>
     <string name="settings_privacy">隐私</string>
     <string name="shortcut_settings">设置</string>

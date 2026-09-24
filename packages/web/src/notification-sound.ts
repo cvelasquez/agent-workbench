@@ -87,6 +87,43 @@ export function planChimes(
   return plan;
 }
 
+/**
+ * Dentro de la app del teléfono, de dónde sale el sonido (24-09-2026). Sonaba
+ * dos veces: la página sigue viva en segundo plano y sonaba bajito, y encima el
+ * aviso de Android. El usuario elige uno de los dos, sin barrita ni silencio:
+ *
+ *  - `system`: suena el aviso de Android; la página calla.
+ *  - `page`: suena la página, al máximo; el aviso de Android sale sin sonido.
+ *
+ * La app lee esta clave del almacenamiento de la página al cargarla, y cada
+ * cambio se lo cuenta con `phoneChimeUrl`.
+ */
+export type PhoneChimeSource = 'system' | 'page';
+export const PHONE_CHIME_STORAGE_KEY = 'agent-workbench.phone-chime';
+
+export function parsePhoneChimeSource(raw: string): PhoneChimeSource | null {
+  return raw === 'system' || raw === 'page' ? raw : null;
+}
+
+/** La dirección que la app intercepta para enterarse del cambio. */
+export function phoneChimeUrl(source: PhoneChimeSource): string {
+  return `agentworkbench://chime?source=${source}`;
+}
+
+/**
+ * Con qué volumen suena la página, o null si no suena. Fuera de la app manda lo
+ * de siempre, el botón y la barrita; adentro, sólo el origen elegido.
+ */
+export function webChimeVolume(
+  insideApp: boolean,
+  source: PhoneChimeSource,
+  enabled: boolean,
+  volume: number,
+): number | null {
+  if (insideApp) return source === 'page' ? MAX_VOLUME : null;
+  return enabled ? clampVolume(volume) : null;
+}
+
 export const SOUND_STORAGE_KEY = 'agent-workbench.sound';
 
 /** La preferencia guardada, o null si no es una de las dos palabras. */

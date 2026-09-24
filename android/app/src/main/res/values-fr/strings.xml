@@ -45,6 +45,7 @@
     <string name="channel_agent_description">Quand un agent a terminé ou vous attend.</string>
     <string name="channel_agent_done">Un agent a terminé</string>
     <string name="channel_agent_attention">Un agent vous attend</string>
+    <string name="channel_agent_quiet">Alertes de l’agent sans son (la page le joue)</string>
     <string name="notify_done">« %1$s » a terminé</string>
     <string name="notify_attention">« %1$s » vous attend</string>
 
@@ -62,8 +63,10 @@
     <string name="settings_connect">Connecter</string>
     <string name="settings_disconnect">Déconnecter</string>
     <string name="settings_forget">Oublier cet ordinateur</string>
-    <string name="settings_forget_confirm">Le téléphone efface sa clé et ses identifiants pour cet ordinateur. Pour s’en servir à nouveau, il faudra l’associer à nouveau. Sur l’ordinateur, révoquez-le aussi dans « Accès à distance ».</string>
+    <string name="settings_forget_confirm">Le téléphone supprime sa clé et ses identifiants pour cet ordinateur, et l’ordinateur le retire de ses appareils associés. Pour le réutiliser, il faudra l’associer de nouveau.</string>
     <string name="settings_forget_ok">Oublier</string>
+    <string name="settings_forget_telling">Envoi à l’ordinateur…</string>
+    <string name="settings_forget_offline">L’ordinateur était injoignable : révoquez aussi ce téléphone dans « Accès à distance » sur l’ordinateur.</string>
     <string name="settings_about">Agent Workbench %1$s · open source (MIT)</string>
     <string name="settings_privacy">Confidentialité</string>
     <string name="shortcut_settings">Réglages</string>

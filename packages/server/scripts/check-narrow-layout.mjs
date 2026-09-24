@@ -168,8 +168,8 @@ const json = (value) => JSON.stringify(value);
   check('el contrato con la app: la función de Atrás y las direcciones de ajustes y desconectar',
     NATIVE_BACK_HOOK === 'agentWorkbenchBack' && PHONE_APP_SETTINGS_URL === 'agentworkbench://settings' &&
     PHONE_APP_DISCONNECT_URL === 'agentworkbench://disconnect');
-  check('la fila de la app tiene sus textos',
-    t('narrow.menu.phoneApp') === 'App del teléfono' && t('narrow.menu.phoneAppSettings') === 'Ajustes' &&
+  check('los enlaces de la app, en la fila de Conexión, y el selector de sonido tienen sus textos',
+    t('narrow.menu.chimeSystem') === 'Del sistema' && t('narrow.menu.chimePage') === 'De esta web' && t('narrow.menu.phoneAppSettings') === 'Ajustes' &&
     t('narrow.menu.phoneAppDisconnect') === 'Desconectar');
 }
 

@@ -53,6 +53,7 @@ import { projectColor } from './project-color.js';
 import { NotifyButton, SoundControl } from './SoundControl.js';
 import { TabStatus, defaultTabLabel } from './TabBar.js';
 import { TerminalKeys } from './TerminalKeys.js';
+import type { PhoneChimeSource } from './notification-sound.js';
 import type { NotificationSoundState } from './useNotificationSound.js';
 
 export interface NarrowBadges {
@@ -422,6 +423,32 @@ function TabSheet({
   );
 }
 
+/**
+ * El sonido dentro de la app del teléfono: del aviso de Android o de la página.
+ * Sin barrita ni silencio (24-09-2026): la página suena al máximo, y apagar los
+ * avisos es cosa de los ajustes de la app.
+ */
+function PhoneChimeChoice({ choice }: { choice: NonNullable<NotificationSoundState['phoneChime']> }): JSX.Element {
+  const options: { source: PhoneChimeSource; label: string }[] = [
+    { source: 'system', label: t('narrow.menu.chimeSystem') },
+    { source: 'page', label: t('narrow.menu.chimePage') },
+  ];
+  return (
+    <div className="narrow-chime-choice" role="group" aria-label={t('narrow.menu.sound')}>
+      {options.map(({ source, label }) => (
+        <button
+          key={source}
+          className={`narrow-chime-option${choice.source === source ? ' is-on' : ''}`}
+          aria-pressed={choice.source === source}
+          onClick={() => choice.setSource(source)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function MenuSheet({
   menu,
   status,
@@ -435,9 +462,23 @@ function MenuSheet({
 }): JSX.Element {
   return (
     <div className="narrow-menu">
+      {/*
+        En la app del teléfono, "Desconectar" y sus ajustes van acá, al lado del
+        estado: es lo que se viene a buscar, y la pastilla ya dice que conecta.
+      */}
       <div className="narrow-menu-row">
         <span className="narrow-menu-label">{t('narrow.menu.connection')}</span>
         <span className={`status status-${status}`}>{statusLabel}</span>
+        {insidePhoneApp(navigator.userAgent) && (
+          <>
+            <a className="link-button" href={PHONE_APP_DISCONNECT_URL} onClick={onClose}>
+              {t('narrow.menu.phoneAppDisconnect')}
+            </a>
+            <a className="link-button" href={PHONE_APP_SETTINGS_URL} onClick={onClose}>
+              {t('narrow.menu.phoneAppSettings')}
+            </a>
+          </>
+        )}
       </div>
       {menu.cwd !== null && (
         <div className="narrow-menu-row">
@@ -473,7 +514,11 @@ function MenuSheet({
       </div>
       <div className="narrow-menu-row">
         <span className="narrow-menu-label">{t('narrow.menu.sound')}</span>
-        <SoundControl sound={menu.sound} />
+        {menu.sound.phoneChime === null ? (
+          <SoundControl sound={menu.sound} />
+        ) : (
+          <PhoneChimeChoice choice={menu.sound.phoneChime} />
+        )}
       </div>
       {menu.sound.notify.supported && (
         <div className="narrow-menu-row">
@@ -494,17 +539,6 @@ function MenuSheet({
           >
             ⇄
           </button>
-        </div>
-      )}
-      {insidePhoneApp(navigator.userAgent) && (
-        <div className="narrow-menu-row">
-          <span className="narrow-menu-label">{t('narrow.menu.phoneApp')}</span>
-          <a className="link-button" href={PHONE_APP_DISCONNECT_URL} onClick={onClose}>
-            {t('narrow.menu.phoneAppDisconnect')}
-          </a>
-          <a className="link-button" href={PHONE_APP_SETTINGS_URL} onClick={onClose}>
-            {t('narrow.menu.phoneAppSettings')}
-          </a>
         </div>
       )}
       <div className="narrow-menu-row">

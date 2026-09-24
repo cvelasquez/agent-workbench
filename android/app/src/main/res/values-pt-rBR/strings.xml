@@ -45,6 +45,7 @@
     <string name="channel_agent_description">Quando um agente termina ou está esperando por você.</string>
     <string name="channel_agent_done">Um agente terminou</string>
     <string name="channel_agent_attention">Um agente está esperando por você</string>
+    <string name="channel_agent_quiet">Avisos do agente sem som (a página toca)</string>
     <string name="notify_done">“%1$s” terminou</string>
     <string name="notify_attention">“%1$s” está esperando por você</string>
 
@@ -62,8 +63,10 @@
     <string name="settings_connect">Conectar</string>
     <string name="settings_disconnect">Desconectar</string>
     <string name="settings_forget">Esquecer este computador</string>
-    <string name="settings_forget_confirm">O celular apaga a chave e a credencial dele para este computador. Para usar de novo, você terá que parear de novo. No computador, revogue-o também em “Acesso remoto”.</string>
+    <string name="settings_forget_confirm">O celular apaga a chave e a credencial para este computador, e o computador o remove dos dispositivos pareados. Para usá-lo de novo, você terá que pareá-lo outra vez.</string>
     <string name="settings_forget_ok">Esquecer</string>
+    <string name="settings_forget_telling">Avisando o computador…</string>
+    <string name="settings_forget_offline">Não foi possível avisar o computador: revogue também este celular em “Acesso remoto”, no computador.</string>
     <string name="settings_about">Agent Workbench %1$s · código aberto (MIT)</string>
     <string name="settings_privacy">Privacidade</string>
     <string name="shortcut_settings">Configurações</string>

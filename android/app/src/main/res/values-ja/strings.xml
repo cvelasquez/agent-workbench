@@ -45,6 +45,7 @@
     <string name="channel_agent_description">エージェントが完了したとき、またはあなたを待っているとき。</string>
     <string name="channel_agent_done">エージェントが完了</string>
     <string name="channel_agent_attention">エージェントが待っています</string>
+    <string name="channel_agent_quiet">音なしのエージェント通知（音はページが鳴らします）</string>
     <string name="notify_done">「%1$s」が完了しました</string>
     <string name="notify_attention">「%1$s」があなたを待っています</string>
 
@@ -62,8 +63,10 @@
     <string name="settings_connect">接続</string>
     <string name="settings_disconnect">切断</string>
     <string name="settings_forget">このコンピューターを削除</string>
-    <string name="settings_forget_confirm">スマートフォンは、このコンピューター用の鍵と認証情報を削除します。再び使うには、もう一度ペアリングする必要があります。コンピューター側でも「リモートアクセス」で取り消してください。</string>
+    <string name="settings_forget_confirm">スマートフォンはこのコンピューター用のキーと認証情報を削除し、コンピューターはペアリング済みデバイスからこのスマートフォンを外します。再び使うには、もう一度ペアリングが必要です。</string>
     <string name="settings_forget_ok">削除</string>
+    <string name="settings_forget_telling">コンピューターに通知しています…</string>
+    <string name="settings_forget_offline">コンピューターに接続できませんでした。コンピューターの「リモートアクセス」でもこのスマートフォンを取り消してください。</string>
     <string name="settings_about">Agent Workbench %1$s · オープンソース（MIT）</string>
     <string name="settings_privacy">プライバシー</string>
     <string name="shortcut_settings">設定</string>

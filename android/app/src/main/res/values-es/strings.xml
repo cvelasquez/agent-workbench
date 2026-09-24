@@ -45,6 +45,7 @@
     <string name="channel_agent_description">Cuando un agente termina o te espera.</string>
     <string name="channel_agent_done">Un agente terminó</string>
     <string name="channel_agent_attention">Un agente te espera</string>
+    <string name="channel_agent_quiet">Avisos del agente sin sonido (suena la página)</string>
     <string name="notify_done">«%1$s» terminó</string>
     <string name="notify_attention">«%1$s» te espera</string>
 
@@ -62,8 +63,10 @@
     <string name="settings_connect">Conectar</string>
     <string name="settings_disconnect">Desconectar</string>
     <string name="settings_forget">Olvidar este equipo</string>
-    <string name="settings_forget_confirm">El teléfono borra su llave y su credencial para este equipo. Para volver a usarlo tendrás que emparejarlo de nuevo. En el equipo, revócalo también en «Acceso remoto».</string>
+    <string name="settings_forget_confirm">El teléfono borra su llave y su credencial para este equipo, y el equipo lo quita de sus equipos emparejados. Para volver a usarlo tendrás que emparejarlo de nuevo.</string>
     <string name="settings_forget_ok">Olvidar</string>
+    <string name="settings_forget_telling">Avisando a tu equipo…</string>
+    <string name="settings_forget_offline">No se pudo avisar a tu equipo: revoca también este teléfono en «Acceso remoto», en el equipo.</string>
     <string name="settings_about">Agent Workbench %1$s · código abierto (MIT)</string>
     <string name="settings_privacy">Privacidad</string>
     <string name="shortcut_settings">Ajustes</string>

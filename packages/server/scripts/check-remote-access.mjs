@@ -555,6 +555,11 @@ try {
       client({ type: 'remote.device.rename', deviceId: 'a' }) === null &&
       client({ type: 'remote.device.revoke', deviceId: 'a' })?.deviceId === 'a' &&
       client({ type: 'remote.device.revoke', deviceId: '' }) === null);
+    // "Olvidar este equipo" del teléfono: no nombra equipo (el servidor usa el de
+    // la credencial), y un remoto sí puede pedirlo: sólo se quita acceso a sí mismo.
+    check('olvidarse a sí mismo no lleva id, y un equipo remoto puede pedirlo',
+      json(client({ type: 'remote.device.forgetSelf', deviceId: 'otro' })) === json({ type: 'remote.device.forgetSelf' }) &&
+      remoteRefusal('remote.device.forgetSelf', true) === null);
 
     const status = {
       enabled: true, port: REMOTE_DEFAULT_PORT, state: 'active', listeningPort: REMOTE_DEFAULT_PORT,

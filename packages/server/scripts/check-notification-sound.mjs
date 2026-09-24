@@ -16,13 +16,17 @@ import {
   DONE_HOLD_MS,
   MAX_VOLUME,
   MIN_VOLUME,
+  PHONE_CHIME_STORAGE_KEY,
   chimeFor,
   clampVolume,
+  parsePhoneChimeSource,
   parseStoredSound,
   parseStoredVolume,
+  phoneChimeUrl,
   planChimes,
   soundButtonTitle,
   volumePercent,
+  webChimeVolume,
 } from '../../web/src/notification-sound.ts';
 import { setLocale } from '../../web/src/i18n/index.ts';
 
@@ -114,6 +118,25 @@ check('idle → busy no suena', chimeFor('idle', 'busy') === null);
     parseStoredVolume('alto') === null && parseStoredVolume('') === null && parseStoredVolume('NaN') === null);
   check('el porcentaje es sobre el tope',
     volumePercent(MAX_VOLUME) === 100 && volumePercent(DEFAULT_VOLUME) === 25 && volumePercent(99) === 100);
+}
+
+// --- 5. Dentro de la app del teléfono (24-09-2026) ----------------------------
+// Sonaba dos veces: la página y el aviso de Android. Se elige uno.
+{
+  check('en la app, "del sistema" calla la página, aunque el botón diga que suena',
+    webChimeVolume(true, 'system', true, 0.3) === null);
+  check('en la app, "de esta web" suena al máximo, sin mirar la barrita ni el botón',
+    webChimeVolume(true, 'page', false, 0.05) === MAX_VOLUME);
+  check('fuera de la app, mandan el botón y la barrita, como siempre',
+    webChimeVolume(false, 'system', true, 0.3) === 0.3 && webChimeVolume(false, 'page', false, 0.3) === null &&
+    webChimeVolume(false, 'page', true, 9) === MAX_VOLUME);
+  check('la preferencia guardada se lee, y otra cosa cae al default',
+    parsePhoneChimeSource('page') === 'page' && parsePhoneChimeSource('system') === 'system' &&
+    parsePhoneChimeSource('web') === null && parsePhoneChimeSource('') === null);
+  check('el contrato con la app: la clave y la dirección que intercepta',
+    PHONE_CHIME_STORAGE_KEY === 'agent-workbench.phone-chime' &&
+    phoneChimeUrl('page') === 'agentworkbench://chime?source=page' &&
+    phoneChimeUrl('system') === 'agentworkbench://chime?source=system');
 }
 
 console.log(failures === 0 ? '\nTodo bien.' : `\n${failures} fallo(s).`);

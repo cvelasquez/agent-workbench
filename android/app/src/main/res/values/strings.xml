@@ -52,6 +52,7 @@
     <string name="channel_agent_description">When an agent finishes or is waiting for you.</string>
     <string name="channel_agent_done">An agent finished</string>
     <string name="channel_agent_attention">An agent is waiting for you</string>
+    <string name="channel_agent_quiet">Agent notices without sound (the page plays it)</string>
     <string name="notify_done">“%1$s” finished</string>
     <string name="notify_attention">“%1$s” is waiting for you</string>
 
@@ -71,8 +72,10 @@
     <string name="settings_connect">Connect</string>
     <string name="settings_disconnect">Disconnect</string>
     <string name="settings_forget">Forget this computer</string>
-    <string name="settings_forget_confirm">The phone deletes its key and its credential for this computer. To use it again, you’ll have to pair it again. On the computer, also revoke it in “Remote access”.</string>
+    <string name="settings_forget_confirm">The phone deletes its key and its credential for this computer, and the computer removes it from its paired devices. To use it again, you’ll have to pair it again.</string>
     <string name="settings_forget_ok">Forget</string>
+    <string name="settings_forget_telling">Telling your computer…</string>
+    <string name="settings_forget_offline">Your computer couldn’t be reached: also revoke this phone in “Remote access” on the computer.</string>
     <string name="settings_about">Agent Workbench %1$s · open source (MIT)</string>
     <string name="settings_privacy">Privacy</string>
     <string name="shortcut_settings">Settings</string>

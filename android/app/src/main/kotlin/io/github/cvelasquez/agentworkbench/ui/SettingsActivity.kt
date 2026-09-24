@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.webkit.CookieManager
@@ -11,13 +12,16 @@ import android.webkit.WebStorage
 import android.widget.Button
 import android.widget.Switch
 import android.widget.TextView
+import android.widget.Toast
 import io.github.cvelasquez.agentworkbench.BuildConfig
 import io.github.cvelasquez.agentworkbench.R
 import io.github.cvelasquez.agentworkbench.core.PhoneIdentity
 import io.github.cvelasquez.agentworkbench.store.PcStore
+import io.github.cvelasquez.agentworkbench.tunnel.AppProbe
 import io.github.cvelasquez.agentworkbench.tunnel.Tunnel
 import io.github.cvelasquez.agentworkbench.tunnel.TunnelService
 import io.github.cvelasquez.agentworkbench.tunnel.TunnelStatus
+import kotlin.concurrent.thread
 
 /**
  * Los ajustes, mínimos (hito 38, §15): la PC y su huella, conectar o
@@ -106,8 +110,33 @@ class SettingsActivity : Activity() {
             .show()
     }
 
-    /** Borra la llave, la credencial y la sesión del visor: el teléfono queda como recién instalado. */
+    /**
+     * Primero le pide a la PC que lo quite de sus equipos emparejados, si el túnel
+     * está arriba: si no, la PC lo seguiría listando y había que revocarlo a mano
+     * (24-09-2026). Después borra lo del teléfono. Sin túnel se borra igual, y se
+     * avisa que falta revocarlo en la PC.
+     */
     private fun forget() {
+        val pc = store.load()
+        val credential = store.credential()
+        val connected = Tunnel.status is TunnelStatus.Connected
+        if (pc == null || credential == null || !connected) {
+            wipe(toldPc = false)
+            return
+        }
+        findViewById<Button>(R.id.forget).isEnabled = false
+        connectionStatus.text = getString(R.string.settings_forget_telling)
+        val deviceName = Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME) ?: Build.MODEL
+        val userAgent = PhoneIdentity.userAgent(BuildConfig.VERSION_NAME, Build.VERSION.RELEASE, deviceName)
+        thread(name = "forget") {
+            val told = AppProbe.forgetSelf(pc.appPort, credential, userAgent)
+            runOnUiThread { wipe(told) }
+        }
+    }
+
+    /** Borra la llave, la credencial y la sesión del visor: el teléfono queda como recién instalado. */
+    private fun wipe(toldPc: Boolean) {
+        if (!toldPc) Toast.makeText(this, R.string.settings_forget_offline, Toast.LENGTH_LONG).show()
         TunnelService.stop(this)
         store.forget()
         CookieManager.getInstance().removeAllCookies(null)

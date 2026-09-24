@@ -2067,6 +2067,17 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             })
             .catch((error: unknown) => sendRemoteError(socket, error));
           break;
+
+        /*
+          "Olvidar este equipo" del teléfono: se revoca el equipo con el que
+          entró esta ventana, y ningún otro. Revocar cierra sus ventanas con
+          4001, esta incluida: ése es el acuse. Una ventana del anfitrión no es
+          un equipo, y no tiene nada que olvidar.
+        */
+        case 'remote.device.forgetSelf':
+          if (deviceId === null) break;
+          void remote.revokeDevice(deviceId).catch((error: unknown) => sendRemoteError(socket, error));
+          break;
       }
     });
 

@@ -150,12 +150,23 @@ class ActivityWatcher(
         }
     }
 
+    /**
+     * El sonido sale de un solo lado (24-09-2026; antes sonaban la página y el
+     * aviso). Con "del sistema", la página calla: con la interfaz a la vista
+     * suena sólo el sonido, y si no, el aviso con su sonido. Con "de esta web",
+     * suena la página y el aviso sale callado.
+     */
     private fun notify(terminalId: String, chime: Chime) {
-        if (Tunnel.uiVisible || !store.notificationsEnabled) return
+        if (!store.notificationsEnabled) return
+        val fromPage = store.chimeFromPage
+        if (Tunnel.uiVisible) {
+            if (!fromPage) AgentNotifier.playChime(context, chime)
+            return
+        }
         val pcName = target?.pcName ?: return
         val tab = tabs[terminalId]
         val body = ServerMessage.noticeBody(tab?.projectName.orEmpty(), pcName)
-        AgentNotifier.show(context, terminalId, tab?.tabName ?: terminalId.take(8), chime, body)
+        AgentNotifier.show(context, terminalId, tab?.tabName ?: terminalId.take(8), chime, body, silent = fromPage)
     }
 
     private companion object {

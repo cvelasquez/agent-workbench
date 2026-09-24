@@ -98,6 +98,17 @@ class PcStore(context: Context) {
             settings.edit().putBoolean(KEY_NOTIFY, value).apply()
         }
 
+    /**
+     * El sonido lo pone la página (`agent-workbench.phone-chime` = `page`) y no el aviso
+     * de Android, que entonces sale callado. Lo elige el usuario en la hoja ⋮ de la web;
+     * la app lo lee de la página al cargarla y cada vez que cambia.
+     */
+    var chimeFromPage: Boolean
+        get() = settings.getBoolean(KEY_CHIME_FROM_PAGE, false)
+        set(value) {
+            settings.edit().putBoolean(KEY_CHIME_FROM_PAGE, value).apply()
+        }
+
     /** El usuario pidió desconectar: la app no vuelve a conectar sola hasta que lo pida. */
     var connectionWanted: Boolean
         get() = settings.getBoolean(KEY_CONNECTION_WANTED, true)
@@ -119,5 +130,6 @@ class PcStore(context: Context) {
         const val KEY_CREDENTIAL = "credential"
         const val KEY_NOTIFY = "notify"
         const val KEY_CONNECTION_WANTED = "connectionWanted"
+        const val KEY_CHIME_FROM_PAGE = "chimeFromPage"
     }
 }

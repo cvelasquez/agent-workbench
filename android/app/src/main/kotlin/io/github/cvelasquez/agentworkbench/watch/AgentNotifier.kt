@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.net.Uri
 import io.github.cvelasquez.agentworkbench.R
 import io.github.cvelasquez.agentworkbench.core.Chime
@@ -26,6 +27,8 @@ object AgentNotifier {
     /** Uno por sonido: Android fija el sonido al crear el canal y no deja cambiarlo. */
     const val CHANNEL_DONE = "agent_done"
     const val CHANNEL_ATTENTION = "agent_attention"
+    /** Sin sonido: cuando el sonido lo pone la página (`PcStore.chimeFromPage`). */
+    const val CHANNEL_QUIET = "agent_quiet"
     private const val GROUP_AGENT = "agent"
 
     /** El canal de antes, con el sonido del teléfono. Se borra al arrancar. */
@@ -48,25 +51,44 @@ object AgentNotifier {
         )
         agentChannel(context, manager, CHANNEL_DONE, R.string.channel_agent_done, R.raw.chime_done)
         agentChannel(context, manager, CHANNEL_ATTENTION, R.string.channel_agent_attention, R.raw.chime_attention)
-    }
-
-    /** Los sonidos de la web (`chimeSounds` en `build.gradle.kts`), no el del teléfono. */
-    private fun agentChannel(context: Context, manager: NotificationManager, id: String, name: Int, sound: Int) {
-        val uri = Uri.parse("android.resource://${context.packageName}/$sound")
-        val attributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
         manager.createNotificationChannel(
-            NotificationChannel(id, context.getString(name), NotificationManager.IMPORTANCE_HIGH).apply {
+            NotificationChannel(CHANNEL_QUIET, context.getString(R.string.channel_agent_quiet), NotificationManager.IMPORTANCE_HIGH).apply {
                 group = GROUP_AGENT
-                setSound(uri, attributes)
+                setSound(null, null)
             },
         )
     }
 
-    /** `body`: el proyecto y la PC (`ServerMessage.noticeBody`). */
-    fun show(context: Context, terminalId: String, tabName: String, chime: Chime, body: String) {
+    private val chimeAttributes: AudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
+
+    private fun soundUri(context: Context, sound: Int): Uri = Uri.parse("android.resource://${context.packageName}/$sound")
+
+    /** Los sonidos de la web (`chimeSounds` en `build.gradle.kts`), no el del teléfono. */
+    private fun agentChannel(context: Context, manager: NotificationManager, id: String, name: Int, sound: Int) {
+        manager.createNotificationChannel(
+            NotificationChannel(id, context.getString(name), NotificationManager.IMPORTANCE_HIGH).apply {
+                group = GROUP_AGENT
+                setSound(soundUri(context, sound), chimeAttributes)
+            },
+        )
+    }
+
+    /**
+     * Sólo el sonido, sin aviso: con la interfaz a la vista y el sonido "del
+     * sistema", la página calla y el aviso sobra.
+     */
+    fun playChime(context: Context, chime: Chime) {
+        val sound = if (chime == Chime.DONE) R.raw.chime_done else R.raw.chime_attention
+        runCatching {
+            RingtoneManager.getRingtone(context, soundUri(context, sound))?.apply { audioAttributes = chimeAttributes }?.play()
+        }
+    }
+
+    /** `body`: el proyecto y la PC (`ServerMessage.noticeBody`). `silent`: el sonido lo pone la página. */
+    fun show(context: Context, terminalId: String, tabName: String, chime: Chime, body: String, silent: Boolean = false) {
         val id = notificationId(terminalId)
         val open = PendingIntent.getActivity(
             context,
@@ -81,7 +103,12 @@ object AgentNotifier {
             Chime.DONE -> context.getString(R.string.notify_done, tabName)
             Chime.ATTENTION -> context.getString(R.string.notify_attention, tabName)
         }
-        val notification = Notification.Builder(context, if (chime == Chime.DONE) CHANNEL_DONE else CHANNEL_ATTENTION)
+        val channel = when {
+            silent -> CHANNEL_QUIET
+            chime == Chime.DONE -> CHANNEL_DONE
+            else -> CHANNEL_ATTENTION
+        }
+        val notification = Notification.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_agent)
             .setContentTitle(title)
             .setContentText(body)
