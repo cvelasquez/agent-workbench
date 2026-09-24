@@ -121,6 +121,14 @@ export function SidePanel({
   return (
     <section className={`side-panel${hidden ? ' side-panel-hidden' : ''}`} aria-hidden={hidden}>
       <header className="side-panel-header">
+        {/*
+          Esconder va primero, en el borde que da al chat, y con `»`: el mismo
+          gesto que el `«` de la barra de proyectos, del otro lado. Era una `×`
+          al final, que se lee como "cerrar" y no esconde nada que no vuelva.
+        */}
+        <button className="icon-button" onClick={onHide} title={t('panel.hide')}>
+          »
+        </button>
         {cwd.length > 0 && <span className="project-swatch" style={{ background: projectColor(cwd) }} />}
         <span className="side-panel-title" title={cwd}>
           {title}
@@ -131,9 +139,6 @@ export function SidePanel({
           title={expanded ? t('panel.restoreWidth') : t('panel.widen')}
         >
           {expanded ? '⇥' : '⇤'}
-        </button>
-        <button className="icon-button" onClick={onHide} title={t('panel.hide')}>
-          ×
         </button>
       </header>
 

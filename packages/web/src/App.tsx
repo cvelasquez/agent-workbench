@@ -1694,7 +1694,7 @@ export function App(): JSX.Element {
             onClick={toggleSidebar}
             title={t('app.sidebar.show')}
           >
-            <span className="panel-peek-arrow">›</span>
+            <span className="panel-peek-arrow">»</span>
             <span className="panel-peek-label">{t('app.sidebar.name')}</span>
           </button>
         )}
@@ -1762,7 +1762,7 @@ export function App(): JSX.Element {
                 onClick={togglePanel}
                 title={t('app.panel.show')}
               >
-                <span className="panel-peek-arrow">‹</span>
+                <span className="panel-peek-arrow">«</span>
                 <span className="panel-peek-label">{t('app.panel.name')}</span>
               </button>
             )}
