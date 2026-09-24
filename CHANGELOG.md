@@ -38,12 +38,35 @@ change behavior.
   SSH key and a one-time code, and the line that adds that key to
   `authorized_keys`, already restricted to the tunnel. The key is generated in
   memory and never written to disk.
+- **Copy a code block.** Every code block in the conversation, plans, memory
+  and file previews has its own copy button, so you can copy just those lines
+  instead of the whole message.
+
+### Changed
+
+- **The file tree's row button puts the path in your message** where the cursor
+  is, instead of copying it: what you had in the clipboard stays there, and
+  Ctrl+Z takes the path back out. It's the same text as before, the absolute
+  path in quotes. The context menu still copies paths.
+- **The right panel hides with `»`**, at the left of its title, like the `«` of
+  the projects sidebar. It used to be a `×`, which reads as "close".
 
 ### Fixed
 
 - **Two windows on the same tab left the terminal drawn for the other one's
   size** until a divider was moved. A window now sends its size again when it
   gets the focus back.
+- **Preferences were lost on every restart**: language, notification volume,
+  theme, text size, panel widths. The browser kept them per port, and the app
+  starts on a new port each time. They now survive restarts.
+- **Switching tabs could open the conversation at the top** instead of at the
+  end, once you had scrolled up in any tab.
+- **Typing in the terminal of a tab without its CLI showed an error banner**
+  that stayed after switching tabs. The keys are now ignored quietly, and the
+  error banner closes when you pick another tab.
+- **An empty message box showed a scrollbar** with the normal and large text
+  sizes.
+- **A numbered list split by a code block restarted at 1.**
 
 ## 0.3.1 — 2026-09-19
 
