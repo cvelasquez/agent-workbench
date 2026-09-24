@@ -280,6 +280,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
    * restauracion, y las que murieron con Ctrl+C— y para esas "la terminal ya no
    * existe" es falso: la pestana esta ahi, se lee, y lo que falta es la CLI.
    * El cliente distingue los dos casos por el codigo y ofrece abrirla.
+   *
+   * Lo que se teclea en la terminal no pasa por aca: a una pestana sin proceso
+   * se descarta callado (ver `input`).
    */
   const writeToTerminal = (socket: WebSocket, terminalId: TerminalId, data: string): boolean => {
     if (registry.write(terminalId, data)) return true;
@@ -723,7 +726,16 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'input':
           // Sin filtrar: Ctrl+V, Alt+V, Esc Esc y compania tienen que llegar
           // intactos o la CLI pierde funcionalidad.
-          writeToTerminal(socket, message.terminalId, message.data);
+          //
+          // A una pestana sin proceso no se le escribe, y **no se avisa**: la
+          // terminal manda todo lo que produce xterm —una tecla de mas justo al
+          // cerrarse la CLI, o algo que la terminal contesta sola— y el cartel
+          // de error quedaba arriba sin tener que ver con nada que el usuario
+          // hubiera pedido. Que no hay CLI ya lo dicen el nombre tachado, el
+          // punto y "Abrir CLI". El aviso sigue para lo que manda el cuadro.
+          if (!registry.write(message.terminalId, message.data) && registry.get(message.terminalId) === null) {
+            sendError(socket, 'unknown-terminal', serverText('terminalGone'));
+          }
           break;
 
         /*

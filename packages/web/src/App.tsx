@@ -203,6 +203,21 @@ export function App(): JSX.Element {
   const activeTerminal = terminals.find((t) => t.terminalId === activeTerminalId) ?? null;
 
   /*
+    Elegir otra pestana a mano cierra el cartel de error: lo que decia era de lo
+    que se estaba haciendo en la anterior, y antes quedaba arriba hasta la ×.
+    Solo a mano: cuando la cambia la app —una pestana que se abre o se cierra—
+    el error puede ser justo de eso (una continuacion que falla abre y cierra
+    una pestana) y se iria sin leerse.
+  */
+  const selectTab = useCallback(
+    (terminalId: TerminalId) => {
+      if (terminalId !== activeTerminalId) dismissError();
+      setActiveTerminal(terminalId);
+    },
+    [activeTerminalId, dismissError, setActiveTerminal],
+  );
+
+  /*
     Lo que puede hacer la CLI de la pestana activa.
 
     La pantalla no pregunta de que CLI se trata: pregunta si tiene ciclo de
@@ -361,7 +376,7 @@ export function App(): JSX.Element {
     };
     switch (action.kind) {
       case 'activate':
-        setActiveTerminal(action.terminalId);
+        selectTab(action.terminalId);
         leaveThreadQuery();
         break;
       case 'resume':
@@ -879,9 +894,9 @@ export function App(): JSX.Element {
       const currentIndex = terminals.findIndex((t) => t.terminalId === activeTerminalId);
       const nextIndex = (currentIndex + offset + terminals.length) % terminals.length;
       const next = terminals[nextIndex];
-      if (next !== undefined) setActiveTerminal(next.terminalId);
+      if (next !== undefined) selectTab(next.terminalId);
     },
-    [terminals, activeTerminalId, setActiveTerminal],
+    [terminals, activeTerminalId, selectTab],
   );
 
   /*
@@ -903,8 +918,8 @@ export function App(): JSX.Element {
     if (target === null || target === activeTerminalId) return;
     // Puede haberse cerrado mientras tanto.
     if (!terminals.some((terminal) => terminal.terminalId === target)) return;
-    setActiveTerminal(target);
-  }, [activeTerminalId, terminals, setActiveTerminal]);
+    selectTab(target);
+  }, [activeTerminalId, terminals, selectTab]);
 
   /**
    * Atajos propios.
@@ -1118,7 +1133,12 @@ export function App(): JSX.Element {
           view={conversation}
           terminalId={activeTerminalId}
           threadFont={threadFont}
-          onRewind={activeControls.rewind ? rewind : undefined}
+          /*
+            Volver aqui e "Insertar como @ruta" le escriben a la terminal: sin
+            CLI no hay a quien, y desde que el servidor descarta callado lo que
+            llega a una pestana sin proceso, no se ofrecen.
+          */
+          onRewind={activeControls.rewind && activeTerminal?.alive === true ? rewind : undefined}
           questionsAnswerable={activeControls.questionsAnswerable}
           contextWindowSource={activeControls.contextWindowSource}
           instructionsFile={instructionsFileFor(activeAgent)}
@@ -1280,7 +1300,7 @@ export function App(): JSX.Element {
         files={files}
         plans={plans}
         memory={memory}
-        onInsert={activeControls.fileMentions ? insertIntoTerminal : undefined}
+        onInsert={activeControls.fileMentions && activeTerminal.alive ? insertIntoTerminal : undefined}
         onReveal={remoteClient ? null : revealPath}
         onHide={togglePanel}
       />
@@ -1550,7 +1570,7 @@ export function App(): JSX.Element {
           newTabAgent={newTabAgent}
           canOpen={cliAvailable && defaultCwd.length > 0}
           newTabBlockedTitle={newTabBlockedTitle}
-          onSelectTab={setActiveTerminal}
+          onSelectTab={selectTab}
           onCloseTab={closeTerminal}
           onRenameTab={renameTerminal}
           onNewTab={(agent) => openTerminal({ cwd: newTabCwd, ...(agent !== undefined ? { agent } : {}) })}
@@ -1693,7 +1713,7 @@ export function App(): JSX.Element {
             activeTerminalId={activeTerminalId}
             activity={activity}
             canOpen={cliAvailable && defaultCwd.length > 0}
-            onSelect={setActiveTerminal}
+            onSelect={selectTab}
             onClose={closeTerminal}
             onRename={renameTerminal}
             onReorder={reorderTabs}
