@@ -41,6 +41,7 @@ import type {
   ConversationToolResultPart,
   ContextWindowSource,
   StatusLineState,
+  TerminalId,
 } from '@agent-workbench/shared';
 import {
   discoveringHint,
@@ -259,6 +260,11 @@ export type CliPresence = 'live' | 'sleeping' | 'exited';
 interface ConversationViewProps {
   view: ConversationFeed;
   /**
+   * La pestana cuya conversacion se muestra. El hilo es uno solo para todas, y
+   * al cambiar de pestana vuelve a pegarse al final.
+   */
+  terminalId: TerminalId | null;
+  /**
    * Manda `Esc Esc` a la pty para abrir el menu de rewind de la CLI. Sin el,
    * los mensajes propios no ofrecen "volver aqui": la CLI de la pestana no
    * tiene ese menu.
@@ -334,6 +340,7 @@ interface ConversationViewProps {
 
 export function ConversationView({
   view,
+  terminalId,
   onRewind,
   questionsAnswerable,
   contextWindowSource,
@@ -449,6 +456,20 @@ export function ConversationView({
     if (activeMatchId === null) return;
     cardRefs.current.get(activeMatchId)?.scrollIntoView({ block: 'center' });
   }, [activeMatchId]);
+
+  /*
+    Otra pestana abre al final, donde quedo su agente.
+
+    El hilo es uno solo para todas las pestanas, y "estaba mirando el final" se
+    arrastraba de la anterior: bastaba subir el scroll una vez en cualquiera
+    para que desde ahi todas abrieran arriba. Al cambiar, el hilo se vacia —el
+    scroll cae a 0— y la conversacion nueva no bajaba, porque la vista creia
+    que el usuario estaba leyendo algo de arriba. Va antes del efecto que baja:
+    los dos corren en orden.
+  */
+  useLayoutEffect(() => {
+    stickToBottom.current = true;
+  }, [terminalId]);
 
   /**
    * Pegado al final solo si el usuario ya estaba ahi.

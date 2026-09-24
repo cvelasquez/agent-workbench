@@ -1116,6 +1116,7 @@ export function App(): JSX.Element {
       ) : (
         <ConversationView
           view={conversation}
+          terminalId={activeTerminalId}
           threadFont={threadFont}
           onRewind={activeControls.rewind ? rewind : undefined}
           questionsAnswerable={activeControls.questionsAnswerable}
