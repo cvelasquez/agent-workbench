@@ -4,7 +4,7 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-09-25
 
 ### Added
 
