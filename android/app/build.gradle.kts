@@ -1,5 +1,6 @@
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -16,8 +17,28 @@ android {
         minSdk = 29
         // Play exige la API 36 para apps nuevas y actualizaciones desde el 31-08-2026.
         targetSdk = 36
+        // La misma version que el paquete de npm que la app necesita en la PC (§15.11).
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.4.0"
+    }
+
+    /*
+      La llave de subida a Play (§15.11) vive fuera del repositorio: `keystore.properties`
+      junto a este proyecto (ignorado por git) o donde diga KEYSTORE_PROPERTIES. Sin el
+      archivo, `release` compila sin firmar, como en el CI.
+    */
+    val keystoreProperties = Properties()
+    val keystoreFile = System.getenv("KEYSTORE_PROPERTIES")?.let { file(it) } ?: rootProject.file("keystore.properties")
+    if (keystoreFile.exists()) keystoreFile.inputStream().use { keystoreProperties.load(it) }
+    if (keystoreProperties.containsKey("storeFile")) {
+        signingConfigs {
+            create("upload") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -30,6 +51,7 @@ android {
             // Sin achicar todavía: sshlib y Tink registran proveedores por nombre,
             // y las reglas para conservarlos se escriben y se prueban al publicar.
             isMinifyEnabled = false
+            if (keystoreProperties.containsKey("storeFile")) signingConfig = signingConfigs.getByName("upload")
         }
     }
 
