@@ -61,6 +61,9 @@ change behavior.
   and allowed, and remote access when it's running with at least one paired
   device. Off, they look like any other button. It used to be hard to tell
   whether notifications were on.
+- **The message box border takes the project's color while you type**, the
+  same color as the tab's underline, so you can see which project the message
+  is going to. It used to be the same green for every project.
 
 ### Fixed
 

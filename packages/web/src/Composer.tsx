@@ -94,6 +94,12 @@ interface ComposerProps {
    */
   sleeping?: boolean;
   /**
+   * El color del proyecto de la pestana (§6.8), el mismo del subrayado de su
+   * pestana. Es el borde del cuadro mientras se escribe: el mensaje va a ese
+   * proyecto, y se ve antes de mandarlo. Sin el, el color de acento.
+   */
+  projectColor?: string;
+  /**
    * Que hace la CLI de la pestana. "Detener" se dibuja solo si puede haber
    * algo que detener: trabajando, esperando, o sin estado conocido (una CLI
    * que no lo publica). Libre, el boton no tiene sentido y le quita lugar a
@@ -157,6 +163,7 @@ export function Composer({
   terminalId,
   alive,
   sleeping = false,
+  projectColor,
   activity,
   controls,
   leading,
@@ -475,6 +482,7 @@ export function Composer({
   return (
     <div
       className={`composer${dragging ? ' composer-dragging' : ''}`}
+      style={projectColor === undefined ? undefined : ({ '--composer-accent': projectColor } as React.CSSProperties)}
       onDragOver={(event) => {
         if (Array.from(event.dataTransfer.types).includes('Files')) {
           event.preventDefault();

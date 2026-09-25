@@ -1082,9 +1082,14 @@ kbd {
   scrollbar-width: thin;
 }
 
+/*
+  Mientras se escribe, el borde es del color del proyecto de la pestana (§6.8):
+  el mismo tono del subrayado de su pestana, para no mandar algo al proyecto
+  equivocado. Sin proyecto, el acento de siempre.
+*/
 .composer-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--composer-accent, var(--accent));
 }
 
 .composer-bar {

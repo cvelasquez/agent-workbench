@@ -56,6 +56,7 @@ import { tabNameFor } from './system-notification.js';
 import { useRemoteAccess } from './useRemoteAccess.js';
 import { RemoteAccessDialog } from './RemoteAccessDialog.js';
 import { remoteButtonOn, remoteStateText } from './remote-access-ui.js';
+import { projectColor } from './project-color.js';
 import { NotesPanel } from './NotesPanel.js';
 import { NarrowShell } from './NarrowShell.js';
 import {
@@ -1223,7 +1224,7 @@ export function App(): JSX.Element {
           terminalId={activeTerminalId}
           alive={activeTerminal.alive}
           sleeping={activeTerminal.sleeping}
-
+          projectColor={projectColor(activeTerminal.cwd)}
           activity={activity.get(activeTerminal.terminalId)}
           imagesAllowed={activeControls.imagesAllowed}
           blockedReason={blockedReason}
