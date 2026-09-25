@@ -5265,12 +5265,17 @@ kbd {
     display: flex;
   }
 
+  /*
+    Cada vista es su propia capa: un z-index de adentro (el bloque de codigo del
+    hilo lleva 1) pintaba sobre la vista que se ve encima.
+  */
   .narrow-pane {
     position: absolute;
     inset: 0;
     display: flex;
     flex-direction: column;
     min-width: 0;
+    isolation: isolate;
   }
 
   /* Sin tamano: la terminal de adentro no mide ni le manda nada a la pty. */
@@ -5283,10 +5288,16 @@ kbd {
     overflow: hidden;
   }
 
-  /* Velado, con su tamano: el hilo conserva el scroll. */
-  .narrow-pane-veiled {
-    visibility: hidden;
-    pointer-events: none;
+  /*
+    Velado, con su tamano: el hilo conserva el scroll. Todo lo de adentro, sin
+    excepcion: el bloque tactil deja siempre visibles los botones de copiar, y
+    un `visibility: visible` de un hijo le gana al `hidden` del padre. Sin el
+    `!important` quedaban flotando sobre CLI o Notas, y se podian tocar.
+  */
+  .narrow-pane-veiled,
+  .narrow-pane-veiled * {
+    visibility: hidden !important;
+    pointer-events: none !important;
   }
 
   .app-narrow .workspace.narrow-pane {

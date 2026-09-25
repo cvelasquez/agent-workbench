@@ -150,6 +150,14 @@ const json = (value) => JSON.stringify(value);
       .every((selector) => touchSelectors.some((rule) => rule.startsWith(selector))));
   check('fuera de los dos @media no hay ninguna regla .narrow-',
     !/^\s*\.narrow-/m.test(css.replace(narrow.body, '').replace(touch.body, '')));
+
+  // El chat velado conserva su tamaño (y su scroll), pero no se ve ni se toca nada de
+  // adentro: la regla táctil deja visibles los botones de copiar, y sin el
+  // `!important` le ganaban al velo y quedaban flotando sobre la otra vista.
+  check('el chat velado esconde todo lo de adentro, también lo que lo táctil deja a la vista',
+    /\.narrow-pane-veiled,\s*\.narrow-pane-veiled \*\s*\{\s*visibility:\s*hidden !important;\s*pointer-events:\s*none !important;\s*\}/.test(narrow.body));
+  check('cada vista apilada es su propia capa: un z-index de adentro no pinta sobre la siguiente',
+    /\n  \.narrow-pane \{[^}]*isolation:\s*isolate;/.test(narrow.body));
 }
 
 // --- 4b. La app del teléfono (hito 38, Fase B) -------------------------------------
