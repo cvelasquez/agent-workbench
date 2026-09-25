@@ -19,6 +19,10 @@
     "ui"
   ],
   "license": "MIT",
+  "funding": {
+    "type": "buymeacoffee",
+    "url": "https://buymeacoffee.com/cvelasquez"
+  },
   "packageManager": "pnpm@11.24.0",
   "engines": {
     "node": ">=20"

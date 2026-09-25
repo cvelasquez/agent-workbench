@@ -96,6 +96,8 @@ writeFileSync(
       repository: { type: 'git', url: `git+${REPO_URL}.git` },
       homepage: `${REPO_URL}#readme`,
       bugs: { url: `${REPO_URL}/issues` },
+      // Como apoyar el proyecto (§6.28): npm lo dice al instalar y en `npm fund`.
+      funding: rootPkg.funding,
       // Como la descripcion: del `package.json` de la raiz, para no tener dos
       // listas que se desincronizan cuando se suma una CLI.
       keywords: rootPkg.keywords,

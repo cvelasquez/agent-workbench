@@ -23,6 +23,7 @@ import type { AgentInfo } from '@agent-workbench/shared';
 import { AGENT_UI, composerShortcuts, type Shortcut } from './agent-ui.js';
 import { t } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
+import { SUPPORT_URL } from './support.js';
 
 /** Los atajos de la app. Una funcion y no una constante: se traducen al leerlos. */
 function appShortcuts(): readonly Shortcut[] {
@@ -109,6 +110,14 @@ export function ShortcutsDialog({ agent, onClose }: ShortcutsDialogProps): JSX.E
           <p className="modal-hint">{tRich('shortcuts.browserReserved')}</p>
 
           <p className="modal-hint">{tRich('shortcuts.altNumber')}</p>
+
+          {/* Como apoyar el proyecto, siempre a mano: el cartel de §6.28 se muestra una vez. */}
+          <p className="modal-hint support-hint">
+            <span aria-hidden="true">☕</span> {t('support.notice')}{' '}
+            <a href={SUPPORT_URL} target="_blank" rel="noreferrer noopener">
+              {t('support.link')}
+            </a>
+          </p>
         </div>
       </div>
     </div>

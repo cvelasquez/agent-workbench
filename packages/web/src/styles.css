@@ -240,6 +240,29 @@ kbd {
   line-height: 1;
 }
 
+/*
+  La sugerencia de apoyar el proyecto (§6.28): del color de la app y no de un
+  aviso, porque no pasa nada. "Ahora no" a la derecha, como la × de los demas.
+*/
+.banner-support {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-bottom: 1px solid var(--accent);
+  color: var(--text);
+}
+
+.banner-support-link {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.banner-support-dismiss {
+  margin-left: auto;
+}
+
+.support-hint a {
+  color: var(--accent);
+}
+
 /* ---------- cuerpo ---------- */
 
 .app-body {

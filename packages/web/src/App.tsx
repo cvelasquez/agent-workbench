@@ -33,6 +33,7 @@ import { FolderPicker } from './FolderPicker.js';
 import { globalSearchVisible, searchHitAction } from './global-search-ui.js';
 import { ShortcutsDialog } from './ShortcutsDialog.js';
 import { StatusLineDialog } from './StatusLineDialog.js';
+import { SupportNotice } from './SupportNotice.js';
 import { Sidebar } from './Sidebar.js';
 import { SidePanel, changeCount, type PanelTab } from './SidePanel.js';
 import { TabBar } from './TabBar.js';
@@ -1464,6 +1465,8 @@ export function App(): JSX.Element {
         </div>
       )}
 
+      {/* La sugerencia de apoyar el proyecto, una vez por version (§6.28). */}
+      <SupportNotice />
     </>
   );
 

@@ -41,6 +41,12 @@ change behavior.
 - **Copy a code block.** Every code block in the conversation, plans, memory
   and file previews has its own copy button, so you can copy just those lines
   instead of the whole message.
+- **A support notice, once per version.** The first time a version opens, a
+  strip under the header says "If Agent Workbench is useful to you, consider
+  supporting it", with a link to Buy Me a Coffee and "Not now". It goes away
+  by itself after half a minute and doesn't come back until the next version.
+  The link also lives in the `?` shortcuts dialog, and the server prints it
+  once at startup.
 
 ### Changed
 

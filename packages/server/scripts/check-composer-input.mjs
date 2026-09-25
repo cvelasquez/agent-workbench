@@ -72,6 +72,12 @@ import {
 } from '../../web/src/composer-paste.ts';
 import { setLocale } from '../../web/src/i18n/index.ts';
 import {
+  SUPPORT_NOTICE_STORAGE_KEY,
+  SUPPORT_URL,
+  parseStoredSupportNotice,
+  shouldShowSupportNotice,
+} from '../../web/src/support.ts';
+import {
   PREFS_COOKIE,
   encodePrefsCookie,
   prefsCookieLine,
@@ -731,6 +737,16 @@ check('el titulo dice que hay y que pone el clic', threadFontTitle('m') === 'Tam
     same(readPrefsCookie(`${PREFS_COOKIE}=${encodePrefsCookie(new Map([['otra.clave', 'x'], ['agent-workbench.locale', 'es']]))}`),
       new Map([['agent-workbench.locale', 'es']])));
   check('sin la cookie, ninguna', readPrefsCookie('otra=1; y=2').size === 0 && readPrefsCookie('').size === 0);
+  // La sugerencia de apoyar el proyecto (§6.28): una vez por version, guardada con las preferencias.
+  check('apoyo: sin nada guardado se muestra; con la misma version no; con otra, si',
+    shouldShowSupportNotice(null, '0.4.0') && !shouldShowSupportNotice('0.4.0', '0.4.0') && shouldShowSupportNotice('0.3.1', '0.4.0'));
+  check('apoyo: lo guardado tiene forma de version',
+    parseStoredSupportNotice('0.4.0') === '0.4.0' && parseStoredSupportNotice('dev') === 'dev' &&
+      parseStoredSupportNotice('') === null && parseStoredSupportNotice('x'.repeat(41)) === null && parseStoredSupportNotice('a b') === null);
+  check('apoyo: la clave entra en la cookie de preferencias',
+    readPrefsCookie(`${PREFS_COOKIE}=${encodePrefsCookie(new Map([[SUPPORT_NOTICE_STORAGE_KEY, '0.4.0']]))}`).get(SUPPORT_NOTICE_STORAGE_KEY) === '0.4.0');
+  const rootPkg = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8'));
+  check('apoyo: el funding del package.json es la direccion de la app', rootPkg.funding?.url === SUPPORT_URL, String(rootPkg.funding?.url));
   check('ilegible o con otra forma, ninguna',
     readPrefsCookie(`${PREFS_COOKIE}=%7Bno-json`).size === 0 &&
       readPrefsCookie(`${PREFS_COOKIE}=${encodeURIComponent('["es"]')}`).size === 0 &&

@@ -581,6 +581,14 @@ made-up data.
 
 ---
 
+## Support the project
+
+If Agent Workbench is useful to you, consider supporting it:
+[Buy Me a Coffee](https://buymeacoffee.com/cvelasquez). The app suggests it
+once per version, in a strip you can close, and never again until the next one.
+
+---
+
 ## License
 
 MIT. See [`LICENSE`](LICENSE).

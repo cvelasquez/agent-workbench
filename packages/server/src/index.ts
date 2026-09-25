@@ -35,7 +35,7 @@ import { MemoryHub } from './memory-hub.js';
 import { PasteStore } from './paste-store.js';
 import { SessionIndex } from './session-index.js';
 import { SettingsStore } from './settings-store.js';
-import { remoteAccessStartupLine, startupAgentLines } from './startup-summary.js';
+import { remoteAccessStartupLine, startupAgentLines, supportStartupLine } from './startup-summary.js';
 import { NotesStore } from './notes-store.js';
 import { locateShell, type ShellLocation } from './shell-locator.js';
 import { watchSessions } from './session-watcher.js';
@@ -285,6 +285,8 @@ function describeStartup(
   console.log(`  Console      ${shell === null ? 'not found' : shell.file}`);
   // Solo con el acceso remoto encendido: apagado, el arranque es el de siempre.
   if (remoteLine !== null) console.log(remoteLine);
+  // Como apoyar el proyecto (§6.28): una linea, en cada arranque.
+  console.log(supportStartupLine());
   if (agentList.some((info) => info.environmentNotice === 'child-session-marker')) {
     console.log('');
     console.log('  Note: this process inherited CLAUDE_CODE_CHILD_SESSION, which turns off');

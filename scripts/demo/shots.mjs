@@ -111,6 +111,16 @@ try {
     colorScheme: 'dark',
     locale: BROWSER_LOCALES[language] ?? language,
   });
+  // El cartel de apoyo (§6.28) se muestra una vez por version: las capturas del
+  // README no llevan un pedido de donacion, asi que para esta ya "se mostro".
+  const appVersion = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version;
+  await context.addInitScript((version) => {
+    try {
+      window.localStorage.setItem('agent-workbench.support-notice', version);
+    } catch {
+      // Sin localStorage el cartel aparece, y se veria en la captura.
+    }
+  }, appVersion);
   const page = await context.newPage();
   page.on('pageerror', (error) => console.error('pageerror:', error.message));
 

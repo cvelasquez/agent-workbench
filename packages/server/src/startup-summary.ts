@@ -27,7 +27,7 @@
  * sabe en que idioma esta nadie, y el ingles es el idioma por defecto.
  */
 
-import type { AgentId, RemoteAccessState, ServerText, StatusLineState } from '@agent-workbench/shared';
+import { SUPPORT_URL, type AgentId, type RemoteAccessState, type ServerText, type StatusLineState } from '@agent-workbench/shared';
 
 export interface StartupAgent {
   id: AgentId;
@@ -156,4 +156,15 @@ export function startupAgentLines(agents: readonly StartupAgent[]): string[] {
     if (agent.resolvedPath === null && note !== null) lines.push(`  ${HISTORY_LABEL} (${agent.label})  ${note}`);
   }
   return lines;
+}
+
+/** Rotulo de la linea que invita a apoyar el proyecto (§6.28). */
+export const SUPPORT_LABEL = 'Support';
+
+/**
+ * La linea de apoyo, al final del arranque y en cada arranque: una linea en una
+ * consola que casi nadie mira. La direccion es la misma que la de la web.
+ */
+export function supportStartupLine(): string {
+  return `  ${SUPPORT_LABEL}      If Agent Workbench is useful to you, consider supporting it: ${SUPPORT_URL}`;
 }

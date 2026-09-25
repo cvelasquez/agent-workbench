@@ -2377,7 +2377,7 @@ const throwsOn = (run) => {
 
 // A6. El arranque y el cartel cuentan CLIs disponibles.
 {
-  const { startupAgentLines, AVAILABLE_AGENTS_LABEL } = await import('../src/startup-summary.ts');
+  const { startupAgentLines, AVAILABLE_AGENTS_LABEL, supportStartupLine } = await import('../src/startup-summary.ts');
   const claude = (over = {}) => ({ id: 'claude-code', label: 'Claude Code', version: '2.1.270', resolvedPath: '/bin/claude', missingMessage: null, ...over });
   const codex = (over = {}) => ({ id: 'codex', label: 'Codex', version: 'codex-cli 0.154.0', resolvedPath: '/bin/codex', missingMessage: null, ...over });
   const raw = (text) => ({ key: 'raw', params: { text } });
@@ -2386,6 +2386,10 @@ const throwsOn = (run) => {
 
   // La consola del servidor esta en ingles desde el hito 34 (D19).
   const legacyAvailable = ['  CLI          2.1.270', '  Binary       /bin/claude'];
+  // La linea de apoyo (§6.28): una, alineada como las demas, con la direccion de la app.
+  check('A6 la linea de apoyo del arranque',
+    supportStartupLine() === '  Support      If Agent Workbench is useful to you, consider supporting it: https://buymeacoffee.com/cvelasquez',
+    supportStartupLine());
   check('A6 claude-code sola: las lineas de siempre y la de disponibles',
     same(startupAgentLines([claude()]), ['  Available CLIs  claude-code', ...legacyAvailable]), show(startupAgentLines([claude()])));
   const withoutCodex = startupAgentLines([claude(), codexMissing]);
