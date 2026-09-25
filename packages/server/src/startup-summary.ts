@@ -168,3 +168,12 @@ export const SUPPORT_LABEL = 'Support';
 export function supportStartupLine(): string {
   return `  ${SUPPORT_LABEL}      If Agent Workbench is useful to you, consider supporting it: ${SUPPORT_URL}`;
 }
+
+/**
+ * La misma linea en amarillo, para que resalte entre las demas (pedido del
+ * usuario). Solo cuando la consola dibuja colores: sin terminal, o con
+ * `NO_COLOR`, va la lisa, y un log no gana secuencias de escape.
+ */
+export function supportStartupLineColored(): string {
+  return `\x1b[33m${supportStartupLine()}\x1b[0m`;
+}
