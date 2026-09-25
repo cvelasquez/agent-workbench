@@ -56,6 +56,11 @@ change behavior.
   path in quotes. The context menu still copies paths.
 - **The right panel hides with `»`**, at the left of its title, like the `«` of
   the projects sidebar. It used to be a `×`, which reads as "close".
+- **The header's sound, bell and ⇄ buttons light up when they're on**: the
+  sound when it plays with a volume above zero, notifications when they're on
+  and allowed, and remote access when it's running with at least one paired
+  device. Off, they look like any other button. It used to be hard to tell
+  whether notifications were on.
 
 ### Fixed
 

@@ -55,7 +55,7 @@ import { NotifyButton, SoundControl } from './SoundControl.js';
 import { tabNameFor } from './system-notification.js';
 import { useRemoteAccess } from './useRemoteAccess.js';
 import { RemoteAccessDialog } from './RemoteAccessDialog.js';
-import { remoteStateText } from './remote-access-ui.js';
+import { remoteButtonOn, remoteStateText } from './remote-access-ui.js';
 import { NotesPanel } from './NotesPanel.js';
 import { NarrowShell } from './NarrowShell.js';
 import {
@@ -1604,7 +1604,7 @@ export function App(): JSX.Element {
               remote.status !== null && !remoteClient
                 ? {
                     title: `${t('app.header.remoteAccess')} — ${remoteStateText(remote.status.state, remote.status.port)}`,
-                    active: remote.status.state === 'active',
+                    active: remoteButtonOn(remote.status),
                     onOpen: () => setRemoteDialogVisible(true),
                   }
                 : null,
@@ -1662,7 +1662,7 @@ export function App(): JSX.Element {
         <NotifyButton notify={sound.notify} />
         {remote.status !== null && !remoteClient && (
           <button
-            className={`icon-button${remote.status.state === 'active' ? ' icon-button-on' : ''}`}
+            className={`icon-button${remoteButtonOn(remote.status) ? ' icon-button-on' : ''}`}
             onClick={() => setRemoteDialogVisible(true)}
             title={`${t('app.header.remoteAccess')} — ${remoteStateText(remote.status.state, remote.status.port)}`}
           >

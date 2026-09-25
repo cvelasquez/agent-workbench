@@ -327,12 +327,6 @@ kbd {
   line-height: 1;
 }
 
-/* El sonido de aviso silenciado (§6.20): la misma nota, tachada y apagada. */
-.icon-button-muted {
-  text-decoration: line-through;
-  opacity: 0.55;
-}
-
 .icon-button:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--accent);
@@ -393,7 +387,11 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
-/* Un interruptor encendido: el ojo del arbol. */
+/*
+  Un interruptor encendido: el ojo del arbol, la copia propia, y en la cabecera
+  el sonido, la notificacion y el acceso remoto con equipos (§6.20). Apagado es
+  un boton como cualquiera.
+*/
 .icon-button-on {
   color: var(--accent);
   border-color: var(--accent);

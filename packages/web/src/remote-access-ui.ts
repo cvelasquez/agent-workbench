@@ -161,3 +161,12 @@ export function hostSshPlatform(platform: string): SshSetup['platform'] {
 export function canPair(status: RemoteAccessStatus | null): boolean {
   return status !== null && status.state === 'active';
 }
+
+/**
+ * El `⇄` de la cabecera se ve encendido: el acceso está corriendo **y** hay al
+ * menos un equipo emparejado. Encendido y sin ningún equipo no hay nadie que
+ * pueda entrar, y verlo igual que con equipos confundía (mejoras de la 0.4.0).
+ */
+export function remoteButtonOn(status: Pick<RemoteAccessStatus, 'state' | 'devices'> | null): boolean {
+  return status !== null && status.state === 'active' && status.devices.length > 0;
+}

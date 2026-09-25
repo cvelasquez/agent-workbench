@@ -24,6 +24,7 @@ import {
   parseStoredVolume,
   phoneChimeUrl,
   planChimes,
+  soundButtonOn,
   soundButtonTitle,
   volumePercent,
   webChimeVolume,
@@ -103,6 +104,11 @@ check('idle → busy no suena', chimeFor('idle', 'busy') === null);
   check('el título del botón dice el estado y qué hace el clic',
     soundButtonTitle(true).includes('activado') && soundButtonTitle(true).includes('silenciar') &&
     soundButtonTitle(false).includes('silenciado') && soundButtonTitle(false).includes('activar'));
+  // Mejoras de la 0.4.0: el botón se ve encendido cuando el aviso se oye.
+  check('el ♪ se ve encendido con el aviso activado y volumen',
+    soundButtonOn(true, DEFAULT_VOLUME) && soundButtonOn(true, MIN_VOLUME));
+  check('y apagado silenciado, o con volumen cero',
+    !soundButtonOn(false, DEFAULT_VOLUME) && !soundButtonOn(true, 0) && !soundButtonOn(false, 0));
 }
 
 // --- 4. El volumen (hito 36) -------------------------------------------------

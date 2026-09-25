@@ -12,9 +12,14 @@
  * (§6.20.1). Es otro botón y no una casilla dentro de la barrita: se quiere con
  * el sonido silenciado también, y ahí la barrita no existe. Donde el navegador
  * no tiene notificaciones, no se dibuja.
+ *
+ * Encendidos, los dos se ven como el `⇄` con equipos: borde y dibujo del color
+ * de acento (`icon-button-on`). Apagados, como cualquier botón. Antes se
+ * marcaba lo apagado, tachado y gris, y el tachado no se dibuja sobre el SVG de
+ * la campana: encendida o apagada se veía casi igual (mejoras de la 0.4.0).
  */
 
-import { MAX_VOLUME, MIN_VOLUME, soundButtonTitle, volumePercent } from './notification-sound.js';
+import { MAX_VOLUME, MIN_VOLUME, soundButtonOn, soundButtonTitle, volumePercent } from './notification-sound.js';
 import { notifyButtonTitle } from './system-notification.js';
 import type { NotificationSoundState, SystemNotifyState } from './useNotificationSound.js';
 import { t } from './i18n/index.js';
@@ -39,7 +44,7 @@ export function SoundControl({ sound }: SoundControlProps): JSX.Element {
   return (
     <span className="sound-control">
       <button
-        className={`icon-button${sound.enabled ? '' : ' icon-button-muted'}`}
+        className={`icon-button${soundButtonOn(sound.enabled, sound.volume) ? ' icon-button-on' : ''}`}
         onClick={sound.toggle}
         title={soundButtonTitle(sound.enabled)}
         aria-pressed={sound.enabled}
@@ -79,7 +84,7 @@ export function NotifyButton({ notify }: { notify: SystemNotifyState }): JSX.Ele
   if (!notify.supported) return null;
   return (
     <button
-      className={`icon-button${notify.enabled ? '' : ' icon-button-muted'}`}
+      className={`icon-button${notify.enabled ? ' icon-button-on' : ''}`}
       onClick={notify.toggle}
       title={notifyButtonTitle(notify.enabled, notify.permission)}
       aria-pressed={notify.enabled}

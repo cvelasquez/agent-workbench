@@ -86,6 +86,7 @@ import {
   pairingSecondsLeft,
   pairingUrl,
   parsePortInput,
+  remoteButtonOn,
   remoteStateText,
   phoneAuthorizeText,
   remoteUrl,
@@ -620,6 +621,14 @@ try {
     check('se empareja sólo con el acceso activo',
       canPair({ state: 'active' }) && !canPair({ state: 'restart-needed' }) && !canPair({ state: 'port-busy' }) &&
       !canPair({ state: 'off' }) && !canPair(null));
+    // Mejoras de la 0.4.0: sin ningún equipo emparejado, el ⇄ no se ve encendido.
+    const paired = [{ id: 'a', label: 'PC', createdAt: 1, lastSeenAt: null, connected: false }];
+    check('el ⇄ se ve encendido con el acceso activo y algún equipo emparejado',
+      remoteButtonOn({ state: 'active', devices: paired }));
+    check('y apagado sin equipos, con el acceso sin correr o sin estado',
+      !remoteButtonOn({ state: 'active', devices: [] }) && !remoteButtonOn({ state: 'off', devices: paired }) &&
+      !remoteButtonOn({ state: 'restart-needed', devices: paired }) && !remoteButtonOn({ state: 'port-busy', devices: paired }) &&
+      !remoteButtonOn(null));
     check('cada estado tiene su texto',
       remoteStateText('off', 1) === 'Apagado' && remoteStateText('active', 24837) === 'Encendido, puerto 24837' &&
       /reinicies/.test(remoteStateText('restart-needed', 1)) && /24837 está ocupado/.test(remoteStateText('port-busy', 24837)));

@@ -137,6 +137,15 @@ export function soundButtonTitle(enabled: boolean): string {
   return enabled ? t('sound.on') : t('sound.off');
 }
 
+/**
+ * El `♪` de la cabecera se ve encendido: el aviso suena, y con un volumen que
+ * se oye. Hoy el piso de la barrita no es cero y alcanza con `enabled`, pero la
+ * regla es la que pidió el usuario: activado y con volumen.
+ */
+export function soundButtonOn(enabled: boolean, volume: number): boolean {
+  return enabled && volume > 0;
+}
+
 /** Una nota: frecuencia en Hz, cuándo arranca y cuánto dura, en segundos. */
 export interface Note {
   frequency: number;
