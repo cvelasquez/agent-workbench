@@ -30,7 +30,9 @@ import { noteSendTitle } from './agent-ui.js';
 import { formatBytes, formatWhen } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
+import { threadFontTitle } from './thread-font.js';
 import type { NotesApi } from './useNotes.js';
+import { useNotesFont } from './useThreadFont.js';
 import { readStored, writeStored } from './window-prefs.js';
 
 const OPEN_KEY = 'agent-workbench.notes-open';
@@ -93,6 +95,7 @@ export function NotesPanel({
   const [closing, setClosing] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
+  const notesFont = useNotesFont();
 
   /*
     La solapa activa se resuelve contra la lista, no se guarda como verdad: si
@@ -265,6 +268,21 @@ export function NotesPanel({
             </div>
 
             <span className="strip-spacer" />
+            {/*
+              El mismo boton y los mismos tres tamanos que el hilo (§6.22), con
+              su propia preferencia. Pedido para el telefono, donde 12,5 px se
+              leen mal; vale igual en la PC.
+            */}
+            <button
+              className="icon-button thread-font-button"
+              onClick={notesFont.cycle}
+              title={threadFontTitle(notesFont.size)}
+              aria-label={threadFontTitle(notesFont.size)}
+            >
+              <span aria-hidden="true">
+                a<span className="thread-font-big">A</span>
+              </span>
+            </button>
             {!fill && (
               <button
                 className="icon-button"

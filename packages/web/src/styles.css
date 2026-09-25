@@ -1997,6 +1997,18 @@ kbd {
   --thread-scale: 1.28;
 }
 
+/*
+  Las notas (25-09-2026): los mismos pasos, con su propio atributo. Sin valor,
+  "chica", que es lo que midieron siempre.
+*/
+:root[data-notes-font="m"] .notes {
+  --notes-scale: 1.12;
+}
+
+:root[data-notes-font="l"] .notes {
+  --notes-scale: 1.28;
+}
+
 .thread-font-button {
   font-size: 11px;
   font-weight: 600;
@@ -4692,7 +4704,7 @@ kbd {
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--notes-scale, 1));
   line-height: 1.45;
   resize: none;
   scrollbar-width: thin;

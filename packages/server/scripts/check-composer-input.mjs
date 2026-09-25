@@ -51,7 +51,10 @@ import { buildSubmissionWrites } from '../src/pty-input.ts';
 import { toTitle } from '../src/agents/session-title.ts';
 import { parseClientMessage } from '@agent-workbench/shared';
 import {
+  DEFAULT_NOTES_FONT_SIZE,
   DEFAULT_THREAD_FONT_SIZE,
+  NOTES_FONT_STORAGE_KEY,
+  THREAD_FONT_STORAGE_KEY,
   nextThreadFontSize,
   parseThreadFontSize,
   threadFontTitle,
@@ -579,6 +582,10 @@ check('el ciclo: chica → normal → grande → chica',
 check('de lo guardado solo valen los tres', parseThreadFontSize('s') === 's' && parseThreadFontSize('m') === 'm'
   && parseThreadFontSize('l') === 'l' && parseThreadFontSize('xl') === null && parseThreadFontSize('') === null);
 check('el titulo dice que hay y que pone el clic', threadFontTitle('m') === 'Tamaño de letra: normal (clic: grande)', threadFontTitle('m'));
+// Las notas (25-09-2026): los mismos tres pasos, con su propia preferencia.
+check('las notas guardan su letra aparte de la del hilo',
+  NOTES_FONT_STORAGE_KEY === 'agent-workbench.notes-font' && NOTES_FONT_STORAGE_KEY !== THREAD_FONT_STORAGE_KEY);
+check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOTES_FONT_SIZE === 's');
 
 // ---------------------------------------------------------------------------
 // Texto pegado: número, marca y bloques (hito 35, §6.24)
@@ -724,6 +731,7 @@ check('el titulo dice que hay y que pone el clic', threadFontTitle('m') === 'Tam
     ['agent-workbench.sound', 'on'],
     ['agent-workbench.theme', 'dark'],
     ['agent-workbench.thread-font', 'l'],
+    ['agent-workbench.notes-font', 'm'],
     ['agent-workbench.panel-width', '640'],
     ['agent-workbench.files.hidden', 'true'],
     ['agent-workbench.notes-active', '3f2a9c1b-6519-41de-ac8e-2a2e6a94c4ce'],

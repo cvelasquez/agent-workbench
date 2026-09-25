@@ -20,6 +20,16 @@ export const DEFAULT_THREAD_FONT_SIZE: ThreadFontSize = 'm';
 
 export const THREAD_FONT_STORAGE_KEY = 'agent-workbench.thread-font';
 
+/*
+  Las notas (25-09-2026) usan los mismos tres pasos y el mismo boton, con su
+  propia preferencia: se puede querer el hilo chico y las notas grandes. Arrancan
+  en "chica", que es lo que midieron siempre (12,5 px): sin tocar el boton se
+  ven como antes.
+*/
+export const NOTES_FONT_STORAGE_KEY = 'agent-workbench.notes-font';
+
+export const DEFAULT_NOTES_FONT_SIZE: ThreadFontSize = 's';
+
 const THREAD_FONT_KEYS: Readonly<Record<ThreadFontSize, MessageKey>> = {
   s: 'threadFont.size.s',
   m: 'threadFont.size.m',
