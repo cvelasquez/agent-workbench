@@ -287,6 +287,8 @@ at once, while the `-N -L` tunnel keeps working.
 single-column layout: the projects sidebar as a drawer, the tabs in the header,
 and a strip that switches between the conversation, the CLI, changes, files and
 the rest. It appears on any window narrower than 768 px (a tablet held upright, too).
+On a touch screen, Enter in the message box starts a new line (the send button
+sends), and dragging a finger over a terminal scrolls it like a mouse wheel.
 
 **Notifications.** The bell button in the header turns on system notifications:
 "finished" and "is waiting for you", with the tab's name, only when the window

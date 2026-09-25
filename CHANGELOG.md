@@ -24,10 +24,14 @@ change behavior.
   column: the projects sidebar slides in from the left, the active tab sits in
   the header and opens the list of tabs, and a strip switches between the
   conversation, the CLI, changes, files, plans, memory, notes and the console.
-  The CLI view adds a row of keys a phone keyboard lacks (Esc, Tab, arrows,
-  Ctrl+C). On any touch screen, what used to appear on hover is always visible,
-  and a long press selects a session row. `/?tab=<id>` in the address opens
-  that tab. Nothing changes on a desktop-sized window.
+  The CLI and console views add a row of keys a phone keyboard lacks (Esc, Tab,
+  arrows, Ctrl+C, Ctrl+O, Ctrl+X). Sending a note to a new conversation
+  switches to that conversation. On any touch screen, what used to appear on
+  hover is always visible, a long press selects a session row, dragging a
+  finger over a terminal scrolls it like a mouse wheel (with momentum, and also
+  in full-screen CLIs), and Enter in the message box starts a new line: the
+  send button sends. `/?tab=<id>` in the address opens that tab. Nothing
+  changes on a desktop-sized window.
 - **An Android app** (`android/`, not on Google Play yet). It opens the SSH
   tunnel itself, shows the interface in the phone-sized layout, keeps the
   connection in the background and notifies "finished" and "is waiting for
@@ -46,6 +50,9 @@ change behavior.
 - **Copy a code block.** Every code block in the conversation, plans, memory
   and file previews has its own copy button, so you can copy just those lines
   instead of the whole message.
+- **Text size in notes**: the same aA button as the conversation, in the notes
+  header, with three sizes and its own setting. Notes start at the size they
+  always had.
 - **A support notice, once per version.** The first time a version opens, a
   strip under the header says "If Agent Workbench is useful to you, consider
   supporting it", with a link to Buy Me a Coffee and "Not now". It goes away
@@ -80,6 +87,11 @@ change behavior.
   starts on a new port each time. They now survive restarts.
 - **Switching tabs could open the conversation at the top** instead of at the
   end, once you had scrolled up in any tab.
+- **The terminal lost its place when its size changed.** Coming back to the CLI
+  tab from Changes or Files showed the start of its history, and the first
+  scroll jumped there; on a phone, closing the keyboard left it lines above the
+  end, no longer following the output, until something was typed. It now
+  stays where it was: at the end if it was at the end.
 - **Typing in the terminal of a tab without its CLI showed an error banner**
   that stayed after switching tabs. The keys are now ignored quietly, and the
   error banner closes when you pick another tab.
