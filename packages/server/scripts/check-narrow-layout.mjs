@@ -25,6 +25,7 @@ import {
   TAB_QUERY_PARAM,
   TERMINAL_KEYS,
   TOUCH_MEDIA_QUERY,
+  enterSubmits,
   insidePhoneApp,
   isNarrowView,
   narrowBackAction,
@@ -106,6 +107,18 @@ const json = (value) => JSON.stringify(value);
     byId.get('ctrl-o')?.label === '^O' && byId.get('ctrl-x')?.label === '^X' &&
     json(TERMINAL_KEYS.slice(-3).map((key) => key.id)) === json(['interrupt', 'ctrl-o', 'ctrl-x']));
   check('cada tecla tiene su texto', TERMINAL_KEYS.every((key) => t(key.titleKey).length > 0));
+}
+
+// --- 3b. Enter en el cuadro de escritura --------------------------------------------
+{
+  const key = (mods = {}) => ({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...mods });
+  check('en la PC, Enter manda y Shift+Enter o Alt+Enter no',
+    enterSubmits(key(), false) && !enterSubmits(key({ shiftKey: true }), false) && !enterSubmits(key({ altKey: true }), false));
+  check('en una pantalla táctil, Enter salta de línea: se manda con el botón',
+    !enterSubmits(key(), true) && !enterSubmits(key({ shiftKey: true }), true));
+  check('con un teclado físico en la pantalla táctil, Ctrl+Enter (o Cmd+Enter) manda',
+    enterSubmits(key({ ctrlKey: true }), true) && enterSubmits(key({ metaKey: true }), true) &&
+    !enterSubmits(key({ ctrlKey: true, shiftKey: true }), true));
 }
 
 // --- 4. El CSS de la vista angosta no se sale de sus @media ---------------------

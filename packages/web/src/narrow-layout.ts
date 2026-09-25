@@ -144,6 +144,25 @@ export const TERMINAL_KEYS: readonly TerminalKey[] = [
   { id: 'ctrl-x', label: '^X', data: '\x18', titleKey: 'narrow.keys.ctrlX' },
 ];
 
+// ---- Enter en el cuadro de escritura ---------------------------------------------
+
+/**
+ * Si Enter manda el mensaje. En la PC sí, y Shift+Enter salta de línea. En una
+ * pantalla táctil no: el Enter del teclado en pantalla es el único salto de
+ * línea que hay, y para mandar está el botón (pedido del usuario, 25-09-2026).
+ * Con un teclado físico en esa pantalla, Ctrl+Enter o Cmd+Enter mandan.
+ *
+ * "Táctil" es `TOUCH_MEDIA_QUERY`, no el ancho: una ventana angosta en la PC
+ * sigue mandando con Enter.
+ */
+export function enterSubmits(
+  key: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean },
+  touch: boolean,
+): boolean {
+  if (key.shiftKey || key.altKey) return false;
+  return !touch || key.ctrlKey || key.metaKey;
+}
+
 // ---- La app del teléfono (hito 38, Fase B) ---------------------------------------
 
 /**

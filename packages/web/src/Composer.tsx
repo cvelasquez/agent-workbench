@@ -9,7 +9,9 @@
  *  - **Enter envia. Shift+Enter salta de linea.** Al reves de lo que hace la
  *    terminal, donde el salto pide `Ctrl+J`. Es la razon de que exista este
  *    cuadro: el servidor manda el texto como un *pegado*, y adentro de un
- *    pegado los saltos de linea son texto y no un envio.
+ *    pegado los saltos de linea son texto y no un envio. **En una pantalla
+ *    tactil, Enter salta de linea** y se manda con el boton: el teclado en
+ *    pantalla no tiene Shift+Enter (§6.25).
  *  - **`Ctrl+V` con una imagen deja una miniatura**, no un `Alt+V` disfrazado.
  *    La imagen viaja por el socket, el servidor la escribe en disco y se la
  *    nombra a la CLI por ruta.
@@ -40,10 +42,12 @@ import { draftTooLong, type ComposerDrafts } from './composer-drafts.js';
 import { formatBytes } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
+import { enterSubmits } from './narrow-layout.js';
 import type { ThreadFontSize } from './thread-font.js';
 import type { ComposerPrefill } from './useWorkspace.js';
 import { useComposerAttachments, type Attachment } from './useComposerAttachments.js';
 import { useDragSize } from './useDragSize.js';
+import { useTouch } from './useNarrow.js';
 import { parseStoredSize, readStored, writeStored } from './window-prefs.js';
 import type { AgentConnection } from './connection.js';
 
@@ -177,6 +181,7 @@ export function Composer({
   const [dragging, setDragging] = useState(false);
   const attachments = useComposerAttachments(imagesAllowed);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const touch = useTouch();
 
   // ---- alto del cuadro ----
 
@@ -397,7 +402,8 @@ export function Composer({
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+      // En una pantalla tactil, Enter salta de linea: se manda con el boton (§6.25).
+      if (event.key === 'Enter' && enterSubmits(event, touch)) {
         event.preventDefault();
         submit();
         return;
@@ -407,7 +413,7 @@ export function Composer({
         interrupt();
       }
     },
-    [submit, interrupt],
+    [submit, interrupt, touch],
   );
 
   /*
