@@ -155,6 +155,7 @@
   "composer.placeholder.ended": "Die Sitzung dieses Tabs ist beendet.",
   "composer.placeholder.ready": "Nachricht eingeben.",
   "composer.placeholder.sleeping": "In diesem Tab ist die CLI noch nicht geöffnet.",
+  "composer.problem.draftTooLong": "Diese Nachricht ist zu lang, um als Entwurf gespeichert zu werden: Wenn Sie Agent Workbench schließen, bevor Sie sie senden, geht sie verloren.",
   "composer.problem.empty": "„{{name}}“ ist leer.",
   "composer.problem.imageTooBig": "Das Bild ist {{size}} MB groß; das Maximum sind {{max}} MB.",
   "composer.problem.imageUnreadable": "Das Bild aus der Zwischenablage konnte nicht gelesen werden.",

@@ -37,6 +37,7 @@ import { SessionIndex } from './session-index.js';
 import { SettingsStore } from './settings-store.js';
 import { remoteAccessStartupLine, startupAgentLines, supportStartupLine } from './startup-summary.js';
 import { NotesStore } from './notes-store.js';
+import { DraftStore, workspaceDraftOwners } from './draft-store.js';
 import { locateShell, type ShellLocation } from './shell-locator.js';
 import { watchSessions } from './session-watcher.js';
 import { TerminalRegistry } from './terminal-registry.js';
@@ -348,6 +349,10 @@ async function main(): Promise<void> {
   // primer mensaje de cada socket ya lleva la lista.
   const notes = new NotesStore();
   await notes.load();
+  // Lo escrito y sin mandar en el cuadro de cada pestana (§6.29). Tambien antes
+  // de aceptar conexiones: el primer mensaje de cada socket lleva los suyos.
+  const drafts = new DraftStore();
+  await drafts.load();
   /*
     Las conversaciones siguen cada sesion con el seguidor de su adaptador, y
     avisan que la CLI espera algo con el estado que publica ese mismo adaptador.
@@ -414,6 +419,7 @@ async function main(): Promise<void> {
     index,
     archived,
     notes,
+    drafts,
     conversations,
     repos,
     memory,
@@ -446,6 +452,12 @@ async function main(): Promise<void> {
   */
   if (process.env['AGENT_WORKBENCH_NO_RESTORE'] !== '1') {
     void store.load().then((state) => {
+      /*
+        Un borrador sin pestana en el archivo no lo va a pedir nadie: la cerro
+        una build anterior, que no los borra, o su carpeta ya no existe (§6.29).
+        Sin restaurar no se sabe cuales son, y no se toca ninguno.
+      */
+      drafts.retainOnly(workspaceDraftOwners(state));
       if (state.tabs.length === 0 && state.foreignTabs.length === 0) return;
       if (agents.anyAvailable()) {
         console.log(`Restoring ${state.tabs.length} tab(s) from the previous run...`);
@@ -489,7 +501,7 @@ async function main(): Promise<void> {
     registry.disposeAll();
     remote.dispose();
 
-    void Promise.all([store.flush(), archived.flush(), notes.flush(), remote.flush(), agentsDisposed])
+    void Promise.all([store.flush(), archived.flush(), notes.flush(), drafts.flush(), remote.flush(), agentsDisposed])
       .catch(() => undefined)
       .then(() => closeUi())
       .catch(() => undefined)

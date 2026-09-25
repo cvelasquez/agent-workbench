@@ -38,6 +38,11 @@ change behavior.
   SSH key and a one-time code, and the line that adds that key to
   `authorized_keys`, already restricted to the tunnel. The key is generated in
   memory and never written to disk.
+- **An unsent message survives closing the app.** What you're typing in a
+  tab's message box, pasted text blocks included, is saved a moment after you
+  stop typing and comes back to that tab the next time you open Agent
+  Workbench, or on your phone. Sending the message or closing the tab discards
+  it. Images and attached files aren't kept.
 - **Copy a code block.** Every code block in the conversation, plans, memory
   and file previews has its own copy button, so you can copy just those lines
   instead of the whole message.

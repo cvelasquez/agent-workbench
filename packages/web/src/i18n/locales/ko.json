@@ -148,6 +148,7 @@
   "composer.placeholder.ended": "이 탭의 세션이 종료되었습니다.",
   "composer.placeholder.ready": "메시지를 입력하세요.",
   "composer.placeholder.sleeping": "이 탭에는 아직 CLI가 열려 있지 않습니다.",
+  "composer.problem.draftTooLong": "이 메시지는 너무 길어서 초안으로 저장할 수 없습니다. 보내기 전에 Agent Workbench를 닫으면 사라집니다.",
   "composer.problem.empty": "\"{{name}}\" 파일이 비어 있습니다.",
   "composer.problem.imageTooBig": "이미지 크기는 {{size}} MB입니다. 최대 {{max}} MB까지 가능합니다.",
   "composer.problem.imageUnreadable": "클립보드의 이미지를 읽을 수 없습니다.",

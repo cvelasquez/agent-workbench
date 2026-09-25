@@ -169,6 +169,7 @@
   "composer.placeholder.ended": "Сессия этой вкладки завершена.",
   "composer.placeholder.ready": "Введите сообщение.",
   "composer.placeholder.sleeping": "В этой вкладке CLI ещё не открыт.",
+  "composer.problem.draftTooLong": "Это сообщение слишком длинное, чтобы сохранить его как черновик: если закрыть Agent Workbench до отправки, оно пропадёт.",
   "composer.problem.empty": "Файл «{{name}}» пуст.",
   "composer.problem.imageTooBig": "Размер изображения — {{size}} МБ, максимум — {{max}} МБ.",
   "composer.problem.imageUnreadable": "Не удалось прочитать изображение из буфера обмена.",

@@ -155,6 +155,7 @@
   "composer.placeholder.ended": "La sesión de esta pestaña terminó.",
   "composer.placeholder.ready": "Escribe tu mensaje.",
   "composer.placeholder.sleeping": "Esta pestaña todavía no tiene la CLI abierta.",
+  "composer.problem.draftTooLong": "Este mensaje es demasiado largo para guardarlo como borrador: si cierras Agent Workbench antes de mandarlo, se pierde.",
   "composer.problem.empty": "\"{{name}}\" está vacío.",
   "composer.problem.imageTooBig": "\"la imagen\" pesa {{size}} MB; el máximo son {{max}} MB.",
   "composer.problem.imageUnreadable": "No se pudo leer la imagen del portapapeles.",

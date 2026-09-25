@@ -148,6 +148,7 @@
   "composer.placeholder.ended": "此标签页的会话已结束。",
   "composer.placeholder.ready": "输入消息",
   "composer.placeholder.sleeping": "此标签页尚未打开 CLI。",
+  "composer.problem.draftTooLong": "这条消息太长，无法保存为草稿：如果在发送前关闭 Agent Workbench，它就会丢失。",
   "composer.problem.empty": "“{{name}}”为空。",
   "composer.problem.imageTooBig": "图片大小为 {{size}} MB，上限为 {{max}} MB。",
   "composer.problem.imageUnreadable": "无法读取剪贴板中的图片。",

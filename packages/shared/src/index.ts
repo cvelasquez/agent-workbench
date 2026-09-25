@@ -16,4 +16,5 @@ export * from './remote.js';
 export * from './tab-order.js';
 export * from './server-text.js';
 export * from './pasted-text.js';
+export * from './composer-draft.js';
 export * from './support.js';

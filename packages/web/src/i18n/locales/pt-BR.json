@@ -155,6 +155,7 @@
   "composer.placeholder.ended": "A sessão desta aba terminou.",
   "composer.placeholder.ready": "Digite sua mensagem.",
   "composer.placeholder.sleeping": "Esta aba ainda não está com a CLI aberta.",
+  "composer.problem.draftTooLong": "Esta mensagem é longa demais para ser guardada como rascunho: se você fechar o Agent Workbench antes de enviá-la, ela será perdida.",
   "composer.problem.empty": "\"{{name}}\" está vazio.",
   "composer.problem.imageTooBig": "A imagem tem {{size}} MB; o máximo é {{max}} MB.",
   "composer.problem.imageUnreadable": "Não foi possível ler a imagem da área de transferência.",

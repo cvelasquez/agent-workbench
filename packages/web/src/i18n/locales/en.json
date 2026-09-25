@@ -155,6 +155,7 @@
   "composer.placeholder.ended": "This tab's session has ended.",
   "composer.placeholder.ready": "Type your message.",
   "composer.placeholder.sleeping": "This tab doesn't have the CLI open yet.",
+  "composer.problem.draftTooLong": "This message is too long to keep as a draft: if you close Agent Workbench before sending it, it will be lost.",
   "composer.problem.empty": "\"{{name}}\" is empty.",
   "composer.problem.imageTooBig": "The image is {{size}} MB; the maximum is {{max}} MB.",
   "composer.problem.imageUnreadable": "Couldn't read the image from the clipboard.",

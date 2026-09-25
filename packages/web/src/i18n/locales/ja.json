@@ -148,6 +148,7 @@
   "composer.placeholder.ended": "このタブのセッションは終了しました。",
   "composer.placeholder.ready": "メッセージを入力してください。",
   "composer.placeholder.sleeping": "このタブではまだ CLI が起動していません。",
+  "composer.problem.draftTooLong": "このメッセージは長すぎて下書きとして保存できません。送信する前に Agent Workbench を閉じると失われます。",
   "composer.problem.empty": "「{{name}}」は空です。",
   "composer.problem.imageTooBig": "画像のサイズが {{size}} MB あります。上限は {{max}} MB です。",
   "composer.problem.imageUnreadable": "クリップボードの画像を読み取れませんでした。",

@@ -99,6 +99,16 @@ export function notesImagesDir(): string {
 }
 
 /**
+ * Los borradores del cuadro de escritura (mejoras de la 0.4.0, §6.29): lo
+ * escrito y sin mandar de cada pestana, por su conversacion. Archivo propio por
+ * lo mismo que las notas: `workspace.json` se reescribe con cada cambio de
+ * pestanas, y un borrador cambia con cada pausa del teclado.
+ */
+export function composerDraftsPath(): string {
+  return path.join(appConfigDir(), 'composer-drafts.json');
+}
+
+/**
  * Donde se copia, un instante, el indice de conversaciones de Antigravity CLI
  * para leerlo: una subcarpeta por lectura, que se borra al terminar.
  *

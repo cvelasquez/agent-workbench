@@ -55,6 +55,11 @@
  * semilla de la llave SSH del telefono, dentro del texto del QR-, y por eso va
  * solo al socket que lo pidio, como el codigo.
  *
+ * Y las mejoras de la 0.4.0, sin subir la version: `composer.draft` y
+ * `composer.drafts`, el borrador del cuadro guardado entre arranques (§6.29).
+ * Un servidor anterior rechaza `composer.draft` con `bad-message`; la web solo
+ * lo manda despues de recibir un `composer.drafts`, que ese servidor no manda.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -63,6 +68,7 @@
  */
 
 import type { AgentDefaults } from './agent-controls.js';
+import { parseComposerDraft, type ComposerDraft } from './composer-draft.js';
 import {
   AGENT_IDS,
   SESSION_AGENT_IDS,
@@ -926,6 +932,19 @@ export interface ClientCancelGlobalSearchMessage {
   searchId: string;
 }
 
+/**
+ * Lo escrito en el cuadro de una pestana y todavia no mandado (§6.29), para
+ * que sobreviva a cerrar la app. Llega despues de una pausa del teclado. El
+ * servidor lo guarda por la conversacion de la pestana y no contesta; un
+ * borrador vacio borra el guardado. Solo texto: ninguna ruta, y las imagenes
+ * no viajan.
+ */
+export interface ClientComposerDraftMessage {
+  type: 'composer.draft';
+  terminalId: TerminalId;
+  draft: ComposerDraft;
+}
+
 export type ClientMessage =
   | ClientInputMessage
   | ClientSubmitMessage
@@ -990,7 +1009,8 @@ export type ClientMessage =
   | ClientRemoteDeviceRevokeMessage
   | ClientRemotePhoneStartMessage
   | ClientRemotePhoneCancelMessage
-  | ClientRemoteDeviceForgetSelfMessage;
+  | ClientRemoteDeviceForgetSelfMessage
+  | ClientComposerDraftMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -1524,6 +1544,24 @@ export interface ServerComposerPrefillMessage {
   reason: ComposerPrefillReason;
 }
 
+/** El borrador guardado de una pestana. */
+export interface ComposerDraftEntry {
+  terminalId: TerminalId;
+  draft: ComposerDraft;
+}
+
+/**
+ * Los borradores guardados de las pestanas (§6.29). Al conectar, los de todas
+ * —la lista puede venir vacia: tambien dice que este servidor los guarda—, y
+ * cuando aparecen pestanas, los de esas: la restauracion del arranque llega
+ * despues de que la pagina se conecto. La web los pone en el cuadro de una
+ * pestana que en esta pagina nadie toco; lo escrito aca no se pisa.
+ */
+export interface ServerComposerDraftsMessage {
+  type: 'composer.drafts';
+  drafts: ComposerDraftEntry[];
+}
+
 /**
  * Lo que va encontrando un `search.global` mientras recorre, solo al socket que
  * lo pidio: los aciertos nuevos y cuantas sesiones lleva. Como mucho uno cada
@@ -1658,6 +1696,7 @@ export type ServerMessage =
   | ServerVaultExportedMessage
   | ServerSessionContinuedMessage
   | ServerComposerPrefillMessage
+  | ServerComposerDraftsMessage
   | ServerGlobalSearchProgressMessage
   | ServerGlobalSearchMessage
   | ServerRemoteStatusMessage
@@ -2160,9 +2199,23 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return { type: 'remote.phone.cancel' };
     case 'remote.device.forgetSelf':
       return { type: 'remote.device.forgetSelf' };
+    case 'composer.draft': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const draft = parseComposerDraft(record['draft']);
+      return terminalId === null || draft === null ? null : { type: 'composer.draft', terminalId, draft };
+    }
     default:
       return null;
   }
+}
+
+/** Un borrador de `composer.drafts`, o null si no tiene la forma. */
+function parseComposerDraftEntry(value: unknown): ComposerDraftEntry | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const terminalId = asNonEmptyString(record['terminalId']);
+  const draft = parseComposerDraft(record['draft']);
+  return terminalId === null || draft === null ? null : { terminalId, draft };
 }
 
 /** Entero mayor o igual a cero: una cuenta de turnos. */
@@ -2580,6 +2633,11 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || text === null || reason === null
         ? null
         : { type: 'composer.prefill', terminalId, text, reason };
+    }
+    case 'composer.drafts': {
+      // Uno mal formado se descarta solo: no se lleva los de las demas pestanas.
+      const drafts = asArrayFiltered(record['drafts'], parseComposerDraftEntry);
+      return drafts === null ? null : { type: 'composer.drafts', drafts };
     }
     case 'search.progress': {
       const searchId = asNonEmptyString(record['searchId']);

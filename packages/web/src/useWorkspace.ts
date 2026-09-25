@@ -34,6 +34,7 @@ import {
   type RelaunchPhase,
 } from './agent-ui.js';
 import { AgentConnection, type ConnectionStatus } from './connection.js';
+import { ComposerDrafts } from './composer-drafts.js';
 import { t } from './i18n/index.js';
 import { serverTextMessage } from './i18n/server-text.js';
 import { useLocale } from './i18n/useLocale.js';
@@ -174,6 +175,12 @@ export interface Workspace {
   prefills: readonly ComposerPrefill[];
   /** El cuadro ya aplico ese texto. */
   prefillApplied: (id: number) => void;
+  /**
+   * Lo escrito y sin mandar en el cuadro de cada pestana, en la pagina y en el
+   * servidor (§6.29). Vive aca y no en el cuadro: el cuadro no esta montado sin
+   * pestanas, y los guardados llegan al conectar.
+   */
+  drafts: ComposerDrafts;
 }
 
 const EMPTY_INDEX_STATUS: IndexStatus = { state: 'idle', scannedFiles: 0, totalFiles: 0 };
@@ -192,6 +199,17 @@ function mergeProjects(
 
 export function useWorkspace(): Workspace {
   const connection = useMemo(() => new AgentConnection(), []);
+  const drafts = useMemo(
+    () =>
+      new ComposerDrafts({
+        send: (terminalId, draft) => connection.send({ type: 'composer.draft', terminalId, draft }),
+        connected: () => connection.getStatus() === 'open',
+        setTimer: (callback, ms) => window.setTimeout(callback, ms),
+        clearTimer: (handle) => window.clearTimeout(handle as number),
+        newId: () => crypto.randomUUID(),
+      }),
+    [connection],
+  );
 
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -319,6 +337,8 @@ export function useWorkspace(): Workspace {
 
         case 'terminal.list': {
           setAllTerminals(message.terminals);
+          // Lo escrito en una pestana que ya no esta no se guarda ni se muestra.
+          drafts.retain(message.terminals.map((terminal) => terminal.terminalId));
           const relaunches = advanceRelaunches(relaunchPhases.current, message.terminals);
           const relaunchChanged =
             relaunches.finished.length > 0 ||
@@ -401,6 +421,14 @@ export function useWorkspace(): Workspace {
           });
           break;
         }
+
+        /*
+          Los borradores que guarda el servidor (§6.29): al conectar, y cuando
+          aparecen pestanas. Van al cuadro de las que nadie toco.
+        */
+        case 'composer.drafts':
+          drafts.restore(message.drafts);
+          break;
 
         case 'terminal.opened': {
           // La de verdad ya esta en la lista: la provisional sobra, y sale
@@ -532,7 +560,29 @@ export function useWorkspace(): Workspace {
       offReopen();
       connection.close();
     };
-  }, [connection, dropPending, dropAllPending]);
+  }, [connection, drafts, dropPending, dropAllPending]);
+
+  /*
+    Los borradores del cuadro (§6.29), aparte de la conexion. Al reconectar
+    puede ser otro servidor, y no se le manda ninguno hasta que diga que los
+    guarda. Y si la pagina se cierra, se recarga o queda escondida —el telefono
+    la manda al fondo—, lo que esperaba la pausa del teclado sale ya: cerrar la
+    ventana un segundo despues de escribir no puede perder ese segundo.
+  */
+  useEffect(() => {
+    const offReopen = connection.onReopen(() => drafts.reconnected());
+    const flushDrafts = (): void => drafts.flushAll();
+    const flushWhenHidden = (): void => {
+      if (document.visibilityState === 'hidden') drafts.flushAll();
+    };
+    window.addEventListener('pagehide', flushDrafts);
+    document.addEventListener('visibilitychange', flushWhenHidden);
+    return () => {
+      offReopen();
+      window.removeEventListener('pagehide', flushDrafts);
+      document.removeEventListener('visibilitychange', flushWhenHidden);
+    };
+  }, [connection, drafts]);
 
   // Los plazos de las provisionales no sobreviven al desmontaje.
   useEffect(() => dropAllPending, [dropAllPending]);
@@ -732,5 +782,6 @@ export function useWorkspace(): Workspace {
     dismissHandoff,
     prefills,
     prefillApplied,
+    drafts,
   };
 }

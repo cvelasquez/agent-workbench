@@ -184,6 +184,7 @@ export function App(): JSX.Element {
     dismissHandoff,
     prefills,
     prefillApplied,
+    drafts,
     remoteClient,
   } = workspace;
 
@@ -1221,6 +1222,7 @@ export function App(): JSX.Element {
       {activeTerminal !== null && (
         <Composer
           connection={connection}
+          drafts={drafts}
           terminalId={activeTerminalId}
           alive={activeTerminal.alive}
           sleeping={activeTerminal.sleeping}

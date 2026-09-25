@@ -155,6 +155,7 @@
   "composer.placeholder.ended": "La session de cet onglet est terminée.",
   "composer.placeholder.ready": "Saisissez votre message.",
   "composer.placeholder.sleeping": "La CLI de cet onglet n'est pas encore ouverte.",
+  "composer.problem.draftTooLong": "Ce message est trop long pour être gardé comme brouillon : si vous fermez Agent Workbench avant de l'envoyer, il sera perdu.",
   "composer.problem.empty": "« {{name}} » est vide.",
   "composer.problem.imageTooBig": "L'image fait {{size}} Mo ; le maximum est de {{max}} Mo.",
   "composer.problem.imageUnreadable": "Impossible de lire l'image du presse-papiers.",

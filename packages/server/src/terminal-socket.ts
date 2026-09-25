@@ -18,6 +18,7 @@ import {
   parseClientMessage,
   serverText,
   type AgentDefaults,
+  type ComposerDraftEntry,
   type ContextUsage,
   type PermissionMode,
   type ConversationEvent,
@@ -33,6 +34,7 @@ import {
   type ServerText,
   type SessionPlan,
   type TerminalActivity,
+  type TerminalDescriptor,
   type TerminalOfflineReason,
   type TerminalId,
 } from '@agent-workbench/shared';
@@ -43,6 +45,7 @@ import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
 import { MemoryBridgeError } from './memory-bridge.js';
 import { UnknownTerminalError, type MemoryHub } from './memory-hub.js';
 import { NotesError, type NotesStore } from './notes-store.js';
+import { DraftTabs, draftOwnerOf, type DraftStore } from './draft-store.js';
 import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
 import { listDirectory, readPreview, searchFiles } from './file-browser.js';
@@ -118,6 +121,8 @@ export interface TerminalSocketOptions {
   index: SessionIndex;
   archived: ArchivedSessions;
   notes: NotesStore;
+  /** Los borradores del cuadro de escritura, entre arranques (§6.29). */
+  drafts: DraftStore;
   conversations: ConversationHub;
   repos: RepoHub;
   /** Memoria compartida del proyecto de cada pestana (`memory.*`). */
@@ -147,6 +152,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     index,
     archived,
     notes,
+    drafts,
     conversations,
     repos,
     memory,
@@ -294,9 +300,36 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     return false;
   };
 
+  /** Los borradores guardados de estas pestanas, para `composer.drafts` (§6.29). */
+  const draftEntriesOf = (descriptors: readonly TerminalDescriptor[]): ComposerDraftEntry[] => {
+    const entries: ComposerDraftEntry[] = [];
+    for (const descriptor of descriptors) {
+      const owner = draftOwnerOf(descriptor);
+      const draft = owner === null ? null : drafts.get(owner);
+      if (draft !== null) entries.push({ terminalId: descriptor.terminalId, draft });
+    }
+    return entries;
+  };
+
+  /*
+    Las pestanas de un cambio al siguiente, por su borrador: el de una que
+    aparece va a todas las ventanas —la restauracion del arranque llega despues
+    de que la pagina se conecto—, y el de una que cambia de conversacion se muda
+    con ella, que es con lo que se va a guardar.
+  */
+  const draftTabs = new DraftTabs();
+  draftTabs.update(registry.list());
+
   // ---- eventos del registro y del indice, hacia todos los clientes ----
 
-  const onRegistryChanged = (): void => broadcast(terminalListMessage());
+  const onRegistryChanged = (): void => {
+    const terminals = registry.list();
+    broadcast({ type: 'terminal.list', terminals, order: registry.getOrder() });
+    const { appeared, moved } = draftTabs.update(terminals);
+    for (const { from, to } of moved) drafts.move(from, to);
+    const entries = draftEntriesOf(appeared);
+    if (entries.length > 0) broadcast({ type: 'composer.drafts', drafts: entries });
+  };
 
   const onRegistryExit = (
     terminalId: TerminalId,
@@ -418,7 +451,10 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
    * continuacion que abrio su pestana y no llego a servir. false si ya no estaba.
    */
   const dropTab = (terminalId: TerminalId): boolean => {
+    const draftOwner = draftOwnerOf(registry.get(terminalId));
     if (!registry.close(terminalId)) return false;
+    // Cerrar la pestana es tirar lo que quedo escrito en su cuadro (§6.29).
+    if (draftOwner !== null) drafts.delete(draftOwner);
     // Sin pestana no hay nada que seguir, la mire quien la mire.
     conversations.drop(terminalId);
     repos.drop(terminalId);
@@ -699,6 +735,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     send(socket, { type: 'index.status', status: index.getStatus() });
     send(socket, { type: 'index.projects', projects: index.getProjects(), replace: true });
     send(socket, { type: 'notes.list', notes: notes.list() });
+    /*
+      Los borradores del cuadro de cada pestana (§6.29). Va aunque no haya
+      ninguno: tambien le dice a la pagina que este servidor los guarda, y solo
+      desde ahi manda los suyos.
+    */
+    send(socket, { type: 'composer.drafts', drafts: draftEntriesOf(registry.list()) });
     send(socket, { type: 'vault.status', status: vault.status() });
     if (deviceId === null) send(socket, { type: 'remote.status', status: remote.status() });
 
@@ -752,6 +794,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         */
         case 'agent.submit': {
           const { terminalId, text, images } = message;
+          /*
+            Lo que el cuadro mando ya no es un borrador (§6.29), llegue o no a
+            la CLI: el cuadro se vacio al mandarlo, y lo guardado tiene que decir
+            lo mismo. Si no, volveria al dia siguiente un mensaje ya enviado.
+          */
+          const submittedOwner = draftOwnerOf(registry.get(terminalId));
+          if (submittedOwner !== null) drafts.delete(submittedOwner);
           const files = message.files ?? [];
           if (files.length > MAX_FILES_PER_SUBMIT) {
             sendError(
@@ -1668,6 +1717,20 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             }
           })();
           break;
+
+        /*
+          El borrador del cuadro de una pestana, despues de una pausa del
+          teclado (§6.29). No se contesta. Una consola, o una pestana cuya CLI
+          todavia no dijo su conversacion, no tiene donde guardarlo: lo escrito
+          sigue en el cuadro, y se guarda con la pausa siguiente a que aparezca.
+        */
+        case 'composer.draft': {
+          const owner = draftOwnerOf(registry.get(message.terminalId));
+          if (owner === null) break;
+          const outcome = drafts.save(owner, message.draft);
+          debugLog('drafts', `${message.terminalId.slice(0, 8)}: ${outcome}`);
+          break;
+        }
 
         /*
           Notas sueltas. No van dirigidas a ninguna pestana.

@@ -36,6 +36,7 @@ import {
   referencedPasteNumbers,
   removePasteReferences,
 } from './composer-paste.js';
+import { draftTooLong, type ComposerDrafts } from './composer-drafts.js';
 import { formatBytes } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
@@ -69,21 +70,15 @@ const TEXTAREA_HEIGHT_KEY = 'agent-workbench.composer-height';
  */
 export type ComposerInsert = (text: string, focus: boolean) => void;
 
-/** Lo que queda escrito en una pestana y todavia no se mando. */
-interface Draft {
-  text: string;
-  items: Attachment[];
-}
-
-/**
- * Los borradores, por pestana, **fuera del componente**: cambiar de ancho
- * cambia de cascaron (hito 38, §6.25) y el cuadro se vuelve a montar. Con el
- * mapa adentro, el mensaje a medio escribir se perdia en ese cambio.
- */
-const DRAFTS = new Map<TerminalId, Draft>();
-
 interface ComposerProps {
   connection: AgentConnection;
+  /**
+   * Lo escrito y sin mandar de cada pestana (§6.29), **fuera del componente**:
+   * cambiar de ancho cambia de cascaron (hito 38, §6.25) y el cuadro se vuelve
+   * a montar, y desde las mejoras de la 0.4.0 tambien se guarda en el servidor
+   * para que sobreviva a cerrar la app. Ver `composer-drafts.ts`.
+   */
+  drafts: ComposerDrafts;
   terminalId: TerminalId | null;
   /** false si la pestana no tiene CLI corriendo: no hay a quien escribirle. */
   alive: boolean;
@@ -160,6 +155,7 @@ interface ComposerProps {
 
 export function Composer({
   connection,
+  drafts,
   terminalId,
   alive,
   sleeping = false,
@@ -279,29 +275,59 @@ export function Composer({
 
   const { replace: replaceAttachments } = attachments;
 
+  /*
+    Cada cambio de lo escrito va al borrador de la pestana que se muestra, y de
+    ahi al servidor despues de una pausa del teclado (§6.29).
+
+    Va **antes** del efecto de cambio de pestana, a proposito. Al montar, este
+    corre primero y no hay pestana a la vista todavia; si corriera despues, en
+    la misma pasada veria la pestana nueva con el texto de antes de cargar su
+    borrador —vacio— y lo guardaria encima. Al cambiar de pestana no corre:
+    `text` todavia no cambio, y corre en la pasada siguiente con lo cargado.
+  */
+  useEffect(() => {
+    const current = shown.current;
+    if (current !== null) drafts.put(current, { text, items: attachments.items });
+  }, [text, attachments.items, drafts]);
+
   useEffect(() => {
     const previous = shown.current;
     if (previous === terminalId) return;
     shown.current = terminalId;
 
-    if (previous !== null) {
-      DRAFTS.set(previous, { text: textRef.current, items: itemsRef.current });
-    }
+    if (previous !== null) drafts.put(previous, { text: textRef.current, items: itemsRef.current });
 
-    const draft = terminalId === null ? undefined : DRAFTS.get(terminalId);
+    const draft = terminalId === null ? undefined : drafts.get(terminalId);
     setText(draft?.text ?? '');
     replaceAttachments(draft?.items ?? []);
 
     if (terminalId !== null) textareaRef.current?.focus();
-  }, [terminalId, replaceAttachments]);
+  }, [terminalId, replaceAttachments, drafts]);
 
   // Al desmontar —cambio de cascaron— lo escrito queda guardado para la vuelta.
   useEffect(
     () => () => {
       const current = shown.current;
-      if (current !== null) DRAFTS.set(current, { text: textRef.current, items: itemsRef.current });
+      if (current !== null) drafts.put(current, { text: textRef.current, items: itemsRef.current });
     },
-    [],
+    [drafts],
+  );
+
+  /*
+    Un borrador guardado que llego del servidor (§6.29) —al conectar, o con la
+    restauracion del arranque— para la pestana que se esta mirando. Solo llega
+    si en esta pagina nadie la toco, asi que el cuadro esta vacio: se carga.
+  */
+  useEffect(
+    () =>
+      drafts.onRestored((restored) => {
+        if (restored !== shown.current) return;
+        const draft = drafts.get(restored);
+        if (draft === undefined) return;
+        setText(draft.text);
+        replaceAttachments(draft.items);
+      }),
+    [drafts, replaceAttachments],
   );
 
   /*
@@ -323,15 +349,15 @@ export function Composer({
       if (prefill.terminalId === shown.current) {
         setText((current) => mergePrefill(current, prefill.text));
       } else {
-        const draft = DRAFTS.get(prefill.terminalId);
-        DRAFTS.set(prefill.terminalId, {
+        const draft = drafts.get(prefill.terminalId);
+        drafts.put(prefill.terminalId, {
           text: mergePrefill(draft?.text ?? '', prefill.text),
           items: draft?.items ?? [],
         });
       }
       onPrefillApplied?.(prefill.id);
     }
-  }, [prefills, onPrefillApplied]);
+  }, [prefills, onPrefillApplied, drafts]);
 
   const submit = useCallback(() => {
     if (terminalId === null || blockedReason !== null) return;
@@ -357,10 +383,12 @@ export function Composer({
       images,
       ...(files.length > 0 ? { files } : {}),
     });
+    // Mandado ya no es borrador: el servidor lo borra al recibirlo (§6.29).
+    drafts.submitted(terminalId);
     setText('');
     attachments.clear();
     onSubmitted?.(terminalId);
-  }, [connection, terminalId, text, attachments, blockedReason, onSubmitted]);
+  }, [connection, drafts, terminalId, text, attachments, blockedReason, onSubmitted]);
 
   const interrupt = useCallback(() => {
     if (terminalId === null) return;
@@ -478,6 +506,8 @@ export function Composer({
     attachments.items.some((item) => item.kind !== 'text' || item.text.trim().length > 0);
   const showStop = alive && activity !== 'idle';
   const showSend = hasSomething || !showStop;
+  // Pasado el tope, lo escrito no se guarda para el proximo arranque (§6.29), y se dice.
+  const tooLongToKeep = draftTooLong({ text, items: attachments.items });
 
   return (
     <div
@@ -528,6 +558,12 @@ export function Composer({
           <button className="icon-button" onClick={attachments.dismissProblem} title={t('common.close')}>
             ×
           </button>
+        </div>
+      )}
+
+      {tooLongToKeep && (
+        <div className="composer-problem" role="status">
+          <span>{t('composer.problem.draftTooLong')}</span>
         </div>
       )}
 
