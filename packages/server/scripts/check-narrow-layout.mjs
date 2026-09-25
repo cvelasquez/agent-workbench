@@ -37,6 +37,15 @@ import {
   resolveNarrowView,
   withoutParams,
 } from '../../web/src/narrow-layout.ts';
+import {
+  DRAG_SLOP_PX,
+  MOMENTUM_MAX_VELOCITY,
+  MOMENTUM_MIN_VELOCITY,
+  isDrag,
+  momentumStep,
+  releaseVelocity,
+  wholePixels,
+} from '../../web/src/touch-scroll.ts';
 import { setLocale, t } from '../../web/src/i18n/index.ts';
 
 // Los textos de la interfaz salen de `t()` (§6.23): se comparan con el español.
@@ -121,6 +130,53 @@ const json = (value) => JSON.stringify(value);
     !enterSubmits(key({ ctrlKey: true, shiftKey: true }), true));
 }
 
+// --- 3c. Deslizar el dedo sobre la terminal -----------------------------------------
+{
+  check('un toque que se mueve poco no es un arrastre: sigue abriendo el teclado',
+    !isDrag(0, 0) && !isDrag(DRAG_SLOP_PX - 1, 0) && !isDrag(3, -3) && isDrag(0, DRAG_SLOP_PX + 1) && isDrag(-10, 2));
+  // El dedo sube 300 px en 60 ms: la terminal va hacia el final, como la rueda hacia abajo.
+  const flick = [{ t: 1000, y: 700 }, { t: 1020, y: 600 }, { t: 1040, y: 500 }, { t: 1060, y: 400 }];
+  const up = releaseVelocity(flick, 1065);
+  check('soltar tras un deslizón rápido hacia arriba da velocidad hacia el final', up > 4 && up <= MOMENTUM_MAX_VELOCITY, String(up));
+  const down = releaseVelocity(flick.map((sample) => ({ ...sample, y: 1100 - sample.y })), 1065);
+  check('y hacia abajo, hacia el principio, con la misma rapidez', Math.abs(down + up) < 1e-9, String(down));
+  check('muy rápido no pasa del tope: un dedo no manda miles de líneas',
+    releaseVelocity([{ t: 0, y: 2000 }, { t: 10, y: 0 }], 10) === MOMENTUM_MAX_VELOCITY);
+  check('si el dedo se quedó quieto antes de soltar, no hay inercia', releaseVelocity(flick, 1200) === 0);
+  check('con una sola muestra, tampoco', releaseVelocity([{ t: 0, y: 10 }], 5) === 0 && releaseVelocity([], 5) === 0);
+  check('sólo cuenta el final del gesto: un arranque lento no frena un final rápido',
+    releaseVelocity([{ t: 0, y: 900 }, { t: 500, y: 890 }, ...flick.map((s) => ({ ...s, t: s.t - 400 }))], 665) > 4);
+
+  // La inercia se frena sola, cada vez menos, y siempre termina.
+  let velocity = up;
+  let travelled = 0;
+  let frames = 0;
+  let slowing = true;
+  while (velocity !== 0 && frames < 10_000) {
+    const step = momentumStep(velocity, 16);
+    if (Math.abs(step.velocity) > Math.abs(velocity)) slowing = false;
+    travelled += step.delta;
+    velocity = step.velocity;
+    frames += 1;
+  }
+  check('la inercia avanza en la dirección del gesto, se frena y termina en menos de 4 s',
+    travelled > 300 && slowing && frames < 250 && velocity === 0, `${Math.round(travelled)} px en ${frames} cuadros`);
+  check('por debajo del mínimo no arranca', momentumStep(MOMENTUM_MIN_VELOCITY / 2, 16).velocity === 0);
+  check('un cuadro muy tardío (la pestaña estuvo en segundo plano) no hace saltar la terminal',
+    Math.abs(momentumStep(2, 5000).delta) <= 2 * 50);
+  // xterm redondea el desplazamiento: los restos se juntan para no perder distancia.
+  let carry = 0;
+  let sent = 0;
+  for (let i = 0; i < 12; i++) {
+    const whole = wholePixels(carry + 0.25);
+    sent += whole.pixels;
+    carry = whole.rest;
+  }
+  check('los restos de píxel se acumulan: doce pasos de 0,25 px mandan 3 px', sent === 3 && carry === 0, `${sent} + ${carry}`);
+  const negative = wholePixels(-2.7);
+  check('y hacia atrás igual', negative.pixels === -2 && Math.abs(negative.rest + 0.7) < 1e-9, json(negative));
+}
+
 // --- 4. El CSS de la vista angosta no se sale de sus @media ---------------------
 {
   const css = readFileSync(join(WEB, 'src', 'styles.css'), 'utf8');
@@ -175,6 +231,9 @@ const json = (value) => JSON.stringify(value);
     /\.narrow-pane-veiled,\s*\.narrow-pane-veiled \*\s*\{\s*visibility:\s*hidden !important;\s*pointer-events:\s*none !important;\s*\}/.test(narrow.body));
   check('cada vista apilada es su propia capa: un z-index de adentro no pinta sobre la siguiente',
     /\n  \.narrow-pane \{[^}]*isolation:\s*isolate;/.test(narrow.body));
+  const outside = css.replace(narrow.body, '').replace(touch.body, '');
+  check('la terminal se queda con el gesto del dedo, en cualquier ancho',
+    /\n\.terminal-surface \{[^}]*touch-action:\s*none;/.test(outside));
 }
 
 // --- 4b. La app del teléfono (hito 38, Fase B) -------------------------------------

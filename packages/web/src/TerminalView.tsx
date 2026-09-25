@@ -5,7 +5,8 @@
  * Todo lo que teclea el usuario sale por `onData` de xterm y va al pty sin
  * tocar. Es lo unico que garantiza que Esc, Esc Esc, Ctrl+C, Ctrl+R, Ctrl+O,
  * Shift+Tab, las flechas y Alt+V lleguen intactos a la CLI. Los atajos propios
- * de la app viven fuera de este componente.
+ * de la app viven fuera de este componente. El dedo si tiene manejo propio
+ * (§6.25): se convierte en la rueda del mouse, y lo demas lo decide xterm.
  *
  * Este componente NO es duenio del proceso: se engancha a una terminal que ya
  * existe en el servidor y se desengancha al desmontarse. Si el socket se cae y
@@ -20,6 +21,7 @@ import { Terminal } from '@xterm/xterm';
 import type { TerminalId } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
 import { t } from './i18n/index.js';
+import { isDrag, momentumStep, releaseVelocity, wholePixels, type TouchSample } from './touch-scroll.js';
 
 /** Espera a que el contenedor deje de cambiar de tamano antes de avisar al pty. */
 const RESIZE_DEBOUNCE_MS = 60;
@@ -157,6 +159,44 @@ export function TerminalView({
       connection.send({ type: 'resize', terminalId, cols, rows });
     };
 
+    /*
+      Un cambio de tamano no te saca de donde estabas (§5.6). Medido en el
+      emulador con la app de Android, 25-09-2026:
+
+      - La vista que no se ve queda sin tamano, y el navegador pone en 0 la
+        barra de scroll de xterm sin que xterm se entere: al volver, la barra
+        decia "arriba" y el texto "abajo", y el primer toque saltaba al
+        principio del historial. En la PC pasaba igual al volver a la solapa
+        CLI desde Cambios o Archivos.
+      - Al cerrarse el teclado del telefono la terminal crece (17 a 33 filas), y
+        xterm quedaba 16 lineas arriba del final, sin seguir la salida nueva:
+        habia que escribir algo para que bajara.
+
+      Mientras la caja cambia no se anota nada, porque la posicion que xterm
+      cree tener en ese rato es la rota. Despues del fit se vuelve: al final si
+      estaba al final, o a la misma linea si uno habia subido a leer.
+    */
+    let seen = { atBottom: true, line: 0 };
+    let resizing = false;
+    const rememberPosition = (): void => {
+      if (resizing || !hasBox()) return;
+      const buffer = terminal.buffer.active;
+      seen = { atBottom: buffer.viewportY >= buffer.baseY, line: buffer.viewportY };
+    };
+    const restorePosition = (): void => {
+      const buffer = terminal.buffer.active;
+      if (buffer.baseY === 0) return;
+      const target = seen.atBottom ? buffer.baseY : Math.min(seen.line, buffer.baseY);
+      // Ida y vuelta de una linea: moverse obliga a xterm a volver a poner su
+      // barra donde va, que es lo que el navegador le desacomodo.
+      terminal.scrollToLine(target > 0 ? target - 1 : target + 1);
+      terminal.scrollToLine(target);
+    };
+    // Lo que desplaza el usuario no pasa por `onScroll`, pero se pinta.
+    const renderSubscription = terminal.onRender(rememberPosition);
+    const scrollSubscription = terminal.onScroll(rememberPosition);
+    let boxShown = hasBox();
+
     const fitAndReport = (): void => {
       if (!hasBox()) return;
       try {
@@ -164,6 +204,10 @@ export function TerminalView({
       } catch {
         // El contenedor todavia no tiene tamano. El siguiente evento reintenta.
         return;
+      }
+      if (resizing) {
+        restorePosition();
+        resizing = false;
       }
       if (terminal.cols > 0 && terminal.rows > 0) enableWebglRenderer();
       sendResize(false);
@@ -174,9 +218,143 @@ export function TerminalView({
       resizeTimer = window.setTimeout(fitAndReport, RESIZE_DEBOUNCE_MS);
     };
 
-    const resizeObserver = new ResizeObserver(scheduleFit);
+    const resizeObserver = new ResizeObserver(() => {
+      const shown = hasBox();
+      resizing = true;
+      // Al reaparecer, tambien en el acto: que no se pinte el principio del historial hasta el fit.
+      if (shown && !boxShown) restorePosition();
+      boxShown = shown;
+      scheduleFit();
+    });
     resizeObserver.observe(container);
     window.addEventListener('resize', scheduleFit);
+
+    /*
+      Deslizar el dedo (§6.25): lo mismo que la rueda del mouse en la PC. El
+      manejo propio de xterm movia el historial 1 a 1 y se paraba en seco al
+      soltar (con miles de lineas, leer para atras era casi no moverse), y con
+      una CLI a pantalla completa, o que pidio el mouse, no hacia nada. Cada
+      movimiento va como una rueda a la terminal y xterm decide que es: su
+      historial, flechas o la rueda de la CLI. Al soltar rapido sigue un rato,
+      frenandose (`touch-scroll.ts`). Un toque sin arrastrar no se toca: sigue
+      siendo el clic que enfoca la terminal y abre el teclado.
+
+      Los oyentes van en captura sobre el contenedor: xterm escucha el dedo en
+      su elemento, adentro, y no tiene que enterarse, o desplazaria dos veces.
+    */
+    let drag: {
+      id: number;
+      startX: number;
+      startY: number;
+      lastX: number;
+      lastY: number;
+      moving: boolean;
+      samples: TouchSample[];
+    } | null = null;
+    let momentumFrame = 0;
+    let pendingPixels = 0;
+
+    const scrollByPixels = (amount: number, clientX: number, clientY: number): void => {
+      const target = terminal.element;
+      if (target === undefined) return;
+      const whole = wholePixels(pendingPixels + amount);
+      pendingPixels = whole.rest;
+      if (whole.pixels === 0) return;
+      target.dispatchEvent(
+        new WheelEvent('wheel', {
+          deltaY: whole.pixels,
+          deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+          clientX,
+          clientY,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    };
+
+    const stopMomentum = (): void => {
+      window.cancelAnimationFrame(momentumFrame);
+      momentumFrame = 0;
+    };
+
+    const startMomentum = (velocity: number, clientX: number, clientY: number): void => {
+      let current = velocity;
+      let last = performance.now();
+      const frame = (now: number): void => {
+        if (!hasBox()) {
+          momentumFrame = 0;
+          return;
+        }
+        const step = momentumStep(current, now - last);
+        last = now;
+        scrollByPixels(step.delta, clientX, clientY);
+        current = step.velocity;
+        momentumFrame = current === 0 ? 0 : window.requestAnimationFrame(frame);
+      };
+      momentumFrame = window.requestAnimationFrame(frame);
+    };
+
+    const touchById = (list: TouchList, id: number): Touch | null => {
+      for (let index = 0; index < list.length; index++) {
+        const touch = list.item(index);
+        if (touch !== null && touch.identifier === id) return touch;
+      }
+      return null;
+    };
+
+    const onTouchStart = (event: TouchEvent): void => {
+      stopMomentum();
+      pendingPixels = 0;
+      const touch = event.touches.length === 1 ? event.touches.item(0) : null;
+      drag =
+        touch === null
+          ? null
+          : {
+              id: touch.identifier,
+              startX: touch.clientX,
+              startY: touch.clientY,
+              lastX: touch.clientX,
+              lastY: touch.clientY,
+              moving: false,
+              samples: [{ t: event.timeStamp, y: touch.clientY }],
+            };
+    };
+
+    const onTouchMove = (event: TouchEvent): void => {
+      event.stopPropagation();
+      if (drag === null) return;
+      const touch = touchById(event.touches, drag.id);
+      if (touch === null) return;
+      if (!drag.moving) {
+        if (!isDrag(touch.clientX - drag.startX, touch.clientY - drag.startY)) return;
+        drag.moving = true;
+      }
+      if (event.cancelable) event.preventDefault();
+      const delta = drag.lastY - touch.clientY;
+      drag.lastX = touch.clientX;
+      drag.lastY = touch.clientY;
+      drag.samples.push({ t: event.timeStamp, y: touch.clientY });
+      if (drag.samples.length > 32) drag.samples.shift();
+      scrollByPixels(delta, touch.clientX, touch.clientY);
+    };
+
+    const onTouchEnd = (event: TouchEvent): void => {
+      if (drag === null || touchById(event.changedTouches, drag.id) === null) return;
+      const ended = drag;
+      drag = null;
+      if (!ended.moving) return;
+      const velocity = releaseVelocity(ended.samples, event.timeStamp);
+      if (velocity !== 0) startMomentum(velocity, ended.lastX, ended.lastY);
+    };
+
+    const onTouchCancel = (): void => {
+      drag = null;
+    };
+
+    container.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+    container.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+    container.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+    container.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
 
     /*
       Dos pantallas mirando la misma pestana (hito 37): esta ventana y la del
@@ -258,6 +436,13 @@ export function TerminalView({
       window.removeEventListener('focus', reclaimSize);
       document.removeEventListener('visibilitychange', reclaimSize);
       resizeObserver.disconnect();
+      stopMomentum();
+      container.removeEventListener('touchstart', onTouchStart, { capture: true });
+      container.removeEventListener('touchmove', onTouchMove, { capture: true });
+      container.removeEventListener('touchend', onTouchEnd, { capture: true });
+      container.removeEventListener('touchcancel', onTouchCancel, { capture: true });
+      renderSubscription.dispose();
+      scrollSubscription.dispose();
       dataSubscription.dispose();
       offMessage();
       offReopen();

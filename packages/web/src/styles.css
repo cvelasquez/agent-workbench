@@ -1207,10 +1207,15 @@ kbd {
   Todas las terminales quedan montadas y apiladas. Las inactivas se ocultan con
   `visibility`, no con `display: none`: sin caja no hay medidas, y xterm
   necesita medir para hacer fit. Con display:none la pestana volveria rota.
+
+  El dedo sobre la terminal es de la terminal (§6.25): `TerminalView` lo
+  convierte en la rueda del mouse, y el navegador no intenta desplazar ni hacer
+  zoom con el mismo gesto. Un toque sin arrastrar sigue siendo un clic.
 */
 .terminal-surface {
   position: absolute;
   inset: 6px 8px;
+  touch-action: none;
 }
 
 .terminal-surface-hidden {
