@@ -170,10 +170,15 @@ export function supportStartupLine(): string {
 }
 
 /**
- * La misma linea en amarillo, para que resalte entre las demas (pedido del
- * usuario). Solo cuando la consola dibuja colores: sin terminal, o con
- * `NO_COLOR`, va la lisa, y un log no gana secuencias de escape.
+ * La misma linea con color, para que resalte entre las demas (pedido del
+ * usuario): el rotulo en fucsia, el texto en amarillo y la direccion en azul
+ * subrayado, como un enlace. Solo cuando la consola dibuja colores: sin
+ * terminal, o con `NO_COLOR`, va la lisa, y un log no gana secuencias de escape.
  */
 export function supportStartupLineColored(): string {
-  return `\x1b[33m${supportStartupLine()}\x1b[0m`;
+  return (
+    `  \x1b[95m${SUPPORT_LABEL}\x1b[0m      ` +
+    `\x1b[33mIf Agent Workbench is useful to you, consider supporting it:\x1b[0m ` +
+    `\x1b[4;94m${SUPPORT_URL}\x1b[0m`
+  );
 }
