@@ -1351,12 +1351,19 @@ export function App(): JSX.Element {
               openTerminal({
                 cwd,
                 ...(activeTerminal.agent !== null ? { agent: activeTerminal.agent } : {}),
-                onOpened: (terminal) =>
+                onOpened: (terminal) => {
                   connection.send({
                     type: 'notes.send',
                     noteId,
                     terminalId: terminal.terminalId,
-                  }),
+                  });
+                  /*
+                    En el telefono las notas son una vista entera: la pestana
+                    nueva ya queda activa, pero sin cambiar de vista no se ve si
+                    la nota llego. En la PC el hilo ya esta a la vista.
+                  */
+                  if (narrow) changeNarrowView('chat');
+                },
               });
             }
       }
