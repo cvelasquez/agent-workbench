@@ -375,6 +375,8 @@
   "mode.default.label": "Manual",
   "mode.plan.hint": "Investiga e propõe um plano, sem mexer em nada até você aprová-lo",
   "mode.plan.label": "Planejamento",
+  "narrow.keys.ctrlO": "Ctrl+O (no Claude Code, expande o que aparece cortado)",
+  "narrow.keys.ctrlX": "Ctrl+X",
   "narrow.keys.down": "Seta para baixo",
   "narrow.keys.esc": "Escape",
   "narrow.keys.interrupt": "Ctrl+C: interromper",

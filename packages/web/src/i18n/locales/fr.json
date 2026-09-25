@@ -375,6 +375,8 @@
   "mode.default.label": "Manuel",
   "mode.plan.hint": "Analyse et propose un plan, sans rien toucher tant que vous ne l'avez pas approuvé",
   "mode.plan.label": "Plan",
+  "narrow.keys.ctrlO": "Ctrl+O (dans Claude Code, déplie ce qui est tronqué)",
+  "narrow.keys.ctrlX": "Ctrl+X",
   "narrow.keys.down": "Flèche vers le bas",
   "narrow.keys.esc": "Échap",
   "narrow.keys.interrupt": "Ctrl+C : interrompre",

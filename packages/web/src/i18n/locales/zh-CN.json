@@ -355,6 +355,8 @@
   "mode.default.label": "手动",
   "mode.plan.hint": "调研并提出计划，在你批准之前不做任何改动",
   "mode.plan.label": "计划",
+  "narrow.keys.ctrlO": "Ctrl+O（在 Claude Code 中展开被截断的内容）",
+  "narrow.keys.ctrlX": "Ctrl+X",
   "narrow.keys.down": "下箭头",
   "narrow.keys.esc": "Escape",
   "narrow.keys.interrupt": "Ctrl+C：中断",

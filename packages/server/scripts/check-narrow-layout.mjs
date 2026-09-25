@@ -93,14 +93,18 @@ const json = (value) => JSON.stringify(value);
 // --- 3. La fila de teclas -----------------------------------------------------------
 {
   const byId = new Map(TERMINAL_KEYS.map((key) => [key.id, key]));
-  check('ocho teclas, cada una con su secuencia',
-    TERMINAL_KEYS.length === 8 && TERMINAL_KEYS.every((key) => key.data.length > 0 && key.label.length > 0) &&
-    new Set(TERMINAL_KEYS.map((key) => key.id)).size === 8);
+  check('diez teclas, cada una con su secuencia',
+    TERMINAL_KEYS.length === 10 && TERMINAL_KEYS.every((key) => key.data.length > 0 && key.label.length > 0) &&
+    new Set(TERMINAL_KEYS.map((key) => key.id)).size === 10);
   check('Esc, Tab y Shift+Tab mandan lo que manda un teclado',
     byId.get('esc')?.data === '\x1b' && byId.get('tab')?.data === '\t' && byId.get('shift-tab')?.data === '\x1b[Z');
   check('las flechas, en la forma que leen las CLIs',
     byId.get('up')?.data === '\x1b[A' && byId.get('down')?.data === '\x1b[B' && byId.get('left')?.data === '\x1b[D' && byId.get('right')?.data === '\x1b[C');
   check('Ctrl+C es el byte 3', byId.get('interrupt')?.data === '\x03');
+  check('Ctrl+O y Ctrl+X son los bytes 15 y 24, detrás de Ctrl+C',
+    byId.get('ctrl-o')?.data === '\x0f' && byId.get('ctrl-x')?.data === '\x18' &&
+    byId.get('ctrl-o')?.label === '^O' && byId.get('ctrl-x')?.label === '^X' &&
+    json(TERMINAL_KEYS.slice(-3).map((key) => key.id)) === json(['interrupt', 'ctrl-o', 'ctrl-x']));
   check('cada tecla tiene su texto', TERMINAL_KEYS.every((key) => t(key.titleKey).length > 0));
 }
 

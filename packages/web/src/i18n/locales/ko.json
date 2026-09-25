@@ -355,6 +355,8 @@
   "mode.default.label": "수동",
   "mode.plan.hint": "조사한 뒤 계획을 제안하며, 승인하기 전까지 아무것도 변경하지 않습니다",
   "mode.plan.label": "계획",
+  "narrow.keys.ctrlO": "Ctrl+O (Claude Code에서는 생략된 내용을 펼칩니다)",
+  "narrow.keys.ctrlX": "Ctrl+X",
   "narrow.keys.down": "아래쪽 화살표",
   "narrow.keys.esc": "Escape",
   "narrow.keys.interrupt": "Ctrl+C: 중단",

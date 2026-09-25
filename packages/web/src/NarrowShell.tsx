@@ -108,7 +108,8 @@ interface NarrowShellProps {
   panel: ReactNode;
   notes: ReactNode;
   console: ReactNode;
-  onTerminalKey: (data: string) => void;
+  /** La fila de teclas, hacia la terminal que se ve (CLI o Consola). null: sin fila. */
+  onTerminalKey: ((data: string) => void) | null;
 }
 
 type Sheet = 'tabs' | 'menu' | null;
@@ -282,7 +283,7 @@ export function NarrowShell({
           <div className={`narrow-pane${view === 'notes' ? '' : ' narrow-pane-hidden'}`}>{notes}</div>
           <div className={`narrow-pane${view === 'console' ? '' : ' narrow-pane-hidden'}`}>{consolePane}</div>
         </div>
-        {view === 'cli' && <TerminalKeys onKey={onTerminalKey} />}
+        {onTerminalKey !== null && <TerminalKeys onKey={onTerminalKey} />}
       </div>
 
       {drawerOpen && (

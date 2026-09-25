@@ -415,6 +415,8 @@
   "mode.default.label": "Ручной",
   "mode.plan.hint": "Изучает задачу и предлагает план, ничего не меняя, пока вы его не одобрите",
   "mode.plan.label": "План",
+  "narrow.keys.ctrlO": "Ctrl+O (в Claude Code разворачивает сокращённый вывод)",
+  "narrow.keys.ctrlX": "Ctrl+X",
   "narrow.keys.down": "Стрелка вниз",
   "narrow.keys.esc": "Escape",
   "narrow.keys.interrupt": "Ctrl+C: прервать",

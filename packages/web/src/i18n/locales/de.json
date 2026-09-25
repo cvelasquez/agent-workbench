@@ -375,6 +375,8 @@
   "mode.default.label": "Manuell",
   "mode.plan.hint": "Recherchiert und schlägt einen Plan vor, ohne etwas anzufassen, bis Sie ihn genehmigen",
   "mode.plan.label": "Plan",
+  "narrow.keys.ctrlO": "Strg+O (in Claude Code klappt es Gekürztes aus)",
+  "narrow.keys.ctrlX": "Strg+X",
   "narrow.keys.down": "Pfeil nach unten",
   "narrow.keys.esc": "Escape",
   "narrow.keys.interrupt": "Strg+C: unterbrechen",

@@ -355,6 +355,8 @@
   "mode.default.label": "手動",
   "mode.plan.hint": "調査してプランを提案します。承認されるまで何も変更しません",
   "mode.plan.label": "プラン",
+  "narrow.keys.ctrlO": "Ctrl+O（Claude Code では省略された部分を展開します）",
+  "narrow.keys.ctrlX": "Ctrl+X",
   "narrow.keys.down": "下矢印",
   "narrow.keys.esc": "Escape",
   "narrow.keys.interrupt": "Ctrl+C：中断",

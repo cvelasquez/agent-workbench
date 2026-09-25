@@ -125,11 +125,25 @@ export interface TerminalKey {
 }
 
 /**
- * Las teclas que el teclado de un teléfono no trae. Ctrl no es un modificador
- * de la fila: aplicarlo a la siguiente letra del teclado en pantalla exigiría
- * interceptar lo que teclea xterm, y las dos combinaciones que las CLIs usan
- * de verdad son Ctrl+C y Shift+Tab, que van como teclas propias.
+ * Las teclas que el teclado de un teléfono no trae, en la vista CLI y en la
+ * Consola. Ctrl no es un modificador de la fila: aplicarlo a la siguiente letra
+ * del teclado en pantalla exigiría interceptar lo que teclea xterm. Las
+ * combinaciones que se usan de verdad van como teclas propias: Shift+Tab,
+ * Ctrl+C, y desde el 25-09-2026 Ctrl+O y Ctrl+X, a pedido del usuario.
  */
+export const TERMINAL_KEYS: readonly TerminalKey[] = [
+  { id: 'esc', label: 'Esc', data: '\x1b', titleKey: 'narrow.keys.esc' },
+  { id: 'tab', label: 'Tab', data: '\t', titleKey: 'narrow.keys.tab' },
+  { id: 'shift-tab', label: '⇧Tab', data: '\x1b[Z', titleKey: 'narrow.keys.shiftTab' },
+  { id: 'up', label: '↑', data: '\x1b[A', titleKey: 'narrow.keys.up' },
+  { id: 'down', label: '↓', data: '\x1b[B', titleKey: 'narrow.keys.down' },
+  { id: 'left', label: '←', data: '\x1b[D', titleKey: 'narrow.keys.left' },
+  { id: 'right', label: '→', data: '\x1b[C', titleKey: 'narrow.keys.right' },
+  { id: 'interrupt', label: '^C', data: '\x03', titleKey: 'narrow.keys.interrupt' },
+  { id: 'ctrl-o', label: '^O', data: '\x0f', titleKey: 'narrow.keys.ctrlO' },
+  { id: 'ctrl-x', label: '^X', data: '\x18', titleKey: 'narrow.keys.ctrlX' },
+];
+
 // ---- La app del teléfono (hito 38, Fase B) ---------------------------------------
 
 /**
@@ -176,14 +190,3 @@ export function narrowBackAction(state: {
   if (state.view !== 'chat') return 'show-chat';
   return null;
 }
-
-export const TERMINAL_KEYS: readonly TerminalKey[] = [
-  { id: 'esc', label: 'Esc', data: '\x1b', titleKey: 'narrow.keys.esc' },
-  { id: 'tab', label: 'Tab', data: '\t', titleKey: 'narrow.keys.tab' },
-  { id: 'shift-tab', label: '⇧Tab', data: '\x1b[Z', titleKey: 'narrow.keys.shiftTab' },
-  { id: 'up', label: '↑', data: '\x1b[A', titleKey: 'narrow.keys.up' },
-  { id: 'down', label: '↓', data: '\x1b[B', titleKey: 'narrow.keys.down' },
-  { id: 'left', label: '←', data: '\x1b[D', titleKey: 'narrow.keys.left' },
-  { id: 'right', label: '→', data: '\x1b[C', titleKey: 'narrow.keys.right' },
-  { id: 'interrupt', label: '^C', data: '\x03', titleKey: 'narrow.keys.interrupt' },
-];

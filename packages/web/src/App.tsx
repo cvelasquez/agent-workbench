@@ -338,14 +338,6 @@ export function App(): JSX.Element {
     });
   }, [connection, setActiveTerminal]);
 
-  /** Una tecla de la fila de la vista CLI (hito 38): a la pty, como si la hubiera tecleado xterm. */
-  const sendTerminalKey = useCallback(
-    (data: string) => {
-      if (activeTerminalId !== null) connection.send({ type: 'input', terminalId: activeTerminalId, data });
-    },
-    [connection, activeTerminalId],
-  );
-
   /*
     El buscador global (hito 29), sobre la copia. Solo con otra CLI y con algo
     en la copia: si no, la barra es la de siempre. El texto que un acierto deja
@@ -523,6 +515,21 @@ export function App(): JSX.Element {
 
   const activeShell =
     consoleShells.find((shell) => shell.terminalId === activeShellId) ?? consoleShells[0] ?? null;
+
+  /*
+    La fila de teclas de la vista angosta (hito 38): a la pty que se ve, como si
+    la hubiera tecleado xterm. En la vista CLI, la de la pestana; desde el
+    25-09-2026 tambien en la Consola, a su shell: sin ella no habia como cortar
+    un comando desde el telefono. Sin terminal a la vista, no hay fila.
+  */
+  const terminalKeyTarget =
+    narrowView === 'cli' ? activeTerminalId : narrowView === 'console' ? (activeShell?.terminalId ?? null) : null;
+  const sendTerminalKey = useCallback(
+    (data: string) => {
+      if (terminalKeyTarget !== null) connection.send({ type: 'input', terminalId: terminalKeyTarget, data });
+    },
+    [connection, terminalKeyTarget],
+  );
 
   /*
     Que se suscribe y cuando.
@@ -1639,7 +1646,7 @@ export function App(): JSX.Element {
           panel={sidePanelElement}
           notes={notesElement}
           console={consoleElement}
-          onTerminalKey={sendTerminalKey}
+          onTerminalKey={terminalKeyTarget === null ? null : sendTerminalKey}
         />
         {dialogs}
       </div>

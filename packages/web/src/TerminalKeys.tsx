@@ -1,5 +1,6 @@
 /**
- * La fila de teclas de la vista CLI en pantalla angosta (hito 38, §6.25).
+ * La fila de teclas de la vista CLI en pantalla angosta (hito 38, §6.25), y
+ * desde el 25-09-2026 también de la Consola.
  *
  * El teclado de un teléfono no trae Esc, Tab ni flechas, y sin ellas una CLI
  * no se puede ni interrumpir. Cada botón manda por el mismo `input` que xterm
