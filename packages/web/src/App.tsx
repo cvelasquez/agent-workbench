@@ -51,6 +51,7 @@ import { useNotes } from './useNotes.js';
 import { THEME_ICON, themeTitle, useTheme } from './useTheme.js';
 import { useNotificationSound } from './useNotificationSound.js';
 import { useThreadFont } from './useThreadFont.js';
+import { useThreadSignals } from './useThreadSignals.js';
 import { NotifyButton, SoundControl } from './SoundControl.js';
 import { tabNameFor } from './system-notification.js';
 import { useRemoteAccess } from './useRemoteAccess.js';
@@ -542,6 +543,11 @@ export function App(): JSX.Element {
     delante, que es un lector de directorios del lado del servidor.
   */
   const conversation = useConversation(connection, activeTerminalId);
+  /*
+    La fila de estado del hilo (§6.30): el acuse de cada envio y cuando empezo a
+    trabajar cada pestana. De todas, no solo de la que se mira.
+  */
+  const threadSignals = useThreadSignals(connection, activity);
   /*
     En la vista angosta (hito 38) no hay panel que abrir: los contadores de la
     tira necesitan git y la memoria siempre, y los archivos, con su vista.
@@ -1219,6 +1225,9 @@ export function App(): JSX.Element {
           onConfigureStatusLine={
             activeStatusLine === null ? undefined : () => setStatusLineDialogVisible(true)
           }
+          activity={activeActivity}
+          receipt={activeTerminalId === null ? null : (threadSignals.receipts.get(activeTerminalId) ?? null)}
+          busySince={activeTerminalId === null ? null : (threadSignals.busySince.get(activeTerminalId) ?? null)}
         />
       )}
     </div>
@@ -1241,8 +1250,17 @@ export function App(): JSX.Element {
           onPrefillApplied={prefillApplied}
           notice={handoffNotice}
           onDismissNotice={activeTerminalId === null ? undefined : () => dismissHandoff(activeTerminalId)}
-          /* El aviso de una continuacion dura hasta el primer envio de esa pestana. */
-          onSubmitted={dismissHandoff}
+          /*
+            El aviso de una continuacion dura hasta el primer envio de esa
+            pestana. Y el envio se sigue hasta su acuse (§6.30): lo que llegue
+            al hilo despues del ultimo evento de ahora es la respuesta.
+          */
+          onSubmitted={(terminalId, requestId) => {
+            dismissHandoff(terminalId);
+            const { events } = conversation;
+            const lastEvent = terminalId === activeTerminalId ? events[events.length - 1] : undefined;
+            threadSignals.track(terminalId, requestId, lastEvent?.eventId ?? null);
+          }}
           fontSize={threadFont.size}
           insertRef={composerInsertRef}
           leading={

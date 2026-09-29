@@ -31,7 +31,7 @@ the app touching it.
 | **Tabs** | Several live sessions at once, from any of the CLIs, each in its own directory. They survive an `F5`: the processes live on the server, not in the browser tab. Each tab's dot tells you whether the agent is working, idle or waiting for an answer, on the CLIs that publish their status ([below](#multiple-clis)). |
 | **Zero-cost startup** | When you open the app, tabs come back as **sleeping tabs**: you can read them in full, and they don't launch any CLI. You open the CLI with a button when you want to write to the agent. |
 | **History** | Your projects and past conversations in the sidebar, with a filter, and those of all four CLIs together under each project, each with its badge. Opening one resumes it with its CLI, in the same session. **Archive history…** hides a CLI's sessions from before today in one go, and each project can be archived whole with one button: nothing is deleted, and both can be undone. |
-| **Conversation** | The active session's messages, live, with tool calls collapsed and their results inside. Search, jump between matches, copy any message or code block and, depending on the CLI, answer the agent's questions from the chat. |
+| **Conversation** | The active session's messages, live, with tool calls collapsed and their results inside. A row at the bottom tells you when your message reached the CLI, whether the agent is working and, with Claude Code, which subagents are still at it after the agent finished its turn. Search, jump between matches and back to the end, copy any message or code block and, depending on the CLI, answer the agent's questions from the chat. |
 | **Continue with…** | With more than one CLI installed, a conversation can be continued with another CLI in the same folder. The new agent starts from a transcript of the last turns, not from the context the previous one had. |
 | **Search everything** | With more than one CLI and something saved in the local copy, the sidebar filter also searches the text of every saved conversation, not just their titles. |
 | **Context meter** | Tokens from the last request against the model's context window. Tokens, never money. |
@@ -383,7 +383,9 @@ The app captures exactly those combinations and no others. `Shift+Tab` only
 when focus isn't on the terminal, because inside it's the key the CLI uses to
 switch modes. Everything else —`Esc`, `Esc Esc`, `Ctrl+C`, `Ctrl+R`, `Ctrl+O`,
 the arrow keys and above all `Alt+V`, which pastes images— reaches the CLI
-untouched.
+untouched. `Ctrl+V` too: that's how Claude Code pastes images. Only in the
+console at the bottom, on Windows, `Ctrl+V` pastes text, as in Windows
+Terminal.
 
 ---
 

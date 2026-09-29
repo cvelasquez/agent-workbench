@@ -4,6 +4,26 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## Unreleased
+
+### Added
+
+- **A status row under the conversation.** It shows when a message you sent
+  is on its way and when it reached the CLI, and whether the agent is working,
+  with how long it has been at it. With a CLI that doesn't report its state
+  (Codex), it says the message was delivered and there's no reply yet. With
+  Claude Code it also lists the subagents still working in the background:
+  the agent may have finished its own turn while it waits for them.
+- **Jump to the end of the conversation.** A round ↓ button appears when you
+  scroll up or jump to a search result, and counts the messages that arrived
+  in the meantime.
+
+### Fixed
+
+- **Ctrl+V pastes in the console** (PowerShell) on Windows. It reached the
+  shell as a key PowerShell ignores, and only right-click pasted. The agent's
+  terminal still gets `Ctrl+V` as a key: that's how Claude Code pastes images.
+
 ## 0.4.0 — 2026-09-25
 
 ### Added

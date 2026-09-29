@@ -44,6 +44,7 @@ import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
 import { enterSubmits } from './narrow-layout.js';
 import type { ThreadFontSize } from './thread-font.js';
+import { newSubmitRequestId } from './thread-status.js';
 import type { ComposerPrefill } from './useWorkspace.js';
 import { useComposerAttachments, type Attachment } from './useComposerAttachments.js';
 import { useDragSize } from './useDragSize.js';
@@ -143,8 +144,11 @@ interface ComposerProps {
    */
   notice?: { text: string; status: string | null } | null;
   onDismissNotice?: () => void;
-  /** Se mando algo desde el cuadro de esa pestana. */
-  onSubmitted?: (terminalId: TerminalId) => void;
+  /**
+   * Se mando algo desde el cuadro de esa pestana. `requestId` es el del envio:
+   * el servidor contesta con el si llego a la CLI (§6.30).
+   */
+  onSubmitted?: (terminalId: TerminalId, requestId: string) => void;
   /**
    * El tamano de letra del hilo, que el cuadro comparte (§6.22). Solo para
    * volver a medir el alto cuando cambia.
@@ -380,19 +384,22 @@ export function Composer({
     const body = assembleMessage(folded, text);
     if (body.length === 0 && images.length === 0 && files.length === 0) return;
 
-    // `files` solo viaja si hay: sin adjuntos el mensaje es el de siempre.
+    // `files` solo viaja si hay: sin adjuntos el mensaje es el de siempre. El
+    // `requestId` es para saber si llego a la CLI (§6.30).
+    const requestId = newSubmitRequestId();
     connection.send({
       type: 'agent.submit',
       terminalId,
       text: body,
       images,
       ...(files.length > 0 ? { files } : {}),
+      requestId,
     });
     // Mandado ya no es borrador: el servidor lo borra al recibirlo (§6.29).
     drafts.submitted(terminalId);
     setText('');
     attachments.clear();
-    onSubmitted?.(terminalId);
+    onSubmitted?.(terminalId, requestId);
   }, [connection, drafts, terminalId, text, attachments, blockedReason, onSubmitted]);
 
   const interrupt = useCallback(() => {

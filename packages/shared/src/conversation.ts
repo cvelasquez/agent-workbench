@@ -327,6 +327,31 @@ export interface ConversationEvent {
 }
 
 /**
+ * Un subagente que la conversacion lanzo y que todavia no termino (§4.15).
+ *
+ * Existe por el que corre en segundo plano: el agente principal cierra su turno
+ * y queda esperandolo, y el hilo parecia terminado. No es una tarjeta —la
+ * llamada que lo lanzo ya se dibuja—: es un estado, y viaja entero cada vez que
+ * cambia (`conversation.subagents`).
+ */
+export interface ConversationSubagent {
+  /** El `tool_use` que lo lanzo. */
+  toolUseId: string;
+  /** La descripcion corta que le puso el agente, recortada. Puede ser vacia. */
+  description: string;
+  /** true si corre en segundo plano: el agente principal puede terminar antes. */
+  background: boolean;
+  /** Epoch ms del lanzamiento. 0 si la linea no traia hora. */
+  startedAt: number;
+}
+
+/** Tope de la descripcion de un subagente. Es una etiqueta, no un texto. */
+export const MAX_SUBAGENT_DESCRIPTION = 120;
+
+/** Cuantos subagentes viajan como mucho. Mas que eso no se lee en una fila. */
+export const MAX_REPORTED_SUBAGENTS = 20;
+
+/**
  * Medidor de contexto.
  *
  * Tokens, nunca dinero: los precios cambian y una cifra desactualizada es peor
@@ -611,6 +636,23 @@ export function parseConversationEvent(value: unknown): ConversationEvent | null
     effort: asString(record['effort']),
     durationMs: asFiniteNumber(record['durationMs']),
     queued: record['queued'] === true,
+  };
+}
+
+export function parseConversationSubagent(value: unknown): ConversationSubagent | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+
+  const toolUseId = asNonEmptyString(record['toolUseId']);
+  const description = asString(record['description']);
+  const startedAt = asFiniteNumber(record['startedAt']);
+  if (toolUseId === null || description === null || startedAt === null) return null;
+
+  return {
+    toolUseId,
+    description: description.slice(0, MAX_SUBAGENT_DESCRIPTION),
+    background: record['background'] === true,
+    startedAt,
   };
 }
 

@@ -23,6 +23,7 @@ import {
   type PermissionMode,
   type ConversationEvent,
   type ConversationState,
+  type ConversationSubagent,
   type GitStatus,
   type ImageReferenceStyle,
   type IndexStatus,
@@ -400,6 +401,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   const onConversationToolCall = (terminalId: TerminalId, open: boolean): void =>
     broadcast({ type: 'conversation.toolCall', terminalId, open });
 
+  /*
+    Los subagentes que siguen trabajando cambiaron (§4.15). El hilo lo muestra
+    cuando el agente principal ya termino su turno y queda esperandolos.
+  */
+  const onConversationSubagents = (terminalId: TerminalId, subagents: ConversationSubagent[]): void =>
+    broadcast({ type: 'conversation.subagents', terminalId, subagents });
+
   const onConversationPlans = (terminalId: TerminalId, plans: SessionPlan[]): void =>
     broadcast({ type: 'conversation.plans', terminalId, plans });
 
@@ -518,6 +526,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         // El de ahora y no el del snapshot: leer la configuracion es asincrono,
         // y un aviso que salio mientras tanto no puede quedar pisado por uno viejo.
         openToolCall: conversations.isToolCallOpen(terminalId),
+        subagents: conversations.getSubagents(terminalId),
       });
     });
   };
@@ -533,6 +542,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('mode', onConversationMode);
   conversations.on('waiting', onConversationWaiting);
   conversations.on('toolCall', onConversationToolCall);
+  conversations.on('subagents', onConversationSubagents);
   conversations.on('turns', onConversationTurns);
   conversations.on('plans', onConversationPlans);
   conversations.on('parts', onConversationParts);
@@ -795,6 +805,17 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'agent.submit': {
           const { terminalId, text, images } = message;
           /*
+            Con `requestId`, el envio se contesta una sola vez (§6.30): entregado
+            si se escribio hasta el Enter, no entregado por cualquier otra
+            salida. El motivo de un rechazo sigue llegando en su `error`.
+          */
+          let settled = false;
+          const settle = (delivered: boolean): void => {
+            if (settled || message.requestId === undefined) return;
+            settled = true;
+            send(socket, { type: 'agent.submitted', terminalId, requestId: message.requestId, delivered });
+          };
+          /*
             Lo que el cuadro mando ya no es un borrador (§6.29), llegue o no a
             la CLI: el cuadro se vacio al mandarlo, y lo guardado tiene que decir
             lo mismo. Si no, volveria al dia siguiente un mensaje ya enviado.
@@ -808,6 +829,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               'submit-failed',
               serverText('filesPerMessage', { max: MAX_FILES_PER_SUBMIT }),
             );
+            settle(false);
             break;
           }
           if (images.length > MAX_IMAGES_PER_SUBMIT) {
@@ -816,6 +838,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               'submit-failed',
               serverText('imagesPerMessage', { max: MAX_IMAGES_PER_SUBMIT }),
             );
+            settle(false);
             break;
           }
           // Sin imagenes no hay nada que comprobar: el texto va igual.
@@ -823,6 +846,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             images.length > 0 &&
             imageStyleFor(socket, terminalId, serverText('imagesUnsupported')) === null
           ) {
+            settle(false);
             break;
           }
 
@@ -870,6 +894,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             });
             if (refusal !== null) {
               sendError(socket, 'submit-failed', refusal);
+              settle(false);
               break;
             }
           }
@@ -968,6 +993,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 approvalGuard,
                 { startAfterMs },
               );
+              settle(outcome === 'written');
               if (outcome === 'interrupted') interrupted();
               if (outcome === 'blocked') {
                 const waitingNow = blocksWhileWaiting && registry.activityOf(terminalId) === 'waiting';
@@ -985,7 +1011,10 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               }
             },
             { onDropped: interrupted },
-          );
+          )
+            // La fila resuelve siempre, tambien si el trabajo lanzo o se descarto:
+            // lo que no llego al Enter se contesta como no entregado.
+            .then(() => settle(false));
           break;
         }
 
@@ -1399,6 +1428,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               defaults: await defaultsFor(message.terminalId),
               waitingFor: snapshot.waitingFor,
               openToolCall: conversations.isToolCallOpen(message.terminalId),
+              subagents: conversations.getSubagents(message.terminalId),
             });
             // Los planes van en su propio mensaje y no dentro del reset: la
             // conversacion se rehace muchas veces —cada `conversation.reset`—
@@ -2196,6 +2226,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('mode', onConversationMode);
     conversations.off('waiting', onConversationWaiting);
     conversations.off('toolCall', onConversationToolCall);
+    conversations.off('subagents', onConversationSubagents);
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);
     stopAgentChanges();

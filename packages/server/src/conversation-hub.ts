@@ -28,6 +28,7 @@ import {
   type ConversationQuestionPart,
   type ConversationImageSource,
   type ConversationState,
+  type ConversationSubagent,
   type PermissionMode,
   type PlanContent,
   type SessionId,
@@ -78,8 +79,18 @@ export interface ConversationSnapshot {
   waitingFor: string | null;
   /** Ver `Entry.openToolCall`. */
   openToolCall: boolean;
+  /** Ver `Entry.subagents`. */
+  subagents: ConversationSubagent[];
   /** Planes que esta conversacion escribio, los mas nuevos primero. */
   plans: SessionPlan[];
+}
+
+/** true si las dos listas dicen lo mismo: los mismos, en el mismo orden y modo. */
+function sameSubagents(a: readonly ConversationSubagent[], b: readonly ConversationSubagent[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((item, index) => item.toolUseId === b[index]?.toolUseId && item.background === b[index]?.background)
+  );
 }
 
 interface Entry {
@@ -165,6 +176,12 @@ interface Entry {
    */
   openToolCall: boolean;
   /**
+   * Los subagentes del proceso vivo que siguen trabajando, lo ultimo avisado
+   * (§4.15). Se recalcula igual que `openToolCall`: despues de cada lectura y
+   * cuando la pty se lanza o termina. Sin pty, ninguno: murieron con ella.
+   */
+  subagents: ConversationSubagent[];
+  /**
    * true desde que la lectura inicial —la silenciosa— esta en la cadena. Antes
    * de eso una lectura con aviso mandaria por evento lo mismo que despues va en
    * el snapshot, y el cliente lo veria dos veces.
@@ -193,6 +210,8 @@ export interface ConversationHubEvents {
   waiting: (terminalId: TerminalId, waitingFor: string | null) => void;
   /** Cambio `openToolCall` de la pestana. Solo pestanas cuyo estado no se ve. */
   toolCall: (terminalId: TerminalId, open: boolean) => void;
+  /** Cambiaron los subagentes que siguen trabajando. Va la lista entera. */
+  subagents: (terminalId: TerminalId, subagents: ConversationSubagent[]) => void;
   append: (
     terminalId: TerminalId,
     events: ConversationEvent[],
@@ -243,11 +262,15 @@ export class ConversationHub extends EventEmitter {
     registry.on('session', (terminalId) => void this.rebind(terminalId));
     /*
       Lanzar o terminar una pty cambia contra que proceso se mide una llamada
-      abierta: la de un proceso anterior quedo huerfana. `changed` llega en los
-      dos casos, y recalcular es recorrer un mapa chico por pestana seguida.
+      abierta: la de un proceso anterior quedo huerfana. Y los subagentes, que
+      mueren con el proceso sin avisar (§4.15). `changed` llega en los dos
+      casos, y recalcular es recorrer un mapa chico por pestana seguida.
     */
     registry.on('changed', () => {
-      for (const [terminalId, entry] of this.entries) this.refreshOpenToolCall(terminalId, entry);
+      for (const [terminalId, entry] of this.entries) {
+        this.refreshOpenToolCall(terminalId, entry);
+        this.refreshSubagents(terminalId, entry);
+      }
     });
   }
 
@@ -286,6 +309,7 @@ export class ConversationHub extends EventEmitter {
         usage: { ...EMPTY_CONTEXT_USAGE },
         waitingFor: null,
         openToolCall: false,
+        subagents: [],
         plans: [],
       };
     }
@@ -331,6 +355,7 @@ export class ConversationHub extends EventEmitter {
       permissionMode: entry.observedMode ?? entry.assumedMode,
       waitingFor: entry.waitingFor,
       openToolCall: entry.openToolCall,
+      subagents: entry.subagents,
       plans:
         plans === null
           ? []
@@ -402,6 +427,7 @@ export class ConversationHub extends EventEmitter {
       waitingFor: null,
       statusActivity: null,
       openToolCall: false,
+      subagents: [],
       primed: false,
       stopWatchingStatus: null,
       followTicker: null,
@@ -446,6 +472,28 @@ export class ConversationHub extends EventEmitter {
     if (open === entry.openToolCall) return;
     entry.openToolCall = open;
     this.emit('toolCall', terminalId, open);
+  }
+
+  /**
+   * Recalcula los subagentes que siguen trabajando y avisa si cambiaron
+   * (§4.15). Solo los del proceso vivo: sin pty no queda ninguno, y los de un
+   * proceso anterior murieron con el sin escribir el aviso de fin. Una CLI cuyo
+   * seguidor no los declara no tiene nunca.
+   */
+  private refreshSubagents(terminalId: TerminalId, entry: Entry): void {
+    const launchedAt = this.registry.launchedAtOf(terminalId);
+    const next =
+      launchedAt === null || entry.follower.runningSubagents === undefined
+        ? []
+        : [...entry.follower.runningSubagents(launchedAt)];
+    if (sameSubagents(next, entry.subagents)) return;
+    entry.subagents = next;
+    this.emit('subagents', terminalId, next);
+  }
+
+  /** Los subagentes que siguen trabajando, lo ultimo avisado. [] si nadie sigue la pestana. */
+  getSubagents(terminalId: TerminalId): ConversationSubagent[] {
+    return this.entries.get(terminalId)?.subagents ?? [];
   }
 
   /**
@@ -661,6 +709,7 @@ export class ConversationHub extends EventEmitter {
       permissionMode: this.resetMode(entry),
       waitingFor: entry.waitingFor,
       openToolCall: entry.openToolCall,
+      subagents: entry.subagents,
       // Este snapshot es sincronico y describir un plan pide el disco. Quien
       // necesita los planes usa `subscribe`, que si puede esperar.
       plans: [],
@@ -842,9 +891,10 @@ export class ConversationHub extends EventEmitter {
       /*
         Tambien en la lectura silenciosa: el snapshot que sale de ella lo lleva
         adentro, y el aviso suelto que puede salir aca antes es inofensivo —dice
-        lo mismo que el snapshot que llega detras—.
+        lo mismo que el snapshot que llega detras—. Los subagentes, igual.
       */
       this.refreshOpenToolCall(terminalId, entry);
+      this.refreshSubagents(terminalId, entry);
 
       if (options.silent) return;
 

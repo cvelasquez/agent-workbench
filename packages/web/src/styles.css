@@ -1980,6 +1980,121 @@ kbd {
   margin: 20px 4px;
 }
 
+/*
+  El marco del hilo: lo que se desplaza y, encima, el boton de ir al final
+  (§6.30). El boton no puede vivir adentro de lo que se desplaza: se iria con
+  el texto.
+*/
+.conversation-scroll-frame {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+  Ir al final, como en la CLI. Redondo y flotando sobre la esquina: tapa un
+  poco del hilo, pero solo mientras el final no esta a la vista.
+*/
+.conversation-jump {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.conversation-jump:hover,
+.conversation-jump.has-unseen {
+  border-color: var(--accent);
+}
+
+.conversation-jump:hover {
+  color: var(--accent);
+}
+
+.conversation-jump-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/*
+  La fila de estado (§6.30): si lo mandado llego, si la CLI trabaja, y los
+  subagentes que siguen. Mismo sitio que la barra de "esperando", fuera del
+  desplazamiento, pero en tono neutro: informa, no pide nada.
+*/
+.thread-status {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--chrome-alt);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.thread-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.thread-status-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.thread-status-working .thread-status-text,
+.thread-status-sending .thread-status-text {
+  color: var(--text);
+}
+
+.thread-status-check {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.thread-status-sending-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  animation: waiting-pulse 1.6s ease-in-out infinite;
+}
+
+/* Los subagentes laten igual, pero en gris: no son el agente que uno le habla. */
+.thread-status-subagent-mark i {
+  background: var(--text-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-status-sending-dot {
+    animation: none;
+  }
+}
+
 
 /* ---------- tamano de letra del hilo (hito 33, §6.22) ---------- */
 

@@ -22,6 +22,7 @@ import {
   type ConversationEvent,
   type ConversationPart,
   type ConversationState,
+  type ConversationSubagent,
   type PermissionMode,
 } from '@agent-workbench/shared';
 import {
@@ -36,6 +37,7 @@ import type { EventPage, FollowOptions, PartsUpdate, PollResult, TurnUpdate } fr
 import { JsonlFollower, type EventLookup, type JsonlLineSink } from '../jsonl-follower.js';
 import { TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import { ModelVariantRegistry } from './model-variants.js';
+import { SubagentTracker } from './subagent-tracker.js';
 
 /**
  * Cuantos eslabones de la cadena de adjuntos se recuerdan.
@@ -131,6 +133,12 @@ export class ConversationFollower implements JsonlLineSink {
    */
   private permissionMode: PermissionMode | null = null;
 
+  /**
+   * Los subagentes que no terminaron (§4.15). Mira lineas que no son tarjetas
+   * —el aviso de fin es una `queue-operation`—, asi que va antes de todo filtro.
+   */
+  private readonly subagents = new SubagentTracker();
+
   /** Los topes de cada parte. Los de transporte salvo que se lea para la copia propia. */
   private readonly limits: EventLimits;
 
@@ -220,6 +228,11 @@ export class ConversationFollower implements JsonlLineSink {
     return this.usage;
   }
 
+  /** Los subagentes del proceso de `launchedAt` que siguen trabajando (§4.15). */
+  runningSubagents(launchedAt: number): ConversationSubagent[] {
+    return this.subagents.running(launchedAt);
+  }
+
   /** Ultimos `limit` eventos, que es lo que se quiere ver al abrir el panel. */
   getTail(limit: number): EventPage {
     return this.jsonl.getTail(limit);
@@ -277,6 +290,7 @@ export class ConversationFollower implements JsonlLineSink {
     this.permissionMode = null;
     this.attachmentRoots.clear();
     this.planFiles = [];
+    this.subagents.reset();
   }
 
   /** true si la linea es la invocacion de `/model` que la CLI guarda. */
@@ -299,6 +313,8 @@ export class ConversationFollower implements JsonlLineSink {
     lineNumber: number,
     events: EventLookup,
   ): ConversationEvent | null {
+    this.subagents.observe(record);
+
     /*
       `cost-state` no es una tarjeta de la conversacion, pero es la unica linea
       que nombra el modelo con su variante. Se mira antes de descartarla.

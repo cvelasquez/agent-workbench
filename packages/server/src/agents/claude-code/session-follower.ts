@@ -22,6 +22,7 @@ import {
   type ContextUsage,
   type ConversationImageSource,
   type ConversationState,
+  type ConversationSubagent,
   type PermissionMode,
 } from '@agent-workbench/shared';
 import type { EventPage, FollowOptions, LoadedImage, PollResult, SessionFollower } from '../adapter.js';
@@ -160,5 +161,10 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
    */
   hasOpenToolCall(): boolean {
     return false;
+  }
+
+  /** Los subagentes del proceso de `launchedAt` que siguen trabajando (§4.15). */
+  runningSubagents(launchedAt: number): readonly ConversationSubagent[] {
+    return this.inner.runningSubagents(launchedAt);
   }
 }

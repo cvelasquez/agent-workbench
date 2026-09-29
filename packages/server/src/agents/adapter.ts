@@ -29,6 +29,7 @@ import type {
   ConversationImageSource,
   ConversationPart,
   ConversationState,
+  ConversationSubagent,
   EnvironmentNoticeId,
   ImageReferenceStyle,
   PermissionMode,
@@ -365,6 +366,16 @@ export interface SessionFollower {
    * pestana ya publico algo (hito 27, R27-1).
    */
   hasOpenToolCall(launchedAt: number): boolean;
+  /**
+   * Los subagentes lanzados por el proceso de `launchedAt` (epoch ms) o despues
+   * que todavia no terminaron, en orden de lanzamiento (§4.15).
+   *
+   * Uno de un proceso anterior murio con el y no va a avisar nunca que termino:
+   * sin el corte quedaria "trabajando" para siempre. Ausente: la CLI no dice
+   * cuando termina un subagente, y el hilo no muestra ninguno. Hoy solo lo
+   * declara Claude Code, que es la que se midio.
+   */
+  runningSubagents?(launchedAt: number): readonly ConversationSubagent[];
 }
 
 /**

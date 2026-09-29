@@ -60,6 +60,12 @@
  * Un servidor anterior rechaza `composer.draft` con `bad-message`; la web solo
  * lo manda despues de recibir un `composer.drafts`, que ese servidor no manda.
  *
+ * Y las mejoras del hilo, sin subir la version (§6.30): `requestId` en
+ * `agent.submit` y su respuesta `agent.submitted`, que dice si el mensaje llego
+ * a la CLI; y `conversation.subagents`, con `subagents` en `conversation.reset`,
+ * los subagentes que siguen trabajando (§4.15). Un servidor anterior no contesta
+ * ni manda nada de eso, y la web lo lleva como "sin acuse" y "sin subagentes".
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -82,15 +88,18 @@ import {
   parseContextUsage,
   parseConversationEvent,
   parseConversationPart,
+  parseConversationSubagent,
   parsePlanContent,
   parseSessionPlan,
   CONVERSATION_IMAGE_SOURCES,
   CONVERSATION_STATES,
+  MAX_REPORTED_SUBAGENTS,
   type ContextUsage,
   type ConversationEvent,
   type ConversationImageSource,
   type ConversationPart,
   type ConversationState,
+  type ConversationSubagent,
   type PlanContent,
   type SessionPlan,
 } from './conversation.js';
@@ -247,6 +256,11 @@ export interface ClientSubmitMessage {
   files?: SubmitFile[];
   /** false para dejarlo escrito en el prompt sin enviarlo. */
   send?: boolean;
+  /**
+   * Con el, el servidor contesta una sola vez con `agent.submitted`: si el
+   * mensaje llego a la CLI o no (§6.30). Ausente, no contesta nada, como antes.
+   */
+  requestId?: string;
 }
 
 /**
@@ -1198,6 +1212,39 @@ export interface ServerConversationResetMessage {
    * lo manda equivale a false.
    */
   openToolCall: boolean;
+  /**
+   * Los subagentes de este proceso que siguen trabajando. Ver
+   * `conversation.subagents`. Un servidor que no lo manda equivale a ninguno.
+   */
+  subagents: ConversationSubagent[];
+}
+
+/**
+ * Los subagentes que siguen trabajando cambiaron (§4.15, §6.30).
+ *
+ * Va la lista entera: son pocos y de cuatro campos, y asi el cliente no tiene
+ * nada que fusionar. La calcula el servidor porque depende de lineas que no son
+ * eventos —el aviso de que uno termino— y de cuando se lanzo el proceso de
+ * ahora: uno de un proceso anterior murio con el y no avisa nunca.
+ */
+export interface ServerConversationSubagentsMessage {
+  type: 'conversation.subagents';
+  terminalId: TerminalId;
+  subagents: ConversationSubagent[];
+}
+
+/**
+ * Como termino un `agent.submit` que traia `requestId` (§6.30). Solo al socket
+ * que lo mando, y una sola vez.
+ *
+ * `delivered` es que se escribio en la CLI hasta el Enter. false es que no se
+ * escribio entero: el motivo ya llego en su `error`, si lo hubo.
+ */
+export interface ServerAgentSubmittedMessage {
+  type: 'agent.submitted';
+  terminalId: TerminalId;
+  requestId: string;
+  delivered: boolean;
 }
 
 /**
@@ -1672,6 +1719,8 @@ export type ServerMessage =
   | ServerConversationModeMessage
   | ServerConversationWaitingMessage
   | ServerConversationToolCallMessage
+  | ServerConversationSubagentsMessage
+  | ServerAgentSubmittedMessage
   | ServerConversationPageMessage
   | ServerConversationStateMessage
   | ServerConversationTurnsMessage
@@ -1803,6 +1852,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       }
       // Ausente significa enviar: dejarlo escrito es el caso raro.
       if (record['send'] === false) message.send = false;
+      const requestId = asNonEmptyString(record['requestId']);
+      if (requestId !== null) message.requestId = requestId;
       return message;
     }
     case 'agent.mode': {
@@ -2236,6 +2287,14 @@ function withMemoryRequestId<T extends { requestId?: string }>(
   return message;
 }
 
+/**
+ * La lista de subagentes que siguen trabajando, filtrada y con tope. null si no
+ * es una lista. Uno que este lado no entiende se descarta solo.
+ */
+function parseSubagentList(value: unknown): ConversationSubagent[] | null {
+  return asArrayFiltered(value, parseConversationSubagent)?.slice(0, MAX_REPORTED_SUBAGENTS) ?? null;
+}
+
 export function parseServerMessage(raw: string): ServerMessage | null {
   const record = asRecord(parseJson(raw));
   if (record === null) return null;
@@ -2366,7 +2425,24 @@ export function parseServerMessage(raw: string): ServerMessage | null {
             waitingFor: asNonEmptyString(record['waitingFor']),
             // Ausente es false: un servidor anterior no bloquea nada.
             openToolCall: record['openToolCall'] === true,
+            // Ausente es ninguno: un servidor anterior no los sigue.
+            subagents: parseSubagentList(record['subagents']) ?? [],
           };
+    }
+    case 'conversation.subagents': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const subagents = parseSubagentList(record['subagents']);
+      return terminalId === null || subagents === null
+        ? null
+        : { type: 'conversation.subagents', terminalId, subagents };
+    }
+    case 'agent.submitted': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const delivered = asBoolean(record['delivered']);
+      return terminalId === null || requestId === null || delivered === null
+        ? null
+        : { type: 'agent.submitted', terminalId, requestId, delivered };
     }
     case 'conversation.append': {
       const terminalId = asNonEmptyString(record['terminalId']);

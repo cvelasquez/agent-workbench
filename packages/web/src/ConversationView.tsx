@@ -38,9 +38,11 @@ import type {
   ConversationImageSource,
   ConversationPart,
   ConversationQuestionPart,
+  ConversationSubagent,
   ConversationToolResultPart,
   ContextWindowSource,
   StatusLineState,
+  TerminalActivity,
   TerminalId,
 } from '@agent-workbench/shared';
 import {
@@ -53,6 +55,13 @@ import {
 } from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
 import { threadFontTitle } from './thread-font.js';
+import {
+  mainStatusText,
+  mainThreadStatus,
+  subagentsText,
+  type MainStatus,
+  type SubmitReceipt,
+} from './thread-status.js';
 import type { ThreadFontState } from './useThreadFont.js';
 import { ContinueButton } from './ContinueButton.js';
 import { pastedLineCount, splitPastedBlocks } from './composer-paste.js';
@@ -336,6 +345,12 @@ interface ConversationViewProps {
   searchRequest?: { query: string; seq: number } | null;
   /** El pedido ya se aplico: quien lo guarda lo suelta. */
   onSearchRequestApplied?: (seq: number) => void;
+  /** Que hace la CLI de la pestana, para la fila de estado (§6.30). */
+  activity?: TerminalActivity | null;
+  /** El ultimo envio del cuadro de esta pestana, con su acuse (§6.30). */
+  receipt?: SubmitReceipt | null;
+  /** Cuando se vio empezar a trabajar a la CLI de esta pestana, o null (§6.30). */
+  busySince?: number | null;
 }
 
 export function ConversationView({
@@ -361,6 +376,9 @@ export function ConversationView({
   onContinue,
   searchRequest = null,
   onSearchRequestApplied,
+  activity = null,
+  receipt = null,
+  busySince = null,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -368,6 +386,7 @@ export function ConversationView({
     defaults,
     state,
     waitingFor,
+    subagents,
     hasMore,
     loadingMore,
     loadMore,
@@ -396,6 +415,14 @@ export function ConversationView({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef(new Map<string, HTMLElement>());
   const stickToBottom = useRef(true);
+  /*
+    "Ir al final" (§6.30), como en la CLI: aparece cuando el final no esta a la
+    vista —se subio a leer, o se salto a un acierto del buscador— y cuenta lo
+    que llego mientras tanto. Es un boton y no un atajo: toda tecla nueva se le
+    quita a la CLI o al cuadro (§5.0).
+  */
+  const [awayFromEnd, setAwayFromEnd] = useState(false);
+  const [unseen, setUnseen] = useState(0);
 
   const { cards, results } = useMemo(() => {
     const resultsByTool = new Map<string, ConversationToolResultPart>();
@@ -469,7 +496,18 @@ export function ConversationView({
   */
   useLayoutEffect(() => {
     stickToBottom.current = true;
+    setAwayFromEnd(false);
+    setUnseen(0);
   }, [terminalId]);
+
+  /** Mide si el final esta a la vista. No toca `stickToBottom`, que es del usuario. */
+  const measureEnd = useCallback(() => {
+    const container = scrollRef.current;
+    if (container === null) return;
+    const away = container.scrollHeight - container.scrollTop - container.clientHeight > STICK_TO_BOTTOM_PX;
+    setAwayFromEnd(away);
+    if (!away) setUnseen(0);
+  }, []);
 
   /**
    * Pegado al final solo si el usuario ya estaba ahi.
@@ -479,15 +517,45 @@ export function ConversationView({
    */
   useLayoutEffect(() => {
     const container = scrollRef.current;
-    if (container === null || !stickToBottom.current || needle.length > 0) return;
-    container.scrollTop = container.scrollHeight;
-  }, [cards.length, needle]);
+    if (container !== null && stickToBottom.current && needle.length === 0) {
+      container.scrollTop = container.scrollHeight;
+    }
+    // Lo nuevo puede haber empujado el final fuera de la vista sin que nadie desplazara.
+    measureEnd();
+  }, [cards.length, needle, measureEnd]);
+
+  /*
+    Lo que llega mientras la vista no sigue al final: se subio a leer, o hay una
+    busqueda. Solo lo que se agrega al final: "cargar anteriores" suma arriba y
+    no es nuevo.
+  */
+  const lastCardId = useRef<string | null>(null);
+  useEffect(() => {
+    const lastId = cards[cards.length - 1]?.event.eventId ?? null;
+    const previousId = lastCardId.current;
+    lastCardId.current = lastId;
+    if (previousId === null || lastId === previousId) return;
+    if (stickToBottom.current && needle.length === 0) return;
+    const index = cards.findIndex((card) => card.event.eventId === previousId);
+    if (index !== -1) setUnseen((count) => count + (cards.length - 1 - index));
+    // Cambiar la busqueda no agrega nada: el ultimo es el mismo y sale arriba.
+  }, [cards, needle]);
 
   const onScroll = useCallback(() => {
     const container = scrollRef.current;
     if (container === null) return;
     const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
     stickToBottom.current = distance <= STICK_TO_BOTTOM_PX;
+    measureEnd();
+  }, [measureEnd]);
+
+  const jumpToEnd = useCallback(() => {
+    const container = scrollRef.current;
+    if (container === null) return;
+    container.scrollTop = container.scrollHeight;
+    stickToBottom.current = true;
+    setAwayFromEnd(false);
+    setUnseen(0);
   }, []);
 
   const registerCard = useCallback((eventId: string, element: HTMLElement | null) => {
@@ -594,77 +662,51 @@ export function ConversationView({
         />
       </div>
 
-      <div className="conversation-scroll" ref={scrollRef} onScroll={onScroll}>
-        {hasMore && (
-          <button className="conversation-more" onClick={loadMore} disabled={loadingMore}>
-            {loadingMore ? t('thread.loadingMore') : t('thread.loadEarlier')}
-          </button>
-        )}
+      <div className="conversation-scroll-frame">
+        <div className="conversation-scroll" ref={scrollRef} onScroll={onScroll}>
+          {hasMore && (
+            <button className="conversation-more" onClick={loadMore} disabled={loadingMore}>
+              {loadingMore ? t('thread.loadingMore') : t('thread.loadEarlier')}
+            </button>
+          )}
 
-        {cards.length === 0 && (
-          <p className="conversation-empty">
-            {state === 'unavailable'
-              ? t('thread.empty.unavailable')
-              : state === 'no-transcript'
-                ? noTranscriptText()
-                : state === 'waiting'
-                  ? t('thread.empty.waiting')
-                  : t('thread.empty.noMessages')}
-            {/*
-              Una CLI que pone el id ella misma: la pestana todavia no tiene
-              sesion y por eso tampoco esta en la barra lateral. Se dice debajo
-              del texto de siempre, sin estado nuevo: para el usuario es la misma
-              espera.
-            */}
-            {state === 'waiting' && discovering && (
-              <>
-                <br />
-                {discoveringHint()}
-              </>
-            )}
-          </p>
-        )}
+          {cards.length === 0 && (
+            <p className="conversation-empty">
+              {state === 'unavailable'
+                ? t('thread.empty.unavailable')
+                : state === 'no-transcript'
+                  ? noTranscriptText()
+                  : state === 'waiting'
+                    ? t('thread.empty.waiting')
+                    : t('thread.empty.noMessages')}
+              {/*
+                Una CLI que pone el id ella misma: la pestana todavia no tiene
+                sesion y por eso tampoco esta en la barra lateral. Se dice debajo
+                del texto de siempre, sin estado nuevo: para el usuario es la misma
+                espera.
+              */}
+              {state === 'waiting' && discovering && (
+                <>
+                  <br />
+                  {discoveringHint()}
+                </>
+              )}
+            </p>
+          )}
 
-        {blocks.map((block) => {
-          if (block.kind === 'card') {
-            return (
-              <MessageBlock
-                key={block.card.event.eventId}
-                card={block.card}
-                results={results}
-                needle={needle}
-                isMatch={block.card.event.eventId === activeMatchId}
-                copied={copiedId === block.card.event.eventId}
-                images={images}
-                onRequestImage={requestImage}
-                onCopy={() => copyCard(block.card)}
-                onRewind={onRewind}
-                register={registerCard}
-                answered={answered}
-                answerFailed={answerFailed}
-                answerable={questionsAnswerable}
-                onAnswer={answer}
-              />
-            );
-          }
-
-          // Una tanda se abre sola si adentro esta lo que se busca: encontrar
-          // algo escondido no sirve de nada.
-          const hit = block.cards.some((card) => matched.has(card.event.eventId));
-
-          return (
-            <ToolGroup key={block.id} summary={block.summary} at={block.at} open={hit}>
-              {block.cards.map((card) => (
+          {blocks.map((block) => {
+            if (block.kind === 'card') {
+              return (
                 <MessageBlock
-                  key={card.event.eventId}
-                  card={card}
+                  key={block.card.event.eventId}
+                  card={block.card}
                   results={results}
                   needle={needle}
-                  isMatch={card.event.eventId === activeMatchId}
-                  copied={copiedId === card.event.eventId}
+                  isMatch={block.card.event.eventId === activeMatchId}
+                  copied={copiedId === block.card.event.eventId}
                   images={images}
                   onRequestImage={requestImage}
-                  onCopy={() => copyCard(card)}
+                  onCopy={() => copyCard(block.card)}
                   onRewind={onRewind}
                   register={registerCard}
                   answered={answered}
@@ -672,11 +714,60 @@ export function ConversationView({
                   answerable={questionsAnswerable}
                   onAnswer={answer}
                 />
-              ))}
-            </ToolGroup>
-          );
-        })}
+              );
+            }
+
+            // Una tanda se abre sola si adentro esta lo que se busca: encontrar
+            // algo escondido no sirve de nada.
+            const hit = block.cards.some((card) => matched.has(card.event.eventId));
+
+            return (
+              <ToolGroup key={block.id} summary={block.summary} at={block.at} open={hit}>
+                {block.cards.map((card) => (
+                  <MessageBlock
+                    key={card.event.eventId}
+                    card={card}
+                    results={results}
+                    needle={needle}
+                    isMatch={card.event.eventId === activeMatchId}
+                    copied={copiedId === card.event.eventId}
+                    images={images}
+                    onRequestImage={requestImage}
+                    onCopy={() => copyCard(card)}
+                    onRewind={onRewind}
+                    register={registerCard}
+                    answered={answered}
+                    answerFailed={answerFailed}
+                    answerable={questionsAnswerable}
+                    onAnswer={answer}
+                  />
+                ))}
+              </ToolGroup>
+            );
+          })}
+        </div>
+        {awayFromEnd && (
+          <button
+            className={`conversation-jump${unseen > 0 ? ' has-unseen' : ''}`}
+            onClick={jumpToEnd}
+            title={unseen > 0 ? t('thread.jumpToEndNew', { count: unseen }) : t('thread.jumpToEnd')}
+            aria-label={unseen > 0 ? t('thread.jumpToEndNew', { count: unseen }) : t('thread.jumpToEnd')}
+          >
+            <span aria-hidden="true">↓</span>
+            {unseen > 0 && <span className="conversation-jump-count">{unseen > 99 ? '99+' : unseen}</span>}
+          </button>
+        )}
       </div>
+
+      <ThreadStatusBar
+        live={cliPresence === 'live' && serverClosed === null}
+        activity={activity}
+        waitingFor={waitingFor}
+        receipt={receipt}
+        events={events}
+        busySince={busySince}
+        subagents={subagents}
+      />
 
       {serverClosed !== null && (serverClosed.state === 'relaunching' || cliPresence === 'live') ? (
         <ServerClosedBar text={serverClosed.text} relaunching={serverClosed.state === 'relaunching'} onRelaunch={onWakeCli} />
@@ -690,6 +781,90 @@ export function ConversationView({
         <WakeBar presence={cliPresence} exitCode={exitCode} waking={waking} onWake={onWakeCli} />
       )}
     </div>
+  );
+}
+
+/** Cada cuanto se redibuja la fila de estado mientras cuenta tiempo. */
+const STATUS_TICK_MS = 1_000;
+
+/**
+ * La fila de estado, entre el hilo y las barras de abajo (§6.30): si lo que se
+ * mando llego a la CLI, si esta trabajando, y que subagentes siguen andando.
+ *
+ * Va fuera del desplazamiento, como la barra de "esperando": se ve aunque uno
+ * haya subido a leer. Cuenta el tiempo con su propio reloj, para que el hilo
+ * entero no se redibuje cada segundo.
+ */
+function ThreadStatusBar({
+  live,
+  activity,
+  waitingFor,
+  receipt,
+  events,
+  busySince,
+  subagents,
+}: {
+  live: boolean;
+  activity: TerminalActivity | null;
+  waitingFor: string | null;
+  receipt: SubmitReceipt | null;
+  events: readonly ConversationEvent[];
+  busySince: number | null;
+  subagents: readonly ConversationSubagent[];
+}): JSX.Element | null {
+  const [, setTick] = useState(0);
+  // La hora se lee en cada dibujo: el reloj de abajo solo obliga a dibujar.
+  const now = Date.now();
+  const main = mainThreadStatus({ live, activity, waitingFor, receipt, events, busySince, now });
+  // Sin CLI no queda ninguno: murieron con ella.
+  const running = live ? subagents : [];
+  const visible = main !== null || running.length > 0;
+
+  useEffect(() => {
+    if (!visible) return;
+    const timer = window.setInterval(() => setTick((tick) => tick + 1), STATUS_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [visible]);
+
+  if (!visible) return null;
+  return (
+    <div className="thread-status">
+      {main !== null && (
+        <div className={`thread-status-row thread-status-${main.kind}`}>
+          <StatusMark kind={main.kind} />
+          <span className="thread-status-text">{mainStatusText(main, now)}</span>
+        </div>
+      )}
+      {running.length > 0 && (
+        <div className="thread-status-row thread-status-subagents">
+          <span className="tab-working thread-status-subagent-mark" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="thread-status-text">{subagentsText(running, now)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** La marca de la fila: puntos que laten si algo avanza, un tilde si llego. */
+function StatusMark({ kind }: { kind: MainStatus['kind'] }): JSX.Element {
+  if (kind === 'working') {
+    return (
+      <span className="tab-working" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+    );
+  }
+  if (kind === 'sending') return <span className="thread-status-sending-dot" aria-hidden="true" />;
+  return (
+    <span className="thread-status-check" aria-hidden="true">
+      ✓
+    </span>
   );
 }
 

@@ -304,7 +304,7 @@ function toPart(
 }
 
 /** Epoch ms del `timestamp` ISO, o 0 si la linea no lo trae. */
-function readTimestamp(value: unknown): number {
+export function readTimestamp(value: unknown): number {
   if (typeof value !== 'string') return 0;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -431,7 +431,7 @@ export interface UserImageAttachment {
   filename: string;
 }
 
-function recordOf(value: unknown): Record<string, unknown> | null {
+export function recordOf(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;

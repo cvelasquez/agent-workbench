@@ -18,6 +18,7 @@ import {
   type ConversationEvent,
   type ConversationImageSource,
   type ConversationState,
+  type ConversationSubagent,
   type AnswerSelection,
   type PermissionMode,
   type TerminalId,
@@ -46,6 +47,7 @@ const ANSWER_CONFIRM_MS = 20_000;
 /** Objetos vacios estables: devolver `{}` nuevo en cada render redibuja todo. */
 const NO_ANSWERS: Record<string, AnswerSelection[]> = {};
 const NO_FAILURES: Record<string, string> = {};
+const NO_SUBAGENTS: ConversationSubagent[] = [];
 
 export interface ConversationFeed {
   events: ConversationEvent[];
@@ -77,6 +79,11 @@ export interface ConversationFeed {
    * calcula el servidor (`conversation.toolCall`).
    */
   openToolCall: boolean;
+  /**
+   * Los subagentes del proceso vivo que siguen trabajando (§4.15). Lo calcula
+   * el servidor (`conversation.subagents`); vacio con una CLI que no los sigue.
+   */
+  subagents: ConversationSubagent[];
   /**
    * Lo que la configuracion anuncia, para cuando el archivo todavia no dijo
    * nada. Es provisional: en cuanto llega una respuesta manda lo observado.
@@ -152,6 +159,7 @@ export function useConversation(
   const [permissionMode, setPermissionModeState] = useState<PermissionMode | null>(null);
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const [openToolCall, setOpenToolCall] = useState(false);
+  const [subagents, setSubagents] = useState<ConversationSubagent[]>(NO_SUBAGENTS);
 
   /*
     Lo respondido y lo que fallo, **indexado por pestana**.
@@ -284,6 +292,7 @@ export function useConversation(
     setPermissionModeState(null);
     setWaitingFor(null);
     setOpenToolCall(false);
+    setSubagents(NO_SUBAGENTS);
     requested.current.clear();
     oldestEventId.current = null;
 
@@ -297,6 +306,7 @@ export function useConversation(
           setPermissionModeState(message.permissionMode);
           setWaitingFor(message.waitingFor);
           setOpenToolCall(message.openToolCall);
+          setSubagents(message.subagents);
           setState(message.state);
           setHasMore(message.hasMore);
           setLoadingMore(false);
@@ -414,6 +424,15 @@ export function useConversation(
         case 'conversation.toolCall':
           if (message.terminalId !== terminalId) break;
           setOpenToolCall(message.open);
+          break;
+
+        /*
+          Los subagentes que siguen trabajando cambiaron. Tampoco trae mensajes:
+          el aviso de que uno termino no es una tarjeta.
+        */
+        case 'conversation.subagents':
+          if (message.terminalId !== terminalId) break;
+          setSubagents(message.subagents);
           break;
 
         /*
@@ -542,6 +561,7 @@ export function useConversation(
     permissionMode,
     waitingFor,
     openToolCall,
+    subagents,
     hasMore,
     loadingMore,
     loadMore,
