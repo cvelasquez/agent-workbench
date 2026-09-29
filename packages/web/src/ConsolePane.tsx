@@ -35,7 +35,11 @@
 import type { TerminalDescriptor, TerminalId } from '@agent-workbench/shared';
 import { TerminalView } from './TerminalView.js';
 import type { AgentConnection } from './connection.js';
+import { isWindowsClient } from './console-paste.js';
 import { t } from './i18n/index.js';
+
+/** Ctrl+V pega en las consolas si el navegador corre en Windows (§5.2). */
+const PASTE_ON_CTRL_V = typeof navigator !== 'undefined' && isWindowsClient(navigator.platform);
 
 interface ConsolePaneProps {
   connection: AgentConnection;
@@ -144,6 +148,7 @@ export function ConsolePane({
                 connection={connection}
                 active={shell.terminalId === active?.terminalId}
                 theme={theme}
+                pasteOnCtrlV={PASTE_ON_CTRL_V}
               />
             ))}
           </div>

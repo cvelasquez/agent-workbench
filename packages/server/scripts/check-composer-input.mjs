@@ -28,6 +28,9 @@
  * cuadro (§6.4), y la cookie donde van las preferencias de la ventana para que
  * sobrevivan a que la app arranque en otro puerto.
  *
+ * Y desde las mejoras del hilo: que tecla pega en una consola del pie (§5.2).
+ * Una de mas le quita una tecla a la consola; la del agente no la tiene nunca.
+ *
  * Trabaja sobre una carpeta temporal propia.
  */
 
@@ -87,6 +90,7 @@ import {
   readPrefsCookie,
 } from '../../web/src/prefs-cookie.ts';
 import { DEVICE_COOKIE, TOKEN_COOKIE } from '../src/security.ts';
+import { isConsolePasteKey, isWindowsClient } from '../../web/src/console-paste.ts';
 
 // Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
 // con el español de siempre, así que lo fija antes de la primera comparación.
@@ -716,6 +720,25 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
   check('con texto seleccionado: la ruta lo reemplaza', put('cambia ESTO por', 7, 11).text === `cambia ${path} por`,
     show(put('cambia ESTO por', 7, 11)));
   check('un cursor fuera del texto cae al final', put('ab', 99).text === `ab ${path} `, show(put('ab', 99)));
+}
+
+// ---------------------------------------------------------------------------
+// Ctrl+V en una consola del pie (§5.2)
+// ---------------------------------------------------------------------------
+
+{
+  // Lo que xterm convierte en `^V` es la tecla 86 con Ctrl y nada mas.
+  const key = (overrides = {}) => ({ keyCode: 86, ctrlKey: true, shiftKey: false, altKey: false, metaKey: false, ...overrides });
+  check('Ctrl+V es el pegado de la consola', isConsolePasteKey(key()));
+  check('Ctrl+Shift+V no: ese ya lo pega el navegador', !isConsolePasteKey(key({ shiftKey: true })));
+  check('AltGr+V (Ctrl+Alt en Windows) no es un pegado', !isConsolePasteKey(key({ altKey: true })));
+  check('V sola, Cmd+V u otra letra con Ctrl, tampoco',
+    !isConsolePasteKey(key({ ctrlKey: false })) &&
+      !isConsolePasteKey(key({ metaKey: true })) &&
+      !isConsolePasteKey(key({ keyCode: 67 })));
+  check('decide el equipo del navegador: Windows si, macOS, Linux y Android no',
+    isWindowsClient('Win32') && isWindowsClient('Windows') &&
+      !isWindowsClient('MacIntel') && !isWindowsClient('Linux x86_64') && !isWindowsClient('Linux armv8l') && !isWindowsClient(''));
 }
 
 // ---------------------------------------------------------------------------

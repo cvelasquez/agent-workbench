@@ -8,6 +8,9 @@
  * de la app viven fuera de este componente. El dedo si tiene manejo propio
  * (§6.25): se convierte en la rueda del mouse, y lo demas lo decide xterm.
  *
+ * Una excepcion, y solo en las consolas del pie: Ctrl+V pega (§5.2,
+ * `pasteOnCtrlV`). La terminal del agente no la tiene nunca.
+ *
  * Este componente NO es duenio del proceso: se engancha a una terminal que ya
  * existe en el servidor y se desengancha al desmontarse. Si el socket se cae y
  * vuelve, se reengancha y repinta con el replay.
@@ -20,6 +23,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import type { TerminalId } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { isConsolePasteKey } from './console-paste.js';
 import { t } from './i18n/index.js';
 import { isDrag, momentumStep, releaseVelocity, wholePixels, type TouchSample } from './touch-scroll.js';
 
@@ -83,6 +87,12 @@ interface TerminalViewProps {
    * pestana del agente en cada recarga de la pagina.
    */
   autoFocus?: boolean;
+  /**
+   * Ctrl+V lo pega el navegador en vez de llegar a la pty como `^V` (§5.2).
+   * Solo las consolas del pie, y solo con el navegador en Windows: la terminal
+   * del agente necesita la tecla para pegar imagenes (§5).
+   */
+  pasteOnCtrlV?: boolean;
 }
 
 export function TerminalView({
@@ -91,6 +101,7 @@ export function TerminalView({
   active,
   theme,
   autoFocus = true,
+  pasteOnCtrlV = false,
 }: TerminalViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -381,7 +392,15 @@ export function TerminalView({
     window.addEventListener('focus', reclaimSize);
     document.addEventListener('visibilitychange', reclaimSize);
 
-    // Teclas del usuario -> pty. Sin filtro, sin excepciones.
+    /*
+      Ctrl+V en una consola (§5.2): devolver false hace que xterm no arme el
+      `^V` ni cancele el evento, y el navegador pega como con el clic derecho.
+      El texto entra por el `paste` de xterm, con los delimitadores de pegado
+      si la consola los pidio.
+    */
+    if (pasteOnCtrlV) terminal.attachCustomKeyEventHandler((event) => !isConsolePasteKey(event));
+
+    // Teclas del usuario -> pty. Sin filtro; la unica excepcion es la de arriba.
     const dataSubscription = terminal.onData((data) => {
       connection.send({ type: 'input', terminalId, data });
     });
@@ -452,7 +471,8 @@ export function TerminalView({
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [terminalId, connection]);
+    // `pasteOnCtrlV` no cambia en la vida de una vista: consola o agente.
+  }, [terminalId, connection, pasteOnCtrlV]);
 
   // Cambiar de tema repinta el terminal en el lugar, sin recrearlo.
   useEffect(() => {
