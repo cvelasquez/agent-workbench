@@ -124,15 +124,21 @@ export class AgentConnection {
     };
   }
 
-  send(message: ClientMessage): void {
+  /**
+   * true si el mensaje salio por el socket en el acto; false si quedo en la cola
+   * —sale al reconectar— o se descarto. El acuse de un envio lo necesita: el
+   * servidor contesta por el socket que trajo el mensaje (§6.30).
+   */
+  send(message: ClientMessage): boolean {
     if (this.socket !== null && this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(encodeClientMessage(message));
-      return;
+      return true;
     }
     // La salida del pty no se encola: se recupera con el replay al reenganchar.
     if (message.type !== 'input' && message.type !== 'resize') {
       this.outbox.push(message);
     }
+    return false;
   }
 
   close(): void {

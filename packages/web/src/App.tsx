@@ -1227,7 +1227,7 @@ export function App(): JSX.Element {
           }
           activity={activeActivity}
           receipt={activeTerminalId === null ? null : (threadSignals.receipts.get(activeTerminalId) ?? null)}
-          busySince={activeTerminalId === null ? null : (threadSignals.busySince.get(activeTerminalId) ?? null)}
+          clock={activeTerminalId === null ? null : (threadSignals.clocks.get(activeTerminalId) ?? null)}
         />
       )}
     </div>
@@ -1255,11 +1255,11 @@ export function App(): JSX.Element {
             pestana. Y el envio se sigue hasta su acuse (§6.30): lo que llegue
             al hilo despues del ultimo evento de ahora es la respuesta.
           */
-          onSubmitted={(terminalId, requestId) => {
+          onSubmitted={(terminalId, requestId, queued) => {
             dismissHandoff(terminalId);
             const { events } = conversation;
             const lastEvent = terminalId === activeTerminalId ? events[events.length - 1] : undefined;
-            threadSignals.track(terminalId, requestId, lastEvent?.eventId ?? null);
+            threadSignals.track(terminalId, requestId, lastEvent?.eventId ?? null, queued);
           }}
           fontSize={threadFont.size}
           insertRef={composerInsertRef}

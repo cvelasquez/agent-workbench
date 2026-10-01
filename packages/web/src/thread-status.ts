@@ -33,14 +33,23 @@ import { formatList, formatRoughDuration } from './i18n/format.js';
 import { t } from './i18n/index.js';
 
 /**
- * Cuanto se espera el acuse de un envio antes de olvidarlo.
+ * Cuanto se dice "Enviando…" de un envio que ya salio, sin acuse.
  *
  * El camino normal es de menos de un segundo: el texto y el Enter, a 400 ms uno
  * del otro. Con ocho imagenes y la espera del arranque de Codex (§10.11) son
  * unos seis. Un minuto es para un envio que espero detras de otro en la fila, y
- * para no dejar "Enviando…" colgado si la respuesta se perdio.
+ * para no dejar "Enviando…" colgado si el acuse se perdio. Un acuse que llega
+ * despues todavia cuenta (`applySubmitAck`): es cierto que llego.
  */
 export const SUBMIT_ACK_TIMEOUT_MS = 60_000;
+
+/**
+ * Cuanto se dice "todavia sin respuesta" en una CLI que no publica su estado.
+ * Un mensaje que no abre un turno —un comando de barra— no trae respuesta
+ * nunca, y el aviso no puede quedar hasta el envio siguiente. Diez minutos
+ * cubren un razonamiento largo antes del primer evento.
+ */
+export const AWAITING_REPLY_HOLD_MS = 10 * 60_000;
 
 /**
  * Cuanto se dice "Entregado" en una CLI que publica su estado y no se puso a
@@ -70,11 +79,30 @@ export interface SubmitReceipt {
    */
   afterEventId: string | null;
   phase: 'sending' | 'delivered';
-  /** Epoch ms del navegador. */
+  /**
+   * true mientras el envio espera en la cola de la conexion, con el socket
+   * caido. Sale al reconectar (`receiptsAfterReopen`); hasta entonces no corre
+   * el plazo del acuse.
+   */
+  queued: boolean;
+  /** Epoch ms del navegador en que salio por el socket: al reconectar, si estaba en cola. */
   sentAt: number;
   /** Epoch ms del navegador al llegar el acuse, o null si todavia no llego. */
   deliveredAt: number | null;
 }
+
+/** Lo que se sabe de cuando trabajo la CLI de una pestana, visto desde la pagina. */
+export interface BusyClock {
+  /**
+   * Cuando se la vio empezar la corrida de ahora, o null: no esta trabajando, o
+   * ya trabajaba cuando se la empezo a mirar y no se sabe desde cuando.
+   */
+  runStartedAt: number | null;
+  /** La ultima vez que se la supo trabajando, o null si nunca. */
+  busySeenAt: number | null;
+}
+
+export const NO_BUSY_CLOCK: BusyClock = { runStartedAt: null, busySeenAt: null };
 
 export type MainStatus =
   | { kind: 'sending' }
@@ -92,8 +120,8 @@ export interface ThreadStatusInput {
   waitingFor: string | null;
   receipt: SubmitReceipt | null;
   events: readonly ConversationEvent[];
-  /** Cuando se la vio empezar a trabajar por ultima vez (`nextBusySince`), o null. */
-  busySince: number | null;
+  /** Cuando trabajo la CLI de la pestana (`nextBusyClock`), o null si no se sabe nada. */
+  clock: BusyClock | null;
   now: number;
 }
 
@@ -126,21 +154,96 @@ export function repliedSince(afterEventId: string | null, events: readonly Conve
 }
 
 /**
- * Cuando se la vio empezar a trabajar, despues de un aviso de actividad.
+ * El reloj de una pestana despues de un aviso de actividad.
  *
- * Solo un paso visto de "no trabaja" a "trabaja" dice cuando empezo. La primera
- * vez que se ve una pestana —al conectar, al lanzarla— ya trabajando, no se
- * sabe desde cuando, y queda null: el reloj no muestra un numero inventado. Al
- * terminar se conserva, porque es lo que dice que un envio ya se atendio.
+ *  - **Una corrida empieza al verla pasar de libre a trabajando.** La primera
+ *    vez que se ve una pestana —al conectar, al lanzarla— ya trabajando, no se
+ *    sabe desde cuando, y queda null: el reloj no muestra un numero inventado.
+ *  - **Esperar al usuario no la corta**: aprobar un permiso a mitad de turno
+ *    (`waiting` → `busy`) sigue la misma corrida, con el mismo reloj.
+ *  - **Cualquier otro estado la termina**, y la siguiente arranca de cero: el
+ *    tiempo de un turno viejo no aparece al empezar el nuevo.
+ *  - `busySeenAt` se anota al entrar y al salir de `busy`: dice que un envio ya
+ *    se atendio aunque la CLI estuviera trabajando antes de recibirlo.
  */
-export function nextBusySince(
+export function nextBusyClock(
   previous: TerminalActivity | undefined,
   next: TerminalActivity | undefined,
-  current: number | null,
+  clock: BusyClock,
   now: number,
-): number | null {
-  if (next === 'busy' && previous !== undefined && previous !== 'busy') return now;
-  return current;
+): BusyClock {
+  const busySeenAt = next === 'busy' || previous === 'busy' ? now : clock.busySeenAt;
+  let runStartedAt: number | null = null;
+  if (next === 'busy') {
+    if (previous === 'idle') runStartedAt = now;
+    else if (previous === 'busy' || previous === 'waiting') runStartedAt = clock.runStartedAt;
+  } else if (next === 'waiting') {
+    runStartedAt = clock.runStartedAt;
+  }
+  return { runStartedAt, busySeenAt };
+}
+
+/**
+ * Los relojes de todas las pestanas despues de un cambio del mapa de actividad.
+ * Una pestana que ya no esta en el mapa —su CLI termino— se olvida.
+ */
+export function nextBusyClocks(
+  previous: ReadonlyMap<TerminalId, TerminalActivity>,
+  next: ReadonlyMap<TerminalId, TerminalActivity>,
+  clocks: ReadonlyMap<TerminalId, BusyClock>,
+  now: number,
+): Map<TerminalId, BusyClock> {
+  const result = new Map<TerminalId, BusyClock>();
+  for (const [terminalId, activity] of next) {
+    const before = previous.get(terminalId);
+    const clock = clocks.get(terminalId);
+    result.set(
+      terminalId,
+      clock !== undefined && before === activity ? clock : nextBusyClock(before, activity, clock ?? NO_BUSY_CLOCK, now),
+    );
+  }
+  return result;
+}
+
+/**
+ * Los envios despues de una reconexion. La conexion ya mando lo que tenia en
+ * cola —lo hace antes de avisar que volvio—, y el servidor contesta cada envio
+ * por el socket que lo trajo:
+ *
+ *  - el que esperaba en la cola acaba de salir por el socket nuevo, y su acuse
+ *    va a llegar por ahi: se sigue esperando, ya sin cola y con el plazo desde
+ *    ahora;
+ *  - el que habia salido por el socket que se cayo no va a tener acuse nunca: se
+ *    olvida.
+ */
+export function receiptsAfterReopen(
+  receipts: ReadonlyMap<TerminalId, SubmitReceipt>,
+  now: number,
+): Map<TerminalId, SubmitReceipt> {
+  const next = new Map<TerminalId, SubmitReceipt>();
+  for (const [terminalId, receipt] of receipts) {
+    if (receipt.phase !== 'sending') next.set(terminalId, receipt);
+    else if (receipt.queued) next.set(terminalId, { ...receipt, queued: false, sentAt: now });
+  }
+  return next;
+}
+
+/**
+ * Un acuse del servidor. Solo cuenta el del ultimo envio de la pestana: uno
+ * viejo que contesta tarde no pisa nada. El del ultimo si cuenta aunque llegue
+ * pasado el plazo. Devuelve el mismo mapa si no cambia nada.
+ */
+export function applySubmitAck(
+  receipts: Map<TerminalId, SubmitReceipt>,
+  ack: { terminalId: TerminalId; requestId: string; delivered: boolean },
+  now: number,
+): Map<TerminalId, SubmitReceipt> {
+  const receipt = receipts.get(ack.terminalId);
+  if (receipt === undefined || receipt.requestId !== ack.requestId) return receipts;
+  const next = new Map(receipts);
+  if (ack.delivered) next.set(ack.terminalId, { ...receipt, phase: 'delivered', queued: false, deliveredAt: now });
+  else next.delete(ack.terminalId);
+  return next;
 }
 
 /** Que dice la fila sobre el agente principal, o null si no hay nada que decir. */
@@ -149,24 +252,29 @@ export function mainThreadStatus(input: ThreadStatusInput): MainStatus | null {
   if (!input.live || input.waitingFor !== null) return null;
 
   const { receipt, activity, now } = input;
-  if (receipt !== null && receipt.phase === 'sending') return { kind: 'sending' };
-  const deliveredAt = receipt?.deliveredAt ?? null;
+  const clock = input.clock ?? NO_BUSY_CLOCK;
+  // En cola espera lo que tarde la conexion; ya salido, hasta el plazo del acuse.
+  if (receipt?.phase === 'sending' && (receipt.queued || now - receipt.sentAt < SUBMIT_ACK_TIMEOUT_MS)) {
+    return { kind: 'sending' };
+  }
+  const deliveredAt = receipt?.phase === 'delivered' ? receipt.deliveredAt : null;
 
   if (activity === 'busy') {
     return {
       kind: 'working',
-      since: input.busySince,
+      since: clock.runStartedAt,
       justDelivered: deliveredAt !== null && now - deliveredAt < DELIVERED_FLASH_MS,
     };
   }
   if (receipt === null || deliveredAt === null || repliedSince(receipt.afterEventId, input.events)) return null;
 
-  // Sin estado publicado (Codex): lo unico que se sabe es que todavia no contesto.
-  if (activity === 'unknown' || activity === null) return { kind: 'awaiting-reply', since: deliveredAt };
-  if (activity !== 'idle') return null;
-
-  // Libre: o todavia no lo tomo, o ya lo termino. Si se la vio trabajar desde el envio, lo termino.
-  if (input.busySince !== null && input.busySince >= receipt.sentAt) return null;
+  // Sin estado publicado (Codex): lo unico que se sabe es que todavia no contesto, y por un rato.
+  if (activity === 'unknown') {
+    return now - deliveredAt < AWAITING_REPLY_HOLD_MS ? { kind: 'awaiting-reply', since: deliveredAt } : null;
+  }
+  // Libre, o una CLI con estado que todavia no lo publico: o no lo tomo, o ya lo termino.
+  if (activity !== 'idle' && activity !== null) return null;
+  if (clock.busySeenAt !== null && clock.busySeenAt >= receipt.sentAt) return null;
   return now - deliveredAt < DELIVERED_HOLD_MS ? { kind: 'delivered' } : null;
 }
 

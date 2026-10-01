@@ -59,6 +59,7 @@ import {
   mainStatusText,
   mainThreadStatus,
   subagentsText,
+  type BusyClock,
   type MainStatus,
   type SubmitReceipt,
 } from './thread-status.js';
@@ -349,8 +350,8 @@ interface ConversationViewProps {
   activity?: TerminalActivity | null;
   /** El ultimo envio del cuadro de esta pestana, con su acuse (§6.30). */
   receipt?: SubmitReceipt | null;
-  /** Cuando se vio empezar a trabajar a la CLI de esta pestana, o null (§6.30). */
-  busySince?: number | null;
+  /** Cuando trabajo la CLI de esta pestana, o null si no se sabe nada (§6.30). */
+  clock?: BusyClock | null;
 }
 
 export function ConversationView({
@@ -378,7 +379,7 @@ export function ConversationView({
   onSearchRequestApplied,
   activity = null,
   receipt = null,
-  busySince = null,
+  clock = null,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -765,7 +766,7 @@ export function ConversationView({
         waitingFor={waitingFor}
         receipt={receipt}
         events={events}
-        busySince={busySince}
+        clock={clock}
         subagents={subagents}
       />
 
@@ -801,7 +802,7 @@ function ThreadStatusBar({
   waitingFor,
   receipt,
   events,
-  busySince,
+  clock,
   subagents,
 }: {
   live: boolean;
@@ -809,13 +810,13 @@ function ThreadStatusBar({
   waitingFor: string | null;
   receipt: SubmitReceipt | null;
   events: readonly ConversationEvent[];
-  busySince: number | null;
+  clock: BusyClock | null;
   subagents: readonly ConversationSubagent[];
 }): JSX.Element | null {
   const [, setTick] = useState(0);
   // La hora se lee en cada dibujo: el reloj de abajo solo obliga a dibujar.
   const now = Date.now();
-  const main = mainThreadStatus({ live, activity, waitingFor, receipt, events, busySince, now });
+  const main = mainThreadStatus({ live, activity, waitingFor, receipt, events, clock, now });
   // Sin CLI no queda ninguno: murieron con ella.
   const running = live ? subagents : [];
   const visible = main !== null || running.length > 0;

@@ -418,14 +418,19 @@ const nextEvent = (hub, name, ms = 5_000) =>
 // --- 5. Que dice la fila ------------------------------------------------------
 
 {
-  const { mainThreadStatus, mainStatusText, subagentsText, repliedSince, nextBusySince, newSubmitRequestId } = status;
+  const {
+    mainThreadStatus, mainStatusText, subagentsText, repliedSince, nextBusyClock, nextBusyClocks,
+    receiptsAfterReopen, applySubmitAck, newSubmitRequestId,
+  } = status;
   const T = 1_000_000;
   const event = (eventId, role) => ({ eventId, role, at: 0, parts: [], model: null, usage: null, effort: null, durationMs: null, queued: false });
   const events = [event('e1', 'user'), event('e2', 'assistant'), event('e3', 'user')];
   const receipt = (overrides = {}) => ({
-    requestId: 'submit-1', terminalId: 't1', afterEventId: 'e3', phase: 'delivered', sentAt: T, deliveredAt: T + 500, ...overrides,
+    requestId: 'submit-1', terminalId: 't1', afterEventId: 'e3', phase: 'delivered', queued: false, sentAt: T, deliveredAt: T + 500,
+    ...overrides,
   });
-  const base = { live: true, activity: 'idle', waitingFor: null, receipt: null, events, busySince: null, now: T + 1_000 };
+  const clock = (runStartedAt, busySeenAt = runStartedAt) => ({ runStartedAt, busySeenAt });
+  const base = { live: true, activity: 'idle', waitingFor: null, receipt: null, events, clock: null, now: T + 1_000 };
   const kind = (overrides) => mainThreadStatus({ ...base, ...overrides })?.kind ?? null;
 
   check('5.1 sin CLI, o esperando al usuario, la fila no dice nada del agente',
@@ -435,7 +440,7 @@ const nextEvent = (hub, name, ms = 5_000) =>
   check('5.3 sin envio: trabajando si trabaja, nada si esta libre',
     kind({ activity: 'busy' }) === 'working' && kind({ activity: 'idle' }) === null);
 
-  const working = mainThreadStatus({ ...base, activity: 'busy', busySince: T + 200, receipt: receipt() });
+  const working = mainThreadStatus({ ...base, activity: 'busy', clock: clock(T + 200), receipt: receipt() });
   check('5.4 trabajando, con desde cuando y la marca de recien entregado',
     working?.kind === 'working' && working.since === T + 200 && working.justDelivered === true, json(working));
   const later = mainThreadStatus({ ...base, activity: 'busy', receipt: receipt(), now: T + 500 + status.DELIVERED_FLASH_MS });
@@ -443,8 +448,8 @@ const nextEvent = (hub, name, ms = 5_000) =>
 
   check('5.6 entregado y la CLI todavia libre: "Entregado", por un rato', kind({ receipt: receipt() }) === 'delivered' &&
     kind({ receipt: receipt(), now: T + 500 + status.DELIVERED_HOLD_MS }) === null);
-  check('5.7 libre despues de trabajar desde el envio: ya lo atendio', kind({ receipt: receipt(), busySince: T + 100 }) === null &&
-    kind({ receipt: receipt(), busySince: T - 100 }) === 'delivered');
+  check('5.7 libre despues de trabajar desde el envio: ya lo atendio', kind({ receipt: receipt(), clock: clock(null, T + 100) }) === null &&
+    kind({ receipt: receipt(), clock: clock(null, T - 100) }) === 'delivered');
   check('5.8 con respuesta en el hilo despues del envio, nada',
     kind({ receipt: receipt(), events: [...events, event('e4', 'assistant')] }) === null &&
       kind({ receipt: receipt(), events: [...events, event('e4', 'user')] }) === 'delivered');
@@ -459,10 +464,86 @@ const nextEvent = (hub, name, ms = 5_000) =>
     repliedSince('e3', events) === false && repliedSince('e1', events) === true && repliedSince('no-esta', events) === true &&
       repliedSince(null, [event('x', 'user')]) === false && repliedSince(null, events) === true);
 
-  check('5.13 nextBusySince: solo un paso visto a busy dice cuando empezo',
-    nextBusySince(undefined, 'busy', null, T) === null && nextBusySince('idle', 'busy', null, T) === T &&
-      nextBusySince('waiting', 'busy', 5, T) === T && nextBusySince('busy', 'busy', 5, T) === 5 &&
-      nextBusySince('busy', 'idle', 5, T) === 5 && nextBusySince('idle', 'idle', null, T) === null);
+  check('5.13 el reloj: solo un paso visto de libre a trabajando dice cuando empezo',
+    json(nextBusyClock(undefined, 'busy', clock(null), T)) === json(clock(null, T)) &&
+      json(nextBusyClock('idle', 'busy', clock(null, 5), T)) === json(clock(T, T)) &&
+      json(nextBusyClock('unknown', 'busy', clock(7, 5), T)) === json(clock(null, T)));
+
+  // Arreglo 2 (01-10-2026): aprobar un permiso no reinicia el reloj del turno.
+  {
+    let c = nextBusyClock('idle', 'busy', clock(null), 100);
+    c = nextBusyClock('busy', 'waiting', c, 200);
+    c = nextBusyClock('waiting', 'busy', c, 300);
+    check('5.13b busy → waiting → busy es la misma corrida: el reloj sigue desde el principio',
+      c.runStartedAt === 100 && c.busySeenAt === 300, json(c));
+  }
+
+  // Arreglo 3: al terminar, el reloj se apaga; el turno nuevo arranca de cero.
+  {
+    let c = nextBusyClock('idle', 'busy', clock(null), 100);
+    c = nextBusyClock('busy', 'idle', c, 900);
+    const ended = c;
+    c = nextBusyClock('idle', 'busy', c, 5_000);
+    check('5.13c al terminar no queda reloj, y lo que se sabe de cuando trabajo si',
+      ended.runStartedAt === null && ended.busySeenAt === 900, json(ended));
+    check('5.13d el turno siguiente empieza en su hora, nunca en la del anterior', c.runStartedAt === 5_000, json(c));
+    const working = mainThreadStatus({ ...base, activity: 'busy', clock: ended, now: 5_000 });
+    check('5.13e en el cuadro en que llega "trabajando", antes de rehacer el reloj, no hay tiempo viejo',
+      working?.kind === 'working' && working.since === null, json(working));
+  }
+
+  {
+    const previous = new Map([['a', 'idle'], ['b', 'busy'], ['gone', 'busy']]);
+    const next = new Map([['a', 'busy'], ['b', 'busy'], ['new', 'idle']]);
+    const clocks = new Map([['a', clock(null, 1)], ['b', clock(40, 40)], ['gone', clock(2, 2)]]);
+    const result = nextBusyClocks(previous, next, clocks, 1_000);
+    check('5.13f nextBusyClocks: cambia la que cambio, deja igual la que no, olvida la que se fue',
+      json(result.get('a')) === json(clock(1_000, 1_000)) && result.get('b') === clocks.get('b') &&
+        !result.has('gone') && json(result.get('new')) === json(clock(null, null)), json([...result]));
+  }
+
+  // Arreglo 1: el envio que salio al reconectar no pierde su acuse.
+  {
+    const sending = (requestId, queued) => receipt({ requestId, phase: 'sending', queued, deliveredAt: null });
+    const receipts = new Map([
+      ['live', { ...sending('r-live', false), terminalId: 'live' }],
+      ['queued', { ...sending('r-queued', true), terminalId: 'queued' }],
+      ['done', { ...receipt({ requestId: 'r-done' }), terminalId: 'done' }],
+    ]);
+    const after = receiptsAfterReopen(receipts, T + 9_000);
+    check('5.13g al reconectar: el que estaba en cola sigue esperando su acuse, con el plazo desde ahora',
+      after.get('queued')?.queued === false && after.get('queued')?.sentAt === T + 9_000 && after.get('queued')?.phase === 'sending',
+      json(after.get('queued')));
+    check('5.13h el que salio por el socket caido se olvida; el ya entregado no se toca',
+      !after.has('live') && after.get('done') === receipts.get('done'), json([...after.keys()]));
+    const acked = applySubmitAck(after, { terminalId: 'queued', requestId: 'r-queued', delivered: true }, T + 9_500);
+    check('5.13i y su acuse, que llega por el socket nuevo, cuenta', acked.get('queued')?.phase === 'delivered' &&
+      acked.get('queued')?.deliveredAt === T + 9_500, json(acked.get('queued')));
+    check('5.13j un acuse de otro envio, o de una pestana sin envio, no cambia nada',
+      applySubmitAck(after, { terminalId: 'queued', requestId: 'r-viejo', delivered: true }, T) === after &&
+        applySubmitAck(after, { terminalId: 'otra', requestId: 'r-queued', delivered: true }, T) === after);
+    check('5.13k no entregado: se olvida el envio',
+      !applySubmitAck(after, { terminalId: 'queued', requestId: 'r-queued', delivered: false }, T).has('queued'));
+
+    const live = receipt({ phase: 'sending', deliveredAt: null });
+    check('5.13l sin acuse, "Enviando" dura el plazo; despues manda la actividad',
+      kind({ receipt: live, now: T + status.SUBMIT_ACK_TIMEOUT_MS - 1 }) === 'sending' &&
+        kind({ receipt: live, now: T + status.SUBMIT_ACK_TIMEOUT_MS }) === null &&
+        kind({ receipt: live, activity: 'busy', now: T + status.SUBMIT_ACK_TIMEOUT_MS }) === 'working');
+    check('5.13m en la cola de la conexion espera lo que haga falta',
+      kind({ receipt: receipt({ phase: 'sending', queued: true, deliveredAt: null }), now: T + 10 * status.SUBMIT_ACK_TIMEOUT_MS }) === 'sending');
+    const late = applySubmitAck(new Map([['t1', live]]), { terminalId: 't1', requestId: 'submit-1', delivered: true }, T + 70_000);
+    check('5.13n un acuse que llega pasado el plazo todavia cuenta',
+      kind({ receipt: late.get('t1'), now: T + 70_500 }) === 'delivered');
+  }
+
+  // Arreglo 4: "todavia sin respuesta" tiene tope, y una CLI que todavia no publico estado no cae ahi.
+  check('5.13o "sin respuesta" se va pasado el tope',
+    kind({ activity: 'unknown', receipt: receipt(), now: T + 500 + status.AWAITING_REPLY_HOLD_MS - 1 }) === 'awaiting-reply' &&
+      kind({ activity: 'unknown', receipt: receipt(), now: T + 500 + status.AWAITING_REPLY_HOLD_MS }) === null);
+  check('5.13p sin actividad todavia (una CLI con estado que no lo publico): "Entregado", no "sin respuesta"',
+    kind({ activity: null, receipt: receipt() }) === 'delivered' &&
+      kind({ activity: null, receipt: receipt(), now: T + 500 + status.DELIVERED_HOLD_MS }) === null);
 
   const texts = [
     mainStatusText({ kind: 'sending' }, T),

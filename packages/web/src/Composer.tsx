@@ -146,9 +146,10 @@ interface ComposerProps {
   onDismissNotice?: () => void;
   /**
    * Se mando algo desde el cuadro de esa pestana. `requestId` es el del envio:
-   * el servidor contesta con el si llego a la CLI (§6.30).
+   * el servidor contesta con el si llego a la CLI (§6.30). `queued`: el socket
+   * estaba caido y el envio espera en la cola de la conexion.
    */
-  onSubmitted?: (terminalId: TerminalId, requestId: string) => void;
+  onSubmitted?: (terminalId: TerminalId, requestId: string, queued: boolean) => void;
   /**
    * El tamano de letra del hilo, que el cuadro comparte (§6.22). Solo para
    * volver a medir el alto cuando cambia.
@@ -387,7 +388,7 @@ export function Composer({
     // `files` solo viaja si hay: sin adjuntos el mensaje es el de siempre. El
     // `requestId` es para saber si llego a la CLI (§6.30).
     const requestId = newSubmitRequestId();
-    connection.send({
+    const sentNow = connection.send({
       type: 'agent.submit',
       terminalId,
       text: body,
@@ -399,7 +400,7 @@ export function Composer({
     drafts.submitted(terminalId);
     setText('');
     attachments.clear();
-    onSubmitted?.(terminalId, requestId);
+    onSubmitted?.(terminalId, requestId, !sentNow);
   }, [connection, drafts, terminalId, text, attachments, blockedReason, onSubmitted]);
 
   const interrupt = useCallback(() => {
