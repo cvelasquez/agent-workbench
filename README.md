@@ -383,7 +383,7 @@ The app captures exactly those combinations and no others. `Shift+Tab` only
 when focus isn't on the terminal, because inside it's the key the CLI uses to
 switch modes. Everything else —`Esc`, `Esc Esc`, `Ctrl+C`, `Ctrl+R`, `Ctrl+O`,
 the arrow keys and above all `Alt+V`, which pastes images— reaches the CLI
-untouched. `Ctrl+V` too: that's how Claude Code pastes images. Only in the
+untouched. `Ctrl+V` too: what it does there is up to the CLI. Only in the
 console at the bottom, on Windows, `Ctrl+V` pastes text, as in Windows
 Terminal.
 

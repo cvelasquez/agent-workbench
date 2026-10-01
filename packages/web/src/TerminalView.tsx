@@ -89,8 +89,8 @@ interface TerminalViewProps {
   autoFocus?: boolean;
   /**
    * Ctrl+V lo pega el navegador en vez de llegar a la pty como `^V` (§5.2).
-   * Solo las consolas del pie, y solo con el navegador en Windows: la terminal
-   * del agente necesita la tecla para pegar imagenes (§5).
+   * Solo las consolas del pie, y solo con el navegador en Windows: en la terminal
+   * del agente la tecla le llega a la CLI tal cual (§5).
    */
   pasteOnCtrlV?: boolean;
 }

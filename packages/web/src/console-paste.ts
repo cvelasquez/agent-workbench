@@ -3,9 +3,10 @@
  *
  * xterm convierte Ctrl+V en `^V` (el byte 0x16), se lo manda a la pty y cancela
  * el evento, asi que el navegador nunca llega a pegar. En la terminal del agente
- * es justo lo que tiene que pasar: Claude Code lee el portapapeles por su cuenta
- * cuando le llega la tecla, y asi pega imagenes (§5). Pero PowerShell no hace
- * nada con ese byte, y en la consola pegar quedaba solo en el clic derecho.
+ * la tecla sigue llegando a la CLI como siempre (§5): en Windows Claude Code pega
+ * con Alt+V y no hace nada con Ctrl+V (probado por el usuario el 01-10-2026). Pero
+ * PowerShell tampoco hace nada con ese byte, y en la consola pegar quedaba solo
+ * en el clic derecho.
  *
  * En una consola, con el navegador en Windows, xterm deja pasar la tecla y el
  * navegador hace el pegado de siempre, el mismo del clic derecho. Es lo que

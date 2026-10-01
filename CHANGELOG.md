@@ -22,7 +22,7 @@ change behavior.
 
 - **Ctrl+V pastes in the console** (PowerShell) on Windows. It reached the
   shell as a key PowerShell ignores, and only right-click pasted. The agent's
-  terminal still gets `Ctrl+V` as a key: that's how Claude Code pastes images.
+  terminal doesn't change: `Ctrl+V` still reaches the CLI as a key.
 
 ## 0.4.0 — 2026-09-25
 
