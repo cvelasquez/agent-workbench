@@ -5,7 +5,9 @@
  * Pedido del usuario: un solo lugar para quitar lo que no usa —paneles, CLIs— y
  * elegir la consola. Junta tambien lo que estaba suelto en la cabecera: el
  * idioma sale de ahi y vive solo aca; el tema de la app se queda arriba, a un
- * clic, como pidio.
+ * clic, como pidio. El sonido y la campana tambien se quedan arriba, y solo ahi:
+ * en este dialogo el control de volumen no entraba y se veia cortado (lo vio el
+ * usuario al probar el Hito 41).
  *
  * Dos clases de ajuste, y la ventana no las mezcla:
  *
@@ -23,9 +25,7 @@ import type { AgentId, AgentInfo, ConsoleShellId } from '@agent-workbench/shared
 import { t, type MessageKey } from './i18n/index.js';
 import { LocaleMenu } from './LocaleMenu.js';
 import { HIDEABLE_PANELS, type HideablePanel, type PanelVisibility } from './panel-visibility.js';
-import { NotifyButton, SoundControl } from './SoundControl.js';
 import type { AppSettingsApi } from './useAppSettings.js';
-import type { NotificationSoundState } from './useNotificationSound.js';
 import type { TerminalThemePreference, TerminalThemeState } from './useTerminalTheme.js';
 import { vaultName } from './vault-ui.js';
 
@@ -66,7 +66,6 @@ interface SettingsDialogProps {
   agents: readonly AgentInfo[];
   /** Una ventana que entro como equipo remoto: lo del servidor se ve, no se cambia. */
   remoteClient: boolean;
-  sound: NotificationSoundState;
   /** null si la copia propia no se ofrece aca. */
   onOpenVault: (() => void) | null;
   /** null en una ventana remota, o con un servidor anterior al Hito 37. */
@@ -82,7 +81,6 @@ export function SettingsDialog({
   appSettings,
   agents,
   remoteClient,
-  sound,
   onOpenVault,
   onOpenRemote,
 }: SettingsDialogProps): JSX.Element {
@@ -290,12 +288,6 @@ export function SettingsDialog({
               )}
             </>
           )}
-
-          <h3 className="modal-section">{t('settings.section.sound')}</h3>
-          <div className="settings-row">
-            <SoundControl sound={sound} />
-            <NotifyButton notify={sound.notify} />
-          </div>
 
           {(onOpenVault !== null || onOpenRemote !== null) && (
             <>

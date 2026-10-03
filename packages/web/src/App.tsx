@@ -1617,7 +1617,6 @@ export function App(): JSX.Element {
           appSettings={appSettings}
           agents={agents}
           remoteClient={remoteClient}
-          sound={sound}
           onOpenVault={() => {
             setSettingsVisible(false);
             setVaultDialogVisible(true);

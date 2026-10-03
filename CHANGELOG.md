@@ -44,6 +44,8 @@ change behavior.
 
 - **The Memory tab starts hidden**: shared memory is for people who use
   several CLIs. Show it from Settings.
+- **"Local copy" is now called "Backup"**, in every language: a folder you
+  choose (a synced one works), kept up to date a minute after each change.
 
 ### Fixed
 

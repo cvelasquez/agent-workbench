@@ -33,14 +33,14 @@ the app touching it.
 | **History** | Your projects and past conversations in the sidebar, with a filter, and those of all four CLIs together under each project, each with its badge. Opening one resumes it with its CLI, in the same session. **Archive history…** hides a CLI's sessions from before today in one go, and each project can be archived whole with one button: nothing is deleted, and both can be undone. |
 | **Conversation** | The active session's messages, live, with tool calls collapsed and their results inside. A row at the bottom tells you when your message reached the CLI, whether the agent is working and, with Claude Code, which subagents are still at it after the agent finished its turn. Search, jump between matches and back to the end, copy any message or code block and, depending on the CLI, answer the agent's questions from the chat. |
 | **Continue with…** | With more than one CLI installed, a conversation can be continued with another CLI in the same folder. The new agent starts from a transcript of the last turns, not from the context the previous one had. |
-| **Search everything** | With more than one CLI and something saved in the local copy, the sidebar filter also searches the text of every saved conversation, not just their titles. |
+| **Search everything** | With more than one CLI and something saved in the backup, the sidebar filter also searches the text of every saved conversation, not just their titles. |
 | **Context meter** | Tokens from the last request against the model's context window. Tokens, never money. |
 | **Changes** | Branch, ahead and behind against the upstream branch, worktrees, and the changed files with their diff. **Read-only.** |
 | **Files** | The tree of the tab's directory, with search by name and a preview with syntax highlighting. A button on each row puts its path in your message, without touching the clipboard. A context menu to copy paths, insert them as `@path` or open the file with the system's default app. |
 | **Plans** | The documents written by that conversation, rendered: the plans from plan mode, and also the `.md` files the agent created inside the project or in the session's temp folder. Only those named by the conversation you're viewing. |
 | **Shared memory** | What agents learn about a project, in `.agents/memory/`, read and written by all four CLIs ([below](#shared-memory)). |
-| **Local copy** | Optional. The history of all four CLIs in a folder of yours, in the app's own format, so you don't lose it if a CLI changes its format, deletes it, or you uninstall the CLI ([below](#local-copy-optional)). |
-| **Nine languages** | The interface in English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français and Deutsch. It follows the browser's language and can be changed from the header, without reloading. |
+| **Backup** | Optional. The history of all four CLIs in a folder of yours, in the app's own format, so you don't lose it if a CLI changes its format, deletes it, or you uninstall the CLI ([below](#backup-optional)). |
+| **Nine languages** | The interface in English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français and Deutsch. It follows the browser's language and can be changed in Settings (⚙ in the header), without reloading. |
 | **Theme** | Light, dark, or the system's. |
 
 <p>
@@ -159,13 +159,13 @@ prints nothing, so the CLI's own status line stays as it is. Once set, **every**
 instead of naming the script in quotes: the CLI runs it with `cmd /c`, and no
 quote reaches `node` intact.
 
-### Local copy (optional)
+### Backup (optional)
 
 Each conversation's history belongs to its CLI, in its format, and a CLI can
-change it, prune it or cease to exist. The local copy keeps the same as that
+change it, prune it or cease to exist. The backup keeps the same as that
 history —messages, tool inputs and results, images and each project's memory—
 in a folder of yours, in files you can read without the app. **It's off by
-default.** The local copy button, in the header of the projects sidebar, opens a
+default.** The backup button, in the header of the projects sidebar, opens a
 dialog: first **Measure** tells you how much space it would take per CLI,
 without writing anything, and then **Turn on** enables it. Once on, it copies
 everything the sidebar lists that isn't archived, and copies each session that
@@ -173,10 +173,10 @@ changes again a minute after it goes quiet. Archived sessions aren't copied, and
 archiving doesn't delete what was already copied: the app never deletes anything
 from that folder.
 
-Whatever the CLI no longer has stays in the sidebar, marked as a copy, and opens
-in Markdown; each project can be exported to Markdown. And with the copy on and
-more than one CLI, the sidebar filter offers **In conversations**: it searches
-the text of everything copied, from every CLI.
+Whatever the CLI no longer has stays in the sidebar, marked as a backup, and
+opens in Markdown; each project can be exported to Markdown. And with the backup
+on and more than one CLI, the sidebar filter offers **In conversations**: it
+searches the text of everything copied, from every CLI.
 
 <img src="assets/captura-buscador.png" width="40%" alt="Search in conversations: a match in one session of each CLI, with its snippet">
 
@@ -403,8 +403,8 @@ you aren't logged in, you log in inside the CLI's terminal and the app doesn't
 even notice.
 
 **From each CLI it reads only this, and it writes nothing in the CLI's
-folder.** The local copy importers, when you run them, also read what
-[their section](#local-copy-optional) says.
+folder.** The backup importers, when you run them, also read what
+[their section](#backup-optional) says.
 
 | CLI | Reads | Never opens |
 |---|---|---|
@@ -443,7 +443,7 @@ and stops being valid when you close the app.
 
 - **In its own configuration directory:** the open tabs, the index cache, the
   notes, the archived sessions, the Antigravity status line script and, if you
-  turn it on, the local copy (or in the folder you choose). With remote access
+  turn it on, the backup (or in the folder you choose). With remote access
   on, also the list of paired devices: a name, two dates and a hash of each
   one's credential — never the credential itself.
 - **In the temp folder:** the images you paste; each Antigravity tab's log,

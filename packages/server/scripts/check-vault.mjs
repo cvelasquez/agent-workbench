@@ -465,23 +465,23 @@ const status = (overrides = {}) => ({
     vui.vaultLineText(null) === null && vui.vaultLineText(status()) === null &&
     vui.vaultLineText(status({ state: 'measuring', progress: { done: 1, total: 4 }, measurement })) === null);
   check('1 textos: encendida sin ninguna pasada',
-    vui.vaultLineText(status({ enabled: true, state: 'idle' })) === 'Copia propia · 0 sesiones · sin copiar todavía',
+    vui.vaultLineText(status({ enabled: true, state: 'idle' })) === 'Respaldo · 0 sesiones · sin copiar todavía',
     show(vui.vaultLineText(status({ enabled: true, state: 'idle' }))));
   const withPass = status({ enabled: true, state: 'idle', sessions: 1, lastPassAt: Date.now() - 5 * 60_000 - 1000, pending: 3 });
   check('1 textos: encendida con pasada y sesiones esperando la calma',
-    vui.vaultLineText(withPass) === 'Copia propia · 1 sesión · hace 5 min · 3 esperando', show(vui.vaultLineText(withPass)));
+    vui.vaultLineText(withPass) === 'Respaldo · 1 sesión · hace 5 min · 3 esperando', show(vui.vaultLineText(withPass)));
   check('1 textos: copiando con progreso, y mudando',
     vui.vaultLineText(status({ enabled: true, state: 'writing', sessions: 12, progress: { done: 4, total: 10 } })) ===
-      'Copia propia · 12 sesiones · copiando 4 / 10' &&
-    vui.vaultLineText(status({ enabled: true, state: 'moving', sessions: 2 })) === 'Copia propia · 2 sesiones · mudando de carpeta');
+      'Respaldo · 12 sesiones · copiando 4 / 10' &&
+    vui.vaultLineText(status({ enabled: true, state: 'moving', sessions: 2 })) === 'Respaldo · 2 sesiones · mudando de carpeta');
 
   check('1 textos: boton de la cabecera',
-    vui.vaultButtonTitle(null) === 'Copia propia' &&
-    vui.vaultButtonTitle(status()) === 'Copia propia: apagada. Configurar' &&
-    vui.vaultButtonTitle(status({ enabled: true, state: 'idle' })) === 'Copia propia: encendida. Ver el estado y la carpeta');
+    vui.vaultButtonTitle(null) === 'Respaldo' &&
+    vui.vaultButtonTitle(status()) === 'Respaldo: apagado. Configurar' &&
+    vui.vaultButtonTitle(status({ enabled: true, state: 'idle' })) === 'Respaldo: encendido. Ver el estado y la carpeta');
   check('1 textos: estado del dialogo',
-    vui.vaultStateText(status()) === 'Apagada' &&
-    vui.vaultStateText(status({ enabled: true, state: 'idle' })) === 'Encendida' &&
+    vui.vaultStateText(status()) === 'Apagado' &&
+    vui.vaultStateText(status({ enabled: true, state: 'idle' })) === 'Encendido' &&
     vui.vaultStateText(status({ state: 'measuring', progress: { done: 3, total: 9 } })) === 'Midiendo… 3 / 9' &&
     vui.vaultStateText(status({ enabled: true, state: 'writing' })) === 'Copiando…' &&
     vui.vaultStateText(status({ enabled: true, state: 'moving' })) === 'Mudando de carpeta…');
@@ -531,8 +531,8 @@ const status = (overrides = {}) => ({
     same(vui.sessionVaultView({ storage: 'vault', partial: false }), { copy: true, partial: false }) &&
     same(vui.sessionVaultView({ storage: 'vault', partial: true }), { copy: true, partial: true }));
   check('1 textos: las marcas dicen lo de la especificacion',
-    vui.vaultMarkText() === 'copia' && vui.partialMarkText() === 'parcial' &&
-    vui.vaultMarkTitle() === 'El historial de la CLI ya no tiene esta sesión. Se abre la copia propia, en Markdown.' &&
+    vui.vaultMarkText() === 'respaldo' && vui.partialMarkText() === 'parcial' &&
+    vui.vaultMarkTitle() === 'El historial de la CLI ya no tiene esta sesión. Se abre el respaldo, en Markdown.' &&
     vui.partialMarkTitle() === 'Sólo se rescató la ficha y los documentos: el contenido de la conversación está cifrado.');
   check('1 textos: el aviso de privacidad dice que viaja con la carpeta',
     vui.vaultPrivacyText().startsWith('Guarda lo mismo que el historial de cada CLI') &&
@@ -551,7 +551,7 @@ const status = (overrides = {}) => ({
   const workspaceSource = await readFile(path.join(webSrc, 'useWorkspace.ts'), 'utf8');
   check('1 textos: la barra dibuja la linea solo si vaultLineText no es null, sin la linea "Copia propia apagada" (C9)',
     /const vaultLine = vaultLineText\(vault\);/.test(sidebarSource) && /\{vaultLine !== null && \(/.test(sidebarSource) &&
-    !/copia propia apagada/i.test(sidebarSource) && !/copia propia apagada/i.test(appSource));
+    !/(copia propia|respaldo) apagad/i.test(sidebarSource) && !/(copia propia|respaldo) apagad/i.test(appSource));
   // Desde el hito 37 una fila "copia" tampoco se abre en una ventana remota
   // (`onOpenVaultSession` null): abriria su Markdown en el escritorio del anfitrion.
   check('1 textos: las marcas de la fila salen de sessionVaultView y una fila nativa sigue deshabilitada como antes',
@@ -2417,8 +2417,8 @@ const linksIn = (text) => [...text.matchAll(/\]\(<([^>]+)>\)/g)].map((match) => 
     (await fileExists(path.resolve(path.dirname(opened), openedLinks[0]))), show(openedLinks));
   check('12 abrir la de D (solo en la copia)', (await readFile(await service.openSession('claude-code', idD), 'utf8')).includes('Probemos una que solo esta en la copia'));
   const missing = await rejectsWith(service.openSession('claude-code', idC));
-  check('12 una sesion que no esta en la copia -> "Esa sesión no está en la copia." y nada escrito',
-    missing instanceof VaultError && es(missing.text) === 'Esa sesión no está en la copia.' &&
+  check('12 una sesion que no esta en la copia -> "Esa sesión no está en el respaldo." y nada escrito',
+    missing instanceof VaultError && es(missing.text) === 'Esa sesión no está en el respaldo.' &&
     !(await fileExists(vaultPaths.sessionExportFile(dir, 'claude-code', idC))), show(missing?.message));
   await service.reveal();
   check('12 abrir la carpeta de la copia', revealed.at(-1) === dir);
@@ -2438,7 +2438,7 @@ const linksIn = (text) => [...text.matchAll(/\]\(<([^>]+)>\)/g)].map((match) => 
     homeDir: home, reveal: (target) => revealed.push(target), log: quiet,
   });
   const notYet = await rejectsWith(offService.reveal());
-  check('12 abrir la carpeta sin copia -> "Todavía no hay copia."', notYet instanceof VaultError && es(notYet.text) === 'Todavía no hay copia.', show(notYet?.message));
+  check('12 abrir la carpeta sin copia -> "Todavía no hay respaldo."', notYet instanceof VaultError && es(notYet.text) === 'Todavía no hay respaldo.', show(notYet?.message));
   const emptyProject = emptyIndex.getProjects().find((candidate) => candidate.cwd === cwd);
   const offResult = await offService.exportProject(emptyProject.key);
   const offFolder = vaultPaths.projectExportDirFor(emptyDir, emptyProject, process.platform);
@@ -2580,7 +2580,7 @@ const serviceAgents = (protectedDirs = []) => ({ adapter: () => ({ history: {} }
   const busyMove = await rejectsWith(service.setDir(path.join(root, 'mudanza-otra')));
   const busyOpen = await rejectsWith(service.openSession('claude-code', id));
   check('13 con una mudanza en curso: mudar y abrir se rechazan con VaultError',
-    busyMove instanceof VaultError && es(busyMove.text).includes('ocupada') && busyOpen instanceof VaultError, show([busyMove?.message, busyOpen?.message]));
+    busyMove instanceof VaultError && es(busyMove.text).includes('ocupado') && busyOpen instanceof VaultError, show([busyMove?.message, busyOpen?.message]));
   release?.();
   await holding.catch(() => undefined);
   service.dispose();

@@ -166,7 +166,7 @@ export function parseAppSettings(
   if (typeof dir === 'string' && isAbsoluteDir(dir, platform)) {
     settings.vault.dir = dir;
   } else if (dir !== null && dir !== undefined) {
-    warn(`[settings] the local copy folder ${JSON.stringify(dir)} isn't an absolute path: using the default one`);
+    warn(`[settings] the backup folder ${JSON.stringify(dir)} isn't an absolute path: using the default one`);
   }
   settings.vault.toolResultMaxChars = clampToolResultMaxChars(vault['toolResultMaxChars']);
   return settings;
@@ -282,7 +282,7 @@ export class SettingsStore {
       if (vault.enabled !== undefined) next.vault.enabled = vault.enabled;
       if (vault.dir !== undefined) {
         if (vault.dir !== null && !isAbsoluteDir(vault.dir, this.platform)) {
-          throw new Error(`The local copy folder has to be an absolute path: ${JSON.stringify(vault.dir)}`);
+          throw new Error(`The backup folder has to be an absolute path: ${JSON.stringify(vault.dir)}`);
         }
         next.vault.dir = vault.dir;
       }
