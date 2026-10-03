@@ -64,6 +64,21 @@ interface TabBarProps {
   platform: string;
   /** El titulo del `+` mientras ese proyecto tiene una pestana en camino. */
   newTabBlockedTitle: string | null;
+  /**
+   * El titulo de la sesion de cada pestana, segun el indice. Va en el tooltip,
+   * al lado del `cwd`: la etiqueta recortada no dice de que conversacion se
+   * trata. Sin entrada —una consola, una sesion sin titulo todavia— no se pone.
+   */
+  sessionTitles: ReadonlyMap<TerminalId, string>;
+}
+
+/**
+ * El tooltip de una pestana: el `cwd`, el titulo de la sesion si tiene, y en la
+ * segunda linea en que estado esta su CLI.
+ */
+export function tabTooltip(cwd: string, sessionTitle: string | undefined, stateText: string): string {
+  const head = sessionTitle === undefined || sessionTitle.length === 0 ? cwd : `${cwd} — ${sessionTitle}`;
+  return `${head}\n${stateText}`;
 }
 
 /**
@@ -186,6 +201,7 @@ export function TabBar({
   pendingOpens,
   platform,
   newTabBlockedTitle,
+  sessionTitles,
 }: TabBarProps): JSX.Element {
   const [editingId, setEditingId] = useState<TerminalId | null>(null);
   const [draftLabel, setDraftLabel] = useState('');
@@ -253,7 +269,7 @@ export function TabBar({
             onDragEnd={() => setDragId(null)}
             onClick={() => onSelect(terminal.terminalId)}
             onDoubleClick={() => startEditing(terminal)}
-            title={`${terminal.cwd}\n${tabStateText(terminal)}`}
+            title={tabTooltip(terminal.cwd, sessionTitles.get(terminal.terminalId), tabStateText(terminal))}
             style={{ '--tab-project-color': projectColor(terminal.cwd) } as React.CSSProperties}
           >
             {isEditing ? (

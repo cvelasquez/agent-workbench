@@ -23,6 +23,7 @@ import {
   openBlockedTitle,
   sessionTitleText,
   continuationTabLabel,
+  tabSessionTitles,
 } from './agent-ui.js';
 import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
@@ -49,6 +50,7 @@ import { useGit } from './useGit.js';
 import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
 import { THEME_ICON, themeTitle, useTheme } from './useTheme.js';
+import { useTerminalTheme } from './useTerminalTheme.js';
 import { useNotificationSound } from './useNotificationSound.js';
 import { useThreadFont } from './useThreadFont.js';
 import { useThreadSignals } from './useThreadSignals.js';
@@ -190,6 +192,7 @@ export function App(): JSX.Element {
   } = workspace;
 
   const theme = useTheme();
+  const terminalTheme = useTerminalTheme(theme.resolved);
   /*
     Lo que la notificacion del sistema (hito 37) necesita de las pestanas: como
     se llama la que aviso, y activarla cuando se hace clic en el aviso.
@@ -249,6 +252,11 @@ export function App(): JSX.Element {
     }
     return null;
   }, [activeTerminal, activeAgent, projects, locale]);
+  /** El titulo de la sesion de cada pestana, para su tooltip (0.5.0). */
+  const sessionTitles = useMemo(
+    () => tabSessionTitles(terminals, projects.flatMap((project) => project.sessions)),
+    [terminals, projects],
+  );
   const activeStatusLine = activeAgentInfo?.statusLine ?? null;
 
   /*
@@ -1313,7 +1321,7 @@ export function App(): JSX.Element {
                 terminalId={terminal.terminalId}
                 connection={connection}
                 active={terminal.terminalId === activeTerminalId}
-                theme={theme.resolved}
+                theme={terminalTheme.resolved}
                 /*
                   La terminal no se lleva el foco sola.
 
@@ -1356,7 +1364,7 @@ export function App(): JSX.Element {
         activeShellId={activeShell?.terminalId ?? null}
         cwd={activeTerminal.cwd}
         shellName={shellName}
-        theme={theme.resolved}
+        theme={terminalTheme.resolved}
         onSelect={setActiveShellId}
         onOpen={openConsoleHere}
         onCloseShell={closeShell}
@@ -1777,6 +1785,7 @@ export function App(): JSX.Element {
             pendingOpens={pendingOpens}
             platform={platform}
             newTabBlockedTitle={newTabBlockedTitle}
+            sessionTitles={sessionTitles}
           />
 
           {chatStack}

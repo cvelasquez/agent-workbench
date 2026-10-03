@@ -27,7 +27,7 @@
  * coincida con la pantalla es lo unico que lo hace predecible.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { TerminalActivity, TerminalId } from '@agent-workbench/shared';
 import { mergePrefill } from './agent-ui.js';
 import {
@@ -38,7 +38,7 @@ import {
   referencedPasteNumbers,
   removePasteReferences,
 } from './composer-paste.js';
-import { draftTooLong, type ComposerDrafts } from './composer-drafts.js';
+import { draftTooLong, viewToRestore, type ComposerDrafts, type DraftView } from './composer-drafts.js';
 import { formatBytes } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
@@ -162,6 +162,16 @@ interface ComposerProps {
   insertRef?: React.MutableRefObject<ComposerInsert | null>;
 }
 
+/** Donde esta el cursor del cuadro y hasta donde se desplazo, para volver ahi (`DraftView`). */
+function readView(element: HTMLTextAreaElement): DraftView {
+  return {
+    selectionStart: element.selectionStart,
+    selectionEnd: element.selectionEnd,
+    backward: element.selectionDirection === 'backward',
+    scrollTop: element.scrollTop,
+  };
+}
+
 export function Composer({
   connection,
   drafts,
@@ -275,6 +285,16 @@ export function Composer({
   */
   const shown = useRef<TerminalId | null>(null);
 
+  /*
+    El cursor y el scroll de la pestana que llega (0.5.0, `viewToRestore`). Se
+    reponen despues de que su texto esta en el cuadro y el cuadro tomo su alto:
+    el efecto del alto esta declarado antes que el que los repone, y los dos
+    corren en el mismo dibujo. Reponerlos antes de medir los perderia: medir
+    achica el cuadro un instante y el navegador recorta el scroll.
+  */
+  const [viewRequest, setViewRequest] = useState(0);
+  const restoreViewSoon = useCallback(() => setViewRequest((count) => count + 1), []);
+
   // Espejos de lo ultimo escrito. El efecto de abajo no puede depender de
   // `text` ni de `attachments` —cambian en cada tecla— pero necesita su valor
   // actual en el momento de dejar la pestana.
@@ -305,14 +325,20 @@ export function Composer({
     if (previous === terminalId) return;
     shown.current = terminalId;
 
-    if (previous !== null) drafts.put(previous, { text: textRef.current, items: itemsRef.current });
+    if (previous !== null) {
+      drafts.put(previous, { text: textRef.current, items: itemsRef.current });
+      // El cuadro todavia tiene el texto de la que se va: su cursor y su scroll son los de ella.
+      const element = textareaRef.current;
+      if (element !== null) drafts.rememberView(previous, readView(element));
+    }
 
     const draft = terminalId === null ? undefined : drafts.get(terminalId);
     setText(draft?.text ?? '');
     replaceAttachments(draft?.items ?? []);
+    restoreViewSoon();
 
     if (terminalId !== null) textareaRef.current?.focus();
-  }, [terminalId, replaceAttachments, drafts]);
+  }, [terminalId, replaceAttachments, drafts, restoreViewSoon]);
 
   // Al desmontar —cambio de cascaron— lo escrito queda guardado para la vuelta.
   useEffect(
@@ -322,6 +348,30 @@ export function Composer({
     },
     [drafts],
   );
+
+  /*
+    Y donde estaba el cursor, tambien al desmontar. Va en un efecto de layout
+    porque su limpieza corre con el cuadro todavia en la pagina; la de un efecto
+    comun llega cuando ya no esta.
+  */
+  useLayoutEffect(
+    () => () => {
+      const current = shown.current;
+      const element = textareaRef.current;
+      if (current !== null && element !== null) drafts.rememberView(current, readView(element));
+    },
+    [drafts],
+  );
+
+  useEffect(() => {
+    if (viewRequest === 0) return;
+    const current = shown.current;
+    const element = textareaRef.current;
+    if (current === null || element === null) return;
+    const view = viewToRestore(element.value.length, drafts.viewOf(current));
+    element.setSelectionRange(view.start, view.end, view.direction);
+    element.scrollTop = view.scrollTop === 'end' ? element.scrollHeight : view.scrollTop;
+  }, [viewRequest, drafts]);
 
   /*
     Un borrador guardado que llego del servidor (§6.29) —al conectar, o con la
@@ -336,8 +386,10 @@ export function Composer({
         if (draft === undefined) return;
         setText(draft.text);
         replaceAttachments(draft.items);
+        // Sin nada recordado (`restore` lo olvida): el cursor al final y el cuadro abajo.
+        restoreViewSoon();
       }),
-    [drafts, replaceAttachments],
+    [drafts, replaceAttachments, restoreViewSoon],
   );
 
   /*

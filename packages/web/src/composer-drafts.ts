@@ -70,6 +70,46 @@ export function localDraftOf(draft: ComposerDraft, newId: () => string): LocalDr
   };
 }
 
+/**
+ * Donde estaba el cursor del cuadro en una pestana, y hasta donde se habia
+ * desplazado (0.5.0). Solo en la pagina: no va al servidor ni sobrevive a una
+ * recarga.
+ *
+ * El cuadro es uno solo y cambia de texto con la pestana. Sin esto, al volver
+ * quedaba mostrando el principio del texto, con el cursor invisible al final:
+ * el usuario leyo una lista que parecia terminar en el punto 4 y siguio
+ * numerando desde ahi.
+ */
+export interface DraftView {
+  selectionStart: number;
+  selectionEnd: number;
+  /** La seleccion se hizo hacia atras (`selectionDirection` 'backward'). */
+  backward: boolean;
+  scrollTop: number;
+}
+
+/** Lo que el cuadro tiene que poner al volver a una pestana. `'end'` es "bajar hasta el cursor, al final". */
+export interface RestoredView {
+  start: number;
+  end: number;
+  direction: 'forward' | 'backward';
+  scrollTop: number | 'end';
+}
+
+/**
+ * Donde dejar el cursor y el scroll al volver a una pestana: lo recordado, sin
+ * pasar del texto que hay; o, si no hay nada recordado —un borrador que llego
+ * del servidor, una pestana que nunca se miro—, el cursor al final y el cuadro
+ * abajo, donde se sigue escribiendo.
+ */
+export function viewToRestore(textLength: number, view: DraftView | undefined): RestoredView {
+  if (view === undefined) return { start: textLength, end: textLength, direction: 'forward', scrollTop: 'end' };
+  const clamp = (value: number): number => Math.min(Math.max(0, value), textLength);
+  const start = clamp(view.selectionStart);
+  const end = Math.max(start, clamp(view.selectionEnd));
+  return { start, end, direction: view.backward ? 'backward' : 'forward', scrollTop: Math.max(0, view.scrollTop) };
+}
+
 /** Pasa del tope: no se puede guardar, y el cuadro lo avisa. */
 export function draftTooLong(local: LocalDraft): boolean {
   return composerDraftChars(draftOf(local)) > MAX_COMPOSER_DRAFT_CHARS;
@@ -99,6 +139,8 @@ export interface ComposerDraftsDeps {
 
 export class ComposerDrafts {
   private readonly local = new Map<TerminalId, LocalDraft>();
+  /** El cursor y el scroll de cada pestana, al dejarla (`DraftView`). */
+  private readonly views = new Map<TerminalId, DraftView>();
   /** Lo que el servidor tiene de cada pestana, hasta donde se sabe. */
   private readonly saved = new Map<TerminalId, ComposerDraft>();
   private readonly touched = new Set<TerminalId>();
@@ -121,6 +163,16 @@ export class ComposerDrafts {
     this.schedule(terminalId, draftOf(local));
   }
 
+  /** Donde quedo el cursor del cuadro al dejar la pestana. */
+  rememberView(terminalId: TerminalId, view: DraftView): void {
+    this.views.set(terminalId, view);
+  }
+
+  /** Lo recordado de una pestana, o undefined si no hay nada que valga para su texto de ahora. */
+  viewOf(terminalId: TerminalId): DraftView | undefined {
+    return this.views.get(terminalId);
+  }
+
   /**
    * Se mando lo del cuadro. El servidor borra lo guardado al recibir el envio,
    * asi que aca solo se olvida lo que esperaba salir: saldria el mensaje ya
@@ -129,6 +181,7 @@ export class ComposerDrafts {
   submitted(terminalId: TerminalId): void {
     this.cancel(terminalId);
     this.local.delete(terminalId);
+    this.views.delete(terminalId);
     this.saved.delete(terminalId);
     this.touched.add(terminalId);
   }
@@ -149,6 +202,8 @@ export class ComposerDrafts {
       this.saved.set(terminalId, draft);
       if (!isBlank(this.local.get(terminalId))) continue;
       this.local.set(terminalId, localDraftOf(draft, this.deps.newId));
+      // El texto cambio desde afuera: el cursor recordado era de otro texto.
+      this.views.delete(terminalId);
       applied.push(terminalId);
     }
     for (const terminalId of applied) {
@@ -168,10 +223,17 @@ export class ComposerDrafts {
   /** Solo quedan estas pestanas: lo de las demas se olvida, y lo que esperaba salir no sale. */
   retain(terminalIds: readonly TerminalId[]): void {
     const keep = new Set(terminalIds);
-    for (const terminalId of new Set([...this.local.keys(), ...this.saved.keys(), ...this.touched, ...this.pending.keys()])) {
+    for (const terminalId of new Set([
+      ...this.local.keys(),
+      ...this.views.keys(),
+      ...this.saved.keys(),
+      ...this.touched,
+      ...this.pending.keys(),
+    ])) {
       if (keep.has(terminalId)) continue;
       this.cancel(terminalId);
       this.local.delete(terminalId);
+      this.views.delete(terminalId);
       this.saved.delete(terminalId);
       this.touched.delete(terminalId);
     }

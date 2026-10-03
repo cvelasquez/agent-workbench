@@ -1878,6 +1878,37 @@ const { buildProjects, migrateIndexCache, SessionIndex } = await import('../src/
   for (const created of [first, warm, old]) created.real.dispose();
 }
 
+// ---------------------------------------------------------------------------
+// El titulo de la sesion en el tooltip de la pestana (0.5.0)
+// ---------------------------------------------------------------------------
+
+{
+  const ui = await import('../../web/src/agent-ui.ts');
+  const titles = ui.tabSessionTitles(
+    [
+      { terminalId: 't1', agent: 'claude-code', sessionId: 's1' },
+      { terminalId: 't2', agent: 'claude-code', sessionId: 's2' },
+      { terminalId: 't3', agent: null, sessionId: '' },
+      { terminalId: 't4', agent: 'codex', sessionId: 's1' },
+      { terminalId: 't5', agent: 'codex', sessionId: '' },
+      { terminalId: 't6', agent: 'claude-code', sessionId: 'no-esta' },
+    ],
+    [
+      { agent: 'claude-code', sessionId: 's1', title: 'Mejoras de interfaz', titleSource: 'ai' },
+      { agent: 'claude-code', sessionId: 's2', title: 'Sesion sin titulo', titleSource: 'none' },
+      { agent: 'codex', sessionId: 's1', title: 'Otra CLI, el mismo id', titleSource: 'first-message' },
+    ],
+  );
+  check('tooltip: cada pestaña con el título de su sesión, buscada por CLI e id',
+    titles.get('t1') === 'Mejoras de interfaz' && titles.get('t4') === 'Otra CLI, el mismo id', JSON.stringify([...titles]));
+  check('tooltip: sin título la consola, la sesión sin título, la que no descubrió su id y la que el índice no conoce',
+    titles.size === 2 && !titles.has('t2') && !titles.has('t3') && !titles.has('t5') && !titles.has('t6'));
+  const { tabTooltip } = await import('../../web/src/TabBar.tsx');
+  check('tooltip: el cwd con el título, y el estado en la segunda línea',
+    tabTooltip('D:\\Agent Explorer', 'Mejoras de interfaz', 'activa') === 'D:\\Agent Explorer — Mejoras de interfaz\nactiva' &&
+      tabTooltip('D:\\Agent Explorer', undefined, 'activa') === 'D:\\Agent Explorer\nactiva');
+}
+
 adapter.dispose();
 await rm(root, { recursive: true, force: true });
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

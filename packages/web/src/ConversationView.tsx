@@ -55,6 +55,7 @@ import {
 } from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
 import { threadFontTitle } from './thread-font.js';
+import { isPrepend, scrollTopAfterPrepend, shouldLoadEarlier, wheelAsksEarlier } from './thread-scroll.js';
 import {
   mainStatusText,
   mainThreadStatus,
@@ -510,6 +511,25 @@ export function ConversationView({
     if (!away) setUnseen(0);
   }, []);
 
+  /*
+    Cargar anteriores suma arriba, y la vista se queda donde estaba: a la misma
+    distancia del final que antes de llegar la pagina (`thread-scroll.ts`).
+    `distanceFromEnd` lo anota el ultimo aviso de scroll o el ultimo dibujo, lo
+    que haya pasado despues. Va antes del efecto que baja al final: si el
+    usuario estaba ahi, ese gana igual.
+  */
+  const firstEventId = useRef<string | null>(null);
+  const distanceFromEnd = useRef(0);
+  const lastScrollTop = useRef(0);
+  useLayoutEffect(() => {
+    const previousFirst = firstEventId.current;
+    const ids = events.map((event) => event.eventId);
+    firstEventId.current = ids[0] ?? null;
+    const container = scrollRef.current;
+    if (container === null || !isPrepend(previousFirst, ids)) return;
+    container.scrollTop = scrollTopAfterPrepend(distanceFromEnd.current, container.scrollHeight);
+  }, [events]);
+
   /**
    * Pegado al final solo si el usuario ya estaba ahi.
    *
@@ -524,6 +544,27 @@ export function ConversationView({
     // Lo nuevo puede haber empujado el final fuera de la vista sin que nadie desplazara.
     measureEnd();
   }, [cards.length, needle, measureEnd]);
+
+  // Despues de cada dibujo, donde quedo la vista: lo que lea la proxima carga de anteriores.
+  useLayoutEffect(() => {
+    const container = scrollRef.current;
+    if (container === null) return;
+    distanceFromEnd.current = container.scrollHeight - container.scrollTop;
+    lastScrollTop.current = container.scrollTop;
+  });
+
+  /*
+    Pedir la pagina anterior al subir (0.5.0). Una sola vez por cada "primero"
+    cargado: si la pagina no sumo nada, el siguiente aviso de scroll no vuelve a
+    pedir lo mismo. El boton sigue pidiendo sin esta guarda, como siempre.
+  */
+  const requestedBefore = useRef<string | null>(null);
+  const requestEarlier = useCallback(() => {
+    const first = events[0]?.eventId ?? null;
+    if (first === null || requestedBefore.current === first) return;
+    requestedBefore.current = first;
+    loadMore();
+  }, [events, loadMore]);
 
   /*
     Lo que llega mientras la vista no sigue al final: se subio a leer, o hay una
@@ -548,7 +589,27 @@ export function ConversationView({
     const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
     stickToBottom.current = distance <= STICK_TO_BOTTOM_PX;
     measureEnd();
-  }, [measureEnd]);
+    const earlier = shouldLoadEarlier({
+      scrollTop: container.scrollTop,
+      previousScrollTop: lastScrollTop.current,
+      clientHeight: container.clientHeight,
+      hasMore,
+      loading: loadingMore,
+    });
+    lastScrollTop.current = container.scrollTop;
+    distanceFromEnd.current = container.scrollHeight - container.scrollTop;
+    if (earlier) requestEarlier();
+  }, [measureEnd, hasMore, loadingMore, requestEarlier]);
+
+  // La rueda hacia arriba ya pegada al borde no produce `scroll` (`wheelAsksEarlier`).
+  const onWheel = useCallback(
+    (event: { deltaY: number }) => {
+      const container = scrollRef.current;
+      if (container === null || !hasMore || loadingMore) return;
+      if (wheelAsksEarlier(event.deltaY, container.scrollTop, container.clientHeight)) requestEarlier();
+    },
+    [hasMore, loadingMore, requestEarlier],
+  );
 
   const jumpToEnd = useCallback(() => {
     const container = scrollRef.current;
@@ -664,9 +725,20 @@ export function ConversationView({
       </div>
 
       <div className="conversation-scroll-frame">
-        <div className="conversation-scroll" ref={scrollRef} onScroll={onScroll}>
+        <div className="conversation-scroll" ref={scrollRef} onScroll={onScroll} onWheel={onWheel}>
+          {/*
+            Desde la 0.5.0 la pagina anterior se pide sola al subir, y esto es
+            sobre todo el aviso de que esta llegando. El boton queda para el
+            teclado y para una conversacion corta, que no tiene por donde subir.
+          */}
           {hasMore && (
-            <button className="conversation-more" onClick={loadMore} disabled={loadingMore}>
+            <button
+              className={`conversation-more${loadingMore ? ' conversation-more-loading' : ''}`}
+              onClick={loadMore}
+              disabled={loadingMore}
+              aria-busy={loadingMore}
+            >
+              {loadingMore && <span className="conversation-more-spinner" aria-hidden="true" />}
               {loadingMore ? t('thread.loadingMore') : t('thread.loadEarlier')}
             </button>
           )}

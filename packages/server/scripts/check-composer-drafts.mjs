@@ -31,7 +31,7 @@ import {
   parseServerMessage,
 } from '@agent-workbench/shared';
 import { DraftStore, DraftTabs, MAX_STORED_DRAFTS, draftOwnerOf, workspaceDraftOwners } from '../src/draft-store.ts';
-import { ComposerDrafts, draftOf, draftTooLong, localDraftOf } from '../../web/src/composer-drafts.ts';
+import { ComposerDrafts, draftOf, draftTooLong, localDraftOf, viewToRestore } from '../../web/src/composer-drafts.ts';
 
 let failures = 0;
 const check = (label, ok, extra = '') => {
@@ -386,6 +386,63 @@ const B = { agent: 'codex', sessionId: '0199aaaa-0000-7000-8000-000000000002' };
     check('lo de una pestaña que se cerró se olvida, y no sale', drafts.get('t1') === undefined && time.pending() === 1);
     drafts.flushAll();
     check('al esconder la página, lo que esperaba sale ya', json(sent) === json([{ terminalId: 't2', draft: draft('de una que queda') }]) && time.pending() === 0);
+  }
+}
+
+// --- 9. El cursor y el scroll de cada pestaña (0.5.0) -----------------------------------
+//
+// El cuadro es uno solo y cambia de texto con la pestaña. Al volver, quedaba
+// mostrando el principio del texto: el usuario creyó que su lista terminaba en
+// el punto 4 y siguió numerando desde ahí.
+{
+  const newDrafts = () =>
+    new ComposerDrafts({
+      send: () => {},
+      connected: () => true,
+      setTimer: () => 1,
+      clearTimer: () => {},
+      newId: () => 'id',
+    });
+  const view = (selectionStart, selectionEnd, scrollTop, backward = false) => ({ selectionStart, selectionEnd, backward, scrollTop });
+
+  {
+    const drafts = newDrafts();
+    drafts.rememberView('t1', view(120, 120, 340));
+    check('9.1 al volver, el cursor y el scroll son los que había',
+      json(viewToRestore(500, drafts.viewOf('t1'))) === json({ start: 120, end: 120, direction: 'forward', scrollTop: 340 }),
+      json(viewToRestore(500, drafts.viewOf('t1'))));
+    check('9.2 una selección hacia atrás vuelve hacia atrás',
+      json(viewToRestore(500, view(10, 40, 0, true))) === json({ start: 10, end: 40, direction: 'backward', scrollTop: 0 }));
+    check('9.3 sin nada recordado, el cursor va al final y el cuadro baja hasta él',
+      json(viewToRestore(500, undefined)) === json({ start: 500, end: 500, direction: 'forward', scrollTop: 'end' }));
+    check('9.4 lo recordado no pasa del texto que hay',
+      json(viewToRestore(30, view(120, 140, 340))) === json({ start: 30, end: 30, direction: 'forward', scrollTop: 340 }));
+  }
+  {
+    const drafts = newDrafts();
+    drafts.rememberView('t1', view(5, 5, 50));
+    drafts.submitted('t1');
+    check('9.5 al mandar, se olvida: el cuadro quedó vacío', drafts.viewOf('t1') === undefined);
+  }
+  {
+    const drafts = newDrafts();
+    drafts.rememberView('t1', view(5, 5, 50));
+    drafts.rememberView('t2', view(7, 7, 70));
+    drafts.put('t2', { text: 'tocada en esta página', items: [] });
+    drafts.restore([
+      { terminalId: 't1', draft: draft('llegó del servidor') },
+      { terminalId: 't2', draft: draft('no pisa lo tocado') },
+    ]);
+    check('9.6 un borrador que llega del servidor cambia el texto: lo recordado se olvida',
+      drafts.viewOf('t1') === undefined);
+    check('9.7 en una pestaña tocada no llega nada, y lo recordado queda', drafts.viewOf('t2')?.scrollTop === 70);
+  }
+  {
+    const drafts = newDrafts();
+    drafts.rememberView('t1', view(5, 5, 50));
+    drafts.rememberView('t2', view(7, 7, 70));
+    drafts.retain(['t2']);
+    check('9.8 lo de una pestaña que se cerró se olvida', drafts.viewOf('t1') === undefined && drafts.viewOf('t2') !== undefined);
   }
 }
 

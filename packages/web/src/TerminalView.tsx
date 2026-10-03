@@ -59,6 +59,12 @@ function preferredRenderer(): 'webgl' | 'canvas' {
  * Solo se fijan el fondo, el texto, el cursor y la seleccion. La paleta de 16
  * colores ANSI se deja en la que trae xterm: la CLI la usa para su propia
  * salida y redefinirla seria decidir por ella como se ve.
+ *
+ * Desde la 0.5.0 la terminal es oscura aunque la app este en claro, salvo que
+ * se pida seguir el tema (`useTerminalTheme.ts`). En claro, en vez de tocar la
+ * paleta, sube el contraste minimo: xterm oscurece la letra que no se lee sobre
+ * el fondo —el amarillo de PowerShell, el gris tenue de una CLI— y deja como
+ * esta la que ya se leia.
  */
 const TERMINAL_THEMES = {
   dark: {
@@ -74,6 +80,9 @@ const TERMINAL_THEMES = {
     selectionBackground: '#cfd8e3',
   },
 } as const;
+
+/** El contraste minimo de cada tema (`minimumContrastRatio` de xterm; 1 es "no tocar"). */
+const MINIMUM_CONTRAST = { dark: 1, light: 4.5 } as const;
 
 interface TerminalViewProps {
   terminalId: TerminalId;
@@ -124,6 +133,7 @@ export function TerminalView({
       scrollback: 10_000,
       allowProposedApi: true,
       theme: TERMINAL_THEMES[themeRef.current],
+      minimumContrastRatio: MINIMUM_CONTRAST[themeRef.current],
     });
     terminalRef.current = terminal;
 
@@ -479,6 +489,7 @@ export function TerminalView({
     const terminal = terminalRef.current;
     if (terminal === null) return;
     terminal.options.theme = TERMINAL_THEMES[theme];
+    terminal.options.minimumContrastRatio = MINIMUM_CONTRAST[theme];
   }, [theme]);
 
   // Al volver a una pestana hay que remedir: mientras estuvo oculta el

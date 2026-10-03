@@ -84,6 +84,21 @@
   color-scheme: light;
 }
 
+/*
+  El fondo del marco de las terminales sigue al tema de la terminal, no al de la
+  app (0.5.0, `useTerminalTheme.ts`): por defecto es oscura siempre. Sin esto,
+  con la app en claro, el lienzo oscuro de xterm quedaba rodeado de blanco. Los
+  valores son los fondos de `TERMINAL_THEMES`, en `TerminalView.tsx`.
+*/
+:root,
+:root[data-terminal-theme='dark'] {
+  --terminal-bg: #12141a;
+}
+
+:root[data-terminal-theme='light'] {
+  --terminal-bg: #fbfbfd;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -601,9 +616,15 @@ kbd {
   background: var(--hover);
 }
 
+/*
+  La activa se enmarca con el color de su proyecto (0.5.0, pedido del usuario).
+  Con el fondo solo no alcanzaba: en oscuro, `--surface` y `--chrome` son dos
+  negros casi iguales y habia que pasar al tema claro para saber cual era. El
+  subrayado de todas ya es de ese color, asi que el borde cierra el marco.
+*/
 .tab-active {
   background: var(--surface);
-  border-color: var(--border);
+  border-color: var(--tab-project-color, var(--border));
   color: var(--text);
 }
 
@@ -1201,6 +1222,7 @@ kbd {
   width: 100%;
   min-height: 0;
   padding: 6px 8px;
+  background: var(--terminal-bg);
 }
 
 /*
@@ -1971,6 +1993,35 @@ kbd {
 .conversation-more:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/*
+  Llegando la pagina anterior (0.5.0): el mismo anillo de la pestana que se
+  abre, al lado del texto. Desde que se pide sola al subir, es lo unico que
+  dice que algo esta pasando arriba.
+*/
+.conversation-more-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.conversation-more-spinner {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-dim);
+  border-top-color: var(--accent);
+  animation: tab-opening-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-more-spinner {
+    animation: none;
+  }
 }
 
 .conversation-empty {
@@ -5626,8 +5677,12 @@ kbd {
     box-shadow: inset 4px 0 0 var(--tab-project-color, transparent);
   }
 
+  /* La activa, enmarcada con el color de su proyecto, como en la PC (`.tab-active`). */
   .narrow-tab-active {
     background: var(--surface);
+    box-shadow:
+      inset 4px 0 0 var(--tab-project-color, transparent),
+      inset 0 0 0 1px var(--tab-project-color, var(--border));
   }
 
   .narrow-tab-select {

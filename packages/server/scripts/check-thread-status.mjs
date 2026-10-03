@@ -587,6 +587,34 @@ const nextEvent = (hub, name, ms = 5_000) =>
   check('5.17 cada envio con su id', first.startsWith('submit-') && first !== newSubmitRequestId());
 }
 
+// --- 6. Cargar los anteriores al subir (0.5.0) -------------------------------------
+//
+// Lo que se rompe sin verse: una conversación que pide todo su historial al
+// abrirse, o una carga que deja la vista arriba de lo recién llegado y pide
+// otra página, y otra, hasta traer la sesión entera.
+{
+  const { shouldLoadEarlier, wheelAsksEarlier, scrollTopAfterPrepend, isPrepend, earlierThresholdPx } =
+    await import('../../web/src/thread-scroll.ts');
+  const at = (scrollTop, previousScrollTop, extra = {}) =>
+    shouldLoadEarlier({ scrollTop, previousScrollTop, clientHeight: 600, hasMore: true, loading: false, ...extra });
+
+  check('6.1 sin subir no pide: bajar, quedarse quieto o abrir arriba de todo',
+    !at(150, 100) && !at(150, 150) && !at(0, 0));
+  check('6.2 subiendo a una pantalla del borde, pide', at(550, 700) && at(0, 40));
+  check('6.3 subiendo lejos del borde, todavía no', !at(2_000, 2_100));
+  check('6.4 con un pedido en camino o sin nada más que pedir, no pide',
+    !at(100, 300, { loading: true }) && !at(100, 300, { hasMore: false }));
+  check('6.5 la anticipación nunca baja de 200 px, aunque la ventana sea baja',
+    earlierThresholdPx(100) === 200 && shouldLoadEarlier({ scrollTop: 180, previousScrollTop: 300, clientHeight: 100, hasMore: true, loading: false }));
+  check('6.6 la rueda hacia arriba pegada al borde cuenta como subir; hacia abajo, no',
+    wheelAsksEarlier(-40, 0, 600) && !wheelAsksEarlier(40, 0, 600) && !wheelAsksEarlier(-40, 5_000, 600));
+  check('6.7 al sumar arriba la vista queda a la misma distancia del final, y nunca por encima de 0',
+    scrollTopAfterPrepend(1_000, 5_000) === 4_000 && scrollTopAfterPrepend(1_000, 800) === 0);
+  check('6.8 es una carga de anteriores si el que era primero sigue, más abajo',
+    isPrepend('a', ['x', 'y', 'a', 'b']) && !isPrepend('a', ['a', 'b', 'c']) && !isPrepend('a', ['m', 'n']) &&
+      !isPrepend(null, ['a']) && !isPrepend('a', []));
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

@@ -250,6 +250,29 @@ export function sessionTitleText(title: string, titleSource?: SessionSummary['ti
 }
 
 /**
+ * El titulo de cada pestana de agente segun el indice, para su tooltip. Una
+ * sesion sin titulo no entra: "Sesion sin titulo" al lado del `cwd` no dice
+ * nada que la pestana no diga ya.
+ */
+export function tabSessionTitles(
+  terminals: readonly Pick<TerminalDescriptor, 'terminalId' | 'agent' | 'sessionId'>[],
+  sessions: Iterable<Pick<SessionSummary, 'agent' | 'sessionId' | 'title' | 'titleSource'>>,
+): Map<TerminalId, string> {
+  const byKey = new Map<string, string>();
+  for (const session of sessions) {
+    if (session.titleSource === 'none' || session.title === UNTITLED_SESSION_TITLE) continue;
+    byKey.set(`${session.agent}\u0000${session.sessionId}`, session.title);
+  }
+  const titles = new Map<TerminalId, string>();
+  for (const terminal of terminals) {
+    if (terminal.agent === null || terminal.sessionId.length === 0) continue;
+    const title = byKey.get(`${terminal.agent}\u0000${terminal.sessionId}`);
+    if (title !== undefined) titles.set(terminal.terminalId, title);
+  }
+  return titles;
+}
+
+/**
  * true si una fila de la barra se retoma como pestana: es del historial nativo
  * y de una CLI con adaptador.
  *

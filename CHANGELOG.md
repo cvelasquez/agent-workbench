@@ -6,11 +6,29 @@ change behavior.
 
 ## Unreleased
 
+### Added
+
+- **Earlier messages load as you scroll up** the conversation, without
+  clicking "Load earlier messages". The view stays on what you were reading,
+  and a small spinner shows while the page arrives.
+- **The tab tooltip shows the session title** next to the folder.
+
 ### Changed
 
+- **The active tab is framed in its project's color**, in both themes: in the
+  dark theme it was hard to tell which tab was active.
+- **The terminal stays dark when the app is in the light theme.** CLIs pick
+  their colors for a dark terminal, and yellow or dim text was unreadable on
+  white.
 - **The Android app is on Google Play**:
   [io.github.cvelasquez.agentworkbench](https://play.google.com/store/apps/details?id=io.github.cvelasquez.agentworkbench).
   The README links to it; building from `android/` remains an option.
+
+### Fixed
+
+- **The message box keeps its cursor and scroll position** when you switch
+  tabs and come back. It used to show the top of a long draft, with the
+  cursor hidden at the end.
 
 ## 0.4.1 — 2026-10-01
 
