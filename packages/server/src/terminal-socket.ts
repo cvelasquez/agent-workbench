@@ -18,6 +18,7 @@ import {
   parseClientMessage,
   serverText,
   type AgentDefaults,
+  type AppSettingsStatus,
   type ComposerDraftEntry,
   type ContextUsage,
   type PermissionMode,
@@ -78,7 +79,7 @@ import {
 import type { RepoHub } from './repo-hub.js';
 import { revealPath } from './reveal.js';
 import type { SessionIndex } from './session-index.js';
-import type { ShellLocation } from './shell-locator.js';
+import { AppSettingsChangeError, type AppSettingsService } from './app-settings-service.js';
 import { TerminalOpenError, type OutputListener, type TerminalRegistry } from './terminal-registry.js';
 import { TerminalWriteQueue, type PieceWriter } from './terminal-write-queue.js';
 import { VaultError, type VaultService } from './vault/service.js';
@@ -117,7 +118,8 @@ export interface TerminalSocketOptions {
   httpServer: HttpServer;
   port: number;
   token: string;
-  shell: ShellLocation | null;
+  /** La consola de las nuevas y las CLIs apagadas (`settings.*`, Hito 41, §6.32). */
+  appSettings: AppSettingsService;
   registry: TerminalRegistry;
   index: SessionIndex;
   archived: ArchivedSessions;
@@ -148,7 +150,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     httpServer,
     port,
     token,
-    shell,
+    appSettings,
     registry,
     index,
     archived,
@@ -563,6 +565,10 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   const stopRemoteStatus = remote.onChange(() =>
     broadcastToHost({ type: 'remote.status', status: remote.status() }),
   );
+
+  // Ajustes (Hito 41) avisa a todas las ventanas: el nombre de la consola nueva lo usan todas.
+  const onAppSettingsStatus = (settings: AppSettingsStatus): void => broadcast({ type: 'settings.status', settings });
+  appSettings.on('status', onAppSettingsStatus);
   /*
     Un equipo revocado, o el acceso apagado (null): sus ventanas se cierran ya.
     Con su codigo, para que la pagina deje de reconectar y lo diga. La
@@ -730,7 +736,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       defaultAgent: agents.defaultAgent(),
       platform: process.platform,
       defaultCwd,
-      shellName: shell?.name ?? null,
+      shellName: appSettings.currentShell()?.name ?? null,
       remoteClient: deviceId !== null,
     });
     send(socket, terminalListMessage());
@@ -753,6 +759,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     send(socket, { type: 'composer.drafts', drafts: draftEntriesOf(registry.list()) });
     send(socket, { type: 'vault.status', status: vault.status() });
     if (deviceId === null) send(socket, { type: 'remote.status', status: remote.status() });
+    send(socket, { type: 'settings.status', settings: appSettings.status() });
 
     socket.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
       const text = Array.isArray(raw)
@@ -2111,6 +2118,25 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           break;
 
         /*
+          Ajustes (Hito 41, §6.32). Una consola que ya no esta, o un disco que no
+          deja escribir, se dicen; lo demas lo valido el parser. A una ventana
+          remota no llega: lo frena `remoteRefusal`.
+        */
+        case 'settings.update': {
+          const { type: _type, ...change } = message;
+          void appSettings.update(change).catch((error: unknown) => {
+            if (error instanceof AppSettingsChangeError) {
+              sendError(socket, 'settings-failed', serverText('settingsShellMissing'));
+              return;
+            }
+            const detail = error instanceof Error ? error.message : String(error);
+            console.warn('[settings] a change failed:', detail);
+            sendError(socket, 'settings-failed', serverText('settingsFailed'), detail);
+          });
+          break;
+        }
+
+        /*
           El acceso remoto (hito 37). Hasta aca solo llega una ventana del
           anfitrion: a un equipo remoto lo freno `remoteRefusal`. El estado
           nuevo sale a las ventanas del anfitrion por `remote.onChange`; aca
@@ -2231,6 +2257,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     memory.off('status', onMemoryStatus);
     stopAgentChanges();
     stopVaultStatus();
+    appSettings.off('status', onAppSettingsStatus);
     stopRemoteStatus();
     stopRemoteRevoked();
     for (const client of wss.clients) client.terminate();

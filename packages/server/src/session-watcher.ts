@@ -61,7 +61,7 @@ export interface WatchSessionsOptions {
 /** Lo que el watcher usa de cada consumidor. */
 type IndexSink = Pick<SessionIndex, 'refreshPath'>;
 type HubSink = Pick<ConversationHub, 'onHistoryChanged'>;
-type AgentSource = Pick<AgentRegistry, 'all'>;
+type AgentSource = Pick<AgentRegistry, 'all'> & Partial<Pick<AgentRegistry, 'historySources'>>;
 
 async function isDirectory(target: string): Promise<boolean> {
   try {
@@ -167,7 +167,8 @@ export function watchSessions(
     probes.add(probe);
   };
 
-  for (const { adapter } of agents.all()) {
+  // Las apagadas en Ajustes no se vigilan (Hito 41): `historySources`.
+  for (const { adapter } of agents.historySources?.() ?? agents.all()) {
     for (const root of adapter.history.roots()) {
       if (root.watch !== undefined) {
         subscribeRoot(adapter.id, root, root.watch);

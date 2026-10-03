@@ -47,6 +47,8 @@ export interface NarrowViewOptions {
   hasTab: boolean;
   /** La CLI de la pestaña tiene planes (§3.2): si no, la vista no se ofrece. */
   plansAvailable: boolean;
+  /** Las vistas que el usuario escondió en Ajustes (Hito 41). El chat y la CLI no se esconden. */
+  hidden?: ReadonlySet<string>;
 }
 
 /**
@@ -56,8 +58,10 @@ export interface NarrowViewOptions {
  * lo que ofrece la vista cuando no hay ninguna.
  */
 export function narrowViews(options: NarrowViewOptions): NarrowView[] {
-  if (!options.hasTab) return ['chat', 'notes'];
-  return NARROW_VIEWS.filter((view) => view !== 'plans' || options.plansAvailable);
+  const hidden = options.hidden ?? new Set<string>();
+  const shown = (view: NarrowView): boolean => view === 'chat' || view === 'cli' || !hidden.has(view);
+  if (!options.hasTab) return (['chat', 'notes'] as NarrowView[]).filter(shown);
+  return NARROW_VIEWS.filter((view) => (view !== 'plans' || options.plansAvailable) && shown(view));
 }
 
 /** La que se muestra: la pedida si se ofrece, y si no, el chat. */

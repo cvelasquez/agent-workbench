@@ -20,6 +20,14 @@ change behavior.
   project opens it in a new tab.
 - **Search inside an open file or plan**, like the conversation search:
   Enter and Shift+Enter move between matches.
+- **A Settings window (⚙ in the header)**: the language, the terminal theme,
+  which panels show, which console new consoles open (PowerShell 7, Windows
+  PowerShell, cmd, Git Bash; bash or zsh on macOS and Linux) and which CLIs the
+  app uses. A CLI you turn off isn't searched for, offered or read; that
+  applies when you restart the app.
+- **Hide the Notes and Console sections** from their own bar, with an icon
+  that isn't a ×. They come back from Settings. Hiding the console closes its
+  terminals, and asks first.
 
 ### Changed
 
@@ -28,6 +36,8 @@ change behavior.
 - **The terminal stays dark when the app is in the light theme.** CLIs pick
   their colors for a dark terminal, and yellow or dim text was unreadable on
   white.
+- **The language button moved into Settings.** The theme button stays in the
+  header.
 - **The Android app is on Google Play**:
   [io.github.cvelasquez.agentworkbench](https://play.google.com/store/apps/details?id=io.github.cvelasquez.agentworkbench).
   The README links to it; building from `android/` remains an option.

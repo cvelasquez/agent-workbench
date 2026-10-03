@@ -37,6 +37,7 @@ import { TerminalView } from './TerminalView.js';
 import type { AgentConnection } from './connection.js';
 import { isWindowsClient } from './console-paste.js';
 import { t } from './i18n/index.js';
+import { SectionHideButton } from './SectionHideButton.js';
 
 /** Ctrl+V pega en las consolas si el navegador corre en Windows (§5.2). */
 const PASTE_ON_CTRL_V = typeof navigator !== 'undefined' && isWindowsClient(navigator.platform);
@@ -58,6 +59,12 @@ interface ConsolePaneProps {
   onCloseShell: (terminalId: TerminalId) => void;
   /** Pliega el panel. No mata nada. */
   onCollapse: () => void;
+  /**
+   * Esconde la consola (Hito 41): cierra sus terminales y la saca del pie hasta
+   * que se la muestre desde Ajustes. Ausente en la vista angosta, donde se
+   * esconde desde Ajustes.
+   */
+  onHide?: () => void;
 }
 
 export function ConsolePane({
@@ -71,6 +78,7 @@ export function ConsolePane({
   onOpen,
   onCloseShell,
   onCollapse,
+  onHide,
 }: ConsolePaneProps): JSX.Element {
   const label = shellName ?? t('console.name');
   const active = shells.find((shell) => shell.terminalId === activeShellId) ?? shells[0] ?? null;
@@ -91,7 +99,12 @@ export function ConsolePane({
                 onClick={() => onSelect(shell.terminalId)}
                 title={
                   shell.alive
-                    ? t('console.tab.title', { shell: label, number: index + 1, cwd })
+                    ? t('console.tab.title', {
+                        // La suya: desde el Hito 41 conviven consolas distintas.
+                        shell: shell.label.length > 0 ? shell.label : label,
+                        number: index + 1,
+                        cwd,
+                      })
                     : t('console.tab.exited', { code: shell.exitCode ?? '?' })
                 }
               >
@@ -126,6 +139,13 @@ export function ConsolePane({
         >
           ▾
         </button>
+        {onHide !== undefined && (
+          <SectionHideButton
+            title={t('settings.hide.console')}
+            onHide={onHide}
+            confirmText={shells.length === 0 ? null : t('settings.panels.consoleConfirm', { count: shells.length })}
+          />
+        )}
       </header>
 
       <div className="console-body">

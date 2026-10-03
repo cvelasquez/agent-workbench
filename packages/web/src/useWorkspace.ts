@@ -488,6 +488,8 @@ export function useWorkspace(): Workspace {
           if (message.code === 'search-failed') break;
           // Y el acceso remoto (hito 37): lo dice su dialogo. Ver `useRemoteAccess`.
           if (message.code === 'remote-failed') break;
+          // Y Ajustes (Hito 41): lo dice su ventana. Ver `useAppSettings`.
+          if (message.code === 'settings-failed') break;
           setError({ message: serverTextMessage(message.text), at: Date.now() });
           // Un fallo al abrir la CLI no puede dejar el boton diciendo
           // "Abriendo…" para siempre. Ni "Relanzando…".

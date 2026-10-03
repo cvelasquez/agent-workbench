@@ -196,7 +196,8 @@ export class TerminalRegistry extends EventEmitter {
 
   constructor(
     private readonly agents: AgentRegistry,
-    private readonly shell: ShellLocation | null,
+    /** La consola que abre una nueva. Cambia con Ajustes (`setShell`, Hito 41); las abiertas siguen. */
+    private shell: ShellLocation | null,
     private readonly store: WorkspaceStore,
     /**
      * De que CLI es una sesion que se reanuda. Sin indice que conteste, nadie
@@ -205,6 +206,11 @@ export class TerminalRegistry extends EventEmitter {
     private readonly sessionAgentOf: SessionAgentLookup = () => null,
   ) {
     super();
+  }
+
+  /** Otra consola para las que se abran desde ahora (Ajustes, Hito 41). Las abiertas no cambian. */
+  setShell(shell: ShellLocation | null): void {
+    this.shell = shell;
   }
 
   list(): TerminalDescriptor[] {
@@ -324,7 +330,9 @@ export class TerminalRegistry extends EventEmitter {
       cwd: options.cwd,
       // Provisional: `spawn` lo confirma con lo que diga el adaptador.
       sessionId: kind === 'agent' ? (options.resumeSessionId ?? randomUUID()) : '',
-      label: options.label ?? '',
+      // Una consola lleva el nombre de la suya: desde el Hito 41 pueden convivir
+      // PowerShell y Git Bash, y el nombre de la consola nueva ya no es el de todas.
+      label: options.label ?? (kind === 'shell' ? (this.shell?.name ?? '') : ''),
       resumed,
       createdAt: Date.now(),
       // Lo pone `spawn`. Una entrada que no llega a tener proceso no queda en

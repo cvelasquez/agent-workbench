@@ -376,6 +376,8 @@ const OPENS_ON_HOST: ReadonlySet<ClientMessageType> = new Set<ClientMessageType>
  */
 export function remoteRefusal(type: string, remoteClient: boolean): ServerText | null {
   if (!remoteClient) return null;
+  // Los ajustes del servidor (Hito 41): que consola se abre y que CLIs se usan los decide el anfitrion.
+  if (type === 'settings.update') return serverText('settingsHostOnly');
   if (HOST_ONLY.has(type as ClientMessageType)) return serverText('remoteHostOnly');
   if (OPENS_ON_HOST.has(type as ClientMessageType)) return serverText('remoteOpensOnHost');
   return null;

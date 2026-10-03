@@ -452,7 +452,7 @@ export class SessionIndex extends EventEmitter {
   private readonly stopCatalog: (() => void) | null;
 
   constructor(
-    private readonly agents: Pick<AgentRegistry, 'all' | 'adapter'>,
+    private readonly agents: Pick<AgentRegistry, 'all' | 'adapter'> & Partial<Pick<AgentRegistry, 'historySources'>>,
     /**
      * Que sesiones estan escondidas de la barra lateral.
      *
@@ -694,7 +694,8 @@ export class SessionIndex extends EventEmitter {
     this.scanning = true;
 
     try {
-      const sources = this.agents.all().map(({ adapter }) => ({
+      // Las apagadas en Ajustes no se leen (Hito 41): `historySources`.
+      const sources = (this.agents.historySources?.() ?? this.agents.all()).map(({ adapter }) => ({
         agent: adapter.id,
         history: adapter.history,
       }));

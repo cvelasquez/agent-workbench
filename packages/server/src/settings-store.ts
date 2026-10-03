@@ -1,7 +1,8 @@
 /**
  * Ajustes de la app, en `<carpeta de configuracion>/settings.json`.
  *
- * Los de la copia propia (hito 28) y los del acceso remoto (hito 37). Archivo aparte de
+ * Los de la copia propia (hito 28), los del acceso remoto (hito 37) y, desde el
+ * Hito 41, la consola que abre una nueva y las CLIs apagadas (§6.32). Archivo aparte de
  * `workspace.json` por lo de siempre: ese se reescribe entero en cada cambio de
  * pestanas y dos instancias se lo pisan (CLAUDE.md 6.5).
  *
@@ -26,7 +27,17 @@
 
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { REMOTE_DEFAULT_PORT, asBoolean, asRecord, isRemotePort } from '@agent-workbench/shared';
+import {
+  CONSOLE_SHELL_IDS,
+  REMOTE_DEFAULT_PORT,
+  asAgentIdList,
+  asBoolean,
+  asLiteral,
+  asRecord,
+  isRemotePort,
+  type AgentId,
+  type ConsoleShellId,
+} from '@agent-workbench/shared';
 import { appSettingsPath } from './paths.js';
 import { writeFileAtomic } from './vault/write.js';
 
@@ -58,15 +69,35 @@ export interface RemoteSettings {
   port: number;
 }
 
+/**
+ * La consola del pie (Hito 41). Una que despues no esta instalada no se borra:
+ * la consola nueva cae a la automatica, y si vuelve a estar, se usa otra vez.
+ */
+export interface ConsoleSettings {
+  shell: ConsoleShellId;
+}
+
+/**
+ * Las CLIs que el usuario apago (Hito 41). Valen al arrancar: una apagada no se
+ * busca, no se lanza y su historial no se lee (`agents/registry.ts`).
+ */
+export interface AgentsSettings {
+  disabled: AgentId[];
+}
+
 export interface AppSettings {
   version: typeof SETTINGS_VERSION;
   vault: VaultSettings;
   remote: RemoteSettings;
+  console: ConsoleSettings;
+  agents: AgentsSettings;
 }
 
 export interface SettingsPatch {
   vault?: Partial<VaultSettings>;
   remote?: Partial<RemoteSettings>;
+  console?: Partial<ConsoleSettings>;
+  agents?: Partial<AgentsSettings>;
 }
 
 export function defaultAppSettings(): AppSettings {
@@ -74,6 +105,8 @@ export function defaultAppSettings(): AppSettings {
     version: SETTINGS_VERSION,
     vault: { enabled: false, dir: null, toolResultMaxChars: VAULT_TOOL_RESULT_DEFAULT_CHARS },
     remote: { enabled: false, port: REMOTE_DEFAULT_PORT },
+    console: { shell: 'auto' },
+    agents: { disabled: [] },
   };
 }
 
@@ -111,6 +144,14 @@ export function parseAppSettings(
   if (record === null || record['version'] !== SETTINGS_VERSION) return null;
 
   const settings = defaultAppSettings();
+  // Los del Hito 41, antes de la copia: el `return` temprano de abajo los saltaria.
+  const consoleRecord = asRecord(record['console']);
+  const shell = consoleRecord === null ? null : asLiteral(consoleRecord['shell'], CONSOLE_SHELL_IDS);
+  if (shell !== null) settings.console.shell = shell;
+  const agentsRecord = asRecord(record['agents']);
+  const disabled = agentsRecord === null ? null : asAgentIdList(agentsRecord['disabled']);
+  if (disabled !== null) settings.agents.disabled = disabled;
+
   const remote = asRecord(record['remote']);
   if (remote !== null) {
     settings.remote.enabled = asBoolean(remote['enabled']) ?? false;
@@ -137,6 +178,8 @@ function frozen(settings: AppSettings): AppSettings {
     ...settings,
     vault: Object.freeze({ ...settings.vault }),
     remote: Object.freeze({ ...settings.remote }),
+    console: Object.freeze({ ...settings.console }),
+    agents: Object.freeze({ disabled: Object.freeze([...settings.agents.disabled]) as AgentId[] }),
   });
 }
 
@@ -232,6 +275,8 @@ export class SettingsStore {
         version: SETTINGS_VERSION,
         vault: { ...this.current.vault },
         remote: { ...this.current.remote },
+        console: { ...this.current.console },
+        agents: { disabled: [...this.current.agents.disabled] },
       };
       const vault = patch.vault ?? {};
       if (vault.enabled !== undefined) next.vault.enabled = vault.enabled;
@@ -244,6 +289,8 @@ export class SettingsStore {
       if (vault.toolResultMaxChars !== undefined) {
         next.vault.toolResultMaxChars = clampToolResultMaxChars(vault.toolResultMaxChars);
       }
+      if (patch.console?.shell !== undefined) next.console.shell = patch.console.shell;
+      if (patch.agents?.disabled !== undefined) next.agents.disabled = [...new Set(patch.agents.disabled)];
       const remote = patch.remote ?? {};
       if (remote.enabled !== undefined) next.remote.enabled = remote.enabled;
       if (remote.port !== undefined) {

@@ -172,6 +172,12 @@ import {
   type RemotePhonePairing,
 } from './remote.js';
 import { parseServerText, type ServerText } from './server-text.js';
+import {
+  parseAppSettingsChange,
+  parseAppSettingsStatus,
+  type AppSettingsChange,
+  type AppSettingsStatus,
+} from './settings.js';
 
 /** Se incrementa cuando el contrato cambia de forma incompatible. */
 export const PROTOCOL_VERSION = 8;
@@ -953,6 +959,14 @@ export interface ClientCancelGlobalSearchMessage {
  * borrador vacio borra el guardado. Solo texto: ninguna ruta, y las imagenes
  * no viajan.
  */
+/**
+ * Cambia lo que Ajustes guarda del lado del servidor (Hito 41, §6.32): con que
+ * consola abre una nueva, y que CLIs no se usan. Lleva al menos uno. La consola
+ * se nombra por su id, nunca por su ruta. Solo lo atiende una ventana del
+ * anfitrion.
+ */
+export type ClientSettingsUpdateMessage = { type: 'settings.update' } & AppSettingsChange;
+
 export interface ClientComposerDraftMessage {
   type: 'composer.draft';
   terminalId: TerminalId;
@@ -1024,7 +1038,8 @@ export type ClientMessage =
   | ClientRemotePhoneStartMessage
   | ClientRemotePhoneCancelMessage
   | ClientRemoteDeviceForgetSelfMessage
-  | ClientComposerDraftMessage;
+  | ClientComposerDraftMessage
+  | ClientSettingsUpdateMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -1521,6 +1536,15 @@ export interface ServerVaultExportedMessage {
 }
 
 /**
+ * Lo que Ajustes muestra del servidor (Hito 41, §6.32). Al conectar, y a todos
+ * en cada cambio.
+ */
+export interface ServerSettingsStatusMessage {
+  type: 'settings.status';
+  settings: AppSettingsStatus;
+}
+
+/**
  * Estado del acceso remoto (hito 37). Al conectar y a todos en cada cambio, pero
  * **solo a las ventanas del anfitrion**: a un equipo remoto no se le cuenta que
  * otros equipos hay ni con que usuario se entra.
@@ -1654,6 +1678,8 @@ export type ServerErrorCode =
   | 'search-failed'
   /** Un pedido `remote.*` que no se pudo cumplir. El texto dice por que. */
   | 'remote-failed'
+  /** Un cambio de Ajustes (Hito 41) que no se pudo guardar. El texto dice por que. */
+  | 'settings-failed'
   /** Un pedido que a un equipo remoto no se le atiende (hito 37). No se hizo nada. */
   | 'remote-refused'
   /**
@@ -1686,6 +1712,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'continue-failed',
   'search-failed',
   'remote-failed',
+  'settings-failed',
   'remote-refused',
   'agent-unsupported',
   'internal',
@@ -1749,6 +1776,7 @@ export type ServerMessage =
   | ServerGlobalSearchProgressMessage
   | ServerGlobalSearchMessage
   | ServerRemoteStatusMessage
+  | ServerSettingsStatusMessage
   | ServerRemotePairingCodeMessage
   | ServerRemotePhonePairingMessage
   | ServerErrorMessage;
@@ -2255,6 +2283,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const draft = parseComposerDraft(record['draft']);
       return terminalId === null || draft === null ? null : { type: 'composer.draft', terminalId, draft };
     }
+    case 'settings.update': {
+      const change = parseAppSettingsChange(record);
+      return change === null ? null : { type: 'settings.update', ...change };
+    }
     default:
       return null;
   }
@@ -2723,6 +2755,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     case 'remote.status': {
       const status = parseRemoteAccessStatus(record['status']);
       return status === null ? null : { type: 'remote.status', status };
+    }
+    case 'settings.status': {
+      const settings = parseAppSettingsStatus(record['settings']);
+      return settings === null ? null : { type: 'settings.status', settings };
     }
     case 'remote.pairing.code': {
       const pairing = parseRemotePairingCode(record['pairing']);

@@ -1741,6 +1741,9 @@ const agentsWith = (agent, history) => ({
   const { SettingsStore, defaultAppSettings, parseAppSettings } = settingsModule;
   // Los ajustes traen ademas el acceso remoto (hito 37), apagado: lo cubre `check-remote-access.mjs`.
   const REMOTE_OFF = { enabled: false, port: 24837 };
+  // Y desde el hito 41 la consola de las nuevas y las CLIs apagadas: lo cubre `check-settings.mjs`.
+  const CONSOLE_AUTO = { shell: 'auto' };
+  const NONE_DISABLED = { disabled: [] };
   const folder = path.join(root, 'ajustes');
   const file = path.join(folder, 'settings.json');
   const warnings = [];
@@ -1748,7 +1751,7 @@ const agentsWith = (agent, history) => ({
   const store = new SettingsStore(file, { platform: 'win32', log });
   await store.load();
   check('10 ajustes sin archivo: apagada, carpeta por defecto, 64 000; y leer no crea nada',
-    same(store.get(), { version: 1, vault: { enabled: false, dir: null, toolResultMaxChars: 64_000 }, remote: REMOTE_OFF }) &&
+    same(store.get(), { version: 1, vault: { enabled: false, dir: null, toolResultMaxChars: 64_000 }, remote: REMOTE_OFF, console: CONSOLE_AUTO, agents: NONE_DISABLED }) &&
     !(await fileExists(folder)), show(store.get()));
   check('10 ajustes: no hay everEnabled (C18)', !('everEnabled' in store.get().vault) && !('everEnabled' in defaultAppSettings().vault));
 
@@ -1776,7 +1779,7 @@ const agentsWith = (agent, history) => ({
 
   await store.update({ vault: { enabled: true, dir: 'D:\\Copias' } });
   check('10 ajustes: update escribe enseguida, sin temporales, y get lo refleja',
-    same(JSON.parse(await readFile(file, 'utf8')), { version: 1, vault: { enabled: true, dir: 'D:\\Copias', toolResultMaxChars: 64_000 }, remote: REMOTE_OFF }) &&
+    same(JSON.parse(await readFile(file, 'utf8')), { version: 1, vault: { enabled: true, dir: 'D:\\Copias', toolResultMaxChars: 64_000 }, remote: REMOTE_OFF, console: CONSOLE_AUTO, agents: NONE_DISABLED }) &&
     store.get().vault.dir === 'D:\\Copias' && (await namesIn(folder)).every((name) => !name.endsWith('.tmp')), show(store.get()));
   const rejected = await store.update({ vault: { dir: 'relativa' } }).then(() => false, () => true);
   check('10 ajustes: una carpeta relativa en update se rechaza y no cambia nada',

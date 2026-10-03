@@ -30,29 +30,51 @@ export class AgentRegistry {
   private readonly agents = new Map<AgentId, RegisteredAgent>();
   /** Las suscripciones a cambios de configuracion que siguen abiertas, para soltarlas al apagar. */
   private readonly changeSubscriptions = new Set<() => void>();
+  /**
+   * Las que el usuario apago en Ajustes (Hito 41, §6.32), tal como estaban al
+   * arrancar. Una apagada es, para todo el resto, una CLI que no esta: no se
+   * busca —no se corre su `--version`—, no se lanza, y su historial no se lee
+   * (`historySources`). Cambiarlo vale al reiniciar.
+   */
+  private readonly disabled: ReadonlySet<AgentId>;
 
   /** El orden del array es el orden de preferencia para `defaultAgent`. */
-  constructor(adapters: readonly AgentAdapter[]) {
+  constructor(adapters: readonly AgentAdapter[], disabled: Iterable<AgentId> = []) {
     for (const adapter of adapters) {
       if (this.agents.has(adapter.id)) {
         throw new Error(`Adapter registered twice: ${adapter.id}`);
       }
       this.agents.set(adapter.id, { adapter, location: null });
     }
+    this.disabled = new Set([...disabled].filter((id) => this.agents.has(id)));
   }
 
   /**
    * Localiza todos a la vez. Se llama una vez al arrancar.
    *
    * En paralelo porque cada uno puede correr `--version`, y eso son segundos
-   * que el arranque no tiene por que sumar.
+   * que el arranque no tiene por que sumar. Una apagada no se busca.
    */
   async locateAll(): Promise<void> {
     await Promise.all(
       [...this.agents.values()].map(async (entry) => {
-        entry.location = await entry.adapter.locate();
+        entry.location = this.disabled.has(entry.adapter.id) ? null : await entry.adapter.locate();
       }),
     );
+  }
+
+  /** Las que este arranque dejo apagadas. */
+  disabledIds(): AgentId[] {
+    return [...this.agents.keys()].filter((id) => this.disabled.has(id));
+  }
+
+  /**
+   * Las CLIs cuyo historial se lee: todas menos las apagadas. Instalada o no da
+   * igual —el historial de una ausente se lee igual, apagado en la barra—; una
+   * apagada es lo que el usuario pidio no ver.
+   */
+  historySources(): readonly RegisteredAgent[] {
+    return this.all().filter((entry) => !this.disabled.has(entry.adapter.id));
   }
 
   /**
@@ -267,7 +289,7 @@ export function resolveAgentForOpen(input: ResolveAgentInput): AgentId | null {
  * que ya habia cambia de lugar. Antigravity CLI detras de todas (hito 27), por
  * lo mismo.
  */
-export function createAgentRegistry(): AgentRegistry {
+export function createAgentRegistry(disabled: Iterable<AgentId> = []): AgentRegistry {
   /*
     El `serve` de OpenCode (hito 29) arranca con el mismo entorno que las
     pestanas: el compuesto de este registro, que todavia no existe cuando se
@@ -278,6 +300,6 @@ export function createAgentRegistry(): AgentRegistry {
     createCodexAdapter(),
     createOpenCodeAdapter({ serveEnv: () => registry.composedEnvironment(process.env) }),
     createAntigravityAdapter(),
-  ]);
+  ], disabled);
   return registry;
 }

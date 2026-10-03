@@ -43,7 +43,8 @@ import {
 } from './startup-summary.js';
 import { NotesStore } from './notes-store.js';
 import { DraftStore, workspaceDraftOwners } from './draft-store.js';
-import { locateShell, type ShellLocation } from './shell-locator.js';
+import { locateShells, pickShell, type ShellLocation } from './shell-locator.js';
+import { AppSettingsService } from './app-settings-service.js';
 import { watchSessions } from './session-watcher.js';
 import { TerminalRegistry } from './terminal-registry.js';
 import { attachTerminalSocket } from './terminal-socket.js';
@@ -306,16 +307,23 @@ function describeStartup(
 async function main(): Promise<void> {
   const token = createSessionToken();
   const defaultCwd = resolveDefaultCwd();
-  // Buscar las CLIs no bloquea el arranque: si falta, la UI lo explica. La
-  // consola del panel derecho se busca a la vez y es opcional: sin ella el
-  // resto de la app funciona igual.
-  const agents = createAgentRegistry();
-  const [, shell] = await Promise.all([agents.locateAll(), locateShell()]);
-
   // Antes de que nadie lea la configuracion: si quedo en el directorio del
   // nombre viejo, se mueve al nuevo (ver `config-dir-migration.ts`).
   const movedFrom = await migrateLegacyConfigDir();
   if (movedFrom !== null) console.log(`Configuration moved from ${movedFrom} to ${appConfigDir()}`);
+  /*
+    Los ajustes, antes que las CLIs (Hito 41): dicen cuales apago el usuario
+    —esas no se buscan ni se lee su historial— y con que consola abre una nueva.
+    Leer nunca escribe (`settings-store.ts`).
+  */
+  const settings = new SettingsStore();
+  await settings.load();
+  // Buscar las CLIs no bloquea el arranque: si falta, la UI lo explica. Las
+  // consolas del pie se buscan a la vez y son opcionales: sin ninguna, el resto
+  // de la app funciona igual.
+  const agents = createAgentRegistry(settings.get().agents.disabled);
+  const [, shells] = await Promise.all([agents.locateAll(), locateShells()]);
+  const shell: ShellLocation | null = pickShell(shells, settings.get().console.shell);
   // Lo que cada CLI encontrada instala en la carpeta de la app: recien ahora,
   // con la carpeta ya en su lugar (A1 del hito 27).
   await agents.prepareAll();
@@ -335,8 +343,6 @@ async function main(): Promise<void> {
     el indice mezcla esas sesiones con las nativas al emitir, y el servicio
     decide cuando corre cada pasada.
   */
-  const settings = new SettingsStore();
-  await settings.load();
   const catalog = new VaultCatalog();
   await catalog.load(settings.get().vault.dir ?? defaultVaultDir());
   /*
@@ -351,6 +357,13 @@ async function main(): Promise<void> {
   const registry = new TerminalRegistry(agents, shell, store, (sessionId) =>
     index.agentOf(sessionId),
   );
+  // La consola de las nuevas y las CLIs apagadas, desde Ajustes (Hito 41, §6.32).
+  const appSettings = new AppSettingsService({
+    settings,
+    agents,
+    shells,
+    onShellChange: (next) => registry.setShell(next),
+  });
   // Notas sueltas del usuario. Se cargan antes de aceptar conexiones: el
   // primer mensaje de cada socket ya lleva la lista.
   const notes = new NotesStore();
@@ -420,7 +433,7 @@ async function main(): Promise<void> {
     httpServer,
     port,
     token,
-    shell,
+    appSettings,
     registry,
     index,
     archived,

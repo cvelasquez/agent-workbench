@@ -30,6 +30,7 @@ import { noteSendTitle } from './agent-ui.js';
 import { formatBytes, formatWhen } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
+import { SectionHideButton } from './SectionHideButton.js';
 import { threadFontTitle } from './thread-font.js';
 import type { NotesApi } from './useNotes.js';
 import { useNotesFont } from './useThreadFont.js';
@@ -73,6 +74,8 @@ interface NotesPanelProps {
    * con una fila arriba. La preferencia guardada no se toca.
    */
   fill: boolean;
+  /** Esconde las notas del pie (Hito 41) hasta mostrarlas desde Ajustes. No borra ninguna. Ausente en la vista angosta. */
+  onHide?: () => void;
 }
 
 export function NotesPanel({
@@ -80,6 +83,7 @@ export function NotesPanel({
   onSendNote,
   sendTargetCwd,
   fill,
+  onHide,
 }: NotesPanelProps): JSX.Element {
   const [storedOpen, setOpen] = useState(() => readStored(OPEN_KEY, false, (raw) => raw === 'true'));
   const open = storedOpen || fill;
@@ -221,15 +225,18 @@ export function NotesPanel({
         vez de al lado de la ultima solapa.
       */}
       {!open ? (
-        <button
-          className="strip-collapsed"
-          onClick={toggleOpen}
-          title={t('notes.expand')}
-        >
-          <span className="strip-collapsed-arrow">▸</span>
-          <span>{t('notes.name')}</span>
-          {count > 0 && <span className="strip-collapsed-count">{count}</span>}
-        </button>
+        <div className="strip-collapsed-row">
+          <button
+            className="strip-collapsed"
+            onClick={toggleOpen}
+            title={t('notes.expand')}
+          >
+            <span className="strip-collapsed-arrow">▸</span>
+            <span>{t('notes.name')}</span>
+            {count > 0 && <span className="strip-collapsed-count">{count}</span>}
+          </button>
+          {onHide !== undefined && <SectionHideButton title={t('settings.hide.notes')} onHide={onHide} confirmText={null} />}
+        </div>
       ) : (
         <>
           <div className="notes-header">
@@ -292,6 +299,7 @@ export function NotesPanel({
                 ▾
               </button>
             )}
+            {onHide !== undefined && <SectionHideButton title={t('settings.hide.notes')} onHide={onHide} confirmText={null} />}
           </div>
 
           <div className="notes-body">

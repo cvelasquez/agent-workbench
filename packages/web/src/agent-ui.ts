@@ -454,18 +454,26 @@ export function statusLineNoFragmentText(): string {
 export function visiblePanelTabs<T extends { id: string }>(
   tabs: readonly T[],
   plansAvailable: boolean,
+  /** Las que el usuario escondio en Ajustes (Hito 41). La CLI no se esconde nunca. */
+  hidden: ReadonlySet<string> = new Set(),
 ): T[] {
-  return tabs.filter((tab) => plansAvailable || tab.id !== 'plans');
+  return tabs.filter((tab) => (plansAvailable || tab.id !== 'plans') && (tab.id === 'cli' || !hidden.has(tab.id)));
 }
 
 /**
  * La solapa que se muestra.
  *
  * La guardada no se pisa: si la pestana de ahora no tiene planes se muestra la
- * CLI, y al volver a una que si tiene, se vuelve a Planes.
+ * CLI, y al volver a una que si tiene, se vuelve a Planes. Lo mismo con una
+ * escondida en Ajustes: se ve la CLI, y al mostrarla de nuevo, vuelve.
  */
-export function effectivePanelTab<T extends string>(tab: T, plansAvailable: boolean): T | 'cli' {
-  return tab === 'plans' && !plansAvailable ? 'cli' : tab;
+export function effectivePanelTab<T extends string>(
+  tab: T,
+  plansAvailable: boolean,
+  hidden: ReadonlySet<string> = new Set(),
+): T | 'cli' {
+  if (tab === 'plans' && !plansAvailable) return 'cli';
+  return tab !== 'cli' && hidden.has(tab) ? 'cli' : tab;
 }
 
 /**

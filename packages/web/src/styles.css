@@ -4012,6 +4012,166 @@ kbd {
   line-height: 1.6;
 }
 
+/* ---------- Ajustes (Hito 41, §6.32) ---------- */
+
+.settings-dialog {
+  width: min(600px, calc(100vw - 32px));
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+}
+
+.settings-row-top {
+  align-items: flex-start;
+}
+
+.settings-label {
+  flex: 0 0 150px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.settings-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.settings-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 4px 12px;
+}
+
+/* Esconder la consola con terminales abiertas: se pregunta antes de cerrarlas. */
+.settings-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--warning);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.settings-clis {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-cli {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.settings-cli-name {
+  min-width: 130px;
+}
+
+/* Sin casilla: no hay nada que prender. Se alinea con las que si la tienen. */
+.settings-cli-missing {
+  padding-left: 22px;
+  color: var(--text-dim);
+}
+
+.settings-cli-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-restart {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--warning);
+}
+
+.settings-problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/*
+  El icono que esconde una seccion del pie (`SectionHideButton`), y su pregunta
+  cuando esconder cierra terminales. La pregunta sale hacia arriba: el pie esta
+  al borde de la pantalla.
+*/
+.section-hide {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.section-hide-confirm {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+  color: var(--text);
+  white-space: normal;
+}
+
+/* La barra plegada con el icono de esconder al lado: la fila lleva el borde y el fondo. */
+.strip-collapsed-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  background: var(--chrome-alt);
+}
+
+.strip-collapsed-row .strip-collapsed {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-top: none;
+}
+
+.strip-collapsed-row .section-hide {
+  padding: 0 6px;
+}
+
 /*
   Dialogo de la status line (hito 27). El estado va arriba y en una linea: es
   lo que uno viene a mirar despues de pegar el fragmento.

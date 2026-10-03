@@ -75,6 +75,8 @@ export interface NarrowMenu {
   remote: { title: string; active: boolean; onOpen: () => void } | null;
   remoteClient: boolean;
   onShortcuts: () => void;
+  /** Abre Ajustes (Hito 41): los paneles que se ven, la consola y las CLIs. */
+  onSettings: () => void;
 }
 
 interface NarrowShellProps {
@@ -553,6 +555,20 @@ function MenuSheet({
           title={t('app.header.shortcuts')}
         >
           ?
+        </button>
+      </div>
+      <div className="narrow-menu-row">
+        <span className="narrow-menu-label">{t('settings.title')}</span>
+        <button
+          className="icon-button"
+          onClick={() => {
+            onClose();
+            menu.onSettings();
+          }}
+          title={t('settings.open')}
+          aria-label={t('settings.open')}
+        >
+          ⚙
         </button>
       </div>
     </div>

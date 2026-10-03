@@ -56,6 +56,8 @@ interface SidePanelProps {
   tab: PanelTab;
   /** false si la CLI de la pestana no tiene planes: la solapa no se ofrece. */
   plansAvailable: boolean;
+  /** Las solapas escondidas en Ajustes (Hito 41). La CLI no se esconde nunca. */
+  hiddenTabs: ReadonlySet<string>;
   /**
    * true si el panel esta escondido (Alt+P).
    *
@@ -101,6 +103,7 @@ interface SidePanelProps {
 export function SidePanel({
   tab,
   plansAvailable,
+  hiddenTabs,
   hidden,
   onTabChange,
   title,
@@ -150,7 +153,7 @@ export function SidePanel({
       </header>
 
       <nav className="side-panel-tabs">
-        {visiblePanelTabs(PANEL_TABS, plansAvailable).map((entry) => (
+        {visiblePanelTabs(PANEL_TABS, plansAvailable, hiddenTabs).map((entry) => (
           <button
             key={entry.id}
             className={`side-panel-tab${entry.id === tab ? ' side-panel-tab-active' : ''}`}

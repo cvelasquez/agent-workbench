@@ -78,7 +78,10 @@ import { useWorkspace } from './useWorkspace.js';
 import { useLocale } from './i18n/useLocale.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
-import { LocaleMenu } from './LocaleMenu.js';
+import { SettingsDialog } from './SettingsDialog.js';
+import { SectionHideButton } from './SectionHideButton.js';
+import { usePanelVisibility, type HideablePanel } from './panel-visibility.js';
+import { useAppSettings } from './useAppSettings.js';
 import { VaultDialog } from './VaultDialog.js';
 import type { ConnectionStatus } from './connection.js';
 import { blindToApprovals, type GlobalSearchHit, type TerminalId } from '@agent-workbench/shared';
@@ -140,6 +143,8 @@ const SIDEBAR_WIDTH_KEY = 'agent-workbench.sidebar-width';
 const CONSOLE_VISIBLE_KEY = 'agent-workbench.console-visible';
 const CONSOLE_HEIGHT_KEY = 'agent-workbench.console-height';
 const MARKER_NOTICE_KEY = 'agent-workbench.marker-notice-dismissed';
+/** Ya se dijo una vez que lo escondido desde su barra vuelve desde Ajustes (Hito 41). */
+const HIDDEN_HINT_KEY = 'agent-workbench.hidden-hint-shown';
 
 
 export function App(): JSX.Element {
@@ -314,14 +319,17 @@ export function App(): JSX.Element {
     de planes, y sin pestana quedan el chat —el estado vacio— y las notas.
   */
   const narrow = useNarrow();
+  /** Que paneles se ven: los escondidos en Ajustes no se ofrecen (Hito 41, §6.32). */
+  const panels = usePanelVisibility();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const leaveDrawer = useCallback(() => setDrawerOpen(false), []);
   const [narrowViewWanted, setNarrowViewWanted] = useState<NarrowView>(() =>
     readStored<NarrowView>(NARROW_VIEW_STORAGE_KEY, 'chat', parseStoredNarrowView),
   );
   const narrowAvailable = useMemo(
-    () => narrowViews({ hasTab: activeTerminal !== null, plansAvailable: activeControls.plansAvailable }),
-    [activeTerminal, activeControls.plansAvailable],
+    () =>
+      narrowViews({ hasTab: activeTerminal !== null, plansAvailable: activeControls.plansAvailable, hidden: panels.hidden }),
+    [activeTerminal, activeControls.plansAvailable, panels.hidden],
   );
   const narrowView = resolveNarrowView(narrowViewWanted, narrowAvailable);
   const changeNarrowView = useCallback((view: NarrowView) => {
@@ -465,6 +473,17 @@ export function App(): JSX.Element {
     readStored(MARKER_NOTICE_KEY, true, (raw) => raw !== 'true'),
   );
   const [shortcutsVisible, setShortcutsVisible] = useState(false);
+  /*
+    Ajustes (Hito 41, §6.32): que paneles se ven —de esta ventana— y la consola
+    y las CLIs, que son del servidor. La consola nueva puede cambiar con la app
+    andando: su nombre sale de `settings.status`, y de `hello` con un servidor
+    anterior.
+  */
+  const appSettings = useAppSettings(connection);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const consoleShellName = appSettings.status !== null ? appSettings.status.shellName : shellName;
+  /** La primera vez que se esconde algo desde su barra, se dice donde vuelve. */
+  const [hiddenHint, setHiddenHint] = useState<HideablePanel | null>(null);
   /** El dialogo de la status line de la CLI de la pestana activa (hito 27). */
   const [statusLineDialogVisible, setStatusLineDialogVisible] = useState(false);
   // Una pestana de otra CLI cierra el dialogo: volver no tiene por que reabrirlo.
@@ -483,7 +502,9 @@ export function App(): JSX.Element {
     La solapa que se ve. La guardada no se pisa: una pestana cuya CLI no tiene
     planes muestra la CLI, y al volver a una que si, se vuelve a Planes.
   */
-  const shownPanelTab = effectivePanelTab(panelTab, activeControls.plansAvailable);
+  const shownPanelTab = effectivePanelTab(panelTab, activeControls.plansAvailable, panels.hidden);
+  /** La consola del pie se ve si no se escondio en Ajustes y no esta plegada. */
+  const consoleShown = consoleVisible && panels.isVisible('console');
 
   /*
     La columna derecha se dibuja si hay algo que poner en ella: el panel de
@@ -499,7 +520,7 @@ export function App(): JSX.Element {
     consola se va la columna entera, notas incluidas, que es lo que se pidio.
   */
   const rightColumnOpen =
-    activeTerminal !== null ? panelVisible || consoleVisible : panelVisible;
+    activeTerminal !== null ? panelVisible || consoleShown : panelVisible;
   /** Ensanchar es para leer la CLI: sin pestana no hay nada que ensanchar. */
   const columnExpanded = panelExpanded && activeTerminal !== null;
 
@@ -828,7 +849,8 @@ export function App(): JSX.Element {
   const requestedShells = useRef(new Set<string>());
 
   useEffect(() => {
-    if (!consoleVisible) {
+    // Escondida en Ajustes es como plegada: no se abre ninguna sola.
+    if (!consoleShown) {
       requestedShells.current.clear();
       return;
     }
@@ -841,7 +863,7 @@ export function App(): JSX.Element {
     if (requestedShells.current.has(cwd)) return;
     requestedShells.current.add(cwd);
     openShell(cwd);
-  }, [consoleVisible, activeTerminal, shells, openShell]);
+  }, [consoleShown, activeTerminal, shells, openShell]);
 
   /**
    * Cierra una consola: termina su proceso.
@@ -859,6 +881,29 @@ export function App(): JSX.Element {
     },
     [consoleShells, closeTerminal],
   );
+
+  /*
+    Esconder una seccion del pie desde su barra (Hito 41). La consola cierra
+    antes sus terminales —todas, tambien las de otros proyectos: escondida, un
+    proceso andando es un proceso que nadie ve—; la pregunta la hace el boton.
+    La primera vez se dice donde vuelve.
+  */
+  const hidePanelFromBar = useCallback(
+    (panel: HideablePanel) => {
+      if (panel === 'console') {
+        for (const shell of shells) closeTerminal(shell.terminalId);
+      }
+      panels.setVisible(panel, false);
+      if (readStored(HIDDEN_HINT_KEY, false, (raw) => raw === 'true')) return;
+      writeStored(HIDDEN_HINT_KEY, 'true');
+      setHiddenHint(panel);
+    },
+    [shells, closeTerminal, panels],
+  );
+  const hideConsoleFromSettings = useCallback(() => {
+    for (const shell of shells) closeTerminal(shell.terminalId);
+    panels.setVisible('console', false);
+  }, [shells, closeTerminal, panels]);
 
   /*
     La consola que acaba de nacer pasa a ser la que se mira.
@@ -1315,6 +1360,7 @@ export function App(): JSX.Element {
       <SidePanel
         tab={narrow ? (panelTabOf(narrowView) ?? shownPanelTab) : shownPanelTab}
         plansAvailable={activeControls.plansAvailable}
+        hiddenTabs={panels.hidden}
         hidden={narrow ? panelTabOf(narrowView) === null : !panelVisible}
         onTabChange={narrow ? changeNarrowView : changePanelTab}
         title={panelTitle}
@@ -1371,19 +1417,21 @@ export function App(): JSX.Element {
         shells={consoleShells}
         activeShellId={activeShell?.terminalId ?? null}
         cwd={activeTerminal.cwd}
-        shellName={shellName}
+        shellName={consoleShellName}
         theme={terminalTheme.resolved}
         onSelect={setActiveShellId}
         onOpen={openConsoleHere}
         onCloseShell={closeShell}
         onCollapse={narrow ? () => changeNarrowView('chat') : toggleConsole}
+        onHide={narrow ? undefined : () => hidePanelFromBar('console')}
       />
     );
 
-  const notesElement = (
+  const notesElement = !panels.isVisible('notes') ? null : (
     <NotesPanel
       notes={notes}
       fill={narrow || activeTerminal === null}
+      onHide={narrow ? undefined : () => hidePanelFromBar('notes')}
       onSendNote={
         activeTerminal === null || !activeControls.noteSendable
           ? null
@@ -1414,9 +1462,9 @@ export function App(): JSX.Element {
 
   /* La consola en la columna de la PC: el divisor, el hueco con su alto y la barra plegada. */
   const consoleColumn =
-    activeTerminal === null ? null : (
+    activeTerminal === null || !panels.isVisible('console') ? null : (
       <>
-        {consoleVisible ? (
+        {consoleShown ? (
           <>
             {/*
               El divisor solo tiene sentido si hay dos cosas que repartir.
@@ -1446,21 +1494,28 @@ export function App(): JSX.Element {
             derecha, con el panel escondido no estorba: ahi lo que se ve
             es la pestañita vertical, y esta vuelve con ella.
           */
-          <button
-            className="strip-collapsed"
-            onClick={toggleConsole}
-            title={
-              shellName === null
-                ? t('console.openAnyIn', { cwd: activeTerminal.cwd })
-                : t('console.openIn', { shell: shellName, cwd: activeTerminal.cwd })
-            }
-          >
-            <span className="strip-collapsed-arrow">▸</span>
-            <span>{shellName ?? t('console.name')}</span>
-            {consoleShells.length > 0 && (
-              <span className="strip-collapsed-count">{consoleShells.length}</span>
-            )}
-          </button>
+          <div className="strip-collapsed-row">
+            <button
+              className="strip-collapsed"
+              onClick={toggleConsole}
+              title={
+                consoleShellName === null
+                  ? t('console.openAnyIn', { cwd: activeTerminal.cwd })
+                  : t('console.openIn', { shell: consoleShellName, cwd: activeTerminal.cwd })
+              }
+            >
+              <span className="strip-collapsed-arrow">▸</span>
+              <span>{consoleShellName ?? t('console.name')}</span>
+              {consoleShells.length > 0 && (
+                <span className="strip-collapsed-count">{consoleShells.length}</span>
+              )}
+            </button>
+            <SectionHideButton
+              title={t('settings.hide.console')}
+              onHide={() => hidePanelFromBar('console')}
+              confirmText={shells.length === 0 ? null : t('settings.panels.consoleConfirm', { count: shells.length })}
+            />
+          </div>
         )}
       </>
     );
@@ -1473,6 +1528,15 @@ export function App(): JSX.Element {
         pagina no reintenta: volver es emparejarse de nuevo desde alla.
       */}
       {status === 'revoked' && <div className="banner banner-error">{t('app.banner.revoked')}</div>}
+
+      {hiddenHint !== null && (
+        <div className="banner banner-notice">
+          <span>{t('settings.hiddenHint', { name: t(hiddenHint === 'console' ? 'console.name' : 'notes.name') })}</span>
+          <button className="banner-close" onClick={() => setHiddenHint(null)} title={t('common.gotIt')}>
+            ×
+          </button>
+        </div>
+      )}
 
       {!cliAvailable && cliMissingMessage !== null && (
         // Respeta los saltos de linea: sin ninguna CLI, el texto de la primera
@@ -1534,6 +1598,32 @@ export function App(): JSX.Element {
           agentLabel={activeAgentInfo.label}
           onRefresh={refreshAgents}
           onClose={() => setStatusLineDialogVisible(false)}
+        />
+      )}
+
+      {settingsVisible && (
+        <SettingsDialog
+          onClose={() => setSettingsVisible(false)}
+          terminalTheme={terminalTheme}
+          panels={panels}
+          consoleCount={shells.length}
+          onHideConsole={hideConsoleFromSettings}
+          appSettings={appSettings}
+          agents={agents}
+          remoteClient={remoteClient}
+          sound={sound}
+          onOpenVault={() => {
+            setSettingsVisible(false);
+            setVaultDialogVisible(true);
+          }}
+          onOpenRemote={
+            remote.status !== null && !remoteClient
+              ? () => {
+                  setSettingsVisible(false);
+                  setRemoteDialogVisible(true);
+                }
+              : null
+          }
         />
       )}
 
@@ -1661,6 +1751,7 @@ export function App(): JSX.Element {
                 : null,
             remoteClient,
             onShortcuts: () => setShortcutsVisible(true),
+            onSettings: () => setSettingsVisible(true),
           }}
           view={narrowView}
           views={narrowAvailable}
@@ -1708,7 +1799,6 @@ export function App(): JSX.Element {
         >
           {THEME_ICON[theme.preference]}
         </button>
-        <LocaleMenu />
         <SoundControl sound={sound} />
         <NotifyButton notify={sound.notify} />
         {remote.status !== null && !remoteClient && (
@@ -1725,6 +1815,18 @@ export function App(): JSX.Element {
             {t('app.header.remoteBadge')}
           </span>
         )}
+        {/*
+          Ajustes (Hito 41): el idioma vive aca adentro desde entonces; el tema
+          sigue en la cabecera, a un clic, como pidio el usuario.
+        */}
+        <button
+          className="icon-button"
+          onClick={() => setSettingsVisible(true)}
+          title={t('settings.open')}
+          aria-label={t('settings.open')}
+        >
+          ⚙
+        </button>
         <button
           className="icon-button"
           onClick={() => setShortcutsVisible(true)}
