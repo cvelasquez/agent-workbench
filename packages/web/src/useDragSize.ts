@@ -4,8 +4,8 @@
  * Los tres bordes que se pueden mover —la barra de proyectos, la columna
  * derecha y el alto de la consola— hacen exactamente lo mismo y solo se
  * diferencian en de donde sale el numero: `clientX` para el borde izquierdo,
- * `innerWidth - clientX` para el derecho, `innerHeight - clientY` para la
- * consola. Eso es `measure`, y es lo unico que cambia.
+ * `innerWidth - clientX` para el derecho, la distancia al borde de abajo de su
+ * hueco para la consola. Eso es `measure`, y es lo unico que cambia.
  *
  * Dos detalles que no son adorno:
  *
@@ -51,7 +51,8 @@ interface DragSizeOptions {
    * arranco el arrastre: el del cuadro de escritura mide contra el borde de
    * abajo del cuadro, y entre el divisor y ese borde puede haber fichas de
    * adjuntos. Sin el desfase inicial, el alto pega un salto al primer
-   * movimiento. Los tres divisores de la ventana lo ignoran.
+   * movimiento. El de la consola tambien: mide contra el borde de abajo de su
+   * hueco, y debajo de ese borde estan las notas.
    */
   onStart?: (event: React.PointerEvent<HTMLDivElement>) => void;
 }

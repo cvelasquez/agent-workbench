@@ -961,13 +961,28 @@ export function App(): JSX.Element {
     onCommit: useCallback((value: number) => writeStored(SIDEBAR_WIDTH_KEY, String(value)), []),
   });
 
+  /*
+    La consola mide contra el borde de abajo de su hueco, no contra el pie de la
+    ventana: debajo viven las notas (hito 36), y medir desde el pie les sumaba
+    su alto. El divisor quedaba por encima del puntero, 33 px con las notas
+    plegadas y todo su alto con las notas abiertas. Y arranca del alto que se
+    ve, que en una ventana baja puede ser menor que el guardado: si no, el
+    primer tramo del arrastre no movia nada.
+  */
+  const consoleAnchor = useRef(0);
+
   const consoleDivider = useDragSize({
     min: CONSOLE_MIN_HEIGHT,
     max: CONSOLE_MAX_HEIGHT,
     value: consoleHeight,
-    measure: useCallback((event) => window.innerHeight - event.clientY, []),
+    measure: useCallback((event) => Math.round(consoleAnchor.current - event.clientY), []),
     onChange: setConsoleHeight,
     onCommit: useCallback((value: number) => writeStored(CONSOLE_HEIGHT_KEY, String(value)), []),
+    onStart: useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+      const slot = event.currentTarget.nextElementSibling;
+      consoleAnchor.current =
+        slot === null ? window.innerHeight : event.clientY + slot.getBoundingClientRect().height;
+    }, []),
   });
 
   const dismissMarkerNotice = useCallback(() => {

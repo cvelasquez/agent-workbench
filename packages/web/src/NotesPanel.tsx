@@ -162,7 +162,10 @@ export function NotesPanel({
 
   const onResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      dragRef.current = { startY: event.clientY, startHeight: height };
+      // Del alto que se ve: con la columna apretada puede ser menor que el guardado.
+      const section = event.currentTarget.parentElement;
+      const shown = section === null ? height : Math.round(section.getBoundingClientRect().height);
+      dragRef.current = { startY: event.clientY, startHeight: shown };
       event.currentTarget.setPointerCapture(event.pointerId);
       event.preventDefault();
     },

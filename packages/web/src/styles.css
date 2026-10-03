@@ -1414,10 +1414,17 @@ kbd {
 .side-panel {
   display: flex;
   flex-direction: column;
-  /* flex:1 con min-height:0 — sin el minimo, el contenido largo empuja a la
-     consola fuera de la pantalla en vez de hacer scroll adentro. */
-  flex: 1 1 auto;
-  min-height: 0;
+  /*
+    Se queda con el alto que sobra, no con el que pide su contenido. Con base
+    `auto`, un plan o un archivo largo reclamaban su alto entero, y el reclamo
+    se repartia contra la consola y las notas: al soltar el divisor volvian a
+    achicarse (lo vio el usuario en la 0.5.0, en Planes y Archivos). El minimo
+    automatico es la cabecera mas las solapas, porque el contenido del cuerpo
+    no cuenta (`contain: size`, abajo): en una ventana baja cede la consola, y
+    el panel conserva sus solapas.
+  */
+  flex: 1 1 0;
+  min-height: auto;
   width: 100%;
   min-width: 0;
   background: var(--chrome-alt);
@@ -1541,11 +1548,19 @@ kbd {
   cuerpo sea `relative` es lo que hace que la terminal herede el tamano del
   panel aunque su solapa no este delante — y por eso cambiar de solapa no
   dispara un resize del pty.
+
+  `contain: size`: lo que hay adentro no le da alto al panel. Sin eso, el minimo
+  del panel seria el documento entero y la consola quedaria en su minimo. Y
+  `overflow: clip` porque en una ventana baja el cuerpo llega a 0 px, y lo de
+  adentro se dibujaba encima de la consola; `clip` y no `hidden`, que es un
+  contenedor de scroll y un `scrollIntoView` lo correria.
 */
 .side-panel-body {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  contain: size;
+  overflow: clip;
   min-width: 0;
   display: flex;
   flex-direction: column;

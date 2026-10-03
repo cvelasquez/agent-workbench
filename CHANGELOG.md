@@ -56,6 +56,10 @@ change behavior.
   first one.
 - **The collapsed Notes bar no longer gets squeezed** to a few pixels when the
   console takes most of the column; the console gives up height instead.
+- **The console and the notes keep the height you drag them to** while a long
+  plan or file is open; they used to shrink back. The console's divider also
+  stays under the pointer: it used to land above it, by the height of the
+  notes below.
 - **Pairing a phone scrolls down to the QR code**, which used to be below the
   fold.
 
