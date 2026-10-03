@@ -305,9 +305,10 @@ waiting for you, with the screen off too; tapping a notification opens that
 tab. When the Wi‑Fi comes back, it reconnects on its own.
 
 It needs remote access on and the computer's SSH server running (steps 1 and 2
-above). It isn't on Google Play yet: to install it now, build it from
-[`android/`](android/) as [`CONTRIBUTING.md`](CONTRIBUTING.md#the-android-app)
-explains.
+above). Install it from
+[Google Play](https://play.google.com/store/apps/details?id=io.github.cvelasquez.agentworkbench),
+or build it yourself from [`android/`](android/) as
+[`CONTRIBUTING.md`](CONTRIBUTING.md#the-android-app) explains.
 
 **Pairing, once:**
 

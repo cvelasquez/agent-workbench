@@ -4,6 +4,14 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## Unreleased
+
+### Changed
+
+- **The Android app is on Google Play**:
+  [io.github.cvelasquez.agentworkbench](https://play.google.com/store/apps/details?id=io.github.cvelasquez.agentworkbench).
+  The README links to it; building from `android/` remains an option.
+
 ## 0.4.1 — 2026-10-01
 
 ### Added
