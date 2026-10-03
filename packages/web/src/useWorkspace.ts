@@ -40,6 +40,16 @@ import { serverTextMessage } from './i18n/server-text.js';
 import { useLocale } from './i18n/useLocale.js';
 import { isMemoryPanelRequest } from './useMemory.js';
 
+const ACTIVE_TAB_KEY = 'agent-workbench.activeTab';
+
+function readActiveTab(): TerminalId | null {
+  try {
+    return window.sessionStorage.getItem(ACTIVE_TAB_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export interface WorkspaceError {
   message: string;
   at: number;
@@ -224,7 +234,21 @@ export function useWorkspace(): Workspace {
   const [allTerminals, setAllTerminals] = useState<TerminalDescriptor[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [indexStatus, setIndexStatus] = useState<IndexStatus>(EMPTY_INDEX_STATUS);
-  const [activeTerminalId, setActiveTerminalId] = useState<TerminalId | null>(null);
+  /*
+    La activa sobrevive a F5 (0.5.0, pedido del usuario: recargar lo llevaba a la
+    primera). Va a `sessionStorage`: es de esta ventana, y el id de una pestana
+    vale mientras no se reinicie el servidor; despues de reiniciarlo no esta en la
+    lista y se elige la primera, como siempre.
+  */
+  const [activeTerminalId, setActiveTerminalId] = useState<TerminalId | null>(readActiveTab);
+  useEffect(() => {
+    try {
+      if (activeTerminalId === null) window.sessionStorage.removeItem(ACTIVE_TAB_KEY);
+      else window.sessionStorage.setItem(ACTIVE_TAB_KEY, activeTerminalId);
+    } catch {
+      // Sin sessionStorage, un F5 vuelve a la primera: lo de antes.
+    }
+  }, [activeTerminalId]);
   const [waking, setWaking] = useState<Set<TerminalId>>(new Set());
   /*
     Que esta haciendo la CLI de cada pestana.

@@ -31,7 +31,7 @@ import { AgentRegistry } from '../src/agents/registry.ts';
 import { AppSettingsChangeError, AppSettingsService } from '../src/app-settings-service.ts';
 import { remoteRefusal } from '../src/remote-access.ts';
 import { vaultOnlySessions } from '../src/session-index.ts';
-import { HIDEABLE_PANELS, parseHiddenPanels, serializeHiddenPanels, withPanelVisible } from '../../web/src/panel-visibility.ts';
+import { DEFAULT_HIDDEN_PANELS, HIDEABLE_PANELS, parseHiddenPanels, serializeHiddenPanels, withPanelVisible } from '../../web/src/panel-visibility.ts';
 import { effectivePanelTab, visiblePanelTabs } from '../../web/src/agent-ui.ts';
 import { narrowViews } from '../../web/src/narrow-layout.ts';
 
@@ -198,6 +198,8 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
   check('6.1 se leen las que se conocen; la CLI y el chat no se pueden esconder',
     json([...hidden].sort()) === json(['console', 'notes']), json([...hidden]));
   check('6.2 ida y vuelta, en el orden de la lista', serializeHiddenPanels(hidden) === 'console,notes' && parseHiddenPanels('').size === 0);
+  check('6.2b sin nada guardado, Memoria arranca escondida (la mayoria usa una sola CLI); mostrarla se guarda como "none"',
+    json([...DEFAULT_HIDDEN_PANELS]) === json(['memory']) && serializeHiddenPanels(new Set()) === 'none' && parseHiddenPanels('none').size === 0);
   check('6.3 mostrar y esconder', json([...withPanelVisible(withPanelVisible(hidden, 'notes', true), 'git', false)].sort()) === json(['console', 'git']));
   check('6.4 Ajustes lista seis, sin la CLI', HIDEABLE_PANELS.length === 6 && !HIDEABLE_PANELS.includes('cli'));
   const tabs = ['cli', 'git', 'files', 'plans', 'memory'].map((id) => ({ id }));

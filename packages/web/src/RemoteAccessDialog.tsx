@@ -138,6 +138,20 @@ export function RemoteAccessDialog({
     [],
   );
 
+  /*
+    Al empezar a emparejar un teléfono, el diálogo baja hasta el QR (0.5.0, pedido
+    del usuario): la línea para PowerShell lo empujaba fuera de la vista, y quien
+    no bajaba no veía nada que escanear. Sólo al empezar: un código que se
+    renueva no vuelve a mover la vista.
+  */
+  const qrRef = useRef<HTMLDivElement | null>(null);
+  const showingPhoneQr = phonePairing !== null;
+  useEffect(() => {
+    if (!showingPhoneQr) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    qrRef.current?.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+  }, [showingPhoneQr]);
+
   // El puerto lo puede cambiar otra ventana: el cuadro sigue al estado.
   useEffect(() => {
     setPortText(String(status.port));
@@ -340,7 +354,9 @@ export function RemoteAccessDialog({
               </div>
               <p className="modal-hint">{t('remote.phone.authorizeOnce')}</p>
               <p className="modal-hint">{t('remote.phone.scan')}</p>
-              <PhoneQr payload={phonePairing.payload} />
+              <div ref={qrRef}>
+                <PhoneQr payload={phonePairing.payload} />
+              </div>
               <p className="modal-hint">{t('remote.phone.secret')}</p>
               <p className="modal-hint">
                 {t('remote.pair.expires', { time: formatCountdown(pairingSecondsLeft(phonePairing.expiresAt, now)) })}

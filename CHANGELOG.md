@@ -42,11 +42,20 @@ change behavior.
   [io.github.cvelasquez.agentworkbench](https://play.google.com/store/apps/details?id=io.github.cvelasquez.agentworkbench).
   The README links to it; building from `android/` remains an option.
 
+- **The Memory tab starts hidden**: shared memory is for people who use
+  several CLIs. Show it from Settings.
+
 ### Fixed
 
 - **The message box keeps its cursor and scroll position** when you switch
   tabs and come back. It used to show the top of a long draft, with the
   cursor hidden at the end.
+- **Reloading the page keeps the tab you were on**, instead of jumping to the
+  first one.
+- **The collapsed Notes bar no longer gets squeezed** to a few pixels when the
+  console takes most of the column; the console gives up height instead.
+- **Pairing a phone scrolls down to the QR code**, which used to be below the
+  fold.
 
 ## 0.4.1 — 2026-10-01
 

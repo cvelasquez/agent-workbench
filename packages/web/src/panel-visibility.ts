@@ -28,7 +28,17 @@ function isHideablePanel(value: string): value is HideablePanel {
   return (HIDEABLE_PANELS as readonly string[]).includes(value);
 }
 
-/** Las escondidas guardadas. Lo que no se conoce se descarta; nada es "ninguna escondida". */
+/**
+ * Las escondidas sin nada guardado: Memoria (pedido del usuario al probar el
+ * Hito 41). La memoria compartida es para quien usa varias CLIs, y la mayoria
+ * trabaja con una: la solapa, de entrada, confunde. Se muestra desde Ajustes.
+ */
+export const DEFAULT_HIDDEN_PANELS: ReadonlySet<HideablePanel> = new Set<HideablePanel>(['memory']);
+
+/** Lo que se guarda cuando no hay ninguna escondida: distinto de "nada guardado", que esconde Memoria. */
+const NONE_HIDDEN = 'none';
+
+/** Las escondidas guardadas. Lo que no se conoce se descarta; `none` o nada es "ninguna escondida". */
 export function parseHiddenPanels(raw: string): ReadonlySet<HideablePanel> {
   return new Set(
     raw
@@ -39,7 +49,8 @@ export function parseHiddenPanels(raw: string): ReadonlySet<HideablePanel> {
 }
 
 export function serializeHiddenPanels(hidden: ReadonlySet<HideablePanel>): string {
-  return HIDEABLE_PANELS.filter((panel) => hidden.has(panel)).join(',');
+  const list = HIDEABLE_PANELS.filter((panel) => hidden.has(panel));
+  return list.length === 0 ? NONE_HIDDEN : list.join(',');
 }
 
 export function withPanelVisible(hidden: ReadonlySet<HideablePanel>, panel: HideablePanel, visible: boolean): ReadonlySet<HideablePanel> {
@@ -57,7 +68,7 @@ export interface PanelVisibility {
 
 export function usePanelVisibility(): PanelVisibility {
   const [hidden, setHidden] = useState<ReadonlySet<HideablePanel>>(() =>
-    readStored<ReadonlySet<HideablePanel>>(STORAGE_KEY, new Set(), parseHiddenPanels),
+    readStored<ReadonlySet<HideablePanel>>(STORAGE_KEY, DEFAULT_HIDDEN_PANELS, parseHiddenPanels),
   );
 
   const setVisible = useCallback((panel: HideablePanel, visible: boolean) => {

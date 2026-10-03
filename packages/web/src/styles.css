@@ -1592,9 +1592,14 @@ kbd {
   );
 }
 
+/*
+  El alto arrastrado es un tope, no una obligacion: en una ventana baja la
+  consola cede alto antes que aplastar las notas y el panel (lo vio el usuario en
+  la 0.5.0: la barra de Notas quedaba de unos pixeles).
+*/
 .console-slot {
-  flex: 0 0 auto;
-  min-height: 0;
+  flex: 0 1 auto;
+  min-height: 90px;
   display: flex;
 }
 
@@ -5040,6 +5045,19 @@ kbd {
   border-top: 1px solid var(--border);
   border-left: 1px solid var(--border);
   background: var(--chrome);
+}
+
+/*
+  Plegada es una barra, y una barra no se encoge: con la columna apretada quedaba
+  de unos pixeles y no se veia. Abierta se encoge, pero nunca por debajo de su
+  cabecera.
+*/
+.notes:not(.notes-open) {
+  flex-shrink: 0;
+}
+
+.notes-open {
+  min-height: 32px;
 }
 
 /* Sin ninguna pestana son lo unico de la columna, y la llenan. */
