@@ -142,7 +142,8 @@ export function useDocSearch(
     setIndex(0);
   }, [needle]);
 
-  // La actual, con otro color, y a la vista.
+  // La actual, con otro color, y a la vista. Tambien con otra aguja que da la
+  // misma cuenta: la limpieza de la busqueda borro el color de la actual.
   useEffect(() => {
     const range = ranges.current[index];
     const registry = highlightRegistry();
@@ -152,7 +153,7 @@ export function useDocSearch(
     }
     registry?.set(CURRENT_MATCH, makeHighlight([range]));
     revealRange(range, scrollRef.current);
-  }, [index, count, version, contentKey, scrollRef]);
+  }, [index, count, version, contentKey, needle, scrollRef]);
 
   const step = useCallback((delta: 1 | -1) => setIndex((current) => stepIndex(current, count, delta)), [count]);
 

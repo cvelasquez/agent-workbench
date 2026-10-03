@@ -595,20 +595,21 @@ export function ConversationView({
       clientHeight: container.clientHeight,
       hasMore,
       loading: loadingMore,
+      searching: needle.length > 0,
     });
     lastScrollTop.current = container.scrollTop;
     distanceFromEnd.current = container.scrollHeight - container.scrollTop;
     if (earlier) requestEarlier();
-  }, [measureEnd, hasMore, loadingMore, requestEarlier]);
+  }, [measureEnd, hasMore, loadingMore, requestEarlier, needle]);
 
   // La rueda hacia arriba ya pegada al borde no produce `scroll` (`wheelAsksEarlier`).
   const onWheel = useCallback(
     (event: { deltaY: number }) => {
       const container = scrollRef.current;
-      if (container === null || !hasMore || loadingMore) return;
+      if (container === null || !hasMore || loadingMore || needle.length > 0) return;
       if (wheelAsksEarlier(event.deltaY, container.scrollTop, container.clientHeight)) requestEarlier();
     },
-    [hasMore, loadingMore, requestEarlier],
+    [hasMore, loadingMore, requestEarlier, needle],
   );
 
   const jumpToEnd = useCallback(() => {

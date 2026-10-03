@@ -30,6 +30,7 @@ import { gitBashCandidates, locateShells, pickShell } from '../src/shell-locator
 import { AgentRegistry } from '../src/agents/registry.ts';
 import { AppSettingsChangeError, AppSettingsService } from '../src/app-settings-service.ts';
 import { remoteRefusal } from '../src/remote-access.ts';
+import { vaultOnlySessions } from '../src/session-index.ts';
 import { HIDEABLE_PANELS, parseHiddenPanels, serializeHiddenPanels, withPanelVisible } from '../../web/src/panel-visibility.ts';
 import { effectivePanelTab, visiblePanelTabs } from '../../web/src/agent-ui.ts';
 import { narrowViews } from '../../web/src/narrow-layout.ts';
@@ -141,6 +142,12 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
     registry.get('claude-code')?.location === null && registry.defaultAgent() === 'codex');
   check('3.3 su historial no se lee', json(registry.historySources().map((entry) => entry.adapter.id)) === json(['codex', 'opencode']));
   check('3.4 una desconocida en la lista se ignora', json(registry.disabledIds()) === json(['claude-code']));
+
+  // Sus sesiones en la copia propia tampoco vuelven a la barra como "copia".
+  const copy = (agent, sessionId) => ({ agent, sessionId, cwd: 'D:\\p', group: 'g', title: 't', titleSource: 'ai', updatedAt: 1, sizeBytes: 1, partial: false });
+  const shown = vaultOnlySessions([], [copy('codex', 'c1'), copy('opencode', 'o1'), copy('gemini-cli', 'g1')], new Map([['codex', 'off'], ['opencode', 'missing']]), true);
+  check('3.5 una CLI apagada no devuelve sus copias a la barra; las demas y las importadas, si',
+    json(shown.map((item) => item.agent).sort()) === json(['gemini-cli', 'opencode']), json(shown.map((item) => item.agent)));
 }
 
 // --- 4. El servicio de Ajustes ----------------------------------------------------

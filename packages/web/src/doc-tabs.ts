@@ -135,6 +135,27 @@ export function pruneTerminals(state: DocTabsState, liveTerminalIds: readonly st
   return next;
 }
 
+/** La identidad de un documento abierto: de que pestana, de que solapa y cual. */
+export function docId(terminalId: string, kind: DocKind, key: string): string {
+  return `${terminalId}\u0000${kind}\u0000${key}`;
+}
+
+/**
+ * Los documentos que siguen abiertos en alguna tira. Lo que no esta aca —lo
+ * cerro la ×, el tope o la pestana del proyecto— suelta su contenido y su
+ * altura (`useDocuments`): sin esto, lo que cerraba el tope quedaba en memoria
+ * hasta cerrar la pestana del proyecto (lo encontro la revision de la 0.5.0).
+ */
+export function liveDocIds(state: DocTabsState): Set<string> {
+  const ids = new Set<string>();
+  for (const [terminalId, strips] of Object.entries(state)) {
+    for (const kind of DOC_KINDS) {
+      for (const doc of strips[kind].docs) ids.add(docId(terminalId, kind, doc.key));
+    }
+  }
+  return ids;
+}
+
 export function serializeDocTabs(state: DocTabsState): string {
   return JSON.stringify(state);
 }

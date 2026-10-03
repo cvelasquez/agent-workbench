@@ -610,6 +610,8 @@ const nextEvent = (hub, name, ms = 5_000) =>
     wheelAsksEarlier(-40, 0, 600) && !wheelAsksEarlier(40, 0, 600) && !wheelAsksEarlier(-40, 5_000, 600));
   check('6.7 al sumar arriba la vista queda a la misma distancia del final, y nunca por encima de 0',
     scrollTopAfterPrepend(1_000, 5_000) === 4_000 && scrollTopAfterPrepend(1_000, 800) === 0);
+  check('6.9 con una búsqueda escrita no pide: saltar a un acierto no es subir, y cada página nueva movía el acierto más arriba',
+    !at(100, 300, { searching: true }) && at(100, 300, { searching: false }));
   check('6.8 es una carga de anteriores si el que era primero sigue, más abajo',
     isPrepend('a', ['x', 'y', 'a', 'b']) && !isPrepend('a', ['a', 'b', 'c']) && !isPrepend('a', ['m', 'n']) &&
       !isPrepend(null, ['a']) && !isPrepend('a', []));

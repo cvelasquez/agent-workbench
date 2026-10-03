@@ -21,13 +21,22 @@ import type { AgentConnection } from './connection.js';
 
 export interface PlansView {
   plans: SessionPlan[];
+  /**
+   * De que pestana es la lista que llego, o null si todavia no llego ninguna.
+   * Recien con la de la pestana activa el servidor puede leer uno de sus planes:
+   * en el primer dibujo despues de cambiar de pestana, `plans` todavia es la de
+   * la anterior (lo encontro la revision de la 0.5.0).
+   */
+  listFor: TerminalId | null;
 }
 
 export function usePlans(connection: AgentConnection, terminalId: TerminalId | null): PlansView {
   const [plans, setPlans] = useState<SessionPlan[]>([]);
+  const [listFor, setListFor] = useState<TerminalId | null>(null);
 
   useEffect(() => {
     setPlans([]);
+    setListFor(null);
     if (terminalId === null) return;
 
     return connection.onMessage((message) => {
@@ -35,6 +44,7 @@ export function usePlans(connection: AgentConnection, terminalId: TerminalId | n
         case 'conversation.plans':
           if (message.terminalId !== terminalId) break;
           setPlans(message.plans);
+          setListFor(terminalId);
           break;
         default:
           break;
@@ -42,5 +52,5 @@ export function usePlans(connection: AgentConnection, terminalId: TerminalId | n
     });
   }, [connection, terminalId]);
 
-  return { plans };
+  return { plans, listFor };
 }

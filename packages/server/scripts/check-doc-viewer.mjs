@@ -81,6 +81,18 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
   check('2.5 sin pestanas en la lista no se olvida nada (todavia no llego)', json(pruneTerminals(state, [])) === json(state));
 }
 
+// --- 2b. Lo que sigue abierto, para soltar el contenido de lo que no --------------
+{
+  const { EMPTY_DOC_TABS, stripOf, withStrip, openDoc, liveDocIds, docId, MAX_OPEN_DOCS } = tabs;
+  let strip = stripOf(EMPTY_DOC_TABS, 't1', 'file');
+  for (let index = 0; index <= MAX_OPEN_DOCS; index++) strip = openDoc(strip, { key: `f${index}`, title: `f${index}` });
+  const state = withStrip(withStrip(EMPTY_DOC_TABS, 't1', 'file', strip), 't1', 'plan', openDoc(stripOf(EMPTY_DOC_TABS, 't1', 'plan'), { key: 'cli:p.md', title: 'p' }));
+  const live = liveDocIds(state);
+  check('2.6 lo que el tope cerro ya no esta entre lo abierto: su contenido se suelta',
+    !live.has(docId('t1', 'file', 'f0')) && live.has(docId('t1', 'file', `f${MAX_OPEN_DOCS}`)) && live.has(docId('t1', 'plan', 'cli:p.md')) &&
+      live.size === MAX_OPEN_DOCS + 1);
+}
+
 // --- 3. Lo guardado para F5 -------------------------------------------------------
 {
   const { EMPTY_DOC_TABS, stripOf, withStrip, openDoc, serializeDocTabs, parseDocTabs, MAX_OPEN_DOCS } = tabs;
@@ -135,6 +147,11 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
       resolveDocLink('plan.md', '\\\\server\\share\\x.md') === null && resolveDocLink('plan.md', 'https://example.com/x.md') === null &&
       resolveDocLink('plan.md', 'mailto:alguien') === null && resolveDocLink('plan.md', '#arriba') === null);
   check('5.5 los espacios codificados se leen', resolveDocLink('plan.md', 'mi%20nota.md') === 'mi nota.md');
+  check('5.7 lo codificado se mira despues de decodificar: ni una unidad, ni una raiz, ni subir afuera',
+    resolveDocLink('README.md', 'C%3A/Windows/win.ini') === null && resolveDocLink('x.md', '%2Fetc%2Fpasswd') === null &&
+      resolveDocLink('docs/a.md', '..%2F..%2Fafuera.md') === null && resolveDocLink('a.md', 'b%5C..%5C..%5Cafuera.md') === null);
+  check('5.8 ningun tramo con dos puntos (una unidad o un flujo alterno de Windows)',
+    resolveDocLink('a.md', 'notas.md:oculto') === null && resolveDocLink('a.md', 'sub/C:x.md') === null);
   check('5.6 que es Markdown: por la extension', isMarkdownPath('docs/x.md') && isMarkdownPath('X.MARKDOWN') && !isMarkdownPath('x.mdx.ts') && !isMarkdownPath('md'));
 }
 

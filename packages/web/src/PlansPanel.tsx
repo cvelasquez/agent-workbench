@@ -48,11 +48,13 @@ export function PlansPanel({ view, docs }: { view: PlansView; docs: DocStripView
 
   /*
     Una pestana que vuelve sin contenido —despues de F5— lo pide al mostrarse,
-    pero recien cuando llego la lista: el servidor lee un plan solo si la
-    conversacion lo nombro, y eso lo sabe despues de leerla. Pedido antes,
-    contestaba que no podia. La lista llega sola y solo si tiene algo.
+    pero recien cuando llego la lista **de esta pestana**: el servidor lee un
+    plan solo si la conversacion lo nombro, y eso lo sabe despues de leerla.
+    Pedido antes, contestaba que no podia. Mirar solo si habia lista no
+    alcanzaba: en el primer dibujo despues de cambiar de pestana, la lista
+    todavia era la de la anterior (`listFor`).
   */
-  const missing = activeDoc !== null && activeContent === undefined && plans.length > 0;
+  const missing = activeDoc !== null && activeContent === undefined && view.listFor !== null && view.listFor === docs.terminalId;
   useEffect(() => {
     if (missing && activeDoc !== null) docs.reload(activeDoc.key);
   }, [missing, activeDoc?.key]);

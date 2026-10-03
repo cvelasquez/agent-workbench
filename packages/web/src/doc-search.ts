@@ -83,16 +83,23 @@ export function isMarkdownPath(path: string): boolean {
 export function resolveDocLink(fromPath: string, href: string): string | null {
   const bare = href.split('#')[0]?.split('?')[0] ?? '';
   if (bare.length === 0) return null;
-  // Un esquema (https:, mailto:), una unidad (C:), una raiz o una ruta UNC.
-  if (/^[a-z][a-z0-9+.-]*:/i.test(bare) || bare.startsWith('/') || bare.startsWith('\\')) return null;
+  /*
+    Todo se mira **despues** de decodificar: `C%3A/Windows/win.ini` es una
+    unidad, y mirado antes pasaba como relativa (lo encontro la revision de la
+    0.5.0). Un esquema (https:, mailto:), una raiz o una ruta UNC no son del
+    proyecto, y un tramo con dos puntos —una unidad, un flujo alterno de
+    Windows— tampoco.
+  */
   let decoded: string;
   try {
     decoded = decodeURIComponent(bare);
   } catch {
     return null;
   }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(decoded) || decoded.startsWith('/') || decoded.startsWith('\\')) return null;
   const parts = fromPath.split('/').slice(0, -1);
   for (const segment of decoded.replace(/\\/g, '/').split('/')) {
+    if (segment.includes(':')) return null;
     if (segment === '' || segment === '.') continue;
     if (segment === '..') {
       if (parts.length === 0) return null;

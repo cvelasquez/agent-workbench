@@ -24,7 +24,9 @@ import type { FilePreview, PlanContent, TerminalDescriptor, TerminalId } from '@
 import type { AgentConnection } from './connection.js';
 import {
   closeDoc,
+  docId,
   EMPTY_DOC_TABS,
+  liveDocIds,
   openDoc,
   parseDocTabs,
   pruneTerminals,
@@ -55,6 +57,8 @@ export interface DocContent {
 }
 
 export interface DocStripView {
+  /** La pestana de proyecto de esta tira: la activa. */
+  terminalId: TerminalId | null;
   docs: readonly OpenDoc[];
   /** El que se ve, o null si se ve la lista. */
   active: string | null;
@@ -85,10 +89,6 @@ function readSaved(): DocTabsState {
   }
 }
 
-function docId(terminalId: TerminalId, kind: DocKind, key: string): string {
-  return `${terminalId}\u0000${kind}\u0000${key}`;
-}
-
 export function useDocuments(
   connection: AgentConnection,
   terminals: readonly TerminalDescriptor[],
@@ -101,20 +101,26 @@ export function useDocuments(
   contentsRef.current = contents;
   const scrolls = useRef(new Map<string, number>());
 
-  // Lo de una pestana que se cerro se olvida, contenido incluido.
+  // Lo de una pestana que se cerro se olvida.
   useEffect(() => {
-    const live = terminals.map((terminal) => terminal.terminalId);
-    setState((current) => pruneTerminals(current, live));
-    if (live.length === 0) return;
-    const prefixes = live.map((terminalId) => `${terminalId}\u0000`);
+    setState((current) => pruneTerminals(current, terminals.map((terminal) => terminal.terminalId)));
+  }, [terminals]);
+
+  /*
+    Lo que ya no esta abierto en ninguna tira —lo cerro la ×, el tope o la
+    pestana del proyecto— suelta su contenido y su altura (`liveDocIds`).
+  */
+  useEffect(() => {
+    const live = liveDocIds(state);
+    for (const id of [...scrolls.current.keys()]) if (!live.has(id)) scrolls.current.delete(id);
     setContents((current) => {
-      const stale = [...current.keys()].filter((id) => !prefixes.some((prefix) => id.startsWith(prefix)));
+      const stale = [...current.keys()].filter((id) => !live.has(id));
       if (stale.length === 0) return current;
       const next = new Map(current);
       for (const id of stale) next.delete(id);
       return next;
     });
-  }, [terminals]);
+  }, [state]);
 
   useEffect(() => {
     try {
@@ -187,6 +193,7 @@ export function useDocuments(
         setState((current) => withStrip(current, terminalId, kind, change(stripOf(current, terminalId, kind))));
       };
       return {
+        terminalId,
         docs: strip.docs,
         active: strip.active,
         open: (doc) => {
@@ -197,18 +204,7 @@ export function useDocuments(
         },
         select: (key) => update((current) => selectDoc(current, key)),
         showList: () => update(showList),
-        close: (key) => {
-          if (terminalId === null) return;
-          update((current) => closeDoc(current, key));
-          const id = docId(terminalId, kind, key);
-          scrolls.current.delete(id);
-          setContents((current) => {
-            if (!current.has(id)) return current;
-            const next = new Map(current);
-            next.delete(id);
-            return next;
-          });
-        },
+        close: (key) => update((current) => closeDoc(current, key)),
         setMode: (key, mode) => update((current) => setDocMode(current, key, mode)),
         content: (key) => (terminalId === null ? undefined : contents.get(docId(terminalId, kind, key))),
         reload: (key) => {

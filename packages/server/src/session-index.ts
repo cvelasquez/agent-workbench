@@ -141,7 +141,8 @@ export interface VaultCatalogView {
  *    copia de esa CLI no se muestra como "copia", porque probablemente la
  *    sesion sigue ahi (D7, R4).
  */
-export type NativeListState = 'listed' | 'missing' | 'unreadable';
+/** `off`: la CLI esta apagada en Ajustes (Hito 41) y su historial no se leyo a proposito. */
+export type NativeListState = 'listed' | 'missing' | 'unreadable' | 'off';
 
 const vaultPairKey = (agent: string, sessionId: string): string => `${agent}/${sessionId}`;
 
@@ -179,7 +180,15 @@ export function vaultOnlySessions(
   for (const copy of vault) {
     const pair = vaultPairKey(copy.agent, copy.sessionId);
     if (native.has(pair) || seen.has(pair)) continue;
-    if (!isImportedAgentId(copy.agent) && (listState.get(copy.agent) ?? 'missing') === 'unreadable') continue;
+    /*
+      Ni la de una CLI que no se pudo leer, ni la de una apagada en Ajustes: esa
+      no tiene que aparecer en ningun lado (lo encontro la revision de la 0.5.0;
+      sin estado, caia a `missing` y sus copias volvian a la barra).
+    */
+    if (!isImportedAgentId(copy.agent)) {
+      const state = listState.get(copy.agent) ?? 'missing';
+      if (state === 'unreadable' || state === 'off') continue;
+    }
     seen.add(pair);
     const hasCwd = copy.cwd.length > 0;
     result.push({
@@ -721,6 +730,10 @@ export class SessionIndex extends EventEmitter {
       for (const [position, source] of sources.entries()) {
         const outcome = outcomes[position] ?? { items: null, threw: true };
         states.set(source.agent, await nativeListState(source.history, outcome));
+      }
+      // Las que no son fuente estan apagadas en Ajustes (Hito 41): ni sus copias se muestran.
+      for (const { adapter } of this.agents.all()) {
+        if (!states.has(adapter.id)) states.set(adapter.id, 'off');
       }
       this.listState = states;
 

@@ -65,6 +65,11 @@ interface ConsolePaneProps {
    * esconde desde Ajustes.
    */
   onHide?: () => void;
+  /**
+   * Cuantas consolas cierra esconderla: todas, tambien las de otros proyectos.
+   * La pregunta tiene que contar las mismas que se cierran.
+   */
+  hideCount?: number;
 }
 
 export function ConsolePane({
@@ -79,6 +84,7 @@ export function ConsolePane({
   onCloseShell,
   onCollapse,
   onHide,
+  hideCount = 0,
 }: ConsolePaneProps): JSX.Element {
   const label = shellName ?? t('console.name');
   const active = shells.find((shell) => shell.terminalId === activeShellId) ?? shells[0] ?? null;
@@ -143,7 +149,7 @@ export function ConsolePane({
           <SectionHideButton
             title={t('settings.hide.console')}
             onHide={onHide}
-            confirmText={shells.length === 0 ? null : t('settings.panels.consoleConfirm', { count: shells.length })}
+            confirmText={hideCount === 0 ? null : t('settings.panels.consoleConfirm', { count: hideCount })}
           />
         )}
       </header>

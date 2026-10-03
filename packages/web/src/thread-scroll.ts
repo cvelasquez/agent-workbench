@@ -37,6 +37,13 @@ export interface EarlierScrollState {
   hasMore: boolean;
   /** Hay un pedido en camino. */
   loading: boolean;
+  /**
+   * Hay una busqueda escrita. No se pide nada: saltar a un acierto no es subir,
+   * y cada pagina nueva traia un acierto mas viejo al que saltar —y otra pagina,
+   * hasta la sesion entera—. Encontro esa cascada la revision de la 0.5.0. El
+   * boton de "cargar anteriores" sigue a mano.
+   */
+  searching?: boolean;
 }
 
 /** true si hay que pedir la pagina anterior: el usuario sube, esta cerca del borde y hay algo que pedir. */
@@ -44,6 +51,7 @@ export function shouldLoadEarlier(state: EarlierScrollState): boolean {
   return (
     state.hasMore &&
     !state.loading &&
+    state.searching !== true &&
     state.scrollTop < state.previousScrollTop &&
     state.scrollTop <= earlierThresholdPx(state.clientHeight)
   );

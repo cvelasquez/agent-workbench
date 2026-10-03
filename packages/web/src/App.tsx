@@ -1424,6 +1424,7 @@ export function App(): JSX.Element {
         onCloseShell={closeShell}
         onCollapse={narrow ? () => changeNarrowView('chat') : toggleConsole}
         onHide={narrow ? undefined : () => hidePanelFromBar('console')}
+        hideCount={shells.length}
       />
     );
 
@@ -1606,7 +1607,12 @@ export function App(): JSX.Element {
           onClose={() => setSettingsVisible(false)}
           terminalTheme={terminalTheme}
           panels={panels}
-          consoleCount={shells.length}
+          /*
+            En el telefono la Consola es una vista mas, y sus consolas son las mismas
+            que usa la PC: esconder la vista no las cierra (lo encontro la revision
+            de la 0.5.0). En la PC esconderla las cierra, y antes se pregunta.
+          */
+          consoleCount={narrow ? 0 : shells.length}
           onHideConsole={hideConsoleFromSettings}
           appSettings={appSettings}
           agents={agents}
