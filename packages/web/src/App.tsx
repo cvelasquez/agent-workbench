@@ -46,6 +46,7 @@ import { useConversation } from './useConversation.js';
 import { useFiles } from './useFiles.js';
 import { useGlobalSearch } from './useGlobalSearch.js';
 import { usePlans } from './usePlans.js';
+import { useDocuments } from './useDocuments.js';
 import { useGit } from './useGit.js';
 import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
@@ -571,6 +572,12 @@ export function App(): JSX.Element {
     dato que avisa no puede depender de estar mirandolo.
   */
   const plans = usePlans(connection, activeTerminalId);
+  /*
+    Los archivos y planes abiertos, cada uno en su pestana, por pestana de
+    proyecto (Hito 40, §6.31). Viven aca y no en sus paneles: cambiar de solapa o
+    de pestana desmonta el panel, y no puede cerrarlos.
+  */
+  const documents = useDocuments(connection, terminals, activeTerminalId);
   /*
     La memoria, con el panel abierto aunque su solapa no este delante, como
     git: de ahi sale la pastilla con la cantidad de notas, y una pastilla que
@@ -1348,6 +1355,7 @@ export function App(): JSX.Element {
         git={git}
         files={files}
         plans={plans}
+        documents={documents}
         memory={memory}
         onInsert={activeControls.fileMentions && activeTerminal.alive ? insertIntoTerminal : undefined}
         onInsertPath={insertIntoComposer}

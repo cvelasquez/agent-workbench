@@ -3338,6 +3338,99 @@ kbd {
   padding: 6px 10px 16px;
 }
 
+/* ---------- el visor de documentos de Archivos y Planes (Hito 40, §6.31) ---------- */
+
+/*
+  La fila con documentos abiertos: la lista primero —el arbol, o la lista de
+  planes— y al lado una pestana por documento. Son las `.strip-tab` de las notas
+  y la consola (§6.7): se encogen, y la fila se desplaza de costado si no entran.
+*/
+.doc-strip {
+  gap: 4px;
+  padding: 4px 8px;
+}
+
+.doc-strip-list {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.doc-strip-list:hover {
+  background: var(--chrome-alt);
+}
+
+.doc-strip-list.is-active {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.doc-tabs {
+  flex: 1 1 auto;
+}
+
+.doc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+/* Formateado o codigo, para un Markdown: dos botones pegados. */
+.doc-mode {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.doc-mode button {
+  padding: 3px 8px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.doc-mode button + button {
+  border-left: 1px solid var(--border);
+}
+
+.doc-mode button.is-active {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.doc-note {
+  margin: 6px 10px 0;
+}
+
+/*
+  Las coincidencias de "Buscar en este documento". Las marca la API de
+  resaltado de CSS sin tocar el DOM (`useDocSearch`); la actual va con el acento.
+*/
+::highlight(doc-search) {
+  background-color: var(--mark);
+}
+
+::highlight(doc-search-current) {
+  background-color: var(--accent);
+  color: var(--surface);
+}
+
 /* ---------- memoria ---------- */
 
 /*

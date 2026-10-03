@@ -12,6 +12,14 @@ change behavior.
   clicking "Load earlier messages". The view stays on what you were reading,
   and a small spinner shows while the page arrives.
 - **The tab tooltip shows the session title** next to the folder.
+- **Several files and plans open at once**, each in its own tab next to
+  "← Files" / "← Plans". They stay open when you switch to another project's
+  tab and back, and after reloading the page.
+- **Markdown files open formatted** from the Files tab, as plans already did,
+  with a switch to see the source. A relative link to another file of the
+  project opens it in a new tab.
+- **Search inside an open file or plan**, like the conversation search:
+  Enter and Shift+Enter move between matches.
 
 ### Changed
 

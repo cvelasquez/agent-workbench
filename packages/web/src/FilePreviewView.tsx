@@ -1,5 +1,8 @@
 /**
- * Previsualizacion de un archivo, de solo lectura.
+ * Las piezas de la previsualizacion de un archivo, de solo lectura.
+ *
+ * Desde el Hito 40 las arma `DocumentViewer`, que es el visor unico de Archivos
+ * y Planes (§6.31): aca quedan el cuerpo de codigo y los botones de respaldo.
  *
  * Dos cosas que valen la pena tener presentes:
  *
@@ -17,34 +20,19 @@
  * lineas: partirlo romperia los bloques que highlight.js abre en una linea y
  * cierra en otra (un comentario de varias lineas, por ejemplo). La columna se
  * alinea porque las dos usan la misma `line-height` y el codigo no envuelve.
+ * Y la columna no entra en la busqueda del documento (`data-search-skip`):
+ * buscar "1" no tiene que encontrar los numeros de linea.
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import type { FilePreview } from '@agent-workbench/shared';
 import { t } from './i18n/index.js';
 
-interface FilePreviewViewProps {
-  preview: FilePreview;
-  /**
-   * Abre el archivo con la app del sistema. Se ofrece donde la vista previa no
-   * alcanza —un binario, un archivo cortado—: antes el texto mandaba al menu
-   * contextual del arbol, que desde aca ya no se ve.
-   */
-  /** null en una ventana remota (hito 37): abriria el archivo en el escritorio del anfitrion. */
-  onOpenWithSystem: (() => void) | null;
-  /**
-   * Escribe `@ruta` en la terminal. Estaba solo en el menu contextual del
-   * arbol, que con el dedo no se abre solo (hito 38): aca queda a la vista.
-   * Ausente si la CLI no menciona archivos asi.
-   */
-  onInsert?: () => void;
-}
-
-export function FilePreviewView({ preview, onOpenWithSystem, onInsert }: FilePreviewViewProps): JSX.Element {
+/** El codigo con sus numeros de linea, resaltado si hay gramatica. */
+export function CodePreview({ text, language }: { text: string; language: string | null }): JSX.Element {
   const [html, setHtml] = useState<string | null>(null);
 
   useEffect(() => {
-    if (preview.binary || preview.language === null) {
+    if (language === null) {
       setHtml(null);
       return;
     }
@@ -53,7 +41,7 @@ export function FilePreviewView({ preview, onOpenWithSystem, onInsert }: FilePre
     void import('./highlight.js')
       .then(({ highlightCode }) => {
         if (cancelled) return;
-        setHtml(highlightCode(preview.text, preview.language));
+        setHtml(highlightCode(text, language));
       })
       .catch(() => {
         // Sin resaltador se muestra el texto plano. No es un error que valga
@@ -65,14 +53,45 @@ export function FilePreviewView({ preview, onOpenWithSystem, onInsert }: FilePre
       cancelled = true;
       setHtml(null);
     };
-  }, [preview.text, preview.language, preview.binary]);
+  }, [text, language]);
 
-  const lineCount = useMemo(
-    () => (preview.binary ? 0 : preview.text.split('\n').length),
-    [preview.text, preview.binary],
+  const lineCount = useMemo(() => text.split('\n').length, [text]);
+
+  return (
+    <div className="preview">
+      <div className="preview-gutter" aria-hidden="true" data-search-skip="">
+        {Array.from({ length: lineCount }, (_, index) => (
+          <span key={index}>{index + 1}</span>
+        ))}
+      </div>
+      {html !== null ? (
+        <pre className="preview-code hljs" dangerouslySetInnerHTML={{ __html: html }} />
+      ) : (
+        <pre className="preview-code">{text}</pre>
+      )}
+    </div>
   );
+}
 
-  const openButton = (
+interface PreviewActionsProps {
+  /**
+   * Escribe `@ruta` en la terminal. Estaba solo en el menu contextual del
+   * arbol, que con el dedo no se abre solo (hito 38): aca queda a la vista.
+   * Ausente si la CLI no menciona archivos asi.
+   */
+  onInsert?: () => void;
+  /**
+   * Abre el archivo con la app del sistema. Se ofrece donde la vista previa no
+   * alcanza —un binario, un archivo cortado—: antes el texto mandaba al menu
+   * contextual del arbol, que desde aca ya no se ve. null en una ventana remota
+   * (hito 37): abriria el archivo en el escritorio del anfitrion.
+   */
+  onOpenWithSystem: (() => void) | null;
+}
+
+/** Lo que se ofrece donde la vista previa no alcanza: un binario, un archivo cortado. */
+export function PreviewActions({ onInsert, onOpenWithSystem }: PreviewActionsProps): JSX.Element {
+  return (
     <div className="preview-actions">
       {onInsert !== undefined && (
         <button className="primary-button primary-button-small preview-open" onClick={onInsert}>
@@ -83,39 +102,6 @@ export function FilePreviewView({ preview, onOpenWithSystem, onInsert }: FilePre
         <button className="primary-button primary-button-small preview-open" onClick={onOpenWithSystem}>
           {t('files.menu.openWithSystem')}
         </button>
-      )}
-    </div>
-  );
-
-  if (preview.binary) {
-    return (
-      <div className="preview-fallback">
-        <p className="panel-note">{t('files.preview.binary')}</p>
-        {openButton}
-      </div>
-    );
-  }
-
-  return (
-    <div className="panel-scroll">
-      <div className="preview">
-        <div className="preview-gutter" aria-hidden="true">
-          {Array.from({ length: lineCount }, (_, index) => (
-            <span key={index}>{index + 1}</span>
-          ))}
-        </div>
-        {html !== null ? (
-          <pre className="preview-code hljs" dangerouslySetInnerHTML={{ __html: html }} />
-        ) : (
-          <pre className="preview-code">{preview.text}</pre>
-        )}
-      </div>
-
-      {preview.truncated && (
-        <div className="preview-fallback">
-          <p className="panel-note">{t('files.preview.truncated')}</p>
-          {openButton}
-        </div>
       )}
     </div>
   );

@@ -8,7 +8,9 @@
  *    El arbol completo de un repo real son cientos de miles de entradas.
  *  - **La previsualizacion reemplaza al arbol**, igual que el diff reemplaza a
  *    la lista de cambios: el panel es angosto y partirlo en dos deja las dos
- *    mitades inservibles.
+ *    mitades inservibles. Desde el Hito 40 cada archivo abierto es una pestana
+ *    al lado de `← Archivos` (§6.31), y cambiar de pestana de proyecto no los
+ *    cierra; un Markdown se ve formateado.
  *  - **El menu contextual es la unica escritura del panel**, y ni siquiera
  *    escribe archivos: copia rutas, o le pasa una ruta a la terminal para que
  *    el usuario la mande cuando quiera. Nada de crear, renombrar ni borrar.
@@ -29,14 +31,20 @@
  *    sigue copiando las rutas crudas, para cuando el destino no es el chat.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DirectoryEntry } from '@agent-workbench/shared';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu.js';
-import { FilePreviewView } from './FilePreviewView.js';
+import { DocTabStrip } from './DocTabStrip.js';
+import type { OpenDoc } from './doc-tabs.js';
+import { DocumentViewer } from './DocumentViewer.js';
 import { formatBytes } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { useLocale } from './i18n/useLocale.js';
+import type { DocStripView } from './useDocuments.js';
 import type { FilesView } from './useFiles.js';
+
+/** Lo que el arbol necesita: lo de `useFiles` y como se abre un archivo, que ahora es una pestana. */
+type TreeView = FilesView & { openFile: (path: string) => void };
 
 interface MenuState {
   x: number;
@@ -273,6 +281,8 @@ interface FilesPanelProps {
    * del anfitrion, y no se ofrece.
    */
   onReveal: ((path: string) => void) | null;
+  /** Los archivos abiertos de esta pestana de proyecto (Hito 40, §6.31). */
+  docs: DocStripView;
 }
 
 export function FilesPanel({
@@ -282,13 +292,11 @@ export function FilesPanel({
   onInsert,
   onInsertPath,
   onReveal,
+  docs,
 }: FilesPanelProps): JSX.Element {
   const {
     listings,
     loading,
-    preview,
-    loadingPreview,
-    closePreview,
     refresh,
     query,
     setQuery,
@@ -364,31 +372,58 @@ export function FilesPanel({
     [absolutePathOf, copy, onInsert, onReveal, locale],
   );
 
-  if (preview !== null || loadingPreview) {
+  const activeDoc = docs.active === null ? null : (docs.docs.find((doc) => doc.key === docs.active) ?? null);
+  const activeContent = activeDoc === null ? undefined : docs.content(activeDoc.key);
+
+  // Una pestana que vuelve sin contenido —despues de F5— lo pide al mostrarse.
+  const missing = activeDoc !== null && activeContent === undefined;
+  useEffect(() => {
+    if (missing && activeDoc !== null) docs.reload(activeDoc.key);
+  }, [missing, activeDoc?.key]);
+
+  const openDocument = useCallback(
+    (path: string) => docs.open({ key: path, title: path.split('/').pop() ?? path }),
+    [docs],
+  );
+  const treeView = useMemo<TreeView>(() => ({ ...view, openFile: openDocument }), [view, openDocument]);
+
+  /** La ruta, y el tamano si ya se leyo. */
+  const tooltipOf = (doc: OpenDoc): string => {
+    const loaded = docs.content(doc.key)?.loaded;
+    return loaded?.kind === 'file' ? `${doc.key} · ${formatBytes(loaded.preview.sizeBytes)}` : doc.key;
+  };
+
+  const strip =
+    docs.docs.length > 0 ? (
+      <DocTabStrip
+        listLabel={t('panel.tab.files')}
+        docs={docs.docs}
+        active={docs.active}
+        tooltipOf={tooltipOf}
+        onShowList={docs.showList}
+        onSelect={docs.select}
+        onClose={docs.close}
+      />
+    ) : null;
+
+  if (activeDoc !== null) {
     return (
       <div className="panel-body">
-        <div className="panel-subhead">
-          <button className="link-button" onClick={closePreview}>
-            {t('files.back')}
-          </button>
-          {preview !== null && (
-            <span className="panel-subhead-title" title={preview.path}>
-              {preview.path.split('/').pop()}
-              <span className="panel-tagline"> {formatBytes(preview.sizeBytes)}</span>
-            </span>
-          )}
-        </div>
-        {loadingPreview ? (
-          <p className="panel-note">{t('files.readingFile')}</p>
-        ) : (
-          preview !== null && (
-            <FilePreviewView
-              preview={preview}
-              onOpenWithSystem={onReveal === null ? null : () => onReveal(preview.path)}
-              onInsert={onInsert === undefined ? undefined : () => onInsert(`@${preview.path}`)}
-            />
-          )
-        )}
+        {strip}
+        <DocumentViewer
+          key={activeDoc.key}
+          doc={activeDoc}
+          content={activeContent}
+          readingText={t('files.readingFile')}
+          truncatedText={t('files.preview.truncated')}
+          onReload={() => docs.reload(activeDoc.key)}
+          onModeChange={(mode) => docs.setMode(activeDoc.key, mode)}
+          onOpenWithSystem={onReveal === null ? null : () => onReveal(activeDoc.key)}
+          onInsert={onInsert === undefined ? undefined : () => onInsert(`@${activeDoc.key}`)}
+          onOpenLink={openDocument}
+          initialScroll={docs.scrollOf(activeDoc.key)}
+          onScrollChange={(top) => docs.rememberScroll(activeDoc.key, top)}
+        />
         {menu !== null && (
           <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />
         )}
@@ -401,6 +436,7 @@ export function FilesPanel({
 
   return (
     <div className="panel-body">
+      {strip}
       <div className="panel-subhead">
         <span className="panel-subhead-title" title={cwd}>
           {cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? cwd}
@@ -460,7 +496,7 @@ export function FilesPanel({
       <div className="panel-scroll">
         {searchingFor.length > 0 ? (
           <SearchResults
-            view={view}
+            view={treeView}
             onContextMenu={openMenu}
             onReveal={onReveal}
             onInsertPath={insertQuoted}
@@ -473,7 +509,7 @@ export function FilesPanel({
           <TreeLevel
             path=""
             depth={0}
-            view={view}
+            view={treeView}
             onContextMenu={openMenu}
             onReveal={onReveal}
             onInsertPath={insertQuoted}
@@ -502,7 +538,7 @@ function SearchResults({
   onReveal,
   onInsertPath,
 }: {
-  view: FilesView;
+  view: TreeView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
   onReveal: ((path: string) => void) | null;
   onInsertPath: (path: string) => void;
@@ -573,7 +609,7 @@ function SearchResults({
 interface TreeLevelProps {
   path: string;
   depth: number;
-  view: FilesView;
+  view: TreeView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
   onReveal: ((path: string) => void) | null;
   onInsertPath: (path: string) => void;
@@ -632,7 +668,7 @@ function TreeLevel({
 interface TreeRowProps {
   entry: DirectoryEntry;
   depth: number;
-  view: FilesView;
+  view: TreeView;
   onContextMenu: (event: React.MouseEvent, relativePath: string, kind: 'dir' | 'file') => void;
   onReveal: ((path: string) => void) | null;
   onInsertPath: (path: string) => void;

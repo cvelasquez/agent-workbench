@@ -201,7 +201,8 @@ function CodeBlock({ code, language }: { code: string; language: string | null }
             gramatica, el texto se renderiza como texto. */}
         {html === null ? <code>{code}</code> : <code dangerouslySetInnerHTML={{ __html: html }} />}
       </pre>
-      <div className="md-code-tools">
+      {/* El lenguaje y copiar no son del documento: "Buscar en este documento" los salta (§6.31). */}
+      <div className="md-code-tools" data-search-skip="">
         {language !== null && <span className="md-code-lang">{language}</span>}
         <button
           className="md-code-copy"

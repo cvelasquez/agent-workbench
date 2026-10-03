@@ -16,12 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type {
-  DirectoryListing,
-  FilePreview,
-  FileSearchResult,
-  TerminalId,
-} from '@agent-workbench/shared';
+import type { DirectoryListing, FileSearchResult, TerminalId } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
 import { readStored, writeStored } from './window-prefs.js';
 
@@ -41,8 +36,6 @@ export interface FilesView {
   listings: ReadonlyMap<string, DirectoryListing>;
   expanded: ReadonlySet<string>;
   loading: ReadonlySet<string>;
-  preview: FilePreview | null;
-  loadingPreview: boolean;
   /** Lo que se escribio en la caja de busqueda. Vacio = se ve el arbol. */
   query: string;
   setQuery: (query: string) => void;
@@ -53,8 +46,6 @@ export interface FilesView {
   showHidden: boolean;
   toggleHidden: () => void;
   toggleDirectory: (path: string) => void;
-  openFile: (path: string) => void;
-  closePreview: () => void;
   refresh: () => void;
 }
 
@@ -62,8 +53,6 @@ export function useFiles(connection: AgentConnection, terminalId: TerminalId | n
   const [listings, setListings] = useState<Map<string, DirectoryListing>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<Set<string>>(new Set());
-  const [preview, setPreview] = useState<FilePreview | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<FileSearchResult | null>(null);
   const [searching, setSearching] = useState(false);
@@ -97,8 +86,6 @@ export function useFiles(connection: AgentConnection, terminalId: TerminalId | n
     setListings(new Map());
     setExpanded(new Set());
     setLoading(new Set());
-    setPreview(null);
-    setLoadingPreview(false);
     setQuery('');
     setResults(null);
     setSearching(false);
@@ -127,17 +114,11 @@ export function useFiles(connection: AgentConnection, terminalId: TerminalId | n
           setResults(message.result);
           setSearching(false);
           break;
-        case 'files.preview':
-          if (message.terminalId !== terminalId) break;
-          setPreview(message.preview);
-          setLoadingPreview(false);
-          break;
         case 'error':
-          // Un nivel o un archivo que fallan no pueden dejar indicadores de
-          // carga encendidos para siempre.
+          // Un nivel que falla no puede dejar indicadores de carga encendidos
+          // para siempre. Los documentos abiertos son de `useDocuments` (§6.31).
           requested.current = new Set();
           setLoading(new Set());
-          setLoadingPreview(false);
           setSearching(false);
           break;
         default:
@@ -209,21 +190,6 @@ export function useFiles(connection: AgentConnection, terminalId: TerminalId | n
     [request],
   );
 
-  const openFile = useCallback(
-    (path: string) => {
-      if (terminalId === null) return;
-      setLoadingPreview(true);
-      setPreview(null);
-      connection.send({ type: 'files.read', terminalId, path });
-    },
-    [connection, terminalId],
-  );
-
-  const closePreview = useCallback(() => {
-    setPreview(null);
-    setLoadingPreview(false);
-  }, []);
-
   /** Relee todos los niveles abiertos. El agente pudo crear archivos nuevos. */
   const refresh = useCallback(() => {
     if (terminalId === null) return;
@@ -270,8 +236,6 @@ export function useFiles(connection: AgentConnection, terminalId: TerminalId | n
     listings,
     expanded,
     loading,
-    preview,
-    loadingPreview,
     query,
     setQuery,
     results,
@@ -279,8 +243,6 @@ export function useFiles(connection: AgentConnection, terminalId: TerminalId | n
     showHidden,
     toggleHidden,
     toggleDirectory,
-    openFile,
-    closePreview,
     refresh,
   };
 }

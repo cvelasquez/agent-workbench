@@ -28,6 +28,7 @@ import type { FilesView } from './useFiles.js';
 import type { GitView } from './useGit.js';
 import type { MemoryView } from './useMemory.js';
 import type { PlansView } from './usePlans.js';
+import type { DocumentsView } from './useDocuments.js';
 
 export type PanelTab = 'cli' | 'git' | 'files' | 'plans' | 'memory';
 
@@ -83,6 +84,8 @@ interface SidePanelProps {
   git: GitView;
   files: FilesView;
   plans: PlansView;
+  /** Los archivos y planes abiertos de la pestana activa, cada uno en su pestana (§6.31). */
+  documents: DocumentsView;
   memory: MemoryView;
   /**
    * Escribe texto en la terminal sin enviarlo. Sin el, el arbol no ofrece
@@ -110,6 +113,7 @@ export function SidePanel({
   git,
   files,
   plans,
+  documents,
   memory,
   onInsert,
   onInsertPath,
@@ -186,7 +190,7 @@ export function SidePanel({
         <div className={`cli-slot${tab === 'cli' ? '' : ' cli-slot-hidden'}`}>{cli}</div>
 
         {tab === 'git' && <GitPanel view={git} />}
-        {tab === 'plans' && <PlansPanel view={plans} />}
+        {tab === 'plans' && <PlansPanel view={plans} docs={documents.plans} />}
         {tab === 'memory' && <MemoryPanel view={memory} />}
         {tab === 'files' && (
           <FilesPanel
@@ -196,6 +200,7 @@ export function SidePanel({
             onInsert={onInsert}
             onInsertPath={onInsertPath}
             onReveal={onReveal}
+            docs={documents.files}
           />
         )}
       </div>
