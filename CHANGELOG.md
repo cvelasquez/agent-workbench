@@ -4,7 +4,7 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
-## Unreleased
+## 0.5.0 — 2026-10-04
 
 ### Added
 
@@ -41,7 +41,6 @@ change behavior.
 - **The Android app is on Google Play**:
   [io.github.cvelasquez.agentworkbench](https://play.google.com/store/apps/details?id=io.github.cvelasquez.agentworkbench).
   The README links to it; building from `android/` remains an option.
-
 - **The Memory tab starts hidden**: shared memory is for people who use
   several CLIs. Show it from Settings.
 - **"Local copy" is now called "Backup"**, in every language: a folder you
