@@ -4,6 +4,25 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## Unreleased
+
+### Changed
+
+- **The file preview's button puts the path in your message.** On a file that
+  can't be previewed (a video, a binary) or that was cut off, "Insert as
+  @path" wrote to the CLI's terminal. It's now "Put the path in your message"
+  and leaves the quoted path in the message box, like the button on each row
+  of the file tree.
+- **"Backup…" and "Remote access…" in Settings are buttons**, with the same
+  look as the rest of the app's buttons.
+
+### Fixed
+
+- **An image sent while the agent was working shows as a thumbnail** in the
+  conversation (Claude Code). It showed the `@"path"` of the pasted file
+  instead. It also works in old conversations, when the agent opened the
+  image.
+
 ## 0.5.0 — 2026-10-04
 
 ### Added

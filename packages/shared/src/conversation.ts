@@ -108,23 +108,26 @@ export interface ConversationQuestionPart {
 /**
  * De donde salen los bytes de una imagen del usuario.
  *
- * Son **dos formas distintas** en el mismo archivo, y por eso hay que
- * distinguirlas:
+ * Son **tres formas distintas**, y por eso hay que distinguirlas:
  *
  *  - `content`: un bloque `{"type":"image"}` dentro de `message.content`. Es lo
  *    que deja pegar con `Alt+V` en la solapa CLI.
  *  - `attachment`: una linea `attachment` **aparte**, con `parentUuid`
  *    apuntando al mensaje. Es lo que deja el cuadro de escritura, que nombra la
  *    imagen por ruta (§5.3) y hace que la CLI la adjunte ella.
+ *  - `pasted`: una imagen del cuadro en un mensaje que se mando con el agente
+ *    trabajando. Ahi la CLI no la adjunta (§4.4.1): los bytes estan en la
+ *    carpeta de lo pegado, o en el `Read` con que el agente la abrio.
  *
- * Un mismo mensaje puede traer de las dos, y cada forma tiene su propia
+ * Un mismo mensaje puede traer de mas de una, y cada forma tiene su propia
  * numeracion: sin este campo, la imagen 0 de una taparia a la 0 de la otra.
  */
-export type ConversationImageSource = 'content' | 'attachment';
+export type ConversationImageSource = 'content' | 'attachment' | 'pasted';
 
 export const CONVERSATION_IMAGE_SOURCES: readonly ConversationImageSource[] = [
   'content',
   'attachment',
+  'pasted',
 ];
 
 /**
@@ -601,8 +604,7 @@ export function parseConversationPart(value: unknown): ConversationPart | null {
       if (index === null || mediaType === null) return null;
       // `source` puede faltar: es posterior al resto del tipo, y una parte sin
       // el describe una imagen de `message.content`, que es lo que habia antes.
-      const source: ConversationImageSource =
-        record['source'] === 'attachment' ? 'attachment' : 'content';
+      const source = asLiteral(record['source'], CONVERSATION_IMAGE_SOURCES) ?? 'content';
       return { kind: 'image', index, mediaType, source };
     }
     case 'notice': {

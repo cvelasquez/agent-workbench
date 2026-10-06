@@ -227,6 +227,7 @@
   "files.moreEntries": "es gibt mehr Einträge als angezeigt",
   "files.pathInserted": "Zur Nachricht hinzugefügt",
   "files.preview.binary": "Binärdatei: keine Vorschau.",
+  "files.preview.insertPath": "Pfad in die Nachricht einfügen",
   "files.preview.truncated": "Die Datei wurde wegen ihrer Größe abgeschnitten. Öffnen Sie sie mit der Standard-App, um sie vollständig zu sehen.",
   "files.readDirFailed": "Das Verzeichnis konnte nicht gelesen werden.",
   "files.readingDir": "Verzeichnis wird gelesen…",

@@ -217,6 +217,7 @@
   "files.moreEntries": "还有更多未显示的条目",
   "files.pathInserted": "已放进消息",
   "files.preview.binary": "二进制文件：无法预览。",
+  "files.preview.insertPath": "把路径放进消息",
   "files.preview.truncated": "文件过大，已被截断。用默认应用打开可查看完整内容。",
   "files.readDirFailed": "无法读取目录。",
   "files.readingDir": "正在读取目录…",

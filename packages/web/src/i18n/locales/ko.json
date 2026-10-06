@@ -217,6 +217,7 @@
   "files.moreEntries": "표시된 것보다 항목이 더 있습니다",
   "files.pathInserted": "메시지에 추가됨",
   "files.preview.binary": "바이너리 파일: 미리 보기가 없습니다.",
+  "files.preview.insertPath": "경로를 메시지에 넣기",
   "files.preview.truncated": "크기 때문에 파일이 잘렸습니다. 전체 내용을 보려면 기본 앱으로 여세요.",
   "files.readDirFailed": "디렉터리를 읽을 수 없습니다.",
   "files.readingDir": "디렉터리를 읽는 중…",

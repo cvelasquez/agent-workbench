@@ -807,6 +807,116 @@ check('una imagen pegada en la CLI sigue marcada como del contenido',
 check('y sus bytes se encuentran por el otro camino',
   (await loadConversationImage(inlineFile, 'i7', 0, 'content'))?.data === PNG_1PX);
 
+// ---------------------------------------------------------------------------
+// Las imagenes de un mensaje mandado con el agente trabajando (§4.4.1)
+// ---------------------------------------------------------------------------
+//
+// Encolado, el mensaje llega como `queued_command` y la CLI **no** adjunta sus
+// imagenes: el agente recibe el texto con la ruta y la abre con `Read`. Lo
+// reporto el usuario: el hilo mostraba el `@"C:\…\pegada-7-e18a3a47.png"` en
+// vez de la miniatura. Medido en la instalacion: 14 de 123 mensajes encolados
+// traen imagenes pegadas, 18 imagenes, y 17 tienen el `Read` con sus bytes.
+
+const pastedDir = path.join(dir, 'temporal', 'agent-workbench', 'pasted');
+const pastedOf = (name) => path.join(pastedDir, 't1', name);
+await mkdir(path.join(pastedDir, 't1'), { recursive: true });
+await writeFile(pastedOf('pegada-1-0a1b2c3d.png'), Buffer.from(PNG_1PX, 'base64'));
+// Con la forma de una imagen pegada, pero sin ser una: gana la firma.
+await writeFile(pastedOf('pegada-6-0f0f0f0f.png'), 'no soy una imagen');
+// La misma forma, fuera de la carpeta de lo pegado: no se lee nunca.
+const outsideDir = path.join(dir, 'fuera', 'agent-workbench', 'pasted', 't1');
+await mkdir(outsideDir, { recursive: true });
+const outsidePath = path.join(outsideDir, 'pegada-5-0e0e0e0e.png');
+await writeFile(outsidePath, Buffer.from(PNG_1PX, 'base64'));
+
+// Lo que trae el `Read` del agente: otros bytes, para saber de donde salio cada una.
+const FROM_READ = 'UkVBRC1SRVNVTFQ=';
+const queuedWith = (id, prompt) => attach(id, {
+  type: 'queued_command', prompt, commandMode: 'prompt', origin: { kind: 'human' },
+});
+const readCall = (id, toolUseId, filePath) => line({
+  type: 'assistant', uuid: id, timestamp: new Date().toISOString(),
+  message: { role: 'assistant', model: 'claude-opus-5', content: [
+    { type: 'tool_use', id: toolUseId, name: 'Read', input: { file_path: filePath } },
+  ] },
+});
+const readResult = (id, toolUseId, blocks) => line({
+  type: 'user', uuid: id, timestamp: new Date().toISOString(),
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: blocks }] },
+});
+const imageBlock = (data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } });
+
+const missingPasted = pastedOf('pegada-2-0b0b0b0b.png');
+const pastedFile = path.join(dir, 'encolado-con-imagenes.jsonl');
+await writeFile(pastedFile,
+  queuedWith('qp1', '@"' + pastedOf('pegada-1-0a1b2c3d.png') + '" @"' + missingPasted + '" compara estas dos') +
+  // El agente la abre con otras barras y otra caja: es la misma ruta.
+  readCall('qa1', 'toolu_x', missingPasted.replace(/\\/g, '/').toUpperCase()) +
+  readResult('qr1', 'toolu_x', [imageBlock(FROM_READ)]) +
+  queuedWith('qp2', '@"' + pastedOf('pegada-3-0c0c0c0c.jpg') + '"') +
+  queuedWith('qp3', 'mira @"C:\\fotos\\captura.png" y @notas.png') +
+  queuedWith('qp4', '@"' + outsidePath + '" @"' + pastedOf('pegada-6-0f0f0f0f.png') + '" ' +
+    // Armada a mano: `path.join` resolveria los `..`.
+    '@"' + [pastedDir, 't1', '..', '..', '..', '..', 'fuera', 'agent-workbench', 'pasted', 't1', 'pegada-5-0e0e0e0e.png'].join(path.sep) + '"'));
+const pastedFollower = new ConversationFollower(pastedFile);
+const pastedPoll = await pastedFollower.poll();
+const byId = (id) => pastedPoll.added.find((event) => event.eventId === id);
+
+const qp1 = byId('qp1')?.parts ?? [];
+check('7.1 encolado con dos imagenes pegadas -> dos partes `pasted` y el texto',
+  qp1.map((p) => (p.kind === 'image' ? `${p.source}:${p.index}` : p.kind)).join(',') === 'pasted:0,pasted:1,text',
+  qp1.map((p) => p.kind).join(','));
+check('7.2 y las rutas fuera del texto',
+  qp1[2]?.text === 'compara estas dos', JSON.stringify(qp1[2]?.text));
+check('7.3 sigue marcado como encolado', byId('qp1')?.queued === true);
+check('7.4 un encolado que era solo una imagen queda solo con ella, con su tipo',
+  byId('qp2')?.parts.length === 1 && byId('qp2')?.parts[0]?.kind === 'image' &&
+  byId('qp2')?.parts[0]?.mediaType === 'image/jpeg',
+  JSON.stringify(byId('qp2')?.parts));
+check('7.5 un @ruta que no es de lo pegado sigue siendo texto',
+  byId('qp3')?.parts.length === 1 && byId('qp3')?.parts[0]?.text === 'mira @"C:\\fotos\\captura.png" y @notas.png',
+  JSON.stringify(byId('qp3')?.parts));
+
+// Los bytes: el archivo pegado mientras exista; si no, el `Read` del agente.
+const fromDisk = await loadConversationImage(pastedFile, 'qp1', 0, 'pasted', pastedDir);
+check('7.6 la imagen que sigue en la carpeta de lo pegado sale de ahi',
+  fromDisk?.data === PNG_1PX && fromDisk?.mediaType === 'image/png', String(fromDisk?.data).slice(0, 24));
+const fromRead = await loadConversationImage(pastedFile, 'qp1', 1, 'pasted', pastedDir);
+check('7.7 la que ya no esta sale del `Read` con que el agente la abrio',
+  fromRead?.data === FROM_READ, String(fromRead?.data).slice(0, 24));
+check('7.8 una tercera que no existe -> null',
+  (await loadConversationImage(pastedFile, 'qp1', 2, 'pasted', pastedDir)) === null);
+check('7.9 sin archivo y sin `Read` -> null',
+  (await loadConversationImage(pastedFile, 'qp2', 0, 'pasted', pastedDir)) === null);
+check('7.10 la misma forma fuera de la carpeta de lo pegado no se lee',
+  (await loadConversationImage(pastedFile, 'qp4', 0, 'pasted', pastedDir)) === null);
+check('7.11 un archivo de lo pegado que no es una imagen tampoco',
+  (await loadConversationImage(pastedFile, 'qp4', 1, 'pasted', pastedDir)) === null);
+check('7.12 ni una ruta que sale de la carpeta con `..`',
+  (await loadConversationImage(pastedFile, 'qp4', 2, 'pasted', pastedDir)) === null);
+check('7.13 y `pasted` no confunde las otras formas del mismo archivo',
+  (await loadConversationImage(pastedFile, 'qp1', 0, 'attachment', pastedDir)) === null &&
+  (await loadConversationImage(pastedFile, 'qp1', 0, 'content', pastedDir)) === null);
+
+// Un `Read` que fallo no trae la imagen; si el agente la vuelve a leer, vale el segundo.
+const retryFile = path.join(dir, 'encolado-read-fallido.jsonl');
+const retryPath = pastedOf('pegada-4-0d0d0d0d.png');
+await writeFile(retryFile,
+  queuedWith('qp5', '@"' + retryPath + '" y esta') +
+  readCall('qa2', 'toolu_y', retryPath) +
+  readResult('qr2', 'toolu_y', [{ type: 'text', text: 'File does not exist.' }]) +
+  readCall('qa3', 'toolu_z', retryPath) +
+  readResult('qr3', 'toolu_z', [imageBlock(FROM_READ)]));
+check('7.14 tras un `Read` fallido se busca el siguiente',
+  (await loadConversationImage(retryFile, 'qp5', 0, 'pasted', pastedDir))?.data === FROM_READ);
+
+// La web acepta la forma nueva: un cliente que la leyera como `content` la pediria mal.
+const { parseConversationEvent } = await import('../../shared/src/conversation.ts');
+const parsedPasted = parseConversationEvent(JSON.parse(JSON.stringify(byId('qp2'))));
+check('7.15 el parser del protocolo conserva `pasted`',
+  parsedPasted?.parts[0]?.kind === 'image' && parsedPasted.parts[0].source === 'pasted',
+  JSON.stringify(parsedPasted?.parts[0]));
+
 await rm(dir, { recursive: true, force: true });
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLOS`);
 process.exit(failures === 0 ? 0 : 1);

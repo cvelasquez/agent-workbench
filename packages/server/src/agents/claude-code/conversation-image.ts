@@ -10,12 +10,21 @@
  * La busqueda recorre el archivo linea a linea porque el `uuid` no esta
  * indexado en ningun lado. Es una lectura completa de un archivo que puede
  * pesar 3 MB, y por eso es una accion puntual y no algo que pase solo.
+ *
+ * La unica que puede salir de otro lado es la de un mensaje encolado: la CLI no
+ * la adjunta, y mientras el agente no la lea esta solo en la carpeta de lo
+ * pegado (`findPastedImage`).
  */
 
 import { MAX_SUBMIT_IMAGE_BYTES, type ConversationImageSource } from '@agent-workbench/shared';
-import { open } from 'node:fs/promises';
+import { open, readFile, stat, type FileHandle } from 'node:fs/promises';
+import path from 'node:path';
+import { detectImageFormat } from '../../image-signature.js';
 import { parseJsonlLine } from '../../jsonl-reader.js';
+import { pasteRoot } from '../../paste-paths.js';
+import { resolveInside } from '../../path-guard.js';
 import type { LoadedImage } from '../adapter.js';
+import { queuedPastedImages, recordOf, sameFilePath } from './jsonl-events.js';
 
 const CHUNK_SIZE = 256 * 1024;
 const NEWLINE = 0x0a;
@@ -32,24 +41,43 @@ export const MAX_IMAGE_BYTES = MAX_SUBMIT_IMAGE_BYTES;
 /**
  * Busca la imagen `index` del mensaje `eventId`.
  *
- * `source` dice en cual de las dos formas buscarla (ver
- * `ConversationImageSource`): dentro del propio mensaje, o en una linea
- * `attachment` que cuelga de el. Son dos numeraciones distintas, asi que sin
- * esto la imagen 0 de una devolveria la 0 de la otra.
+ * `source` dice en cual de las tres formas buscarla (ver
+ * `ConversationImageSource`): dentro del propio mensaje, en una linea
+ * `attachment` que cuelga de el, o pegada en un mensaje encolado. Son
+ * numeraciones distintas, asi que sin esto la imagen 0 de una devolveria la 0
+ * de otra.
  *
  * Devuelve null si no esta: el archivo pudo cambiar, o el evento pudo quedar
  * fuera del tramo cargado. Un null se muestra como "no se pudo cargar", que es
  * mejor que un error.
+ *
+ * `pastedDir` es la carpeta de lo pegado; solo la cambian los chequeos.
  */
 export async function loadConversationImage(
   filePath: string,
   eventId: string,
   index: number,
   source: ConversationImageSource = 'content',
+  pastedDir: string = pasteRoot(),
 ): Promise<LoadedImage | null> {
   const handle = await open(filePath, 'r').catch(() => null);
   if (handle === null) return null;
 
+  try {
+    if (source === 'pasted') return await findPastedImage(linesOf(handle), eventId, index, pastedDir);
+    return await findInLines(linesOf(handle), eventId, index, source);
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Las formas que la CLI dejo en el archivo: `content` y `attachment`. */
+async function findInLines(
+  lines: AsyncIterable<string>,
+  eventId: string,
+  index: number,
+  source: ConversationImageSource,
+): Promise<LoadedImage | null> {
   /*
     Las adjuntas no se pueden buscar por posicion dentro de una linea: cada una
     es una linea propia, y su indice es el orden en que cuelgan del mensaje. Se
@@ -92,43 +120,176 @@ export async function loadConversationImage(
     return seen++ === index ? found : null;
   };
 
-  try {
-    const buffer = Buffer.allocUnsafe(CHUNK_SIZE);
-    let pending = Buffer.alloc(0);
-    let offset = 0;
+  for await (const line of lines) {
+    const found = consider(line);
+    if (found !== null) return found;
+  }
+  return null;
+}
 
-    for (;;) {
-      const { bytesRead } = await handle.read(buffer, 0, CHUNK_SIZE, offset);
-      if (bytesRead === 0) break;
-      offset += bytesRead;
+/**
+ * Las lineas del archivo, de a una y sin cargarlo entero: una linea puede pesar
+ * 290 KB (§4.6), y el archivo, varios MB.
+ */
+async function* linesOf(handle: FileHandle): AsyncGenerator<string> {
+  const buffer = Buffer.allocUnsafe(CHUNK_SIZE);
+  let pending = Buffer.alloc(0);
+  let offset = 0;
 
-      const combined = Buffer.concat([pending, buffer.subarray(0, bytesRead)]);
-      let start = 0;
-      let newlineIndex = combined.indexOf(NEWLINE, start);
+  for (;;) {
+    const { bytesRead } = await handle.read(buffer, 0, CHUNK_SIZE, offset);
+    if (bytesRead === 0) break;
+    offset += bytesRead;
 
-      while (newlineIndex !== -1) {
-        const line = combined.subarray(start, newlineIndex).toString('utf8');
-        start = newlineIndex + 1;
-        newlineIndex = combined.indexOf(NEWLINE, start);
+    const combined = Buffer.concat([pending, buffer.subarray(0, bytesRead)]);
+    let start = 0;
+    let newlineIndex = combined.indexOf(NEWLINE, start);
 
-        const found = consider(line);
-        if (found !== null) return found;
-      }
-
-      pending = Buffer.from(combined.subarray(start));
+    while (newlineIndex !== -1) {
+      yield combined.subarray(start, newlineIndex).toString('utf8');
+      start = newlineIndex + 1;
+      newlineIndex = combined.indexOf(NEWLINE, start);
     }
 
-    // La ultima linea puede no terminar en salto.
-    if (pending.length > 0) return consider(pending.toString('utf8'));
-    return null;
-  } finally {
-    await handle.close();
+    pending = Buffer.from(combined.subarray(start));
   }
+
+  // La ultima linea puede no terminar en salto.
+  if (pending.length > 0) yield pending.toString('utf8');
+}
+
+/**
+ * Una imagen del cuadro en un mensaje que se mando con el agente trabajando
+ * (§4.4.1). La CLI no la adjunta —no hay linea `attachment`—, y los bytes salen
+ * de uno de dos sitios:
+ *
+ *  1. **El archivo que dejo `PasteStore`**, mientras exista: hasta que se cierra
+ *     la pestana. Es lo unico que hay antes de que el agente la lea.
+ *  2. **El resultado del `Read` con que el agente la abrio.** La CLI le pasa el
+ *     mensaje como texto, con la ruta, y el agente la lee con su herramienta: los
+ *     bytes quedan en el archivo para siempre, como los de un adjunto. Medido:
+ *     17 de las 18 imagenes encoladas de esta instalacion tienen el suyo.
+ *
+ * Sin ninguno de los dos, null: "la imagen ya no esta".
+ */
+async function findPastedImage(
+  lines: AsyncIterable<string>,
+  eventId: string,
+  index: number,
+  pastedDir: string,
+): Promise<LoadedImage | null> {
+  let target: string | null = null;
+  let readId: string | null = null;
+
+  for await (const line of lines) {
+    if (target === null) {
+      if (!line.includes(eventId)) continue;
+      const record = parseJsonlLine(line);
+      if (record === null || record['uuid'] !== eventId) continue;
+      target = queuedPastedImages(record)[index] ?? null;
+      if (target === null) return null;
+      const fromDisk = await readPastedFile(target, pastedDir);
+      if (fromDisk !== null) return fromDisk;
+      continue;
+    }
+
+    // Despues del mensaje: el `Read` del agente sobre esa ruta, y su resultado.
+    if (readId === null) {
+      if (line.includes('"Read"')) readId = readToolUseOf(parseJsonlLine(line), target);
+      continue;
+    }
+    if (!line.includes(readId)) continue;
+    const result = toolResultOf(parseJsonlLine(line), readId);
+    if (result === null) continue;
+    const content = result['content'];
+    const image = Array.isArray(content) ? firstImage(content) : null;
+    if (image !== null) return image;
+    // Ese `Read` no la trajo —un error, un archivo que ya no estaba—: puede haber otro.
+    readId = null;
+  }
+  return null;
+}
+
+/**
+ * Los bytes que dejo `PasteStore`, si siguen ahi y son de una imagen.
+ *
+ * La ruta sale del texto del mensaje, que escribio el usuario, asi que pasa por
+ * el guardia de rutas contra la carpeta de lo pegado: un `..` o un enlace hacia
+ * afuera no se leen (§2.4). Y gana la firma de los bytes, no la extension. El
+ * cliente no nombra nada: pide `(eventId, index)`, como con las otras formas.
+ */
+async function readPastedFile(target: string, pastedDir: string): Promise<LoadedImage | null> {
+  try {
+    const inside = await resolveInside(pastedDir, path.relative(pastedDir, target), { mustExist: true });
+    const info = await stat(inside);
+    if (!info.isFile() || info.size === 0 || info.size > MAX_IMAGE_BYTES) return null;
+    const bytes = await readFile(inside);
+    const format = detectImageFormat(bytes);
+    return format === null ? null : { mediaType: format.mediaType, data: bytes.toString('base64') };
+  } catch {
+    // Ya no esta —la pestana se cerro—, o la ruta no es de la carpeta.
+    return null;
+  }
+}
+
+/** El id del `Read` de esta linea que abrio `target`, o null. */
+function readToolUseOf(record: Record<string, unknown> | null, target: string): string | null {
+  if (record === null || record['type'] !== 'assistant') return null;
+  const content = recordOf(record['message'])?.['content'];
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    const tool = recordOf(block);
+    if (tool === null || tool['type'] !== 'tool_use' || tool['name'] !== 'Read') continue;
+    const id = tool['id'];
+    const filePath = recordOf(tool['input'])?.['file_path'];
+    if (typeof id === 'string' && id.length > 0 && typeof filePath === 'string' && sameFilePath(filePath, target)) {
+      return id;
+    }
+  }
+  return null;
+}
+
+/** El bloque `tool_result` de `toolUseId` en esta linea, o null. */
+function toolResultOf(record: Record<string, unknown> | null, toolUseId: string): Record<string, unknown> | null {
+  if (record === null || record['type'] !== 'user') return null;
+  const content = recordOf(record['message'])?.['content'];
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    const result = recordOf(block);
+    if (result !== null && result['type'] === 'tool_result' && result['tool_use_id'] === toolUseId) return result;
+  }
+  return null;
 }
 
 /** El base64 ocupa ~4/3 de lo que pesa la imagen. */
 function tooBig(data: string): boolean {
   return data.length > MAX_IMAGE_BYTES * 1.4;
+}
+
+/** Un bloque `{"type":"image","source":{…}}`, el de `message.content` y el de un resultado. */
+function imageFromBlock(value: unknown): LoadedImage | null {
+  const block = recordOf(value);
+  if (block === null || block['type'] !== 'image') return null;
+  const source = recordOf(block['source']);
+  if (source === null) return null;
+
+  const data = source['data'];
+  const mediaType = source['media_type'];
+  if (typeof data !== 'string' || data.length === 0 || tooBig(data)) return null;
+
+  return {
+    mediaType: typeof mediaType === 'string' ? mediaType : 'image/png',
+    data,
+  };
+}
+
+/** La primera imagen de una lista de bloques. */
+function firstImage(blocks: unknown[]): LoadedImage | null {
+  for (const block of blocks) {
+    const image = imageFromBlock(block);
+    if (image !== null) return image;
+  }
+  return null;
 }
 
 /** Un bloque `image` dentro del propio mensaje: lo que deja `Alt+V` en la CLI. */
@@ -139,28 +300,9 @@ function imageFromContent(
 ): LoadedImage | null {
   if (record['uuid'] !== eventId) return null;
 
-  const message = record['message'];
-  if (typeof message !== 'object' || message === null) return null;
-  const content = (message as Record<string, unknown>)['content'];
+  const content = recordOf(record['message'])?.['content'];
   if (!Array.isArray(content)) return null;
-
-  const block = content[index];
-  if (typeof block !== 'object' || block === null) return null;
-  const blockRecord = block as Record<string, unknown>;
-  if (blockRecord['type'] !== 'image') return null;
-
-  const source = blockRecord['source'];
-  if (typeof source !== 'object' || source === null) return null;
-  const sourceRecord = source as Record<string, unknown>;
-
-  const data = sourceRecord['data'];
-  const mediaType = sourceRecord['media_type'];
-  if (typeof data !== 'string' || data.length === 0 || tooBig(data)) return null;
-
-  return {
-    mediaType: typeof mediaType === 'string' ? mediaType : 'image/png',
-    data,
-  };
+  return imageFromBlock(content[index]);
 }
 
 /**

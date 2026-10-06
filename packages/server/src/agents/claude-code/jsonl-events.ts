@@ -23,6 +23,7 @@ import type {
   ConversationRole,
   MessageUsage,
 } from '@agent-workbench/shared';
+import { pastedImageMediaType } from '../../paste-paths.js';
 import { TRANSPORT_LIMITS, cut, type EventLimits } from '../transport-limits.js';
 import { scratchRoot } from './paths.js';
 
@@ -339,6 +340,13 @@ export function readTimestamp(value: unknown): number {
  * `prompt` con `origin.kind: "human"`. `commandMode` es el que separa las dos
  * cosas; `origin` se comprueba solo si viene, para que una version futura que
  * lo deje de escribir no haga desaparecer el mensaje otra vez.
+ *
+ * **Sus imagenes no llegan adjuntas.** Un mensaje del cuadro nombra cada
+ * imagen pegada por ruta, y en una linea `user` la CLI la adjunta ella
+ * (`toUserImageAttachment`). Encolado, no: el agente recibe el texto con la
+ * ruta y la abre con `Read`, si quiere. Por eso cada `@"ruta"` de una imagen
+ * pegada se vuelve una parte `pasted` y sale del texto, como sale el de un
+ * adjunto; los bytes los busca `loadConversationImage`.
  */
 function toQueuedUserEvent(
   record: Record<string, unknown>,
@@ -355,10 +363,21 @@ function toQueuedUserEvent(
 
   const prompt = attachmentRecord['prompt'];
   if (typeof prompt !== 'string') return null;
-  const cleaned = cleanUserText(prompt);
-  if (cleaned.length === 0) return null;
+  const { text: cleaned, images } = takePastedImages(cleanUserText(prompt));
 
-  const { text, truncated } = cut(cleaned, limits.textMaxChars);
+  // Las imagenes primero, como en un mensaje con adjuntos.
+  const parts: ConversationPart[] = images.map((image, index) => ({
+    kind: 'image',
+    index,
+    mediaType: image.mediaType,
+    source: 'pasted',
+  }));
+  if (cleaned.length > 0) {
+    const { text, truncated } = cut(cleaned, limits.textMaxChars);
+    parts.push({ kind: 'text', text, truncated });
+  }
+  if (parts.length === 0) return null;
+
   const uuid = record['uuid'];
 
   return {
@@ -367,7 +386,7 @@ function toQueuedUserEvent(
     // El `timestamp` de la linea es el de cuando se escribio, no el de cuando
     // se absorbio. Es el que corresponde: es cuando el usuario lo mando.
     at: readTimestamp(record['timestamp'] ?? attachmentRecord['timestamp']),
-    parts: [{ kind: 'text', text, truncated }],
+    parts,
     model: null,
     usage: null,
     effort: null,
@@ -531,6 +550,50 @@ export function stripFileReference(text: string, filename: string): string {
     }
   }
   return text;
+}
+
+/** Si dos rutas nombran el mismo archivo, sin mirar el disco: separadores y caja dan igual. */
+export function sameFilePath(a: string, b: string): boolean {
+  return normalizePath(a) === normalizePath(b);
+}
+
+/**
+ * Las imagenes pegadas en el cuadro que nombra un texto, en orden, y el texto
+ * sin sus `@"ruta"`.
+ *
+ * Solo las que tienen la forma de una de `PasteStore` (`pastedImageMediaType`):
+ * un `@docs/captura.png` tecleado a mano sigue siendo texto, porque nada
+ * garantiza que haya bytes que mostrar en su lugar.
+ */
+function takePastedImages(text: string): {
+  text: string;
+  images: { path: string; mediaType: string }[];
+} {
+  const images: { path: string; mediaType: string }[] = [];
+  const tokens = /(^|\s)@(?:"([^"]*)"|(\S+))/g;
+  let match = tokens.exec(text);
+  while (match !== null) {
+    const raw = match[2] ?? match[3] ?? '';
+    const mediaType = pastedImageMediaType(raw);
+    if (mediaType !== null) images.push({ path: raw, mediaType });
+    match = tokens.exec(text);
+  }
+
+  let rest = text;
+  for (const image of images) rest = stripFileReference(rest, image.path);
+  return { text: rest, images };
+}
+
+/**
+ * Las rutas de las imagenes pegadas de una linea `queued_command`, en el orden
+ * de sus partes `pasted` (`toQueuedUserEvent`). [] si la linea no es una.
+ */
+export function queuedPastedImages(record: Record<string, unknown>): string[] {
+  const attachment = recordOf(record['attachment']);
+  if (attachment === null || attachment['type'] !== 'queued_command') return [];
+  const prompt = attachment['prompt'];
+  if (typeof prompt !== 'string') return [];
+  return takePastedImages(cleanUserText(prompt)).images.map((image) => image.path);
 }
 
 /**

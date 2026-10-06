@@ -247,6 +247,7 @@
   "files.moreEntries": "показаны не все элементы",
   "files.pathInserted": "Добавлено в сообщение",
   "files.preview.binary": "Двоичный файл: предпросмотр недоступен.",
+  "files.preview.insertPath": "Вставить путь в сообщение",
   "files.preview.truncated": "Файл обрезан из-за размера. Откройте его в приложении по умолчанию, чтобы увидеть целиком.",
   "files.readDirFailed": "Не удалось прочитать каталог.",
   "files.readingDir": "Чтение каталога…",

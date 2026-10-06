@@ -4049,6 +4049,11 @@ kbd {
   align-items: flex-start;
 }
 
+/* Los botones de "Más": con una traduccion larga bajan de linea, no se aprietan. */
+.settings-more {
+  flex-wrap: wrap;
+}
+
 .settings-label {
   flex: 0 0 150px;
   font-size: 12.5px;

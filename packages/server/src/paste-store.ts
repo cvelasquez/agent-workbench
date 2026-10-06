@@ -33,11 +33,11 @@ import {
 } from '@agent-workbench/shared';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { isBlockedExtension, safeFileName } from './attachments.js';
 import { HANDOFF_MAX_BYTES } from './handoff/transcript.js';
 import { detectImageFormat } from './image-signature.js';
+import { pasteRoot } from './paste-paths.js';
 
 /** Tipos que la CLI sabe leer como imagen. Lista corta y explicita. */
 const EXTENSIONS: ReadonlyMap<string, string> = new Map([
@@ -98,7 +98,7 @@ export class PasteStore {
   private counter = 0;
 
   constructor(root?: string) {
-    this.root = root ?? path.join(tmpdir(), 'agent-workbench', 'pasted');
+    this.root = root ?? pasteRoot();
   }
 
   /**
@@ -135,6 +135,7 @@ export class PasteStore {
     await mkdir(directory, { recursive: true, mode: DIRECTORY_MODE });
 
     this.counter += 1;
+    // El hilo reconoce este nombre (`pastedImageMediaType`, §4.4.1).
     const name = `pegada-${this.counter}-${randomUUID().slice(0, 8)}.${signature.ext}`;
     const file = path.join(directory, name);
     await writeFile(file, bytes, { mode: FILE_MODE });

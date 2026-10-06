@@ -269,8 +269,8 @@ interface FilesPanelProps {
   /** `process.platform` del servidor: decide el separador de la ruta absoluta. */
   platform: string;
   /**
-   * Escribe texto en la terminal de la pestana, sin enviarlo. Sin el no se
-   * ofrece "Insertar como @ruta".
+   * Escribe texto en la terminal de la pestana, sin enviarlo. Sin el, el menu
+   * contextual no ofrece "Insertar como @ruta".
    */
   onInsert?: (text: string) => void;
   /** Pone texto en el cuadro de escritura, donde esta el cursor. */
@@ -419,7 +419,7 @@ export function FilesPanel({
           onReload={() => docs.reload(activeDoc.key)}
           onModeChange={(mode) => docs.setMode(activeDoc.key, mode)}
           onOpenWithSystem={onReveal === null ? null : () => onReveal(activeDoc.key)}
-          onInsert={onInsert === undefined ? undefined : () => onInsert(`@${activeDoc.key}`)}
+          onInsert={() => insertQuoted(activeDoc.key)}
           onOpenLink={openDocument}
           initialScroll={docs.scrollOf(activeDoc.key)}
           onScrollChange={(top) => docs.rememberScroll(activeDoc.key, top)}

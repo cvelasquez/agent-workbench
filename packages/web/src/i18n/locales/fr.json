@@ -227,6 +227,7 @@
   "files.moreEntries": "il y a plus d'éléments que ceux affichés",
   "files.pathInserted": "Ajouté à votre message",
   "files.preview.binary": "Fichier binaire : pas d'aperçu.",
+  "files.preview.insertPath": "Mettre le chemin dans votre message",
   "files.preview.truncated": "Le fichier a été tronqué en raison de sa taille. Ouvrez-le avec l'application par défaut pour le voir en entier.",
   "files.readDirFailed": "Impossible de lire le répertoire.",
   "files.readingDir": "Lecture du répertoire…",

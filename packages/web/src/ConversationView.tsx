@@ -1738,10 +1738,11 @@ function FoldableText({
 /**
  * Miniatura de una imagen del mensaje. Los bytes se piden al aparecer.
  *
- * Sirve para las dos formas en que una imagen llega al archivo: pegada en la
- * solapa CLI (`content`) o adjuntada por ruta desde el cuadro de escritura
- * (`attachment`). Lo unico que cambia es donde buscarla, y de eso se encarga el
- * servidor; aca `source` solo viaja para pedirla.
+ * Sirve para las tres formas en que llega una imagen: pegada en la solapa CLI
+ * (`content`), adjuntada por ruta desde el cuadro de escritura (`attachment`),
+ * o del cuadro en un mensaje mandado con el agente trabajando (`pasted`). Lo
+ * unico que cambia es donde buscarla, y de eso se encarga el servidor; aca
+ * `source` solo viaja para pedirla.
  *
  * El clic abre el visor, no agranda en el sitio. Agrandar en el sitio movia la
  * conversacion bajo el cursor en el mismo clic — ver `ImageViewer`.

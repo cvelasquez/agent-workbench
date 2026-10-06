@@ -292,14 +292,19 @@ export function SettingsDialog({
           {(onOpenVault !== null || onOpenRemote !== null) && (
             <>
               <h3 className="modal-section">{t('settings.section.more')}</h3>
-              <div className="settings-row">
+              {/*
+                Con el formato de botones del resto de la app —el de "Abrir con la
+                app del sistema"—, no como enlaces (pedido del usuario el
+                05-10-2026).
+              */}
+              <div className="settings-row settings-more">
                 {onOpenVault !== null && (
-                  <button className="link-button" onClick={onOpenVault}>
+                  <button className="primary-button primary-button-small" onClick={onOpenVault}>
                     {t('settings.more.open', { name: vaultName() })}
                   </button>
                 )}
                 {onOpenRemote !== null && (
-                  <button className="link-button" onClick={onOpenRemote}>
+                  <button className="primary-button primary-button-small" onClick={onOpenRemote}>
                     {t('settings.more.open', { name: t('app.header.remoteAccess') })}
                   </button>
                 )}

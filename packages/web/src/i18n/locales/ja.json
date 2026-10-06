@@ -217,6 +217,7 @@
   "files.moreEntries": "表示しきれない項目があります",
   "files.pathInserted": "メッセージに追加しました",
   "files.preview.binary": "バイナリファイルのためプレビューできません。",
+  "files.preview.insertPath": "パスをメッセージに入れる",
   "files.preview.truncated": "サイズが大きいため、ファイルを途中までしか表示していません。全体を見るには既定のアプリで開いてください。",
   "files.readDirFailed": "ディレクトリを読み取れませんでした。",
   "files.readingDir": "ディレクトリを読み込み中…",

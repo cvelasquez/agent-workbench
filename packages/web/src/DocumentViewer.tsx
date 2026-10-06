@@ -35,7 +35,7 @@ interface DocumentViewerProps {
   onModeChange: (mode: DocMode) => void;
   /** Solo en Archivos, y no en una ventana remota (hito 37). */
   onOpenWithSystem: (() => void) | null;
-  /** Solo en Archivos, y si la CLI menciona archivos con `@ruta`. */
+  /** Solo en Archivos: pone la ruta del archivo en el cuadro de escritura. */
   onInsert?: () => void;
   /** Solo en Archivos: un enlace relativo de un Markdown abre ese documento. */
   onOpenLink?: (path: string) => void;

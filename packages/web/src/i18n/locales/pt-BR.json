@@ -227,6 +227,7 @@
   "files.moreEntries": "há mais itens do que os mostrados",
   "files.pathInserted": "Adicionado à sua mensagem",
   "files.preview.binary": "Arquivo binário: sem pré-visualização.",
+  "files.preview.insertPath": "Colocar o caminho na sua mensagem",
   "files.preview.truncated": "O arquivo foi truncado por causa do tamanho. Abra-o com o app padrão para vê-lo inteiro.",
   "files.readDirFailed": "Não foi possível ler o diretório.",
   "files.readingDir": "Lendo o diretório…",

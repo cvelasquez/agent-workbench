@@ -24,7 +24,7 @@
  * buscar "1" no tiene que encontrar los numeros de linea.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { t } from './i18n/index.js';
 
 /** El codigo con sus numeros de linea, resaltado si hay gramatica. */
@@ -75,9 +75,10 @@ export function CodePreview({ text, language }: { text: string; language: string
 
 interface PreviewActionsProps {
   /**
-   * Escribe `@ruta` en la terminal. Estaba solo en el menu contextual del
-   * arbol, que con el dedo no se abre solo (hito 38): aca queda a la vista.
-   * Ausente si la CLI no menciona archivos asi.
+   * Pone la ruta del archivo en el cuadro de escritura, entre comillas, igual
+   * que el boton de su fila en el arbol (§6.4). Nacio en el hito 38 como
+   * "Insertar como @ruta", que escribia en la terminal y no en el cuadro; el
+   * usuario lo pidio como el del arbol el 05-10-2026.
    */
   onInsert?: () => void;
   /**
@@ -91,11 +92,30 @@ interface PreviewActionsProps {
 
 /** Lo que se ofrece donde la vista previa no alcanza: un binario, un archivo cortado. */
 export function PreviewActions({ onInsert, onOpenWithSystem }: PreviewActionsProps): JSX.Element {
+  /*
+    El acuse del boton de la fila, en texto: poner la ruta en el cuadro no
+    cambia nada alrededor del boton, y en la vista angosta el cuadro ni se ve.
+  */
+  const [inserted, setInserted] = useState(false);
+  const timer = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    };
+  }, []);
+
+  const insert = (): void => {
+    onInsert?.();
+    setInserted(true);
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setInserted(false), 1_200);
+  };
+
   return (
     <div className="preview-actions">
       {onInsert !== undefined && (
-        <button className="primary-button primary-button-small preview-open" onClick={onInsert}>
-          {t('files.menu.insertMention')}
+        <button className="primary-button primary-button-small preview-open" onClick={insert}>
+          {inserted ? t('files.pathInserted') : t('files.preview.insertPath')}
         </button>
       )}
       {onOpenWithSystem !== null && (
