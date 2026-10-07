@@ -614,6 +614,38 @@ check('el aviso de tarea como linea user no genera tarjeta, ni con origin ni sin
 check('y la linea humana con origin se dibuja igual que siempre',
   notices.added[0]?.parts[0]?.text === 'y este si lo escribi yo');
 
+// 11j (06-10-2026). La nota para el usuario que viaja en el bloque de
+// razonamiento (§4.9). Desde la CLI 2.1.278 un turno puede traer un segundo
+// bloque `thinking` con texto: no es el razonamiento —ese sigue vacio, con su
+// firma— sino un aviso corto que la CLI dibuja como un mensaje mas, y el hilo
+// lo descartaba con el resto. r-1 y r-2 tienen la forma de las lineas 2150 y
+// 2151 del archivo del reporte: el mismo `message.id`, el razonamiento vacio y
+// detras la nota, terminada en dos saltos de linea.
+const noteFile = path.join(dir, 'nota.jsonl');
+const thinkingLine = (id, blocks, messageId = `msg-${id}`) => line({
+  type: 'assistant', uuid: id, timestamp: new Date().toISOString(),
+  message: { id: messageId, role: 'assistant', model: 'claude-opus-5-5', content: blocks, stop_reason: 'tool_use' },
+});
+const noteText = 'Encontre la causa: estaba restando dos veces la barra de navegacion. Voy a corregirlo.';
+await writeFile(noteFile,
+  thinkingLine('r-1', [{ type: 'thinking', thinking: '', signature: 'firma' }], 'msg-nota') +
+  thinkingLine('r-2', [{ type: 'thinking', thinking: `${noteText}\n\n`, signature: 'firma' }], 'msg-nota') +
+  thinkingLine('r-3', [{ type: 'thinking', thinking: ' \n\n ', signature: 'firma' }]) +
+  thinkingLine('r-4', [{ type: 'redacted_thinking', data: 'cifrado' }]) +
+  thinkingLine('r-5', [{ type: 'thinking', thinking: 'x'.repeat(20_000), signature: 'firma' }]));
+const noteResult = await new ConversationFollower(noteFile).poll();
+const noteParts = (id) => JSON.stringify(noteResult.added.find((event) => event.eventId === id)?.parts ?? null);
+const onlyMarker = JSON.stringify([{ kind: 'thinking' }]);
+check('la nota del bloque de razonamiento llega como texto, sin los saltos del final',
+  noteParts('r-2') === JSON.stringify([{ kind: 'text', text: noteText, truncated: false }]), noteParts('r-2'));
+check('el razonamiento vacio sigue siendo solo la marca, sin texto', noteParts('r-1') === onlyMarker, noteParts('r-1'));
+check('uno con solo blancos tambien', noteParts('r-3') === onlyMarker, noteParts('r-3'));
+check('y el cifrado tambien', noteParts('r-4') === onlyMarker, noteParts('r-4'));
+const longNote = noteResult.added.find((event) => event.eventId === 'r-5')?.parts[0];
+check('una nota larga se recorta como cualquier texto',
+  longNote?.kind === 'text' && longNote.truncated === true && longNote.text.length < 20_000,
+  `${longNote?.kind} ${longNote?.text?.length}`);
+
 // ---------------------------------------------------------------------------
 // Las imagenes que la CLI adjunta por ruta
 // ---------------------------------------------------------------------------

@@ -851,6 +851,7 @@
   "thread.jumpToEnd": "Zum Ende springen",
   "thread.jumpToEndNew_one": "Zum Ende springen: {{count}} neue Nachricht",
   "thread.jumpToEndNew_other": "Zum Ende springen: {{count}} neue Nachrichten",
+  "thread.jumpToOwn": "Zu Ihrer vorherigen Nachricht springen",
   "thread.loadEarlier": "Frühere Nachrichten laden",
   "thread.loadingMore": "Wird geladen…",
   "thread.notice.compacted": "Kontext komprimiert",

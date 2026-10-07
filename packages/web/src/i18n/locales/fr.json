@@ -851,6 +851,7 @@
   "thread.jumpToEnd": "Aller à la fin",
   "thread.jumpToEndNew_one": "Aller à la fin : {{count}} nouveau message",
   "thread.jumpToEndNew_other": "Aller à la fin : {{count}} nouveaux messages",
+  "thread.jumpToOwn": "Aller à votre message précédent",
   "thread.loadEarlier": "Charger les messages précédents",
   "thread.loadingMore": "Chargement…",
   "thread.notice.compacted": "Contexte compacté",

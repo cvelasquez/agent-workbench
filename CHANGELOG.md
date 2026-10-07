@@ -4,6 +4,27 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## Unreleased
+
+### Added
+
+- **"Jump to your previous message"**: when you scroll up in the conversation,
+  an ↑ button appears at its top right corner and takes you to the last
+  message you sent, to read a long answer from its start. Click again to go
+  to the one before, all the way back to the first message of the session. If
+  that message is further back than what is loaded, it loads the earlier
+  messages until it finds it.
+
+### Fixed
+
+- **The agent's progress notes show in the conversation** (Claude Code). Since
+  version 2.1.278 of the CLI, some of the short notes the agent writes while
+  it works ("Found the cause: …") are saved with its reasoning, and the
+  conversation skipped them while the CLI's terminal showed them. They now
+  show like any other message, also in old conversations, and reach the
+  backup, "Continue with…" and the search. With the backup on, it copies
+  every session again once, so the notes of past sessions are kept.
+
 ## 0.5.1 — 2026-10-06
 
 ### Changed

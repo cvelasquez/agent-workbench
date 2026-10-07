@@ -1448,14 +1448,14 @@ const agentsWith = (agent, history) => ({
   const copied = vaultPaths.sessionFile(dir, 'claude-code', id);
 
   check('7 nativeSessions del indice trae la sesion de prueba', indexView(cwd).nativeSessions().length === 1);
-  check('7 VAULT_WRITER_REVISION es 1', VAULT_WRITER_REVISION === 1);
+  check('7 VAULT_WRITER_REVISION es 2 (las notas del razonamiento, §4.9)', VAULT_WRITER_REVISION === 2);
   const writer = make();
   const first = await writer.pass();
   const item = await writerClaude.history.item(file);
   const header1 = catalog.header('claude-code', id);
   check('7 primera pasada: escribe la sesion con la huella del origen',
     first?.written === 1 && header1?.eventCount === 2 && header1.cwd === cwd &&
-    same(header1.source, { kind: 'native', mtimeMs: item.mtimeMs, sizeBytes: item.sizeBytes, writerRevision: 1 }),
+    same(header1.source, { kind: 'native', mtimeMs: item.mtimeMs, sizeBytes: item.sizeBytes, writerRevision: VAULT_WRITER_REVISION }),
     show({ first, source: header1?.source }));
   const mtime1 = await mtimeOf(copied);
   const text1 = await readFile(copied, 'utf8');
@@ -1484,11 +1484,11 @@ const agentsWith = (agent, history) => ({
     fourth?.written === 1 && sameShape(body4, body3) &&
     catalog.header('claude-code', id)?.source.mtimeMs === (await writerClaude.history.item(file)).mtimeMs, show(fourth));
 
-  const bumped = await make({ writerRevision: 2 }).pass();
+  const bumped = await make({ writerRevision: VAULT_WRITER_REVISION + 1 }).pass();
   check('7 otra revision del escritor: se reescribe aunque el origen no cambio',
-    bumped?.written === 1 && catalog.header('claude-code', id)?.source.writerRevision === 2, show(bumped));
+    bumped?.written === 1 && catalog.header('claude-code', id)?.source.writerRevision === VAULT_WRITER_REVISION + 1, show(bumped));
   const back = await make().pass();
-  check('7 y con la revision 1 otra vez, tambien', back?.written === 1 && catalog.header('claude-code', id)?.source.writerRevision === 1);
+  check('7 y con la revision de siempre otra vez, tambien', back?.written === 1 && catalog.header('claude-code', id)?.source.writerRevision === VAULT_WRITER_REVISION);
 }
 
 // --- 8. Calma, pedidos agrupados y lo que corre al terminar ---
@@ -1896,7 +1896,7 @@ const agentsWith = (agent, history) => ({
   check('4 la pasada en seco no reusa aunque la copia esta al dia: lee las tres', reads.length === 3, show(reads));
 
   reads.length = 0;
-  const bumped = await writerFor({ index: indexView(cwd), catalog, agents: agentsWith('claude-code', spy), writerRevision: 2 }).pass();
+  const bumped = await writerFor({ index: indexView(cwd), catalog, agents: agentsWith('claude-code', spy), writerRevision: VAULT_WRITER_REVISION + 1 }).pass();
   check('4 otra revision del escritor no reusa: lee las tres', bumped?.written === 1 && reads.length === 3, show(reads));
 }
 

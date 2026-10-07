@@ -817,6 +817,7 @@
   "thread.image.openTitle": "클릭하여 원래 크기로 보기",
   "thread.jumpToEnd": "맨 끝으로 이동",
   "thread.jumpToEndNew_other": "맨 끝으로 이동: 새 메시지 {{count}}개",
+  "thread.jumpToOwn": "내 이전 메시지로 이동",
   "thread.loadEarlier": "이전 메시지 불러오기",
   "thread.loadingMore": "불러오는 중…",
   "thread.notice.compacted": "컨텍스트 압축됨",

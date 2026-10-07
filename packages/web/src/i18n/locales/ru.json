@@ -919,6 +919,7 @@
   "thread.jumpToEndNew_many": "Перейти в конец: {{count}} новых сообщений",
   "thread.jumpToEndNew_one": "Перейти в конец: {{count}} новое сообщение",
   "thread.jumpToEndNew_other": "Перейти в конец: {{count}} новых сообщения",
+  "thread.jumpToOwn": "Перейти к вашему предыдущему сообщению",
   "thread.loadEarlier": "Загрузить более ранние сообщения",
   "thread.loadingMore": "Загрузка…",
   "thread.notice.compacted": "Контекст сжат",

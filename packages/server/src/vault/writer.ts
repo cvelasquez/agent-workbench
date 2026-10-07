@@ -71,8 +71,13 @@ import { DEFAULT_WRITE_DEPS, writeSessionFile, type VaultWriteDeps } from './wri
 /**
  * Sube a mano cuando cambia lo que un adaptador entrega (un mapeo nuevo): la
  * pasada siguiente recopia todo lo nativo, e invalida las imagenes reusables.
+ *
+ * 2 (06-10-2026): las notas para el usuario que Claude Code guarda en el bloque
+ * de razonamiento (§4.9). Sin recopiar, las copias de las sesiones ya
+ * terminadas se quedaban sin ellas, y cuando la CLI borra el original se
+ * perdian para siempre.
  */
-export const VAULT_WRITER_REVISION = 1;
+export const VAULT_WRITER_REVISION = 2;
 /** Cuanto tiene que llevar quieta una sesion para copiarla. */
 export const CALM_MS = 60_000;
 /** Los pedidos de pasada se juntan: corre a los 5 s del ultimo. */

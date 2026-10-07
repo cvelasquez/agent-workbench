@@ -817,6 +817,7 @@
   "thread.image.openTitle": "点击查看大图",
   "thread.jumpToEnd": "跳到末尾",
   "thread.jumpToEndNew_other": "跳到末尾：{{count}} 条新消息",
+  "thread.jumpToOwn": "跳到我的上一条消息",
   "thread.loadEarlier": "加载更早的消息",
   "thread.loadingMore": "正在加载…",
   "thread.notice.compacted": "上下文已压缩",

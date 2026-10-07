@@ -617,6 +617,62 @@ const nextEvent = (hub, name, ms = 5_000) =>
       !isPrepend(null, ['a']) && !isPrepend('a', []));
 }
 
+// --- 7. Ir a tu mensaje anterior (06-10-2026, uno por uno desde el 07-10) ----------
+//
+// Lo que se rompe sin verse: una flecha hacia arriba que lleva hacia abajo o al
+// mismo mensaje otra vez, un resultado de herramienta tomado por un mensaje del
+// usuario, o una busqueda en las paginas anteriores que no termina nunca y trae
+// la sesion entera.
+{
+  const { ownMessageIds, nearestOwnAbove, offerJumpToOwn, scrollTopForOwn, ownSeekStep, OWN_MESSAGE_MARGIN_PX, OWN_MESSAGE_MAX_PAGES } =
+    await import('../../web/src/thread-scroll.ts');
+  const ev = (eventId, role, ...kinds) => ({ eventId, role, parts: kinds.map((kind) => ({ kind })) });
+  const nearest = (tops) => nearestOwnAbove(tops.length, (index) => tops[index]);
+
+  check('7.1 los mensajes propios son los `user` con texto o imagen, en orden; no los resultados de herramienta',
+    json(ownMessageIds([ev('u1', 'user', 'text'), ev('a1', 'assistant', 'text'), ev('u2', 'user', 'image'),
+      ev('a2', 'assistant', 'tool-call'), ev('r1', 'user', 'tool-result'), ev('a3', 'assistant', 'text')])) === json(['u1', 'u2']));
+  check('7.2 sin ningun mensaje propio cargado, ninguno',
+    ownMessageIds([ev('a1', 'assistant', 'text'), ev('r1', 'user', 'tool-result')]).length === 0 && ownMessageIds([]).length === 0);
+
+  check('7.3 lleva al mas cercano por encima de la vista, no al ultimo de todos', nearest([-3_000, -1_200, 40, 900]) === 1);
+  check('7.4 el que quedo arriba de la vista despues de un salto ya no cuenta: el siguiente es el anterior',
+    nearest([-1_788, OWN_MESSAGE_MARGIN_PX, 1_252]) === 0 && nearest([OWN_MESSAGE_MARGIN_PX, 1_412]) === null);
+  check('7.5 uno que asoma apenas no cuenta, y uno sin dibujar se salta',
+    nearest([-4]) === null && nearest([-500, null]) === 0);
+
+  const offer = (awayFromEnd, ownAbove, hasMore = false) => offerJumpToOwn({ awayFromEnd, ownAbove, hasMore });
+  check('7.6 aparece con "Ir al final" y un mensaje propio por encima', offer(true, true));
+  check('7.7 al final no aparece, aunque haya mensajes arriba', !offer(false, true) && !offer(false, false, true));
+  check('7.8 sin ninguno cargado arriba aparece si hay paginas donde buscarlo; en el primero de la sesion, no',
+    offer(true, false, true) && !offer(true, false, false));
+
+  check('7.9 el salto deja el mensaje arriba de la vista, con su aire, y nunca por encima de 0',
+    scrollTopForOwn(5_000, -1_200) === 3_800 - OWN_MESSAGE_MARGIN_PX && scrollTopForOwn(100, -300) === 0);
+
+  // Un hilo de mentira: cuatro mensajes propios en estas alturas, la vista abajo.
+  const offsets = [100, 1_500, 4_000, 7_000];
+  let scrollTop = 7_600;
+  const visited = [];
+  for (let jumps = 0; jumps < 10; jumps += 1) {
+    const index = nearest(offsets.map((offset) => offset - scrollTop));
+    if (index === null) break;
+    visited.push(index);
+    scrollTop = scrollTopForOwn(scrollTop, offsets[index] - scrollTop);
+  }
+  check('7.10 clic tras clic recorre los mensajes de abajo hacia arriba, uno por uno, y en el primero se acaba',
+    json(visited) === json([3, 2, 1, 0]) && !offer(true, nearest(offsets.map((offset) => offset - scrollTop)) !== null),
+    json({ visited, scrollTop }));
+
+  const step = (extra) => ownSeekStep({ found: false, hasMore: true, loading: false, pagesRequested: 0, ...extra });
+  check('7.11 sin ninguno cargado arriba pide una pagina; con una en camino, espera; cuando aparece, salta',
+    step({}) === 'load' && step({ loading: true, pagesRequested: 1 }) === 'wait' &&
+      step({ found: true, pagesRequested: 3 }) === 'jump' && step({ found: true, loading: true }) === 'jump');
+  check('7.12 sin mas paginas, o pasado el tope, se rinde: no trae la sesion entera',
+    step({ hasMore: false, pagesRequested: 2 }) === 'give-up' &&
+      step({ pagesRequested: OWN_MESSAGE_MAX_PAGES }) === 'give-up' && step({ pagesRequested: OWN_MESSAGE_MAX_PAGES - 1 }) === 'load');
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

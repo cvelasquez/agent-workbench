@@ -231,9 +231,24 @@ function toPart(
       return { kind: 'text', text, truncated };
     }
 
-    // El contenido del razonamiento no esta en el JSONL: solo la firma. Se deja
-    // la marca de que hubo, sin prometer un texto que no existe.
-    case 'thinking':
+    /*
+      El contenido del razonamiento no esta en el JSONL: solo la firma. Se deja
+      la marca de que hubo, sin prometer un texto que no existe.
+
+      **Salvo la nota para el usuario** (§4.9). Desde la CLI 2.1.278, alrededor
+      de uno de cada diez bloques trae texto, y no es el razonamiento: es un
+      aviso corto de lo que el agente encontro o va a hacer ("Encontre la
+      causa: …"), en una linea propia detras de la del razonamiento vacio del
+      mismo mensaje. La CLI lo dibuja como un mensaje mas, y aca va como texto:
+      descartado con el resto del razonamiento, el hilo se lo perdia.
+    */
+    case 'thinking': {
+      const raw = record['thinking'];
+      const note = typeof raw === 'string' ? raw.trim() : '';
+      if (note.length === 0) return { kind: 'thinking' };
+      const { text, truncated } = cut(note, limits.textMaxChars);
+      return { kind: 'text', text, truncated };
+    }
     case 'redacted_thinking':
       return { kind: 'thinking' };
 

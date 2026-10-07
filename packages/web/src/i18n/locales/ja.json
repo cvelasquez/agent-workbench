@@ -817,6 +817,7 @@
   "thread.image.openTitle": "クリックして原寸で表示",
   "thread.jumpToEnd": "末尾へ移動",
   "thread.jumpToEndNew_other": "末尾へ移動: 新しいメッセージ {{count}} 件",
+  "thread.jumpToOwn": "自分の前のメッセージへ移動",
   "thread.loadEarlier": "以前のメッセージを読み込む",
   "thread.loadingMore": "読み込み中…",
   "thread.notice.compacted": "コンテキストを圧縮しました",

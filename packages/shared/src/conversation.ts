@@ -11,7 +11,8 @@
  *     con texto. El JSONL guarda la firma, no el razonamiento. Por eso
  *     `ConversationThinkingPart` no tiene contenido: no hay ninguno que
  *     mostrar, y una tarjeta que promete razonamiento y muestra vacio es peor
- *     que no tenerla.
+ *     que no tenerla. Los que traen texto desde la CLI 2.1.278 no son
+ *     razonamiento sino una nota para el usuario, y llegan como `text` (§4.9).
  *  3. El esquema cambia entre versiones de la CLI. Lo que no se reconoce se
  *     ignora en silencio; nunca se lanza.
  */
@@ -61,7 +62,10 @@ export interface ConversationToolResultPart {
   imageCount: number;
 }
 
-/** Marcador de que hubo razonamiento. Sin contenido: el JSONL no lo guarda. */
+/**
+ * Marcador de que hubo razonamiento. Sin contenido: el JSONL no lo guarda. Un
+ * bloque con texto no llega como esta parte, sino como `text` (§4.9).
+ */
 export interface ConversationThinkingPart {
   kind: 'thinking';
 }

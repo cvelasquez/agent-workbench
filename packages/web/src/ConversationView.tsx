@@ -55,7 +55,17 @@ import {
 } from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
 import { threadFontTitle } from './thread-font.js';
-import { isPrepend, scrollTopAfterPrepend, shouldLoadEarlier, wheelAsksEarlier } from './thread-scroll.js';
+import {
+  isPrepend,
+  nearestOwnAbove,
+  offerJumpToOwn,
+  ownMessageIds,
+  ownSeekStep,
+  scrollTopAfterPrepend,
+  scrollTopForOwn,
+  shouldLoadEarlier,
+  wheelAsksEarlier,
+} from './thread-scroll.js';
 import {
   mainStatusText,
   mainThreadStatus,
@@ -79,6 +89,11 @@ import { imageKey, type ConversationFeed } from './useConversation.js';
 
 /** Margen para decidir si el usuario estaba mirando el final. */
 const STICK_TO_BOTTOM_PX = 80;
+
+/** true si el final del hilo no esta a la vista. */
+function awayFromEndOf(container: HTMLElement): boolean {
+  return container.scrollHeight - container.scrollTop - container.clientHeight > STICK_TO_BOTTOM_PX;
+}
 
 /** A partir de cuantas lineas se pliega un mensaje propio. */
 const FOLD_FROM_LINES = 5;
@@ -426,6 +441,17 @@ export function ConversationView({
   const [awayFromEnd, setAwayFromEnd] = useState(false);
   const [unseen, setUnseen] = useState(0);
 
+  /*
+    "Ir a tu mensaje anterior" (06-10-2026): la misma flecha hacia arriba,
+    encima de "Ir al final", que lleva al mensaje propio mas cercano por encima
+    de la vista, con las reglas de `thread-scroll.ts`. `ownSeek` es un clic que
+    todavia busca uno en las paginas anteriores.
+  */
+  const [offerOwn, setOfferOwn] = useState(false);
+  const [seekingOwn, setSeekingOwn] = useState(false);
+  const ownSeek = useRef<{ pages: number } | null>(null);
+  const ownIds = useMemo(() => ownMessageIds(events), [events]);
+
   const { cards, results } = useMemo(() => {
     const resultsByTool = new Map<string, ConversationToolResultPart>();
     const callIds = new Set<string>();
@@ -500,16 +526,44 @@ export function ConversationView({
     stickToBottom.current = true;
     setAwayFromEnd(false);
     setUnseen(0);
+    ownSeek.current = null;
+    setSeekingOwn(false);
+    setOfferOwn(false);
   }, [terminalId]);
 
   /** Mide si el final esta a la vista. No toca `stickToBottom`, que es del usuario. */
   const measureEnd = useCallback(() => {
     const container = scrollRef.current;
     if (container === null) return;
-    const away = container.scrollHeight - container.scrollTop - container.clientHeight > STICK_TO_BOTTOM_PX;
+    const away = awayFromEndOf(container);
     setAwayFromEnd(away);
     if (!away) setUnseen(0);
   }, []);
+
+  /**
+   * El borde de arriba del mensaje propio mas cercano por encima de la vista,
+   * menos el de la vista, o null si no hay ninguno cargado ahi.
+   */
+  const ownTopOf = useCallback(
+    (container: HTMLElement): number | null => {
+      const viewTop = container.getBoundingClientRect().top;
+      const topAt = (index: number): number | null => {
+        const id = ownIds[index];
+        const element = id === undefined ? undefined : cardRefs.current.get(id);
+        return element === undefined ? null : element.getBoundingClientRect().top - viewTop;
+      };
+      const index = nearestOwnAbove(ownIds.length, topAt);
+      return index === null ? null : topAt(index);
+    },
+    [ownIds],
+  );
+
+  /** Mide si se ofrece "Ir a tu mensaje anterior". */
+  const measureOwn = useCallback(() => {
+    const container = scrollRef.current;
+    if (container === null) return;
+    setOfferOwn(offerJumpToOwn({ awayFromEnd: awayFromEndOf(container), ownAbove: ownTopOf(container) !== null, hasMore }));
+  }, [ownTopOf, hasMore]);
 
   /*
     Cargar anteriores suma arriba, y la vista se queda donde estaba: a la misma
@@ -544,6 +598,37 @@ export function ConversationView({
     // Lo nuevo puede haber empujado el final fuera de la vista sin que nadie desplazara.
     measureEnd();
   }, [cards.length, needle, measureEnd]);
+
+  /*
+    Un clic en "Ir a tu mensaje anterior" sin ningun mensaje propio cargado por
+    encima pide paginas anteriores hasta dar con uno (`ownSeekStep`). Corre
+    despues de que la pagina sumo arriba y la vista volvio a su sitio, y salta
+    desde ahi: lo recien llegado queda todo por encima.
+  */
+  useLayoutEffect(() => {
+    const seek = ownSeek.current;
+    const container = scrollRef.current;
+    if (seek === null || container === null) return;
+    const ownTop = ownTopOf(container);
+    const step = ownSeekStep({ found: ownTop !== null, hasMore, loading: loadingMore, pagesRequested: seek.pages });
+    if (step === 'wait') return;
+    if (step === 'load') {
+      seek.pages += 1;
+      loadMore();
+      return;
+    }
+    ownSeek.current = null;
+    setSeekingOwn(false);
+    if (ownTop !== null) {
+      stickToBottom.current = false;
+      container.scrollTop = scrollTopForOwn(container.scrollTop, ownTop);
+    }
+  }, [cards, hasMore, loadingMore, seekingOwn, ownTopOf, loadMore]);
+
+  // Lo que llega, o una pagina de arriba, mueve el mensaje propio sin que nadie desplace.
+  useLayoutEffect(() => {
+    measureOwn();
+  }, [cards, measureOwn]);
 
   // Despues de cada dibujo, donde quedo la vista: lo que lea la proxima carga de anteriores.
   useLayoutEffect(() => {
@@ -589,6 +674,7 @@ export function ConversationView({
     const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
     stickToBottom.current = distance <= STICK_TO_BOTTOM_PX;
     measureEnd();
+    measureOwn();
     const earlier = shouldLoadEarlier({
       scrollTop: container.scrollTop,
       previousScrollTop: lastScrollTop.current,
@@ -600,7 +686,7 @@ export function ConversationView({
     lastScrollTop.current = container.scrollTop;
     distanceFromEnd.current = container.scrollHeight - container.scrollTop;
     if (earlier) requestEarlier();
-  }, [measureEnd, hasMore, loadingMore, requestEarlier, needle]);
+  }, [measureEnd, measureOwn, hasMore, loadingMore, requestEarlier, needle]);
 
   // La rueda hacia arriba ya pegada al borde no produce `scroll` (`wheelAsksEarlier`).
   const onWheel = useCallback(
@@ -619,7 +705,26 @@ export function ConversationView({
     stickToBottom.current = true;
     setAwayFromEnd(false);
     setUnseen(0);
+    // Bajar al final deja sin efecto una busqueda del mensaje propio en camino.
+    ownSeek.current = null;
+    setSeekingOwn(false);
+    setOfferOwn(false);
   }, []);
+
+  const jumpToOwn = useCallback(() => {
+    const container = scrollRef.current;
+    if (container === null) return;
+    const ownTop = ownTopOf(container);
+    if (ownTop !== null) {
+      stickToBottom.current = false;
+      container.scrollTop = scrollTopForOwn(container.scrollTop, ownTop);
+      return;
+    }
+    // Ninguno cargado por encima: lo busca el efecto, pagina por pagina.
+    if (ownSeek.current !== null) return;
+    ownSeek.current = { pages: 0 };
+    setSeekingOwn(true);
+  }, [ownTopOf]);
 
   const registerCard = useCallback((eventId: string, element: HTMLElement | null) => {
     if (element === null) cardRefs.current.delete(eventId);
@@ -820,6 +925,18 @@ export function ConversationView({
             );
           })}
         </div>
+        {awayFromEnd && (offerOwn || seekingOwn) && (
+          <button
+            className={`conversation-jump conversation-jump-own${seekingOwn ? ' is-seeking' : ''}`}
+            onClick={jumpToOwn}
+            disabled={seekingOwn}
+            aria-busy={seekingOwn}
+            title={t('thread.jumpToOwn')}
+            aria-label={t('thread.jumpToOwn')}
+          >
+            <span aria-hidden="true">↑</span>
+          </button>
+        )}
         {awayFromEnd && (
           <button
             className={`conversation-jump${unseen > 0 ? ' has-unseen' : ''}`}

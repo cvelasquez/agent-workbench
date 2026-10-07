@@ -2104,6 +2104,25 @@ kbd {
 }
 
 /*
+  Ir a tu mensaje anterior (06-10-2026): la misma flecha, hacia arriba, en la
+  esquina de arriba del hilo, hacia donde lleva. Hasta el 07-10 iba encima de
+  la de ir al final, y con la de enviar del cuadro eran tres flechas juntas
+  (pedido del usuario: "puede confundir a un usuario primerizo"). El salto deja
+  el mensaje debajo de ella —12 + 32 + 8 px, `OWN_MESSAGE_MARGIN_PX`— para no
+  taparle copiar y "volver aqui". Mientras busca en las paginas anteriores,
+  queda apagada.
+*/
+.conversation-jump-own {
+  top: 12px;
+  bottom: auto;
+}
+
+.conversation-jump.is-seeking {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/*
   La fila de estado (§6.30): si lo mandado llego, si la CLI trabaja, y los
   subagentes que siguen. Mismo sitio que la barra de "esperando", fuera del
   desplazamiento, pero en tono neutro: informa, no pide nada.
