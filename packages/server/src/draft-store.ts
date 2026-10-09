@@ -38,6 +38,7 @@ import {
   parseComposerDraft,
   sameComposerDraft,
   type ComposerDraft,
+  type ComposerDraftEntry,
   type TerminalDescriptor,
 } from '@agent-workbench/shared';
 import { composerDraftsPath } from './paths.js';
@@ -77,6 +78,28 @@ export function draftOwnerOf(descriptor: TerminalDescriptor | null): DraftOwner 
   if (descriptor === null || descriptor.kind !== 'agent' || descriptor.agent === null) return null;
   if (descriptor.sessionId.length === 0) return null;
   return { agent: descriptor.agent, sessionId: descriptor.sessionId };
+}
+
+/**
+ * Lo que el servidor tiene de cada pestana con conversacion: su borrador, o uno
+ * vacio. Con `owner`, solo las de esa conversacion, que casi siempre es una.
+ *
+ * El vacio va a proposito (09-10-2026): una ventana que estaba sin conexion
+ * cuando se mando el mensaje desde otra se entera al reconectar de que ya no
+ * hay borrador. Sin eso, el mensaje mandado seguia en su cuadro.
+ */
+export function draftEntriesOf(
+  descriptors: readonly TerminalDescriptor[],
+  store: { get(owner: DraftOwner): ComposerDraft | null },
+  owner?: DraftOwner,
+): ComposerDraftEntry[] {
+  const entries: ComposerDraftEntry[] = [];
+  for (const descriptor of descriptors) {
+    const tabOwner = draftOwnerOf(descriptor);
+    if (tabOwner === null || (owner !== undefined && keyOf(tabOwner) !== keyOf(owner))) continue;
+    entries.push({ terminalId: descriptor.terminalId, draft: store.get(tabOwner) ?? { text: '', pasted: [] } });
+  }
+  return entries;
 }
 
 /**

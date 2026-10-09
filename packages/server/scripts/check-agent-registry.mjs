@@ -1187,6 +1187,30 @@ const adapter = createClaudeCodeAdapter();
   const created = await rejection(() => pickers.create(listing.pickerId, '.claude'));
   check('ni crear una carpeta con su ruta: lo frena la proteccion, no el disco',
     created instanceof DirectoryPickerError && /carpeta de la CLI/.test(esText(created.text)), String(created?.message));
+
+  // OneDrive (07-10-2026): `readdir` marca como enlace todo punto de
+  // reanalisis, tambien la carpeta de los archivos a pedido, y el selector la
+  // escondia. Se ofrece si `lstat` dice carpeta y no enlace; un enlace o una
+  // junction de verdad, no.
+  const { isListedDirectory } = await import('../src/directory-picker.ts');
+  const entry = (name, isDir, isLink) => ({ name, isDirectory: () => isDir, isSymbolicLink: () => isLink });
+  const stats = (isDir, isLink) => async () => ({ isDirectory: () => isDir, isSymbolicLink: () => isLink });
+  check('una carpeta comun se ofrece, un archivo no',
+    (await isListedDirectory(home, entry('a', true, false))) && !(await isListedDirectory(home, entry('b', false, false))));
+  check('la carpeta de OneDrive, que readdir marca como enlace y lstat como carpeta, se ofrece',
+    await isListedDirectory(home, entry('OneDrive', false, true), stats(true, false)));
+  check('un enlace o una junction de verdad no, ni uno que no se puede leer',
+    !(await isListedDirectory(home, entry('atajo', false, true), stats(false, true))) &&
+      !(await isListedDirectory(home, entry('roto', false, true), async () => { throw new Error('EPERM'); })));
+
+  // De punta a punta: una junction hacia la carpeta de la CLI no aparece, aunque
+  // su nombre no sea el de la carpeta protegida.
+  const { symlink } = await import('node:fs/promises');
+  await symlink(path.join(home, '.claude'), path.join(home, 'atajo-a-la-cli'), 'junction');
+  const withLink = await new DirectoryPickers(agents.protectedDirs()).open();
+  check('una junction hacia la carpeta de la CLI no se lista; las carpetas comunes, si',
+    !withLink.entries.includes('atajo-a-la-cli') && withLink.entries.includes('proyecto-visible'), JSON.stringify(withLink.entries));
+
   pickers.closeAll();
   real.dispose();
 }

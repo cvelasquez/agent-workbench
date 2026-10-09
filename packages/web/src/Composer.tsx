@@ -374,9 +374,10 @@ export function Composer({
   }, [viewRequest, drafts]);
 
   /*
-    Un borrador guardado que llego del servidor (§6.29) —al conectar, o con la
-    restauracion del arranque— para la pestana que se esta mirando. Solo llega
-    si en esta pagina nadie la toco, asi que el cuadro esta vacio: se carga.
+    Un borrador que llego del servidor (§6.29) para la pestana que se esta
+    mirando: lo que se escribio en otra ventana, o la foto al conectar. Solo
+    llega si aca no hay nada sin guardar, y trae las imagenes que ya estaban en
+    el cuadro, que no viajan: se carga entero.
   */
   useEffect(
     () =>
@@ -449,7 +450,7 @@ export function Composer({
       requestId,
     });
     // Mandado ya no es borrador: el servidor lo borra al recibirlo (§6.29).
-    drafts.submitted(terminalId);
+    drafts.submitted(terminalId, sentNow);
     setText('');
     attachments.clear();
     onSubmitted?.(terminalId, requestId, !sentNow);

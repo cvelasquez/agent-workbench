@@ -1622,11 +1622,14 @@ export interface ComposerDraftEntry {
 }
 
 /**
- * Los borradores guardados de las pestanas (§6.29). Al conectar, los de todas
- * —la lista puede venir vacia: tambien dice que este servidor los guarda—, y
- * cuando aparecen pestanas, los de esas: la restauracion del arranque llega
- * despues de que la pagina se conecto. La web los pone en el cuadro de una
- * pestana que en esta pagina nadie toco; lo escrito aca no se pisa.
+ * Los borradores guardados de las pestanas (§6.29). Al conectar, los de todas,
+ * con uno vacio para la que no tiene —la lista puede venir vacia: tambien dice
+ * que este servidor los guarda—; cuando aparecen pestanas, los de esas: la
+ * restauracion del arranque llega despues de que la pagina se conecto. Y desde
+ * el 09-10-2026, cada cambio a todas las ventanas, tambien a la que lo
+ * escribio, y uno vacio cuando se manda el cuadro. La web los pone en el cuadro
+ * de una pestana donde no hay nada sin guardar; lo que se esta escribiendo no
+ * se pisa.
  */
 export interface ServerComposerDraftsMessage {
   type: 'composer.drafts';

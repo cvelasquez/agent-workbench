@@ -10,13 +10,27 @@
  *    servidor llegan al conectar.
  *  - **La del servidor**: el texto y los textos pegados, despues de una pausa
  *    del teclado, para que sobrevivan a cerrar la app (mejoras de la 0.4.0).
- *    Vuelven al conectar (`restore`) y van al cuadro de una pestana que en esta
- *    pagina nadie toco: lo escrito aca no se pisa.
  *
- * "Tocada" es haber cambiado lo que se guarda, o haber mandado. Lo segundo
- * cuenta por una carrera: al reconectar, el servidor puede contestar con el
- * borrador antes de procesar el envio que estaba en la cola, y el mensaje ya
- * mandado volveria al cuadro.
+ * **Entre ventanas, en vivo** (09-10-2026). El servidor manda cada cambio a
+ * todas las ventanas, tambien a la que lo escribio, y al conectar manda la foto
+ * de todas las pestanas (`restore`). Lo que llega va al cuadro si en esta
+ * pagina no hay nada propio que el servidor no tenga: nada esperando la pausa,
+ * nada mandado sin su eco, nada que no se pudo guardar. Antes iba solo al
+ * cuadro de una pestana vacia que nadie habia tocado, y el telefono se quedaba
+ * con el texto de cuando se abrio.
+ *
+ * Tres carreras que esto tiene que cubrir:
+ *
+ *  - **Lo mandado y todavia sin eco**: lo que llega antes del eco lo guardo el
+ *    servidor antes, y lo propio lo va a pisar. No se muestra.
+ *  - **Un envio del cuadro**: lo que llega antes de que el servidor vacie el
+ *    borrador es de antes del envio. Al reconectar, el servidor contesta con la
+ *    foto antes de procesar el envio que estaba en la cola, y el mensaje ya
+ *    mandado volveria al cuadro.
+ *  - **Lo que se mando por un socket que se cayo**: la foto de la reconexion
+ *    dice si llego. Si el servidor sigue como estaba, se perdio y sale otra vez;
+ *    si otra ventana lo cambio en el medio, gana el servidor: es lo ultimo que
+ *    se escribio.
  *
  * **No se manda nada hasta saber que el servidor los guarda**: el primer
  * `composer.drafts` de cada conexion lo dice. Uno anterior contestaria cada
@@ -121,11 +135,14 @@ function equivalent(a: ComposerDraft | undefined, b: ComposerDraft): boolean {
   return sameComposerDraft(a, b);
 }
 
-function isBlank(local: LocalDraft | undefined): boolean {
-  return local === undefined || (local.text.trim().length === 0 && local.items.length === 0);
-}
-
 const NOTHING: ComposerDraft = { text: '', pasted: [] };
+
+/** Lo del servidor en el cuadro, sin perder las imagenes ni los archivos pegados aca: esos no viajan. */
+function withServerText(draft: ComposerDraft, local: LocalDraft | undefined, newId: () => string): LocalDraft {
+  const fromServer = localDraftOf(draft, newId);
+  const kept = (local?.items ?? []).filter((item) => item.kind !== 'text');
+  return { text: fromServer.text, items: [...fromServer.items, ...kept] };
+}
 
 export interface ComposerDraftsDeps {
   send: (terminalId: TerminalId, draft: ComposerDraft) => void;
@@ -141,9 +158,21 @@ export class ComposerDrafts {
   private readonly local = new Map<TerminalId, LocalDraft>();
   /** El cursor y el scroll de cada pestana, al dejarla (`DraftView`). */
   private readonly views = new Map<TerminalId, DraftView>();
-  /** Lo que el servidor tiene de cada pestana, hasta donde se sabe. */
+  /**
+   * Lo que el servidor tiene de cada pestana, o va a tener cuando le llegue lo
+   * que esta pagina ya mando. Un cuadro que dice lo mismo esta al dia: no hay
+   * nada que mandar, y lo que llega de otra ventana puede reemplazarlo.
+   */
   private readonly saved = new Map<TerminalId, ComposerDraft>();
-  private readonly touched = new Set<TerminalId>();
+  /** Lo ultimo que dijo el servidor de cada pestana: al reconectar, dice si se perdio algo. */
+  private readonly heard = new Map<TerminalId, ComposerDraft>();
+  /** Lo que esta pagina mando y el servidor todavia no devolvio. */
+  private readonly unconfirmed = new Map<TerminalId, ComposerDraft>();
+  /**
+   * Se mando el cuadro y el servidor todavia no vacio el borrador. `queued`: el
+   * envio espera en la cola de la conexion; `sent`: ya salio por el socket.
+   */
+  private readonly submitting = new Map<TerminalId, 'queued' | 'sent'>();
   /** Lo que espera la pausa, o saber que el servidor guarda (`handle` null). */
   private readonly pending = new Map<TerminalId, { handle: unknown; draft: ComposerDraft }>();
   private readonly listeners = new Set<(terminalId: TerminalId) => void>();
@@ -176,35 +205,30 @@ export class ComposerDrafts {
   /**
    * Se mando lo del cuadro. El servidor borra lo guardado al recibir el envio,
    * asi que aca solo se olvida lo que esperaba salir: saldria el mensaje ya
-   * mandado.
+   * mandado. `sentNow`: el envio salio por el socket en el acto, y no quedo en
+   * la cola de la conexion.
    */
-  submitted(terminalId: TerminalId): void {
+  submitted(terminalId: TerminalId, sentNow: boolean): void {
     this.cancel(terminalId);
     this.local.delete(terminalId);
     this.views.delete(terminalId);
     this.saved.delete(terminalId);
-    this.touched.add(terminalId);
+    // Lo que esperaba su eco queda atras: el servidor lo vacia despues de guardarlo.
+    this.unconfirmed.delete(terminalId);
+    this.submitting.set(terminalId, sentNow ? 'sent' : 'queued');
   }
 
   /**
-   * Los borradores que tiene el servidor (`composer.drafts`). Van a la pagina
-   * los de pestanas que nadie toco y que no tienen nada escrito; avisa de esos.
+   * Lo que dice el servidor (`composer.drafts`): el primero de cada conexion es
+   * la foto de todas las pestanas, y los demas, lo que cambio. Va al cuadro lo
+   * de las pestanas que estan al dia; avisa de esas.
    */
   restore(entries: readonly ComposerDraftEntry[]): void {
+    const snapshot = !this.serverKeeps;
     this.serverKeeps = true;
     const applied: TerminalId[] = [];
     for (const { terminalId, draft } of entries) {
-      /*
-        Una tocada manda lo suyo, y lo que el servidor diga de ella no cambia lo
-        que se sabe: lo que habia en la cola de la conexion ya lo alcanza.
-      */
-      if (this.touched.has(terminalId)) continue;
-      this.saved.set(terminalId, draft);
-      if (!isBlank(this.local.get(terminalId))) continue;
-      this.local.set(terminalId, localDraftOf(draft, this.deps.newId));
-      // El texto cambio desde afuera: el cursor recordado era de otro texto.
-      this.views.delete(terminalId);
-      applied.push(terminalId);
+      if (this.receive(terminalId, draft, snapshot)) applied.push(terminalId);
     }
     for (const terminalId of applied) {
       for (const listener of this.listeners) listener(terminalId);
@@ -215,9 +239,22 @@ export class ComposerDrafts {
     }
   }
 
-  /** Se reconecto: puede ser otro servidor, y hasta que diga que guarda no se le manda nada. */
+  /**
+   * Se reconecto: puede ser otro servidor, y hasta que diga que guarda no se le
+   * manda nada. La cola de la conexion ya salio por el socket nuevo.
+   */
   reconnected(): void {
     this.serverKeeps = false;
+    for (const [terminalId, how] of [...this.submitting]) {
+      /*
+        Un envio que salio por el socket que se cayo llego o no va a llegar, y la
+        foto que viene lo dice: si no llego, el texto sigue en el servidor y
+        vuelve al cuadro. Uno que esperaba en la cola salio recien, despues de
+        que el servidor armo la foto: la foto es de antes del envio.
+      */
+      if (how === 'sent') this.submitting.delete(terminalId);
+      else this.submitting.set(terminalId, 'sent');
+    }
   }
 
   /** Solo quedan estas pestanas: lo de las demas se olvida, y lo que esperaba salir no sale. */
@@ -227,7 +264,9 @@ export class ComposerDrafts {
       ...this.local.keys(),
       ...this.views.keys(),
       ...this.saved.keys(),
-      ...this.touched,
+      ...this.heard.keys(),
+      ...this.unconfirmed.keys(),
+      ...this.submitting.keys(),
       ...this.pending.keys(),
     ])) {
       if (keep.has(terminalId)) continue;
@@ -235,7 +274,9 @@ export class ComposerDrafts {
       this.local.delete(terminalId);
       this.views.delete(terminalId);
       this.saved.delete(terminalId);
-      this.touched.delete(terminalId);
+      this.heard.delete(terminalId);
+      this.unconfirmed.delete(terminalId);
+      this.submitting.delete(terminalId);
     }
   }
 
@@ -250,13 +291,64 @@ export class ComposerDrafts {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * Lo que el servidor dice de una pestana. true si cambio lo que hay en su
+   * cuadro. `snapshot`: es la foto de una conexion nueva.
+   */
+  private receive(terminalId: TerminalId, draft: ComposerDraft, snapshot: boolean): boolean {
+    const heardBefore = this.heard.get(terminalId);
+    this.heard.set(terminalId, draft);
+
+    if (this.submitting.has(terminalId)) {
+      // De antes del envio. Vacio, en cambio, es que el servidor ya lo borro.
+      if (!isEmptyComposerDraft(draft)) return false;
+      this.submitting.delete(terminalId);
+    }
+
+    const mine = this.unconfirmed.get(terminalId);
+    if (mine !== undefined) {
+      if (equivalent(mine, draft)) {
+        // El eco de lo propio: llego.
+        this.unconfirmed.delete(terminalId);
+      } else if (!snapshot) {
+        // El servidor lo guardo antes que lo propio, que lo va a pisar.
+        return false;
+      } else if (equivalent(heardBefore, draft)) {
+        // El servidor sigue como estaba: lo mandado se perdio con el socket. Sale otra vez.
+        this.unconfirmed.delete(terminalId);
+        this.setSaved(terminalId, draft);
+        const local = this.local.get(terminalId);
+        if (local !== undefined) this.schedule(terminalId, draftOf(local));
+        return false;
+      } else {
+        // Otra ventana lo cambio mientras esta estaba sin conexion: es lo ultimo que se escribio.
+        this.unconfirmed.delete(terminalId);
+      }
+    }
+
+    const local = this.local.get(terminalId);
+    const current = local === undefined ? NOTHING : draftOf(local);
+    const upToDate = equivalent(this.saved.get(terminalId), current);
+    this.setSaved(terminalId, draft);
+    // Lo que se esta escribiendo, o lo que no se pudo guardar, no se pisa.
+    if (this.pending.has(terminalId) || !upToDate || equivalent(draft, current)) return false;
+    this.local.set(terminalId, withServerText(draft, local, this.deps.newId));
+    // El texto cambio desde afuera: el cursor recordado era de otro texto.
+    this.views.delete(terminalId);
+    return true;
+  }
+
+  private setSaved(terminalId: TerminalId, draft: ComposerDraft): void {
+    if (isEmptyComposerDraft(draft)) this.saved.delete(terminalId);
+    else this.saved.set(terminalId, draft);
+  }
+
   private schedule(terminalId: TerminalId, draft: ComposerDraft): void {
     const waiting = this.pending.get(terminalId);
     if (waiting !== undefined && sameComposerDraft(waiting.draft, draft)) return;
     this.cancel(terminalId);
     // Volvio a lo que el servidor ya tiene: no hay nada que mandar.
     if (equivalent(this.saved.get(terminalId), draft)) return;
-    this.touched.add(terminalId);
     const handle = this.deps.setTimer(() => this.sendNow(terminalId), this.deps.delayMs ?? DRAFT_SAVE_DELAY_MS);
     this.pending.set(terminalId, { handle, draft });
   }
@@ -283,7 +375,7 @@ export class ComposerDrafts {
     const draft = composerDraftChars(waiting.draft) > MAX_COMPOSER_DRAFT_CHARS ? NOTHING : waiting.draft;
     if (equivalent(this.saved.get(terminalId), draft)) return;
     this.deps.send(terminalId, draft);
-    if (isEmptyComposerDraft(draft)) this.saved.delete(terminalId);
-    else this.saved.set(terminalId, draft);
+    this.unconfirmed.set(terminalId, draft);
+    this.setSaved(terminalId, draft);
   }
 }

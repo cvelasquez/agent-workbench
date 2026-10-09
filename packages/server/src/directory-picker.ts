@@ -30,7 +30,8 @@
 
 import { ServerTextError, serverText } from '@agent-workbench/shared';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, stat } from 'node:fs/promises';
+import type { Dirent, Stats } from 'node:fs';
+import { lstat, mkdir, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { DirectoryPickerListing } from '@agent-workbench/shared';
@@ -62,6 +63,35 @@ export function isInsideProtected(target: string, dirs: readonly string[]): bool
     const protectedDir = path.resolve(dir);
     return resolved === protectedDir || resolved.startsWith(protectedDir + path.sep);
   });
+}
+
+/**
+ * true si una entrada del listado es una carpeta de verdad, y se ofrece.
+ *
+ * **En Windows `readdir` marca como enlace todo punto de reanalisis**, y la
+ * carpeta de OneDrive lo es: lleva la etiqueta de los archivos a pedido, no la
+ * de un enlace. Medido el 07-10-2026 sobre `~/OneDrive` (etiqueta
+ * `0x9000701a`): su `Dirent` dice `isSymbolicLink`, y `lstat` dice carpeta y no
+ * enlace, con la ruta real igual a la propia. Filtrando solo por
+ * `isDirectory()` no aparecia, y con ella todo lo que el usuario guarda ahi.
+ *
+ * **Un enlace o una junction de verdad siguen sin ofrecerse**: `lstat` los da
+ * por enlace. Entrar por uno llevaria a otra carpeta —quiza una protegida— sin
+ * que `isInsideProtected` lo vea, porque compara la ruta del enlace.
+ */
+export async function isListedDirectory(
+  parent: string,
+  entry: Pick<Dirent, 'name' | 'isDirectory' | 'isSymbolicLink'>,
+  readLink: (target: string) => Promise<Pick<Stats, 'isDirectory' | 'isSymbolicLink'>> = lstat,
+): Promise<boolean> {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    const info = await readLink(path.join(parent, entry.name));
+    return info.isDirectory() && !info.isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -247,8 +277,9 @@ export class DirectoryPickers {
     let truncated = false;
     try {
       const found = await readdir(picker.current, { withFileTypes: true });
+      const listed = await Promise.all(found.map((entry) => isListedDirectory(picker.current, entry)));
       const dirs = found
-        .filter((entry) => entry.isDirectory())
+        .filter((_, index) => listed[index] === true)
         .map((entry) => entry.name)
         .filter((name) => !SKIPPED.has(name))
         .filter((name) => !isInsideProtected(path.join(picker.current, name), this.protectedDirs))

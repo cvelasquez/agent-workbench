@@ -4,6 +4,25 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## Unreleased
+
+### Changed
+
+- **"Create a folder here" in the "New project" dialog is a button**, with
+  the same look as the rest of the app's buttons, and so is "Create".
+
+### Fixed
+
+- **What you type in the message box shows up in every open window as you
+  type**: the computer you use over remote access, the one running the app
+  and the phone. Before, another window only picked it up when it connected,
+  and the phone kept the text it had when it opened until the app was closed.
+  Sending from one window also clears the box in the others.
+- **The OneDrive folder shows in the "New project" dialog** (Windows). It was
+  missing, and with it everything stored there, because Windows reports it
+  as a special kind of folder. Real shortcuts and links to other folders
+  still don't show.
+
 ## 0.5.2 — 2026-10-07
 
 ### Added

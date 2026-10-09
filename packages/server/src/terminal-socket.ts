@@ -15,11 +15,11 @@ import {
   ServerTextError,
   WS_PATH,
   encodeServerMessage,
+  isEmptyComposerDraft,
   parseClientMessage,
   serverText,
   type AgentDefaults,
   type AppSettingsStatus,
-  type ComposerDraftEntry,
   type ContextUsage,
   type PermissionMode,
   type ConversationEvent,
@@ -36,7 +36,6 @@ import {
   type ServerText,
   type SessionPlan,
   type TerminalActivity,
-  type TerminalDescriptor,
   type TerminalOfflineReason,
   type TerminalId,
 } from '@agent-workbench/shared';
@@ -47,7 +46,7 @@ import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
 import { MemoryBridgeError } from './memory-bridge.js';
 import { UnknownTerminalError, type MemoryHub } from './memory-hub.js';
 import { NotesError, type NotesStore } from './notes-store.js';
-import { DraftTabs, draftOwnerOf, type DraftStore } from './draft-store.js';
+import { DraftTabs, draftEntriesOf, draftOwnerOf, type DraftStore } from './draft-store.js';
 import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
 import { listDirectory, readPreview, searchFiles } from './file-browser.js';
@@ -303,17 +302,6 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     return false;
   };
 
-  /** Los borradores guardados de estas pestanas, para `composer.drafts` (§6.29). */
-  const draftEntriesOf = (descriptors: readonly TerminalDescriptor[]): ComposerDraftEntry[] => {
-    const entries: ComposerDraftEntry[] = [];
-    for (const descriptor of descriptors) {
-      const owner = draftOwnerOf(descriptor);
-      const draft = owner === null ? null : drafts.get(owner);
-      if (draft !== null) entries.push({ terminalId: descriptor.terminalId, draft });
-    }
-    return entries;
-  };
-
   /*
     Las pestanas de un cambio al siguiente, por su borrador: el de una que
     aparece va a todas las ventanas —la restauracion del arranque llega despues
@@ -330,7 +318,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     broadcast({ type: 'terminal.list', terminals, order: registry.getOrder() });
     const { appeared, moved } = draftTabs.update(terminals);
     for (const { from, to } of moved) drafts.move(from, to);
-    const entries = draftEntriesOf(appeared);
+    // De una pestana nueva, solo los que hay: ninguna ventana tiene nada viejo que vaciar.
+    const entries = draftEntriesOf(appeared, drafts).filter((entry) => !isEmptyComposerDraft(entry.draft));
     if (entries.length > 0) broadcast({ type: 'composer.drafts', drafts: entries });
   };
 
@@ -752,11 +741,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     send(socket, { type: 'index.projects', projects: index.getProjects(), replace: true });
     send(socket, { type: 'notes.list', notes: notes.list() });
     /*
-      Los borradores del cuadro de cada pestana (§6.29). Va aunque no haya
-      ninguno: tambien le dice a la pagina que este servidor los guarda, y solo
-      desde ahi manda los suyos.
+      Los borradores del cuadro de cada pestana (§6.29), vacios incluidos: es la
+      foto con la que la pagina sabe si se perdio algo mientras estuvo sin
+      conexion. Va aunque no haya pestanas: tambien le dice que este servidor
+      los guarda, y solo desde ahi manda los suyos.
     */
-    send(socket, { type: 'composer.drafts', drafts: draftEntriesOf(registry.list()) });
+    send(socket, { type: 'composer.drafts', drafts: draftEntriesOf(registry.list(), drafts) });
     send(socket, { type: 'vault.status', status: vault.status() });
     if (deviceId === null) send(socket, { type: 'remote.status', status: remote.status() });
     send(socket, { type: 'settings.status', settings: appSettings.status() });
@@ -827,8 +817,23 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             la CLI: el cuadro se vacio al mandarlo, y lo guardado tiene que decir
             lo mismo. Si no, volveria al dia siguiente un mensaje ya enviado.
           */
-          const submittedOwner = draftOwnerOf(registry.get(terminalId));
+          const submittedTab = registry.get(terminalId);
+          const submittedOwner = draftOwnerOf(submittedTab);
           if (submittedOwner !== null) drafts.delete(submittedOwner);
+          /*
+            Y lo dice a todas las ventanas (09-10-2026): las demas vacian su
+            cuadro, y la que lo mando sabe que lo que llegue despues ya no es de
+            antes del envio.
+          */
+          if (submittedTab !== null) {
+            broadcast({
+              type: 'composer.drafts',
+              drafts:
+                submittedOwner === null
+                  ? [{ terminalId, draft: { text: '', pasted: [] } }]
+                  : draftEntriesOf(registry.list(), drafts, submittedOwner),
+            });
+          }
           const files = message.files ?? [];
           if (files.length > MAX_FILES_PER_SUBMIT) {
             sendError(
@@ -1766,6 +1771,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           if (owner === null) break;
           const outcome = drafts.save(owner, message.draft);
           debugLog('drafts', `${message.terminalId.slice(0, 8)}: ${outcome}`);
+          /*
+            A todas las ventanas, tambien a la que lo escribio (09-10-2026): las
+            demas lo ponen en su cuadro si ahi no estan escribiendo, y esta sabe
+            que llego. Sin cambios, solo a ella: las demas ya lo tienen.
+          */
+          const update: ServerMessage = { type: 'composer.drafts', drafts: draftEntriesOf(registry.list(), drafts, owner) };
+          if (outcome === 'unchanged') send(socket, update);
+          else broadcast(update);
           break;
         }
 

@@ -206,7 +206,7 @@ export function FolderPicker({
                     }}
                     spellCheck={false}
                   />
-                  <button className="link-button" onClick={createFolder}>
+                  <button className="primary-button primary-button-small" onClick={createFolder}>
                     {t('picker.create')}
                   </button>
                   <button className="link-button" onClick={() => setCreating(false)}>
@@ -214,7 +214,7 @@ export function FolderPicker({
                   </button>
                 </div>
               ) : (
-                <button className="link-button" onClick={() => setCreating(true)}>
+                <button className="primary-button primary-button-small" onClick={() => setCreating(true)}>
                   {t('picker.createHere')}
                 </button>
               )}

@@ -447,8 +447,9 @@ export function useWorkspace(): Workspace {
         }
 
         /*
-          Los borradores que guarda el servidor (§6.29): al conectar, y cuando
-          aparecen pestanas. Van al cuadro de las que nadie toco.
+          Los borradores que guarda el servidor (§6.29): la foto al conectar, y
+          despues cada cambio, venga de esta ventana o de otra. Van al cuadro de
+          las pestanas donde aca no hay nada sin guardar.
         */
         case 'composer.drafts':
           drafts.restore(message.drafts);

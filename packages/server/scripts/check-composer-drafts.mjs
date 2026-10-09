@@ -14,6 +14,11 @@
  *    uno que queda para siempre de una pestana que ya no esta.
  *  - **Un servidor anterior contestando cada pausa del teclado con un cartel**:
  *    la pagina no manda nada hasta que el servidor dice que guarda.
+ *  - **Una ventana que no se entera de lo que se escribe en otra** (09-10-2026):
+ *    el telefono seguia con el texto de cuando se abrio y la laptop sin nada. Y
+ *    lo contrario, que no se ve hasta que pasa: lo que llega de otra ventana
+ *    pisando lo que se esta escribiendo aca, o un texto mandado por un socket
+ *    que se cayo y que la reconexion borra.
  *
  * Trabaja sobre una carpeta temporal propia, sin tocar la configuracion real.
  */
@@ -30,7 +35,7 @@ import {
   parseComposerDraft,
   parseServerMessage,
 } from '@agent-workbench/shared';
-import { DraftStore, DraftTabs, MAX_STORED_DRAFTS, draftOwnerOf, workspaceDraftOwners } from '../src/draft-store.ts';
+import { DraftStore, DraftTabs, MAX_STORED_DRAFTS, draftEntriesOf, draftOwnerOf, workspaceDraftOwners } from '../src/draft-store.ts';
 import { ComposerDrafts, draftOf, draftTooLong, localDraftOf, viewToRestore } from '../../web/src/composer-drafts.ts';
 
 let failures = 0;
@@ -238,51 +243,61 @@ const B = { agent: 'codex', sessionId: '0199aaaa-0000-7000-8000-000000000002' };
   const closed = tabs.update([tab('t2', 'c3', { agent: 'codex' })]);
   const reopened = tabs.update([tab('t2', 'c3', { agent: 'codex' }), tab('t1', 's1')]);
   check('una que se cerró y vuelve con el mismo id aparece otra vez', closed.appeared.length === 0 && json(reopened.appeared.map((d) => d.terminalId)) === json(['t1']));
+
+  const store = { get: (owner) => (json(owner) === json(A) ? draft('de A') : null) };
+  const present = [tab('t1', A.sessionId), tab('t2', B.sessionId, { agent: 'codex' }), tab('t3', ''), tab('t4', '', { kind: 'shell', agent: null })];
+  check('lo que el servidor manda de cada pestaña: su borrador, o uno vacío, que vacía el cuadro de una ventana que se perdió un envío',
+    json(draftEntriesOf(present, store)) === json([{ terminalId: 't1', draft: draft('de A') }, { terminalId: 't2', draft: draft('') }]),
+    json(draftEntriesOf(present, store)));
+  check('con una conversación, sólo sus pestañas',
+    json(draftEntriesOf(present, store, B)) === json([{ terminalId: 't2', draft: draft('') }]));
+  check('y una consola o una pestaña sin conversación no tienen dónde guardar nada', draftEntriesOf(present.slice(2), store).length === 0);
 }
+
+// --- La página con un reloj de mentira, para las secciones 8 y 10 ------------------------
+const clock = () => {
+  let now = 0;
+  let nextId = 1;
+  const timers = new Map();
+  return {
+    setTimer: (callback, ms) => {
+      const id = nextId++;
+      timers.set(id, { at: now + ms, callback });
+      return id;
+    },
+    clearTimer: (id) => timers.delete(id),
+    advance: (ms) => {
+      now += ms;
+      for (const [id, timer] of [...timers].sort(([, a], [, b]) => a.at - b.at)) {
+        if (timer.at > now) continue;
+        timers.delete(id);
+        timer.callback();
+      }
+    },
+    pending: () => timers.size,
+  };
+};
+const make = () => {
+  const time = clock();
+  const sent = [];
+  let open = true;
+  let ids = 0;
+  const drafts = new ComposerDrafts({
+    send: (terminalId, value) => sent.push({ terminalId, draft: value }),
+    connected: () => open,
+    setTimer: time.setTimer,
+    clearTimer: time.clearTimer,
+    newId: () => `id-${++ids}`,
+    delayMs: 800,
+  });
+  return { drafts, time, sent, setOpen: (value) => { open = value; } };
+};
+const local = (text, items = []) => ({ text, items });
+const chip = (number, text) => ({ id: `c${number}`, kind: 'text', number, text, lines: 1 });
+const image = { id: 'img', kind: 'image', mediaType: 'image/png', base64: 'AAAA', dataUrl: 'data:', bytes: 3, name: 'a.png' };
 
 // --- 8. La página: cuándo manda y qué no pisa ------------------------------------------
 {
-  const clock = () => {
-    let now = 0;
-    let nextId = 1;
-    const timers = new Map();
-    return {
-      setTimer: (callback, ms) => {
-        const id = nextId++;
-        timers.set(id, { at: now + ms, callback });
-        return id;
-      },
-      clearTimer: (id) => timers.delete(id),
-      advance: (ms) => {
-        now += ms;
-        for (const [id, timer] of [...timers].sort(([, a], [, b]) => a.at - b.at)) {
-          if (timer.at > now) continue;
-          timers.delete(id);
-          timer.callback();
-        }
-      },
-      pending: () => timers.size,
-    };
-  };
-  const make = () => {
-    const time = clock();
-    const sent = [];
-    let open = true;
-    let ids = 0;
-    const drafts = new ComposerDrafts({
-      send: (terminalId, value) => sent.push({ terminalId, draft: value }),
-      connected: () => open,
-      setTimer: time.setTimer,
-      clearTimer: time.clearTimer,
-      newId: () => `id-${++ids}`,
-      delayMs: 800,
-    });
-    return { drafts, time, sent, setOpen: (value) => { open = value; } };
-  };
-  const local = (text, items = []) => ({ text, items });
-  const chip = (number, text) => ({ id: `c${number}`, kind: 'text', number, text, lines: 1 });
-  const image = { id: 'img', kind: 'image', mediaType: 'image/png', base64: 'AAAA', dataUrl: 'data:', bytes: 3, name: 'a.png' };
-
   check('lo que se guarda: el texto y los textos pegados, sin imágenes ni archivos',
     json(draftOf(local('hola', [chip(1, 'log'), image]))) === json(draft('hola', [{ number: 1, text: 'log' }])));
   const back = localDraftOf(draft('x', [{ number: 2, text: 'a\nb\nc' }]), () => 'nuevo');
@@ -321,7 +336,7 @@ const B = { agent: 'codex', sessionId: '0199aaaa-0000-7000-8000-000000000002' };
     time.advance(5_000);
     check('una imagen no cambia lo que se guarda', sent.length === 1);
     drafts.put('t1', local('adiós'));
-    drafts.submitted('t1');
+    drafts.submitted('t1', true);
     time.advance(5_000);
     check('mandar descarta lo que esperaba la pausa: saldría el mensaje ya mandado', sent.length === 1 && drafts.get('t1') === undefined);
     drafts.put('t1', local(''));
@@ -334,7 +349,8 @@ const B = { agent: 'codex', sessionId: '0199aaaa-0000-7000-8000-000000000002' };
     drafts.onRestored((terminalId) => heard.push(terminalId));
     drafts.put('t2', local('escrito acá'));
     drafts.put('t3', local('', [image]));
-    drafts.submitted('t4');
+    // Sin conexión todavía: el envío espera en la cola y sale después de la foto.
+    drafts.submitted('t4', false);
     drafts.restore([
       { terminalId: 't1', draft: draft('del servidor', [{ number: 1, text: 'log' }]) },
       { terminalId: 't2', draft: draft('viejo') },
@@ -342,9 +358,10 @@ const B = { agent: 'codex', sessionId: '0199aaaa-0000-7000-8000-000000000002' };
       { terminalId: 't4', draft: draft('ya mandado') },
     ]);
     check('va al cuadro el de una pestaña que nadie tocó, con su ficha',
-      drafts.get('t1')?.text === 'del servidor' && drafts.get('t1')?.items.length === 1 && json(heard) === json(['t1']));
+      drafts.get('t1')?.text === 'del servidor' && drafts.get('t1')?.items.length === 1 && json(heard) === json(['t1', 't3']), json(heard));
     check('lo escrito acá no se pisa', drafts.get('t2')?.text === 'escrito acá');
-    check('una con algo, aunque sea una imagen, tampoco', drafts.get('t3')?.text === '');
+    check('una con sólo una imagen recibe el texto, y la imagen se queda: no viaja',
+      drafts.get('t3')?.text === 'otro' && json(drafts.get('t3')?.items.map((item) => item.kind)) === json(['image']));
     check('ni una donde se mandó: el servidor pudo contestar antes de ver el envío', drafts.get('t4') === undefined);
     time.advance(5_000);
     check('y lo escrito acá sale, pisando lo viejo del servidor', json(sent) === json([{ terminalId: 't2', draft: draft('escrito acá') }]), json(sent));
@@ -421,7 +438,7 @@ const B = { agent: 'codex', sessionId: '0199aaaa-0000-7000-8000-000000000002' };
   {
     const drafts = newDrafts();
     drafts.rememberView('t1', view(5, 5, 50));
-    drafts.submitted('t1');
+    drafts.submitted('t1', true);
     check('9.5 al mandar, se olvida: el cuadro quedó vacío', drafts.viewOf('t1') === undefined);
   }
   {
@@ -443,6 +460,172 @@ const B = { agent: 'codex', sessionId: '0199aaaa-0000-7000-8000-000000000002' };
     drafts.rememberView('t2', view(7, 7, 70));
     drafts.retain(['t2']);
     check('9.8 lo de una pestaña que se cerró se olvida', drafts.viewOf('t1') === undefined && drafts.viewOf('t2') !== undefined);
+  }
+}
+
+// --- 10. Entre ventanas, en vivo (09-10-2026) -----------------------------------------------
+//
+// El usuario escribía en la PC: el teléfono seguía con el texto de cuando se
+// abrió —ni cambiando de pestaña ni reconectando— y la laptop no mostraba
+// nada. El servidor manda cada cambio a todas las ventanas, también a la que
+// lo escribió, y la página lo pone en el cuadro si ahí no hay nada propio
+// todavía sin guardar.
+{
+  {
+    const { drafts, time, sent } = make();
+    const heard = [];
+    drafts.onRestored((terminalId) => heard.push(terminalId));
+    drafts.restore([{ terminalId: 't1', draft: draft('¿Puedes verlo?') }]);
+    drafts.put('t1', local('¿Puedes verlo?'));
+    drafts.restore([{ terminalId: 't1', draft: draft('¿Puedes verlo? Mira el teléfono') }]);
+    check('10.1 lo que se escribe en otra ventana llega al cuadro, aunque ya mostrara un borrador anterior',
+      drafts.get('t1')?.text === '¿Puedes verlo? Mira el teléfono' && json(heard) === json(['t1', 't1']), json(heard));
+    drafts.put('t1', local('¿Puedes verlo? Mira el teléfono'));
+    time.advance(5_000);
+    check('10.2 y no vuelve al servidor: ya lo tiene', sent.length === 0, json(sent));
+  }
+  {
+    const { drafts, time, sent } = make();
+    const heard = [];
+    drafts.onRestored((terminalId) => heard.push(terminalId));
+    drafts.restore([]);
+    drafts.put('t1', local('escribiendo acá'));
+    drafts.restore([{ terminalId: 't1', draft: draft('de otra ventana') }]);
+    check('10.3 no pisa lo que se está escribiendo en esta ventana', drafts.get('t1')?.text === 'escribiendo acá' && heard.length === 0);
+    time.advance(800);
+    check('10.4 y lo de acá sale igual: gana lo último', json(sent) === json([{ terminalId: 't1', draft: draft('escribiendo acá') }]), json(sent));
+    drafts.rememberView('t1', { selectionStart: 3, selectionEnd: 3, backward: false, scrollTop: 0 });
+    drafts.restore([{ terminalId: 't1', draft: draft('escribiendo acá') }]);
+    check('10.5 el eco de lo propio no toca el cuadro ni el cursor', heard.length === 0 && drafts.viewOf('t1')?.selectionStart === 3);
+    drafts.restore([{ terminalId: 't1', draft: draft('escribiendo acá, y sigo en el teléfono') }]);
+    check('10.6 con lo propio ya guardado, lo de otra ventana llega',
+      drafts.get('t1')?.text === 'escribiendo acá, y sigo en el teléfono' && json(heard) === json(['t1']));
+  }
+  {
+    const { drafts, time } = make();
+    const heard = [];
+    drafts.onRestored((terminalId) => heard.push(terminalId));
+    drafts.restore([]);
+    drafts.put('t1', local('mío'));
+    time.advance(800);
+    drafts.restore([{ terminalId: 't1', draft: draft('de otra, procesado antes') }]);
+    check('10.7 lo que el servidor guardó antes que lo propio no se muestra: lo propio lo va a pisar',
+      drafts.get('t1')?.text === 'mío' && heard.length === 0);
+    drafts.restore([{ terminalId: 't1', draft: draft('mío') }]);
+    drafts.restore([{ terminalId: 't1', draft: draft('de otra, después') }]);
+    check('10.8 lo que llega después del eco, sí', drafts.get('t1')?.text === 'de otra, después' && json(heard) === json(['t1']));
+  }
+  {
+    const { drafts } = make();
+    drafts.restore([{ terminalId: 't1', draft: draft('un pedido', [{ number: 1, text: 'log' }]) }]);
+    const loaded = drafts.get('t1');
+    drafts.put('t1', { text: loaded.text, items: [...loaded.items, image] });
+    drafts.restore([{ terminalId: 't1', draft: draft('') }]);
+    const after = drafts.get('t1');
+    check('10.9 lo que se mandó desde otra ventana se vacía acá, y la imagen pegada acá se queda',
+      after?.text === '' && json(after.items.map((item) => item.kind)) === json(['image']), json(after));
+  }
+  {
+    const { drafts, time } = make();
+    drafts.restore([]);
+    drafts.put('t1', local('x'.repeat(MAX_COMPOSER_DRAFT_CHARS + 1)));
+    time.advance(5_000);
+    drafts.restore([{ terminalId: 't1', draft: draft('de otra ventana') }]);
+    check('10.10 un texto que pasa del tope no se guarda, y tampoco lo pisa otra ventana',
+      drafts.get('t1')?.text.length === MAX_COMPOSER_DRAFT_CHARS + 1);
+  }
+
+  // Mandar: lo que llega antes de que el servidor vacíe el borrador es de antes del envío.
+  {
+    const { drafts, setOpen } = make();
+    const heard = [];
+    drafts.onRestored((terminalId) => heard.push(terminalId));
+    drafts.restore([{ terminalId: 't1', draft: draft('ya mandado') }]);
+    drafts.put('t1', local('ya mandado'));
+    setOpen(false);
+    drafts.submitted('t1', false);
+    setOpen(true);
+    // La cola de la conexión sale antes de avisar que volvió; la foto es de antes de procesarla.
+    drafts.reconnected();
+    drafts.restore([{ terminalId: 't1', draft: draft('ya mandado') }]);
+    check('10.11 un mensaje mandado sin conexión no vuelve con la foto de la reconexión',
+      drafts.get('t1') === undefined && json(heard) === json(['t1']), json(heard));
+    drafts.restore([{ terminalId: 't1', draft: draft('ya mandado') }]);
+    check('10.12 ni con otra cosa que llegue antes de que el servidor lo vacíe', drafts.get('t1') === undefined);
+    drafts.restore([{ terminalId: 't1', draft: draft('') }]);
+    drafts.restore([{ terminalId: 't1', draft: draft('nuevo, de otra ventana') }]);
+    check('10.13 después de vaciarlo, lo de otra ventana llega otra vez', drafts.get('t1')?.text === 'nuevo, de otra ventana');
+  }
+  {
+    const { drafts, time } = make();
+    drafts.restore([]);
+    drafts.put('t1', local('mensaje'));
+    time.advance(800);
+    drafts.submitted('t1', true);
+    drafts.restore([{ terminalId: 't1', draft: draft('mensaje') }]);
+    check('10.14 el eco de un borrador que llega después de mandar no lo devuelve al cuadro', drafts.get('t1') === undefined);
+  }
+  {
+    const { drafts, time } = make();
+    drafts.restore([]);
+    drafts.put('t1', local('no llegó'));
+    time.advance(800);
+    drafts.restore([{ terminalId: 't1', draft: draft('no llegó') }]);
+    drafts.submitted('t1', true);
+    // El socket se cayó con el envío adentro, y el servidor no lo vio: el borrador sigue ahí.
+    drafts.reconnected();
+    drafts.restore([{ terminalId: 't1', draft: draft('no llegó') }]);
+    check('10.15 un envío que se perdió con el socket: la foto lo dice, y el texto vuelve al cuadro', drafts.get('t1')?.text === 'no llegó');
+  }
+
+  // Reconectar: lo que se mandó por un socket que ya estaba muerto.
+  {
+    const { drafts, time, sent } = make();
+    drafts.restore([{ terminalId: 't1', draft: draft('base') }]);
+    drafts.put('t1', local('base y más'));
+    time.advance(800);
+    drafts.reconnected();
+    drafts.restore([{ terminalId: 't1', draft: draft('base') }]);
+    check('10.16 lo que se mandó por un socket muerto no se pierde: el servidor sigue como estaba y el cuadro lo conserva',
+      drafts.get('t1')?.text === 'base y más');
+    time.advance(800);
+    check('10.17 y sale otra vez', json(sent.map((entry) => entry.draft.text)) === json(['base y más', 'base y más']), json(sent));
+  }
+  {
+    const { drafts, time, sent } = make();
+    drafts.restore([{ terminalId: 't1', draft: draft('base') }]);
+    drafts.put('t1', local('base y más'));
+    time.advance(800);
+    drafts.reconnected();
+    drafts.restore([{ terminalId: 't1', draft: draft('lo siguió otra ventana') }]);
+    check('10.18 pero si mientras tanto se siguió en otra ventana, gana lo del servidor', drafts.get('t1')?.text === 'lo siguió otra ventana');
+    time.advance(5_000);
+    check('10.19 y no se manda nada encima', sent.length === 1, json(sent));
+  }
+  {
+    const { drafts, time, sent } = make();
+    const heard = [];
+    drafts.onRestored((terminalId) => heard.push(terminalId));
+    drafts.restore([]);
+    drafts.put('t1', local('llegó'));
+    time.advance(800);
+    drafts.reconnected();
+    drafts.restore([{ terminalId: 't1', draft: draft('llegó') }]);
+    time.advance(5_000);
+    check('10.20 si llegó y sólo se perdió el eco, no se repite nada', sent.length === 1 && heard.length === 0);
+  }
+  {
+    const { drafts, time, sent, setOpen } = make();
+    drafts.restore([{ terminalId: 't1', draft: draft('base') }]);
+    setOpen(false);
+    drafts.put('t1', local('escrito sin conexión'));
+    time.advance(5_000);
+    setOpen(true);
+    drafts.reconnected();
+    drafts.restore([{ terminalId: 't1', draft: draft('de otra ventana') }]);
+    check('10.21 lo escrito sin conexión no lo pisa la foto, y sale',
+      drafts.get('t1')?.text === 'escrito sin conexión' && json(sent) === json([{ terminalId: 't1', draft: draft('escrito sin conexión') }]),
+      json(sent));
   }
 }
 
