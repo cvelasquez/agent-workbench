@@ -78,10 +78,11 @@ cpSync(path.join(repoRoot, 'LICENSE'), path.join(outDir, 'LICENSE'));
 // `assets/` no existe: las capturas saldrian rotas. Apuntan a GitHub solo en la
 // copia que se publica; la del repositorio sigue con rutas relativas, que es lo
 // que funciona en GitHub y al leer el archivo de local.
-const readme = readFileSync(path.join(repoRoot, 'README.md'), 'utf8').replaceAll(
-  /(\]\(|src=")assets\//g,
-  (_match, prefix) => `${prefix}${RAW_BASE}assets/`,
-);
+// Lo mismo con los enlaces a las traducciones (`README.es.md`, ...), que no
+// viajan en el paquete: van a su pagina en GitHub.
+const readme = readFileSync(path.join(repoRoot, 'README.md'), 'utf8')
+  .replaceAll(/(\]\(|src=")assets\//g, (_match, prefix) => `${prefix}${RAW_BASE}assets/`)
+  .replaceAll(/\]\((README\.[A-Za-z-]+\.md)\)/g, (_match, file) => `](${REPO_URL}/blob/main/${file})`);
 writeFileSync(path.join(outDir, 'README.md'), readme);
 
 writeFileSync(
