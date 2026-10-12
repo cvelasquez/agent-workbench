@@ -8,8 +8,8 @@
 **English** · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Português (Brasil)](README.pt-BR.md) · [Русский](README.ru.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
 **A visual workbench for the coding agents you already use: the Claude Code,
-Codex, OpenCode and Antigravity CLIs.** It runs on your computer and opens in
-your browser. It uses the CLIs you already have installed and logged in, never
+Codex, OpenCode, Antigravity and Pi CLIs.** It runs on your computer and opens
+in your browser. It uses the CLIs you already have installed and logged in, never
 touches your credentials, and makes no network calls of its own.
 
 ```bash
@@ -21,8 +21,8 @@ npx agent-workbench
 ## How it works
 
 Agent Workbench doesn't talk to any AI service. It starts the CLI you already
-have —`claude`, `codex`, `opencode` or `agy`— inside a real terminal, and adds
-around it what a terminal alone doesn't give you: tabs, your past
+have —`claude`, `codex`, `opencode`, `agy` or `pi`— inside a real terminal, and
+adds around it what a terminal alone doesn't give you: tabs, your past
 conversations, the conversation as easy-to-read cards, a context meter, the
 files that changed and a file tree.
 
@@ -68,20 +68,20 @@ Each session and each tab shows a small badge with its CLI, and the `+` for a
 new tab lets you pick which one to open. With a single CLI you see none of
 this.
 
-<img src="assets/captura-clis.png" width="45%" alt="The projects sidebar with sessions from several CLIs, each with its badge, and the + menu with the four CLIs and their versions">
+<img src="assets/captura-clis.png" width="45%" alt="The projects sidebar with sessions from several CLIs, each with its badge, and the + menu with the five CLIs and their versions">
 
 **Not every CLI shares the same information**, so a few features depend on the
 CLI:
 
-| | Claude Code | Codex | OpenCode | Antigravity CLI |
-|---|:---:|:---:|:---:|:---:|
-| Tab dot: working, idle, waiting for you | ✓ | — | ✓ ¹ | ✓ ² |
-| Answer the agent's questions from the conversation | ✓ | — | ✓ ¹ | — |
-| Context meter | ✓ | ✓ | ✓ | ✓ ² |
-| Mode and model pickers | ✓ | — | — | ✓ |
-| Paste images | ✓ | ✓ | ✓ | — |
-| Plans tab | ✓ | — | — | — |
-| Send a note to a new conversation | ✓ | — | — | — |
+| | Claude Code | Codex | OpenCode | Antigravity CLI | Pi |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Tab dot: working, idle, waiting for you | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
+| Answer the agent's questions from the conversation | ✓ | — | ✓ ¹ | — | — |
+| Context meter | ✓ | ✓ | ✓ | ✓ ² | ✓ |
+| Mode and model pickers | ✓ | — | — | ✓ | ✓ ³ |
+| Paste images | ✓ | ✓ | ✓ | — | ✓ ³ |
+| Plans tab | ✓ | — | — | — | — |
+| Send a note to a new conversation | ✓ | — | — | — | — |
 
 The CLI's own terminal is always there for the rest: where there's a "—",
 questions, for example, are answered in it.
@@ -90,6 +90,9 @@ questions, for example, are answered in it.
 ([details](#your-data-and-security)).
 ² Only if you set up its status line
 ([how](#antigravity-cli-status-and-context-meter)).
+³ Pi has no permission modes: its pickers are the model and the thinking level.
+And it doesn't attach what you paste: an image travels as a file path that the
+model opens itself.
 
 ---
 
@@ -107,6 +110,7 @@ questions, for example, are answered in it.
 | Codex | `codex` | [guide](https://learn.chatgpt.com/docs/codex/cli) |
 | OpenCode | `opencode` | [documentation](https://opencode.ai/docs/) |
 | Antigravity CLI | `agy` | [guide](https://antigravity.google/docs/cli/getting-started) |
+| Pi | `pi` | [pi.dev](https://pi.dev) |
 
 Agent Workbench doesn't include or download any CLI: it finds the ones in your
 `PATH`. If there are none, it tells you so and doesn't open sessions.
@@ -172,7 +176,7 @@ as in Windows Terminal.
 ### Shared memory between CLIs
 
 Each CLI keeps what it learns about a project in its own place, and the others
-can't see it. The **Memory** tab sets up one memory for all four: notes in the
+can't see it. The **Memory** tab sets up one memory for all of them: notes in the
 project's `.agents/memory/` folder, which every CLI reads and writes —from here
 or from its own terminal— through `AGENTS.md` and `CLAUDE.md`. The tab is hidden
 at first: show it from ⚙ Settings.
@@ -182,7 +186,7 @@ touched until you confirm. Setting it up imports the memory Claude Code already
 had for that project. The app doesn't edit each CLI's global settings: it gives
 you the snippet to paste yourself.
 
-<img src="assets/captura-memoria.png" width="70%" alt="The Memory tab with the bridge installed for the four CLIs and the imported notes">
+<img src="assets/captura-memoria.png" width="70%" alt="The Memory tab with the bridge installed for the five CLIs and the imported notes">
 
 ### Backup of your history
 
@@ -390,9 +394,13 @@ app keeps on the phone and the permissions it asks for are in
 
 ## Your data and security
 
-- **Nothing leaves your computer.** No telemetry, no analytics, no network calls
-  of its own. Only the CLIs talk to their AI provider, just as they would if you
-  opened them by hand. The Android app talks only to your computer.
+- **Agent Workbench sends nothing anywhere.** No telemetry, no analytics, no
+  network calls of its own. The Android app talks only to your computer.
+- **Each CLI still does on its own what it would do if you opened it by hand:**
+  it talks to its AI provider, and it may check for updates or send its own
+  usage data. Agent Workbench doesn't add anything to that, and it doesn't turn
+  it off either: it doesn't change any CLI's settings. What each CLI sends is
+  in its own documentation.
 - **It never touches your credentials.** There's no login screen: if a CLI asks
   you to log in, you do it in its own terminal, and the app doesn't even notice.
 - **It reads the CLIs' history and writes nothing in their folders.** The table
@@ -414,6 +422,7 @@ app keeps on the phone and the permissions it asks for are in
 | Codex | From `~/.codex/` (or `CODEX_HOME`): `sessions/` and `archived_sessions/` | `auth.json`, `config.toml` or its `*.sqlite` databases |
 | OpenCode | Its `opencode.db` database, opened read-only, and from it only the sessions, messages and parts; and its model catalog, for the context window size | `auth.json`, `opencode.json`, or the accounts, credentials, permissions and shared-sessions tables |
 | Antigravity CLI | From `~/.gemini/antigravity-cli/`: each conversation's transcripts, `history.jsonl`, the last conversation of each folder, the model and status line from `settings.json`, and a temporary **copy** of its conversation index; from `~/.gemini/config/projects/`, each project's folder | Its MCP configuration, its entry in the system keychain, the contents of `conversations/`, and `~/.gemini/antigravity/`, which is its IDE |
+| Pi | From `~/.pi/agent/` (or `PI_CODING_AGENT_DIR`): the sessions in `sessions/`, and `models-store.json`, its model catalog, for the context window size and the model picker. From the installed Pi package: its `package.json`, to know the version without running Pi, and its built-in model list | `auth.json`, `models.json`, `settings.json` or its MCP configuration |
 
 The [backup importers](#backup-of-your-history), when you run them, also read
 what their section says. The full list, file by file, is in
@@ -448,6 +457,11 @@ password, and it doesn't reach any tab: each OpenCode tab gets it on its command
 line (`attach --password`), where other programs running as your user can see
 it. It only works for that server and stops working when you close the app.
 
+**What Pi sends on its own.** When it starts, Pi checks pi.dev for its latest
+version and its model catalog, and it reports each install and update there.
+You turn that report off in Pi, not here: `enableInstallTelemetry: false` in
+Pi's settings, or the `PI_TELEMETRY=0` environment variable.
+
 **What the app writes:**
 
 - **In its own configuration folder:** the open tabs, the index cache, the
@@ -473,10 +487,20 @@ it. It only works for that server and stops working when you close the app.
 ## Troubleshooting
 
 **"The "claude" command wasn't found in the PATH", followed by "Also works
-with: …"** — the app didn't find any of the four CLIs. Check with
+with: …"** — the app didn't find any of the CLIs. Check with
 `where claude` on Windows (`which claude` elsewhere), and the same with `codex`,
-`opencode` or `agy`. CLIs are looked up at startup: if you installed one while
-the app was open, restart it.
+`opencode`, `agy` or `pi`. CLIs are looked up at startup: if you installed one
+while the app was open, restart it.
+
+**Pi is installed, but the app doesn't see it.** The app doesn't run `pi` to
+find it: it reads the version from Pi's package, next to the command. That
+works when Pi was installed with npm or with the pi.dev installer; a standalone
+`pi` binary isn't recognized. And if another program called `pi` comes first
+in your `PATH`, the app ignores it and says so in its console.
+
+**In a Pi tab, the message box says the CLI is waiting for an answer.** Pi is
+asking whether to trust the project folder. Answer it in the **CLI** tab: the
+app never answers that for you.
 
 **OpenCode's history doesn't show up.** Look at the `History` line when the app
 starts. If it says that Node version doesn't include `node:sqlite`, update Node
@@ -607,5 +631,5 @@ once per version, in a strip you can close, and never again until the next one.
 MIT. See [`LICENSE`](LICENSE).
 
 Agent Workbench is an independent project. It works with the Claude Code,
-Codex, OpenCode and Antigravity CLIs, but it is not affiliated with or endorsed
-by Anthropic, OpenAI, the OpenCode authors or Google.
+Codex, OpenCode, Antigravity and Pi CLIs, but it is not affiliated with or
+endorsed by Anthropic, OpenAI, the OpenCode authors, Google or Earendil.

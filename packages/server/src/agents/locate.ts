@@ -110,16 +110,27 @@ async function readVersion(file: string, prefixArgs: readonly string[]): Promise
   }
 }
 
+/**
+ * Con que se lanza lo que se encontro en el PATH: el propio archivo, o el
+ * interprete de comandos delante si es un shim `.cmd` o `.bat`.
+ *
+ * Aparte de `locateCommand` para la CLI cuya version no se lee ejecutandola
+ * (hito 43): arma su `CliLocation` con esto y pone la version ella.
+ */
+export function launcherFor(resolvedPath: string): Pick<CliLocation, 'file' | 'prefixArgs'> {
+  const useInterpreter = needsCommandInterpreter(resolvedPath);
+  return {
+    file: useInterpreter ? (process.env['ComSpec'] ?? 'cmd.exe') : resolvedPath,
+    prefixArgs: useInterpreter ? ['/c', resolvedPath] : [],
+  };
+}
+
 /** Devuelve null si la CLI no esta instalada o no es accesible. */
 export async function locateCommand(command: string): Promise<CliLocation | null> {
   const resolvedPath = await findInPath(command);
   if (resolvedPath === null) return null;
 
-  const useInterpreter = needsCommandInterpreter(resolvedPath);
-  const file = useInterpreter
-    ? (process.env['ComSpec'] ?? 'cmd.exe')
-    : resolvedPath;
-  const prefixArgs: readonly string[] = useInterpreter ? ['/c', resolvedPath] : [];
+  const { file, prefixArgs } = launcherFor(resolvedPath);
 
   return {
     resolvedPath,

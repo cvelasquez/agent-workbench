@@ -441,8 +441,8 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
 // B6. Ids. OpenCode entra detras en el hito 26, sin mover a las dos de antes.
 {
   const { AGENT_IDS, MEMORY_AGENT_IDS } = shared;
-  check('B6 AGENT_IDS es claude-code, despues codex, opencode y antigravity (hito 27)',
-    same([...AGENT_IDS], ['claude-code', 'codex', 'opencode', 'antigravity']), AGENT_IDS.join(','));
+  check('B6 AGENT_IDS es claude-code, despues codex, opencode, antigravity (hito 27) y pi (hito 43)',
+    same([...AGENT_IDS], ['claude-code', 'codex', 'opencode', 'antigravity', 'pi']), AGENT_IDS.join(','));
   check('B6 AGENT_IDS contenido en MEMORY_AGENT_IDS', AGENT_IDS.every((id) => MEMORY_AGENT_IDS.includes(id)));
 }
 
@@ -2349,8 +2349,8 @@ const throwsOn = (run) => {
 // E1. En el registro de la app.
 {
   const registry = createAgentRegistry();
-  check('E1 el registro de la app trae claude-code y despues codex (y opencode desde el hito 26, antigravity al final desde el 27)',
-    same(registry.all().map(({ adapter }) => adapter.id), ['claude-code', 'codex', 'opencode', 'antigravity']));
+  check('E1 el registro de la app trae claude-code y despues codex (y opencode desde el hito 26, antigravity desde el 27, pi al final desde el 43)',
+    same(registry.all().map(({ adapter }) => adapter.id), ['claude-code', 'codex', 'opencode', 'antigravity', 'pi']));
   check('E1 sin ninguna instalada, ninguna por defecto', registry.defaultAgent() === null);
   const codexInfo = registry.list().find((info) => info.id === 'codex');
   check('E1 hello: codex ausente con su texto y sus capacidades',
@@ -2422,8 +2422,8 @@ const throwsOn = (run) => {
   const registry = createAgentRegistry();
   const claudeText = registry.adapter('claude-code').missingMessage();
   const none = summarizeAgents(registry.list(), true);
-  check('A6 cartel sin ninguna: el de claude-code de siempre y "tambien funciona con: Codex, OpenCode, Antigravity CLI"',
-    none.cliAvailable === false && none.cliMissingMessage === `${es(claudeText)}\nTambién funciona con: Codex, OpenCode, Antigravity CLI`, show(none));
+  check('A6 cartel sin ninguna: el de claude-code de siempre y "tambien funciona con: Codex, OpenCode, Antigravity CLI, Pi"',
+    none.cliAvailable === false && none.cliMissingMessage === `${es(claudeText)}\nTambién funciona con: Codex, OpenCode, Antigravity CLI, Pi`, show(none));
   registry.get('claude-code').location = { resolvedPath: '/bin/claude', file: '/bin/claude', prefixArgs: [], version: '2.1.270' };
   const onlyClaude = summarizeAgents(registry.list(), true);
   const alone = new AgentRegistry([createClaudeCodeAdapter()]);
@@ -2495,9 +2495,18 @@ const throwsOn = (run) => {
     rejection([onlyClaudeBin, gitDir].join(delimiter), onlyClaudeBin));
   check('M7 sin git no arranca', /git/.test(rejection([bin, emptyDir].join(delimiter))));
 
+  // Hito 43: una carpeta con la Pi de verdad tambien queda fuera, y si resuelve ahi no arranca.
+  const piDir = path.join(m7, 'pi-de-verdad');
+  await tool(piDir, 'pi');
+  await tool(piDir, 'node');
+  check('M7 una carpeta con pi tambien sale del PATH de la demo',
+    demo.AGENT_COMMANDS.includes('pi') && demo.demoPath(bin, [piDir, gitDir].join(delimiter), options) === [bin, gitDir].join(delimiter));
+  check('M7 si pi resuelve a una de verdad no arranca', /found pi in/.test(rejection([piDir, bin, gitDir].join(delimiter))), rejection([piDir, bin, gitDir].join(delimiter)));
+
   const base = {
     [win ? 'Path' : 'PATH']: original, PATHEXT: pathext, HOME: 'real', USERPROFILE: 'real', CODEX_HOME: 'real-codex',
     CLAUDE_CODE_CHILD_SESSION: '1', OPENCODE_DB: 'db', CODEX_SQLITE_HOME: 'sq', OTRA: 'se queda',
+    PI_CODING_AGENT_DIR: 'real-pi', PI_CODING_AGENT_SESSION_DIR: 'real-pi-sesiones',
   };
   const demoHome = path.join(m7, 'home');
   const env = demo.demoEnvironment(base, { home: demoHome, bin, mainCwd: 'W:\\Proyectos\\x' });
@@ -2510,6 +2519,8 @@ const throwsOn = (run) => {
     env['AGENT_WORKBENCH_CWD'] === 'W:\\Proyectos\\x', show(env));
   check('M7 entorno: sin el marcador ni las bases de otras CLIs, y lo demas intacto',
     !('CLAUDE_CODE_CHILD_SESSION' in env) && !('OPENCODE_DB' in env) && !('CODEX_SQLITE_HOME' in env) && env['OTRA'] === 'se queda');
+  check('M7 entorno: sin las carpetas de Pi del usuario, que apuntarian a su historial de verdad',
+    !('PI_CODING_AGENT_DIR' in env) && !('PI_CODING_AGENT_SESSION_DIR' in env));
 
   const startup = ['  URL          http://127.0.0.1:1/?token=x', ...startupAgentLines([
     { id: 'claude-code', label: 'Claude Code', version: '2.1.263', resolvedPath: bin, missingMessage: null },
@@ -2518,13 +2529,15 @@ const throwsOn = (run) => {
   check('M7 la demo lee la linea de disponibles que imprime el servidor', same(demo.availableAgentsFromStartup(startup), ['claude-code', 'codex']));
   check('M7 sin la linea todavia: null', demo.availableAgentsFromStartup('  URL          http://127.0.0.1:1/') === null);
   check('M7 ninguna: lista vacia', same(demo.availableAgentsFromStartup('  Available CLIs  none\n'), []));
-  const four = ['claude-code', 'codex', 'opencode', 'antigravity'];
-  check('M7 las capturas solo con las cuatro simuladas, en cualquier orden',
+  // Cinco desde el hito 43, que sumo a Pi.
+  const four = ['claude-code', 'codex', 'opencode', 'antigravity', 'pi'];
+  check('M7 las capturas solo con las cinco simuladas, en cualquier orden',
     same(demo.SIMULATED_AGENT_IDS, four) &&
     !throwsOn(() => demo.assertOnlySimulatedAgents(four)) &&
     !throwsOn(() => demo.assertOnlySimulatedAgents([...four].reverse())) &&
     throwsOn(() => demo.assertOnlySimulatedAgents(['claude-code'])) &&
     throwsOn(() => demo.assertOnlySimulatedAgents(['claude-code', 'codex', 'opencode'])) &&
+    throwsOn(() => demo.assertOnlySimulatedAgents(['claude-code', 'codex', 'opencode', 'antigravity'])) &&
     throwsOn(() => demo.assertOnlySimulatedAgents([...four, 'codex'])) &&
     throwsOn(() => demo.assertOnlySimulatedAgents([...four, 'otra'])) && throwsOn(() => demo.assertOnlySimulatedAgents([])));
 

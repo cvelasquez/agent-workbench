@@ -20,6 +20,7 @@ import { createAntigravityAdapter } from './antigravity/index.js';
 import { createClaudeCodeAdapter } from './claude-code/index.js';
 import { createCodexAdapter } from './codex/index.js';
 import { createOpenCodeAdapter } from './opencode/index.js';
+import { createPiAdapter } from './pi/index.js';
 
 export interface RegisteredAgent {
   adapter: AgentAdapter;
@@ -287,7 +288,7 @@ export function resolveAgentForOpen(input: ResolveAgentInput): AgentId | null {
  * existiera la segunda. OpenCode ultima (hito 26): el orden tambien decide que
  * `cwd` muestra un proyecto que comparten, y con las tres instaladas nada de lo
  * que ya habia cambia de lugar. Antigravity CLI detras de todas (hito 27), por
- * lo mismo.
+ * lo mismo, y Pi detras de Antigravity (hito 43).
  */
 export function createAgentRegistry(disabled: Iterable<AgentId> = []): AgentRegistry {
   /*
@@ -300,6 +301,7 @@ export function createAgentRegistry(disabled: Iterable<AgentId> = []): AgentRegi
     createCodexAdapter(),
     createOpenCodeAdapter({ serveEnv: () => registry.composedEnvironment(process.env) }),
     createAntigravityAdapter(),
+    createPiAdapter(),
   ], disabled);
   return registry;
 }

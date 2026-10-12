@@ -2,9 +2,9 @@
  * Levanta la app contra los datos de `fixtures.mjs`, aislada de la maquina.
  *
  * La app lee tres cosas del entorno y las tres se apuntan a la carpeta de demo:
- * el home (los historiales de las cuatro CLIs), el directorio de configuracion
+ * el home (los historiales de las cinco CLIs), el directorio de configuracion
  * propio (`workspace.json`, notas, archivadas, la copia propia) y el `PATH`,
- * filtrado para que no aparezca ninguna CLI de verdad y con las cuatro simuladas
+ * filtrado para que no aparezca ninguna CLI de verdad y con las cinco simuladas
  * primero (`isolation.mjs`). No hay ningun modo especial en el servidor: corre
  * el mismo codigo que en uso normal, con otro entorno.
  *

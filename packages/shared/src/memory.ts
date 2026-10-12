@@ -37,7 +37,7 @@ export const MEMORY_INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md'] as const;
 
 export type MemoryInstructionFile = (typeof MEMORY_INSTRUCTION_FILES)[number];
 
-export const MEMORY_AGENT_IDS = ['claude-code', 'codex', 'antigravity', 'opencode'] as const;
+export const MEMORY_AGENT_IDS = ['claude-code', 'codex', 'antigravity', 'opencode', 'pi'] as const;
 export type MemoryAgentId = (typeof MEMORY_AGENT_IDS)[number];
 
 /** Nombre visible de cada CLI. Es un dato de compatibilidad, no una marca. */
@@ -46,6 +46,7 @@ export const MEMORY_AGENT_LABELS: Record<MemoryAgentId, string> = {
   codex: 'Codex',
   antigravity: 'Antigravity',
   opencode: 'OpenCode',
+  pi: 'Pi',
 };
 
 /*
@@ -178,7 +179,7 @@ export interface MemoryStatus {
   /** `AGENTS.md` y `CLAUDE.md`, siempre los dos y en ese orden. */
   files: MemoryFileState[];
   git: MemoryGitState;
-  /** Las cuatro CLIs, siempre en el orden de `MEMORY_AGENT_IDS`. */
+  /** Todas las CLIs, siempre en el orden de `MEMORY_AGENT_IDS`. */
   reach: MemoryAgentReach[];
   /** Memoria nativa por proyecto de Claude Code: cuantas notas y cuantas faltan. */
   native: { available: number; pending: number };

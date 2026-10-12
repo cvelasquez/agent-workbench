@@ -6,7 +6,7 @@ against. Read this before touching the server; read
 
 Agent Workbench is a **local visual interface for coding-agent CLIs**. It does
 not talk to any provider's API. It launches the binary you already have
-installed and logged in —`claude`, `codex`, `opencode` or `agy`— inside a
+installed and logged in —`claude`, `codex`, `opencode`, `agy` or `pi`— inside a
 pseudo-terminal, and adds around it what a terminal alone doesn't give you:
 tabs, browsable history, the conversation as cards, a file tree, a git panel
 and a context meter.
@@ -41,6 +41,10 @@ one is discarded even if it's more convenient.
   install. Each one is looked up in the `PATH`; one is enough.
 - A missing CLI doesn't hide its history: its sessions stay in the sidebar,
   dimmed.
+- Locating a CLI runs `<command> --version`, with one exception: **Pi is never
+  run to find it.** `pi --version` touches Pi's own folder before printing, so
+  the version is read from the `package.json` of the installed package, which
+  also tells Pi apart from any other program called `pi`.
 - The CLIs aren't patched or wrapped in a way that alters their behavior.
   Launching a subcommand the CLI itself documents is using it, not wrapping it.
 
@@ -135,12 +139,13 @@ packages/
       jsonl-follower.ts    read a JSONL by offset, for any CLI
       sqlite.ts            someone else's SQLite database, read-only
       transport-limits.ts  how much text travels to the browser
-      claude-code/  codex/  opencode/  antigravity/    one folder per CLI
+      claude-code/  codex/  opencode/  antigravity/  pi/    one folder per CLI
     src/
       terminal-registry.ts    the ptys and their life cycle
       session-index.ts        the projects sidebar, built from every adapter's history
       path-guard.ts           resolveInside: the only way a client path becomes a real one
       memory-hub.ts           shared memory: the one thing written inside a project
+      queued-submits.ts       messages a CLI hands back to its editor on interrupt
       handoff/                continue a conversation with another CLI
       global-search.ts        search across the text of every conversation
       vault/                  the app's own copy of the history
@@ -151,7 +156,7 @@ packages/
 android/        the Android app: Kotlin and Gradle, outside the workspace (section 7)
 scripts/
   build-npm.mjs   builds the npm package into dist-npm/
-  demo/           made-up data and four simulated CLIs, for screenshots
+  demo/           made-up data and five simulated CLIs, for screenshots
 assets/           the README screenshots, from `pnpm demo:shots`
 ```
 
@@ -200,8 +205,8 @@ Windows 11 is the primary platform and the one that can't break.
   for npm-installed CLIs) is launched through `cmd.exe /c`.
 - **Behind `cmd /c`, no argument may contain spaces or quotes.** A second pair
   of quotes breaks the whole launch, not just that argument. Adapters validate
-  ids by shape (uuid, `ses_…`) before building a command line — which also
-  stops an id like `x&<command>` from being executed by `cmd`.
+  ids by shape (uuid, `ses_…`, Pi's own id rule) before building a command
+  line — which also stops an id like `x&<command>` from being executed by `cmd`.
 - **Never pass a signal to `kill()` on Windows.** It throws, deferred, from
   inside a node-pty callback no `try/catch` reaches, and takes the server down.
   `kill()` without arguments on `win32`; SIGTERM → SIGKILL elsewhere.
@@ -223,6 +228,7 @@ and the socket talk only to that interface.
 | what history exists and how it's followed | `history` → `HistorySource`, `SessionFollower` |
 | whether the process is working, idle or waiting | `status`, or null |
 | how a question card is answered | `questions`, or absent |
+| which sent messages the CLI handed back to its own editor on interrupt | `queuedSubmits`, or absent |
 | which folders the folder picker must never list | `protectedDirs()` |
 
 Rules the interface can't enforce by itself, and that every adapter follows:
@@ -230,7 +236,10 @@ Rules the interface can't enforce by itself, and that every adapter follows:
 - The environment never gains variables.
 - Native history is read, never written.
 - An adapter doesn't type into the pty: it provides data, and key sequences are
-  built in `pty-input.ts`.
+  built in `pty-input.ts`. That includes the one key the app sends on its own
+  after an interrupt: with a CLI that returns queued messages to its editor
+  (Pi), the app clears that editor and gives the text back to the message box
+  (`queued-submits.ts`), only when the session's history shows the turn ended.
 - **A capability is a measurement, not a promise.**
 
 ### 3.5 Capabilities
@@ -266,9 +275,16 @@ itself. Nothing is ever **written** in any CLI's folder.
 | **Codex** (`CODEX_HOME` or `~/.codex`) | `sessions/**/rollout-*.jsonl`, `archived_sessions/`. `CODEX_HOME` itself is never listed | `auth.json`, `cap_sid`, `.sandbox-secrets/`, `config.toml` (MCP server environments can carry secrets), the `*.sqlite` files |
 | **OpenCode** (xdg-basedir folders) | the SQLite database, read-only: named columns of `session`, `message` and `part`, always filtered by id; the models catalog. From the app's own `opencode serve`, over loopback with basic auth: a fixed list of seven endpoints | `auth.json`, `account.json`, `mcp-auth.json`; the `account`, `credential`, `session_share` and `permission` tables; response headers and bodies stored in error records; `opencode.json` (can carry API keys) |
 | **Antigravity CLI** (`~/.gemini/antigravity-cli`) | `brain/<id>/…/transcript*.jsonl`, `history.jsonl`, two fields of `settings.json`, and a **copy** of the conversations index (see below). `~/.gemini` is never walked | `mcp/`, MCP config files, the OS keychain, the contents of `conversations/*`, the whole IDE folder `~/.gemini/antigravity/`, the browser profile, and everything of Gemini CLI (`oauth_creds.json`, `google_accounts.json`, `.env`) |
+| **Pi** (`PI_CODING_AGENT_DIR` or `~/.pi/agent`) | `sessions/--<folder>--/*.jsonl` (or the files of `PI_CODING_AGENT_SESSION_DIR`); `models-store.json`, the model catalog Pi downloads. From the installed package, not from Pi's folder: its `package.json` and the model list of one provider. With the pi.dev installer, also `install/current-version`. The folder itself is never listed | `auth.json`, `oauth.json`, `mcp-auth.json`, `models.json` (can carry API keys), `mcp.json`, `settings.json` (global and per project) |
 
 Every folder above is in its adapter's `protectedDirs()`: the folder picker
 won't list or enter it, installed or not.
+
+**Pi's status comes from its session file.** Pi can report its status through
+the terminal, but only if the terminal answers a query, and on Windows the
+pseudo-terminal drops that answer. The app doesn't add the environment variable
+that would force it (an adapter never adds variables), so "working" is read
+from the session: from a user message until the reply that ends the turn.
 
 **SQLite databases in WAL mode.** Opening one read-only still creates `-wal`
 and `-shm` files next to it. For a small index (Antigravity) the app reads a

@@ -22,6 +22,7 @@
  */
 
 import {
+  DEFAULT_EFFORT_COMMAND,
   IMPORTED_AGENT_LABELS,
   blindToApprovals,
   insertionIndex,
@@ -78,6 +79,11 @@ export interface AgentUi {
    * cambiar el modelo de una pestana no deberia sorprender en la proxima.
    */
   savesModelChoice: boolean;
+  /**
+   * Como llama esta CLI al comando que cambia el esfuerzo. Ausente: `/effort`.
+   * Es lo que manda el combo, y lo que nombra su titulo.
+   */
+  effortCommand?: string;
 }
 
 /**
@@ -140,6 +146,32 @@ function antigravityShortcuts(): readonly Shortcut[] {
     { keys: '1 … 4', description: t('agent.shortcuts.antigravity.answerPermission') },
     { keys: '/', description: t('agent.shortcuts.commands') },
     { keys: '?', description: t('agent.shortcuts.antigravity.help') },
+  ];
+}
+
+/**
+ * Las teclas de Pi dentro de su terminal.
+ *
+ * Medidas con la 1.1.0 (CLAUDE.md 16.5): un Esc interrumpe, dos con el editor
+ * vacio abren el arbol de la sesion, un Ctrl + C vacia el editor y dos seguidos
+ * la cierran, y `!` corre un comando. Las de modelo, razonamiento y salida de
+ * herramientas salen de su tabla de teclas, sin medir.
+ *
+ * El salto de linea es `Ctrl + J` por lo mismo que con OpenCode: xterm manda el
+ * mismo `\r` con Shift o sin el.
+ */
+function piShortcuts(): readonly Shortcut[] {
+  return [
+    { keys: 'Esc', description: t('agent.shortcuts.interruptCli') },
+    { keys: 'Esc Esc', description: t('agent.shortcuts.pi.tree') },
+    { keys: 'Ctrl + C', description: t('agent.shortcuts.pi.clearOrExit') },
+    { keys: 'Shift + Tab', description: t('agent.shortcuts.pi.cycleThinking') },
+    { keys: 'Ctrl + L', description: t('agent.shortcuts.pi.model') },
+    { keys: 'Ctrl + P', description: t('agent.shortcuts.pi.nextModel') },
+    { keys: 'Ctrl + O', description: t('agent.shortcuts.pi.toolOutput') },
+    { keys: 'Ctrl + J', description: t('agent.shortcuts.pi.newline') },
+    { keys: '!', description: t('agent.shortcuts.pi.bash') },
+    { keys: '/', description: t('agent.shortcuts.commands') },
   ];
 }
 
@@ -207,7 +239,24 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     // Medido con la 1.2.2: los dos quedan escritos en su settings.json.
     savesModelChoice: true,
   },
+  pi: {
+    shortLabel: 'PI',
+    get shortcuts() {
+      return piShortcuts();
+    },
+    shortcutsNote: null,
+    // Con `AGENTS.md` y `CLAUDE.md` en la carpeta, Pi carga solo el primero (medido).
+    instructionsFile: 'AGENTS.md',
+    // Medido con la 1.1.0: `/model` y `/thinking` valen para la sesion y no tocan su settings.json.
+    savesModelChoice: false,
+    effortCommand: '/thinking',
+  },
 };
+
+/** Como llama la CLI de la pestana al comando de esfuerzo: es lo que manda su combo. */
+export function effortCommandFor(agent: AgentId | null): string {
+  return (agent === null ? undefined : AGENT_UI[agent].effortCommand) ?? DEFAULT_EFFORT_COMMAND;
+}
 
 /**
  * Las dos letras de las fuentes importadas a la copia propia (hito 28).
@@ -952,6 +1001,16 @@ export function continuationTabLabel(title: string): string {
 /** Lo que agrega el aviso mientras el servidor manda la continuacion sola. */
 export function handoffSendingText(): string {
   return t('agent.handoff.sending');
+}
+
+/**
+ * El aviso encima del cuadro cuando vuelve un mensaje que la CLI no llego a
+ * entregar (hito 43): se mando con el agente trabajando, quedo en cola, y la
+ * interrupcion llego antes. La CLI lo habia devuelto a su propio editor; la app
+ * lo saco de ahi y lo trae de vuelta, sin mandar.
+ */
+export function queueReturnedText(label: string | null): string {
+  return label === null ? t('agent.queueReturned.noLabel') : t('agent.queueReturned.withLabel', { label });
 }
 
 /** Lo que agrega el aviso cuando la continuacion no se mando sola y quedo en el cuadro. */

@@ -6,7 +6,7 @@
  * demo encuentra la Codex de la maquina en el `PATH`, su version sale en las
  * capturas, y con su `CODEX_HOME` real saldria su historial.
  *
- * Desde el hito 30 la demo muestra las cuatro CLIs, y las cuatro son simuladas
+ * Desde el hito 30 la demo muestra todas las CLIs —cinco desde el 43—, y todas son simuladas
  * (`other-clis.mjs`). Por eso el servidor de la demo arranca con un `PATH`
  * **filtrado**: sin ninguna carpeta que contenga un comando de agente, con la
  * carpeta de las simuladas primera. Y se lanza con el mismo Node que corre este
@@ -21,10 +21,10 @@ import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import path from 'node:path';
 
 /** Los comandos de agente: la demo solo puede encontrar los simulados de su carpeta. */
-export const AGENT_COMMANDS = ['codex', 'opencode', 'agy', 'claude'];
+export const AGENT_COMMANDS = ['codex', 'opencode', 'agy', 'claude', 'pi'];
 
-/** Los ids de las CLIs que el servidor de la demo tiene que ver: las cuatro simuladas. */
-export const SIMULATED_AGENT_IDS = ['claude-code', 'codex', 'opencode', 'antigravity'];
+/** Los ids de las CLIs que el servidor de la demo tiene que ver: las cinco simuladas. */
+export const SIMULATED_AGENT_IDS = ['claude-code', 'codex', 'opencode', 'antigravity', 'pi'];
 
 /** Lo que la demo necesita del `PATH` real: el panel de git de las capturas. */
 export const REQUIRED_COMMANDS = ['git'];
@@ -166,13 +166,16 @@ export function demoEnvironment(base, { home, bin, mainCwd, platform = process.p
     'OPENCODE_CONFIG',
     'OPENCODE_CONFIG_DIR',
     'OPENCODE_CONFIG_CONTENT',
+    // Pi (hito 43): con cualquiera de las dos, la demo leeria las sesiones de verdad.
+    'PI_CODING_AGENT_DIR',
+    'PI_CODING_AGENT_SESSION_DIR',
   ]) set(key, undefined);
   for (const [key, value] of Object.entries(env)) if (value === undefined) delete env[key];
   return env;
 }
 
 /**
- * Lanza si el servidor de la demo no vio exactamente las cuatro CLIs simuladas:
+ * Lanza si el servidor de la demo no vio exactamente las cinco CLIs simuladas:
  * con una de mas, una CLI que no es de la demo; con una de menos, el menu y la
  * barra saldrian sin ella, o con el cartel de "no encontrada".
  */

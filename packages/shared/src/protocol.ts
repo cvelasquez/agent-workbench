@@ -1597,8 +1597,13 @@ export interface ServerSessionContinuedMessage {
 }
 
 /** Por que llega un texto al cuadro de escritura. */
-export type ComposerPrefillReason = 'no-delivery' | 'not-ready' | 'send-failed';
-export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = ['no-delivery', 'not-ready', 'send-failed'];
+export type ComposerPrefillReason = 'no-delivery' | 'not-ready' | 'send-failed' | 'returned-by-cli';
+export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
+  'no-delivery',
+  'not-ready',
+  'send-failed',
+  'returned-by-cli',
+];
 
 /**
  * Texto para el cuadro de escritura de una pestana. **Nunca se manda solo**: lo
@@ -1607,6 +1612,10 @@ export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = ['no-d
  *  - `no-delivery`: la CLI no tiene como recibirlo sin teclear a ciegas.
  *  - `not-ready`: se iba a mandar y la CLI no llego a estar lista a tiempo.
  *  - `send-failed`: se intento mandar y fallo.
+ *  - `returned-by-cli`: un mensaje que se mando con el agente trabajando y que
+ *    la CLI no llego a entregar: al interrumpir lo devolvio a su editor, la app
+ *    lo saco de ahi y lo trae de vuelta (hito 43, §16.5). Un cliente anterior
+ *    no conoce el motivo y descarta el mensaje.
  */
 export interface ServerComposerPrefillMessage {
   type: 'composer.prefill';

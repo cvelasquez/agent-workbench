@@ -845,10 +845,12 @@ try {
   const status12c = await inspectMemory(c1, home);
   const reach12c = reachOf(status12c);
   check(
-    'los dos: llegan las cuatro, en orden',
-    status12c.reach.map((r) => r.agent).join(',') === 'claude-code,codex,antigravity,opencode' &&
+    'los dos: llegan las cinco, en orden',
+    status12c.reach.map((r) => r.agent).join(',') === 'claude-code,codex,antigravity,opencode,pi' &&
       Object.values(reach12c).every((value) => value.startsWith('si:')) &&
-      reach12c.opencode === 'si:AGENTS.md',
+      reach12c.opencode === 'si:AGENTS.md' &&
+      // Pi busca como OpenCode: `AGENTS.md` primero (hito 43).
+      reach12c.pi === 'si:AGENTS.md',
     JSON.stringify(reach12c),
   );
   await rm(path.join(c12a, '.agents', 'memory', 'MEMORY.md'));
@@ -856,13 +858,16 @@ try {
 
   const fragments = status12c.globalFragments;
   check(
-    'fragmentos globales: los cuatro, sin escribir nada',
-    fragments.length === 4 &&
+    'fragmentos globales: los cinco, sin escribir nada',
+    fragments.length === 5 &&
       fragments[0].text === '@~/.agents/global.md' &&
       fragments[1].kind === 'command' && fragments[1].text.includes(path.join(home, '.codex', 'AGENTS.md')) &&
       fragments[2].text.includes(path.join(home, '.gemini', 'GEMINI.md')) &&
       fragments[3].text === `"instructions": ["${home.replace(/\\/g, '/')}/.agents/global.md"]` &&
-      !(await exists(path.join(home, '.agents'))),
+      // Pi (hito 43): un enlace duro a sus instrucciones de usuario, como Codex.
+      fragments[4].agent === 'pi' && fragments[4].kind === 'command' &&
+      fragments[4].text.includes(path.join(home, '.pi', 'agent', 'AGENTS.md')) &&
+      !(await exists(path.join(home, '.agents'))) && !(await exists(path.join(home, '.pi'))),
     JSON.stringify(fragments.map((f) => f.text)),
   );
 

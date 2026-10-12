@@ -67,14 +67,17 @@ import {
   ANSWER_INVALID_TEXT,
   ANSWER_KEY_INTERVAL_MS,
   ANSWER_NOT_PENDING_TEXT,
+  CLEAR_EDITOR,
   answerFailureText,
   buildAnswerKeys,
   buildInterruptKeys,
   buildSubmissionWrites,
   planModeChange,
+  submissionPayload,
   submitRefusal,
   submitStartDelayMs,
 } from './pty-input.js';
+import { QueuedSubmitBook, reclaimQueuedSubmits } from './queued-submits.js';
 import type { RepoHub } from './repo-hub.js';
 import { revealPath } from './reveal.js';
 import type { SessionIndex } from './session-index.js';
@@ -172,6 +175,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     `terminal-write-queue.ts`.
   */
   const writeQueue = new TerminalWriteQueue();
+
+  /*
+    Lo que el cuadro le mando a cada pestana de una CLI que devuelve a su editor
+    los mensajes en cola al interrumpir (hito 43, `queued-submits.ts`). Con las
+    demas CLIs no se anota nada.
+  */
+  const queuedSubmits = new QueuedSubmitBook();
 
   // noServer: manejamos el upgrade a mano para no pisarnos con el WebSocket de
   // HMR de Vite, que vive en el mismo servidor HTTP.
@@ -338,12 +348,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     terminalId: TerminalId,
     activity: TerminalActivity,
     offlineReason: TerminalOfflineReason | null,
-  ): void =>
+  ): void => {
+    // Libre o sin proceso: el turno termino solo y lo que habia en cola ya se entrego.
+    if (activity === 'idle' || activity === 'offline') queuedSubmits.forget(terminalId);
     broadcast(
       offlineReason === null
         ? { type: 'terminal.activity', terminalId, activity }
         : { type: 'terminal.activity', terminalId, activity, offlineReason },
     );
+  };
 
   const onIndexStatus = (status: IndexStatus): void =>
     broadcast({ type: 'index.status', status });
@@ -459,6 +472,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.drop(terminalId);
     repos.drop(terminalId);
     memory.drop(terminalId);
+    queuedSubmits.drop(terminalId);
     // Las imagenes que se pegaron en esta pestana ya no le sirven a nadie: la
     // conversacion que las nombraba se fue con ella. Y el transcript de una
     // continuacion, tampoco (hito 29, D17).
@@ -786,6 +800,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           if (!registry.write(message.terminalId, message.data) && registry.get(message.terminalId) === null) {
             sendError(socket, 'unknown-terminal', serverText('terminalGone'));
           }
+          // Un Ctrl+C tecleado cuenta para la separacion de la tecla de vaciar (hito 43).
+          if (message.data.includes(CLEAR_EDITOR)) queuedSubmits.noteClearKey(message.terminalId, Date.now());
           break;
 
         /*
@@ -1007,6 +1023,18 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 { startAfterMs },
               );
               settle(outcome === 'written');
+              /*
+                Con la CLI que devuelve a su editor lo que tenia en cola al
+                interrumpir (hito 43), se anota lo que llego hasta el Enter: es
+                lo que una interrupcion puede tener que recuperar.
+              */
+              if (outcome === 'written' && message.send !== false && submitting?.queuedSubmits !== undefined) {
+                queuedSubmits.note(
+                  terminalId,
+                  submissionPayload(fullText, imagePaths, input.imageReference) ?? fullText,
+                  Date.now(),
+                );
+              }
               if (outcome === 'interrupted') interrupted();
               if (outcome === 'blocked') {
                 const waitingNow = blocksWhileWaiting && registry.activityOf(terminalId) === 'waiting';
@@ -1247,6 +1275,54 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           writeQueue.interrupt(message.terminalId);
           const [first, ...rest] = buildInterruptKeys(inputOf(message.terminalId).interruptPresses);
           if (first === undefined || !writeToTerminal(socket, message.terminalId, first)) break;
+          /*
+            Una CLI que al interrumpir devuelve a su editor lo que tenia en cola
+            (hito 43): cuando su historial cierre el turno, se vacia ese editor y
+            el texto vuelve al cuadro. La lista se toma ya, antes de que el
+            aviso de "libre" la olvide, y el trabajo va por la fila sin dejarse
+            cortar: un envio que llegue justo despues cae detras de la tecla.
+          */
+          const reclaimFrom = adapterOf(message.terminalId)?.queuedSubmits;
+          if (reclaimFrom !== undefined) {
+            const reclaimId = message.terminalId;
+            const taken = queuedSubmits.take(reclaimId);
+            const interruptedAt = Date.now();
+            if (taken.length > 0) {
+              void writeQueue.enqueue(
+                reclaimId,
+                async () => {
+                  const outcome = await reclaimQueuedSubmits({
+                    source: reclaimFrom,
+                    target: () => {
+                      const tab = registry.get(reclaimId);
+                      return tab === null || !tab.alive || tab.sessionId.length === 0
+                        ? null
+                        : { cwd: tab.cwd, sessionId: tab.sessionId };
+                    },
+                    submissions: taken,
+                    interruptedAt,
+                    lastClearKeyAt: () => queuedSubmits.lastClearKeyAt(reclaimId),
+                    writeClearKey: () => {
+                      if (!registry.write(reclaimId, CLEAR_EDITOR)) return false;
+                      queuedSubmits.noteClearKey(reclaimId, Date.now());
+                      return true;
+                    },
+                    prefill: (returned) =>
+                      send(socket, {
+                        type: 'composer.prefill',
+                        terminalId: reclaimId,
+                        text: returned,
+                        reason: 'returned-by-cli',
+                      }),
+                    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                    now: Date.now,
+                  });
+                  debugLog('write', `queued messages of ${reclaimId.slice(0, 8)} after an interrupt: ${outcome}`);
+                },
+                { interruptible: false },
+              );
+            }
+          }
           /*
             Una CLI que pide mas de un Esc: el resto va por la fila, espaciado,
             y sin dejarse cortar. Por la fila para que un envio que llegue

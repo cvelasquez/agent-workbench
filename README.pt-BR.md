@@ -8,8 +8,8 @@
 [English](README.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · **Português (Brasil)** · [Русский](README.ru.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
 **Uma bancada de trabalho visual para os agentes de código que você já usa: as
-CLIs do Claude Code, Codex, OpenCode e Antigravity.** Roda no seu computador e
-abre no seu navegador. Usa as CLIs que você já tem instaladas e com login feito,
+CLIs do Claude Code, Codex, OpenCode, Antigravity e Pi.** Roda no seu computador
+e abre no seu navegador. Usa as CLIs que você já tem instaladas e com login feito,
 nunca toca nas suas credenciais e não faz nenhuma chamada de rede por conta
 própria.
 
@@ -22,9 +22,9 @@ npx agent-workbench
 ## Como funciona
 
 O Agent Workbench não fala com nenhum serviço de IA. Ele inicia a CLI que você já
-tem — `claude`, `codex`, `opencode` ou `agy` — dentro de um terminal de verdade,
-e adiciona em volta dela o que um terminal sozinho não oferece: abas, as suas
-conversas anteriores, a conversa como cartões fáceis de ler, um medidor de
+tem — `claude`, `codex`, `opencode`, `agy` ou `pi` — dentro de um terminal de
+verdade, e adiciona em volta dela o que um terminal sozinho não oferece: abas, as
+suas conversas anteriores, a conversa como cartões fáceis de ler, um medidor de
 contexto, os arquivos que mudaram e uma árvore de arquivos.
 
 O terminal continua sendo o terminal: tudo o que você digita vai direto para a
@@ -68,20 +68,20 @@ um [app de Android](#o-app-de-android).
 Cada sessão e cada aba mostra um pequeno selo com a CLI dela, e o `+` de nova aba
 deixa você escolher qual abrir. Com uma única CLI, nada disso aparece.
 
-<img src="assets/captura-clis.png" width="45%" alt="A barra lateral de projetos com sessões de várias CLIs, cada uma com o seu selo, e o menu + com as quatro CLIs e as versões delas">
+<img src="assets/captura-clis.png" width="45%" alt="A barra lateral de projetos com sessões de várias CLIs, cada uma com o seu selo, e o menu + com as cinco CLIs e as versões delas">
 
 **Nem toda CLI compartilha as mesmas informações**, então alguns recursos
 dependem da CLI:
 
-| | Claude Code | Codex | OpenCode | Antigravity CLI |
-|---|:---:|:---:|:---:|:---:|
-| Ponto da aba: trabalhando, ocioso, esperando por você | ✓ | — | ✓ ¹ | ✓ ² |
-| Responder às perguntas do agente pela conversa | ✓ | — | ✓ ¹ | — |
-| Medidor de contexto | ✓ | ✓ | ✓ | ✓ ² |
-| Seletores de modo e de modelo | ✓ | — | — | ✓ |
-| Colar imagens | ✓ | ✓ | ✓ | — |
-| Aba Planos | ✓ | — | — | — |
-| Enviar uma nota para uma nova conversa | ✓ | — | — | — |
+| | Claude Code | Codex | OpenCode | Antigravity CLI | Pi |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Ponto da aba: trabalhando, ocioso, esperando por você | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
+| Responder às perguntas do agente pela conversa | ✓ | — | ✓ ¹ | — | — |
+| Medidor de contexto | ✓ | ✓ | ✓ | ✓ ² | ✓ |
+| Seletores de modo e de modelo | ✓ | — | — | ✓ | ✓ ³ |
+| Colar imagens | ✓ | ✓ | ✓ | — | ✓ ³ |
+| Aba Planos | ✓ | — | — | — | — |
+| Enviar uma nota para uma nova conversa | ✓ | — | — | — | — |
 
 Para o resto, o terminal da própria CLI está sempre lá: onde há um "—", as
 perguntas, por exemplo, são respondidas nele.
@@ -90,6 +90,9 @@ perguntas, por exemplo, são respondidas nele.
 ([detalhes](#seus-dados-e-segurança)).
 ² Só se você configurar a status line da CLI
 ([como](#antigravity-cli-status-e-medidor-de-contexto)).
+³ O Pi não tem modos de permissão: os seletores dele são o modelo e o nível de
+raciocínio. E ele não anexa o que você cola: uma imagem vai como um caminho de
+arquivo que o próprio modelo abre.
 
 ---
 
@@ -108,6 +111,7 @@ perguntas, por exemplo, são respondidas nele.
 | Codex | `codex` | [guia](https://learn.chatgpt.com/docs/codex/cli) |
 | OpenCode | `opencode` | [documentação](https://opencode.ai/docs/) |
 | Antigravity CLI | `agy` | [guia](https://antigravity.google/docs/cli/getting-started) |
+| Pi | `pi` | [pi.dev](https://pi.dev) |
 
 O Agent Workbench não inclui nem baixa nenhuma CLI: ele encontra as que estão no
 seu `PATH`. Se não houver nenhuma, ele avisa e não abre sessões.
@@ -173,7 +177,7 @@ Windows Terminal.
 ### Memória compartilhada entre CLIs
 
 Cada CLI guarda o que aprende sobre um projeto no seu próprio canto, e as outras
-não conseguem ver. A aba **Memória** configura uma única memória para as quatro:
+não conseguem ver. A aba **Memória** configura uma única memória para todas elas:
 notas na pasta `.agents/memory/` do projeto, que todas as CLIs leem e escrevem —
 daqui ou do próprio terminal — por meio de `AGENTS.md` e `CLAUDE.md`. A aba
 começa oculta: mostre-a em ⚙ Configurações.
@@ -183,7 +187,7 @@ nada é alterado até você confirmar. Ao configurar, a memória que o Claude Co
 já tinha para esse projeto é importada. O app não edita as configurações globais
 de cada CLI: ele mostra o trecho para você mesmo colar.
 
-<img src="assets/captura-memoria.png" width="70%" alt="A aba Memória com a ponte instalada para as quatro CLIs e as notas importadas">
+<img src="assets/captura-memoria.png" width="70%" alt="A aba Memória com a ponte instalada para as cinco CLIs e as notas importadas">
 
 ### Backup do seu histórico
 
@@ -393,10 +397,14 @@ no celular e as permissões que ele pede estão em [`PRIVACY.md`](PRIVACY.md).
 
 ## Seus dados e segurança
 
-- **Nada sai do seu computador.** Sem telemetria, sem analytics, sem chamadas de
-  rede por conta própria. Só as CLIs falam com o provedor de IA delas,
-  exatamente como fariam se você as abrisse manualmente. O app de Android só
-  fala com o seu computador.
+- **O Agent Workbench não envia nada para lugar nenhum.** Sem telemetria, sem
+  analytics, sem chamadas de rede por conta própria. O app de Android só fala
+  com o seu computador.
+- **Cada CLI continua fazendo por conta própria o que faria se você a abrisse
+  manualmente:** ela fala com o provedor de IA dela, e pode verificar se há
+  atualizações ou enviar os próprios dados de uso. O Agent Workbench não
+  acrescenta nada a isso, e também não desativa isso: ele não altera as
+  configurações de nenhuma CLI. O que cada CLI envia está na documentação dela.
 - **Nunca toca nas suas credenciais.** Não há tela de login: se uma CLI pedir
   para você fazer login, você faz no próprio terminal dela, e o app nem fica
   sabendo.
@@ -419,6 +427,7 @@ no celular e as permissões que ele pede estão em [`PRIVACY.md`](PRIVACY.md).
 | Codex | De `~/.codex/` (ou `CODEX_HOME`): `sessions/` e `archived_sessions/` | `auth.json`, `config.toml` ou os bancos `*.sqlite` dele |
 | OpenCode | O banco `opencode.db`, aberto em modo somente leitura, e dele só as sessões, as mensagens e as partes; e o catálogo de modelos da CLI, para o tamanho da janela de contexto | `auth.json`, `opencode.json` ou as tabelas de contas, credenciais, permissões e sessões compartilhadas |
 | Antigravity CLI | De `~/.gemini/antigravity-cli/`: as transcrições de cada conversa, `history.jsonl`, a última conversa de cada pasta, o modelo e a status line do `settings.json`, e uma **cópia** temporária do índice de conversas; de `~/.gemini/config/projects/`, a pasta de cada projeto | A configuração de MCP dele, a entrada no chaveiro do sistema, o conteúdo de `conversations/` e `~/.gemini/antigravity/`, que é o IDE dele |
+| Pi | De `~/.pi/agent/` (ou `PI_CODING_AGENT_DIR`): as sessões em `sessions/`, e `models-store.json`, o catálogo de modelos dele, para o tamanho da janela de contexto e o seletor de modelo. Do pacote instalado do Pi: o `package.json` dele, para saber a versão sem executar o Pi, e a lista de modelos que vem embutida nele | `auth.json`, `models.json`, `settings.json` ou a configuração de MCP dele |
 
 Os [importadores do backup](#backup-do-seu-histórico), quando você os executa,
 também leem o que a seção deles diz. A lista completa, arquivo por arquivo, está
@@ -454,6 +463,12 @@ na linha de comando (`attach --password`), onde outros programas rodando com o
 seu usuário podem vê-la. Ela só serve para aquele servidor e deixa de funcionar
 quando você fecha o app.
 
+**O que o Pi envia por conta própria.** Ao iniciar, o Pi consulta o pi.dev para
+saber a versão mais recente e o catálogo de modelos dele, e informa lá cada
+instalação e cada atualização. Você desativa esse envio no Pi, não aqui:
+`enableInstallTelemetry: false` nas configurações do Pi, ou a variável de
+ambiente `PI_TELEMETRY=0`.
+
 **O que o app grava:**
 
 - **Na própria pasta de configuração:** as abas abertas, o cache do índice, as
@@ -481,10 +496,20 @@ quando você fecha o app.
 ## Solução de problemas
 
 **"O comando "claude" não foi encontrado no PATH", seguido de "Também funciona
-com: …"** — o app não encontrou nenhuma das quatro CLIs. Confira com
+com: …"** — o app não encontrou nenhuma das CLIs. Confira com
 `where claude` no Windows (`which claude` nos outros sistemas), e o mesmo com
-`codex`, `opencode` ou `agy`. As CLIs são procuradas na inicialização: se você
-instalou uma com o app aberto, reinicie-o.
+`codex`, `opencode`, `agy` ou `pi`. As CLIs são procuradas na inicialização: se
+você instalou uma com o app aberto, reinicie-o.
+
+**O Pi está instalado, mas o app não o vê.** O app não executa o `pi` para
+encontrá-lo: ele lê a versão no pacote do Pi, ao lado do comando. Isso funciona
+quando o Pi foi instalado com o npm ou com o instalador do pi.dev; um binário
+`pi` avulso não é reconhecido. E, se outro programa chamado `pi` vier antes no
+seu `PATH`, o app o ignora e avisa isso no próprio console.
+
+**Em uma aba do Pi, a caixa de mensagem diz que a CLI está aguardando uma
+resposta sua.** O Pi está perguntando se deve confiar na pasta do projeto.
+Responda na aba **CLI**: o app nunca responde a isso por você.
 
 **O histórico do OpenCode não aparece.** Olhe a linha `History` quando o app
 inicia. Se ela diz que essa versão do Node não inclui `node:sqlite`, atualize o
@@ -619,5 +644,6 @@ próxima.
 MIT. Veja [`LICENSE`](LICENSE).
 
 O Agent Workbench é um projeto independente. Ele funciona com as CLIs do
-Claude Code, Codex, OpenCode e Antigravity, mas não é afiliado à Anthropic, à
-OpenAI, aos autores do OpenCode nem ao Google, nem é endossado por eles.
+Claude Code, Codex, OpenCode, Antigravity e Pi, mas não é afiliado à Anthropic,
+à OpenAI, aos autores do OpenCode, ao Google nem à Earendil, nem é endossado por
+eles.

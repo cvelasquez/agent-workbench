@@ -4,6 +4,41 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## Unreleased
+
+### Added
+
+- **Pi is the fifth CLI.** If you have [Pi](https://pi.dev) installed and
+  logged in, it gets what the others have: tabs, its past sessions in the
+  sidebar, the conversation as cards, the tab dot, the context meter, backup,
+  search and "Continue with…" in both directions. The conversation follows the
+  active branch of Pi's session tree, and a tab follows Pi when `/new`,
+  `/fork` or `/resume` moves it to another session.
+  - **Model and thinking-level pickers.** The models are the ones of your Pi
+    account; Pi has no permission modes.
+  - **Pasted images.** Pi doesn't attach what you paste, so an image travels as
+    a file path that the model opens itself.
+  - **The app doesn't run `pi` to find it:** it reads the version from Pi's
+    package. That works with npm and with the pi.dev installer; a standalone
+    `pi` binary isn't recognized.
+  - **Pi's "Trust project folder?" question is never answered for you.** While
+    it's open, the tab says the CLI is waiting and the message box doesn't
+    send: the message's Enter would accept it. Answer it in the CLI tab.
+  - **A queued message isn't lost when you interrupt.** If you interrupt Pi
+    before it delivers a message you sent while it was working, Pi puts that
+    message back in its own editor. The app clears it there and returns the
+    text to the message box, unsent, so the next message doesn't go out glued
+    to it.
+  - Shared memory reaches Pi through `AGENTS.md`.
+
+### Changed
+
+- **The README says what the CLIs do on their own.** Agent Workbench sends
+  nothing anywhere and doesn't change any CLI's settings; a CLI may still check
+  for updates or send its own usage data, as it would if you opened it by hand.
+- With no CLI installed, the notice also names Pi. And `~/.pi` no longer shows
+  in the "New project" folder picker, installed or not.
+
 ## 0.5.4 — 2026-10-12
 
 ### Added

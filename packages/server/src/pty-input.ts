@@ -69,6 +69,16 @@ const END_KEY = '\x1b[F';
 export const INTERRUPT = '\x1b';
 
 /**
+ * Ctrl+C. Vacia el editor de la CLI que declara `queuedSubmits` (hito 43).
+ *
+ * No es una interrupcion: con Pi, medido, borra lo que haya en su editor y no
+ * la cierra, y con el editor vacio no hace nada. **Dos seguidos si la cierran**
+ * (a menos de 500 ms), y por eso quien la manda la separa de cualquier otra,
+ * tambien de las que teclee el usuario (`queued-submits.ts`).
+ */
+export const CLEAR_EDITOR = '\x03';
+
+/**
  * Tope de lo que se acepta en un envio.
  *
  * No es un limite de la CLI —pega archivos enteros sin quejarse— sino una
@@ -125,6 +135,18 @@ const IMAGE_REFERENCE_BUILDERS: Record<ImageReferenceStyle, (absolutePath: strin
   // La ruta sola: la CLI adjunta si el pegado entero es la ruta de una imagen.
   // Sin comillas, porque las comillas harian que ya no lo fuera.
   'bare-path-paste': (absolutePath) => absolutePath,
+  // Una linea por imagen, en ingles como todo lo que se le dice a una CLI: la
+  // CLI no adjunta nada y el modelo abre la ruta con su herramienta de lectura.
+  'quoted-path-line': (absolutePath) => `Attached image: "${absolutePath}"`,
+};
+
+/**
+ * Como se separan las referencias a imagenes entre si y del texto, cuando van
+ * todas en el mismo pegado. `at-quoted` las pone en la misma linea, como
+ * siempre; `quoted-path-line`, cada una en la suya y el texto debajo.
+ */
+const IMAGE_REFERENCE_SEPARATORS: Partial<Record<ImageReferenceStyle, string>> = {
+  'quoted-path-line': '\n',
 };
 
 // ---------------------------------------------------------------------------
@@ -477,13 +499,36 @@ export function buildSubmission(
 }
 
 /** Adjuntos y texto en un solo pegado, recortado. null si no queda nada. */
-function joinedPayload(text: string, attachments: readonly string[]): string | null {
+function joinedPayload(text: string, attachments: readonly string[], separator = ' '): string | null {
   const pieces: string[] = [...attachments];
   const clean = sanitizeForPaste(text).trim();
   if (clean.length > 0) pieces.push(clean);
 
-  const payload = pieces.join(' ').slice(0, MAX_SUBMIT_CHARS);
+  const payload = pieces.join(separator).slice(0, MAX_SUBMIT_CHARS);
   return payload.length === 0 ? null : payload;
+}
+
+/**
+ * El texto de un envio tal como queda pegado, sin marcadores ni Enter: lo que
+ * la CLI va a guardar como mensaje. null si no hay nada que mandar, o si hay
+ * imagenes y la CLI las recibe cada una en su propio pegado (`bare-path-paste`),
+ * donde no hay un solo texto que lo diga todo.
+ *
+ * Existe para quien tiene que reconocer despues ese mensaje en el historial, o
+ * devolverselo al cuadro (hito 43, `queued-submits.ts`).
+ */
+export function submissionPayload(
+  text: string,
+  imagePaths: readonly string[],
+  style: ImageReferenceStyle | null,
+): string | null {
+  if (imagePaths.length > 0 && (style === null || style === 'bare-path-paste')) return null;
+  const effective = style ?? 'at-quoted';
+  return joinedPayload(
+    text,
+    imagePaths.map((imagePath) => fileReference(imagePath, effective)),
+    IMAGE_REFERENCE_SEPARATORS[effective] ?? ' ',
+  );
 }
 
 /** Un texto ya saneado, con o sin los marcadores de pegado. */
@@ -514,6 +559,8 @@ export interface SubmissionShape {
  *    la de `buildSubmission` —adjuntos y texto en un pegado, con el Enter
  *    pegado al final—. Con marcadores es, byte por byte, lo que se escribia
  *    antes de que hubiera piezas.
+ *  - `quoted-path-line`: tambien un solo pegado, con una linea por imagen
+ *    delante del texto (hito 43). La CLI no adjunta nada: el modelo las abre.
  *  - `bare-path-paste`: un pegado por imagen con la ruta sola, despues el del
  *    texto, y el Enter como pieza aparte. Sueltas y no concatenadas: si la CLI
  *    recibe lo pegado como rafaga de teclas, dos pegados seguidos en el tiempo
@@ -541,10 +588,7 @@ export function buildSubmissionWrites(
   const submit = shape.endBeforeSubmit === true ? `${END_KEY}${SUBMIT}` : SUBMIT;
 
   if (style !== 'bare-path-paste') {
-    const payload = joinedPayload(
-      text,
-      imagePaths.map((imagePath) => fileReference(imagePath, style ?? 'at-quoted')),
-    );
+    const payload = submissionPayload(text, imagePaths, style);
     if (payload === null) return null;
     if (shape.enterSeparately === true) {
       return send ? [pasted(payload, shape.pasteMarkers), submit] : [pasted(payload, shape.pasteMarkers)];

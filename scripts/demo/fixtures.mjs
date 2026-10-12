@@ -8,7 +8,7 @@
  *                                   y la memoria nativa de un proyecto
  *   <home>/.codex, .local/share/opencode, .gemini/antigravity-cli
  *                                   historiales de las otras tres CLIs (other-clis.mjs)
- *   <configDir>/workspace.json      cuatro pestanas guardadas, una por CLI
+ *   <configDir>/workspace.json      cinco pestanas guardadas, una por CLI
  *   <bin>/claude, codex, opencode, agy (+ .cmd)
  *                                   CLIs simuladas: contestan --version y se quedan
  *
@@ -1075,8 +1075,8 @@ export function buildFixtures(dirs) {
   // --- sales-dashboard --------------------------------------------------------
   quick(ctx, DASHBOARD, 'main', 3 * DAY + 6 * HOUR, 'Monthly sales chart compared against the previous year.', 'Bars for the current year and a line for the previous one, on the same axis. Months without data are drawn at zero instead of being skipped.');
 
-  // --- Las otras tres CLIs, repartidas entre los mismos proyectos -------------
-  const { codexTab, openCodeTab, antigravityTab } = buildOtherClis({
+  // --- Las otras cuatro CLIs, repartidas entre los mismos proyectos ------------
+  const { codexTab, openCodeTab, antigravityTab, piTab } = buildOtherClis({
     home,
     bin,
     now,
@@ -1106,6 +1106,7 @@ export function buildFixtures(dirs) {
     { agent: 'codex', cwd: codexTab.cwd, sessionId: codexTab.sessionId, label: 'Validate the tax ID before issuing' },
     { agent: 'opencode', cwd: openCodeTab.cwd, sessionId: openCodeTab.sessionId, label: 'Import stock from Excel' },
     { agent: 'antigravity', cwd: antigravityTab.cwd, sessionId: antigravityTab.sessionId, label: 'Region filter for sales' },
+    { agent: 'pi', cwd: piTab.cwd, sessionId: piTab.sessionId, label: 'Booking confirmation email' },
   ];
   writeFileSync(
     path.join(dirs.configDir, 'workspace.json'),

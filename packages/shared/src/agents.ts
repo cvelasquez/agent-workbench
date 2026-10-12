@@ -44,7 +44,7 @@ import { parseServerText, type ServerText } from './server-text.js';
  * igual que una CLI no instalada. El orden es el de preferencia: con varias
  * instaladas, la que se abre por defecto sigue siendo la primera.
  */
-export const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'antigravity'] as const;
+export const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'antigravity', 'pi'] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
@@ -95,9 +95,16 @@ export function isImportedAgentId(value: string): value is ImportedAgentId {
  *  - `bare-path-paste`: cada imagen en su propio pegado, con la ruta sola y
  *    antes del texto. Es para una CLI que adjunta solo si el pegado **entero**
  *    es la ruta de una imagen, y en la que `@` abre un buscador de archivos.
+ *  - `quoted-path-line`: una linea por imagen, `Attached image: "ruta"`, antes
+ *    del texto y en su mismo pegado. Es para una CLI que no adjunta lo pegado:
+ *    el modelo abre la imagen con su herramienta de lectura (§16.5).
  */
-export type ImageReferenceStyle = 'at-quoted' | 'bare-path-paste';
-export const IMAGE_REFERENCE_STYLES: readonly ImageReferenceStyle[] = ['at-quoted', 'bare-path-paste'];
+export type ImageReferenceStyle = 'at-quoted' | 'bare-path-paste' | 'quoted-path-line';
+export const IMAGE_REFERENCE_STYLES: readonly ImageReferenceStyle[] = [
+  'at-quoted',
+  'bare-path-paste',
+  'quoted-path-line',
+];
 
 /** Como se menciona un archivo tecleandolo en la terminal. `at`: `@ruta `. */
 export type FileMentionStyle = 'at';

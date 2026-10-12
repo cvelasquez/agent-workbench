@@ -8,10 +8,10 @@
 [English](README.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Português (Brasil)](README.pt-BR.md) · [Русский](README.ru.md) · [한국어](README.ko.md) · [Français](README.fr.md) · **Deutsch**
 
 **Eine visuelle Werkbank für die Coding-Agenten, die Sie bereits nutzen: die
-CLIs von Claude Code, Codex, OpenCode und Antigravity.** Agent Workbench läuft
-auf Ihrem Computer und öffnet sich in Ihrem Browser. Es verwendet die CLIs, die
-bei Ihnen schon installiert und angemeldet sind, rührt Ihre Zugangsdaten nie an
-und stellt von sich aus keine Netzwerkanfragen.
+CLIs von Claude Code, Codex, OpenCode, Antigravity und Pi.** Agent Workbench
+läuft auf Ihrem Computer und öffnet sich in Ihrem Browser. Es verwendet die
+CLIs, die bei Ihnen schon installiert und angemeldet sind, rührt Ihre
+Zugangsdaten nie an und stellt von sich aus keine Netzwerkanfragen.
 
 ```bash
 npx agent-workbench
@@ -22,10 +22,10 @@ npx agent-workbench
 ## So funktioniert es
 
 Agent Workbench spricht mit keinem KI-Dienst. Es startet die CLI, die Sie bereits
-haben – `claude`, `codex`, `opencode` oder `agy` –, in einem echten Terminal und
-ergänzt drumherum, was ein Terminal allein nicht bietet: Tabs, Ihre früheren
-Unterhaltungen, die Unterhaltung als gut lesbare Karten, eine Kontextanzeige, die
-geänderten Dateien und einen Dateibaum.
+haben – `claude`, `codex`, `opencode`, `agy` oder `pi` –, in einem echten
+Terminal und ergänzt drumherum, was ein Terminal allein nicht bietet: Tabs, Ihre
+früheren Unterhaltungen, die Unterhaltung als gut lesbare Karten, eine
+Kontextanzeige, die geänderten Dateien und einen Dateibaum.
 
 Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 
@@ -69,20 +69,20 @@ Jede Sitzung und jeder Tab zeigt ein kleines Badge mit der jeweiligen CLI, und
 über das `+` für einen neuen Tab wählen Sie, welche geöffnet wird. Mit nur einer
 CLI sehen Sie davon nichts.
 
-<img src="assets/captura-clis.png" width="45%" alt="Die Projektliste mit Sitzungen aus mehreren CLIs, jede mit ihrem Badge, und das Menü + mit den vier CLIs und ihren Versionen">
+<img src="assets/captura-clis.png" width="45%" alt="Die Projektliste mit Sitzungen aus mehreren CLIs, jede mit ihrem Badge, und das Menü + mit den fünf CLIs und ihren Versionen">
 
 **Nicht jede CLI gibt dieselben Informationen preis**, daher hängen einige
 Funktionen von der CLI ab:
 
-| | Claude Code | Codex | OpenCode | Antigravity CLI |
-|---|:---:|:---:|:---:|:---:|
-| Punkt auf dem Tab: arbeitet, bereit, wartet auf Sie | ✓ | — | ✓ ¹ | ✓ ² |
-| Fragen des Agenten in der Unterhaltung beantworten | ✓ | — | ✓ ¹ | — |
-| Kontextanzeige | ✓ | ✓ | ✓ | ✓ ² |
-| Auswahl von Modus und Modell | ✓ | — | — | ✓ |
-| Bilder einfügen | ✓ | ✓ | ✓ | — |
-| Tab „Pläne“ | ✓ | — | — | — |
-| Notiz an eine neue Unterhaltung senden | ✓ | — | — | — |
+| | Claude Code | Codex | OpenCode | Antigravity CLI | Pi |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Punkt auf dem Tab: arbeitet, bereit, wartet auf Sie | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
+| Fragen des Agenten in der Unterhaltung beantworten | ✓ | — | ✓ ¹ | — | — |
+| Kontextanzeige | ✓ | ✓ | ✓ | ✓ ² | ✓ |
+| Auswahl von Modus und Modell | ✓ | — | — | ✓ | ✓ ³ |
+| Bilder einfügen | ✓ | ✓ | ✓ | — | ✓ ³ |
+| Tab „Pläne“ | ✓ | — | — | — | — |
+| Notiz an eine neue Unterhaltung senden | ✓ | — | — | — | — |
 
 Für alles andere ist immer das eigene Terminal der CLI da: Wo ein „—“ steht,
 beantworten Sie zum Beispiel Fragen dort.
@@ -91,6 +91,9 @@ beantworten Sie zum Beispiel Fragen dort.
 ([Details](#ihre-daten-und-sicherheit)).
 ² Nur, wenn Sie die Statuszeile von Antigravity CLI einrichten
 ([Anleitung](#antigravity-cli-status-und-kontextanzeige)).
+³ Pi hat keine Berechtigungsmodi: Auswählen lassen sich das Modell und die
+Denkstufe. Außerdem hängt Pi nicht an, was Sie einfügen: Ein Bild wird als
+Dateipfad übergeben, den das Modell selbst öffnet.
 
 ---
 
@@ -109,6 +112,7 @@ beantworten Sie zum Beispiel Fragen dort.
 | Codex | `codex` | [Anleitung](https://learn.chatgpt.com/docs/codex/cli) |
 | OpenCode | `opencode` | [Dokumentation](https://opencode.ai/docs/) |
 | Antigravity CLI | `agy` | [Anleitung](https://antigravity.google/docs/cli/getting-started) |
+| Pi | `pi` | [pi.dev](https://pi.dev) |
 
 Agent Workbench enthält keine CLI und lädt auch keine herunter: Es findet die,
 die in Ihrem `PATH` liegen. Gibt es keine, sagt es Ihnen das und öffnet keine
@@ -178,7 +182,7 @@ Konsole unten fügt `Ctrl+V` unter Windows Text ein, wie im Windows Terminal.
 
 Jede CLI legt das, was sie über ein Projekt lernt, an ihrem eigenen Ort ab, und
 die anderen sehen es nicht. Der Tab **Gedächtnis** richtet ein Gedächtnis für
-alle vier ein: Notizen im Ordner `.agents/memory/` des Projekts, die jede CLI –
+sie alle ein: Notizen im Ordner `.agents/memory/` des Projekts, die jede CLI –
 von hier oder aus ihrem eigenen Terminal – über `AGENTS.md` und `CLAUDE.md`
 liest und schreibt. Der Tab ist anfangs ausgeblendet: Blenden Sie ihn über
 ⚙ Einstellungen ein.
@@ -189,7 +193,7 @@ importiert, das Claude Code für dieses Projekt bereits hatte. Die globalen
 Einstellungen der einzelnen CLIs ändert die App nicht: Sie gibt Ihnen das
 Snippet, das Sie selbst einfügen.
 
-<img src="assets/captura-memoria.png" width="70%" alt="Der Tab „Gedächtnis“ mit der für die vier CLIs installierten Brücke und den importierten Notizen">
+<img src="assets/captura-memoria.png" width="70%" alt="Der Tab „Gedächtnis“ mit der für die fünf CLIs installierten Brücke und den importierten Notizen">
 
 ### Sicherung Ihrer Historie
 
@@ -416,10 +420,15 @@ speichert und welche Berechtigungen sie anfordert, steht in
 
 ## Ihre Daten und Sicherheit
 
-- **Nichts verlässt Ihren Computer.** Keine Telemetrie, keine Nutzungsanalyse,
-  keine eigenen Netzwerkanfragen. Nur die CLIs sprechen mit ihrem KI-Anbieter,
-  genau wie wenn Sie sie von Hand öffnen würden. Die Android-App spricht nur mit
-  Ihrem Computer.
+- **Agent Workbench sendet nichts, nirgendwohin.** Keine Telemetrie, keine
+  Nutzungsanalyse, keine eigenen Netzwerkanfragen. Die Android-App spricht nur
+  mit Ihrem Computer.
+- **Jede CLI tut von sich aus weiterhin, was sie auch täte, wenn Sie sie von
+  Hand öffnen würden:** Sie spricht mit ihrem KI-Anbieter, und sie sucht
+  möglicherweise nach Updates oder sendet ihre eigenen Nutzungsdaten. Agent
+  Workbench fügt dem nichts hinzu und schaltet es auch nicht ab: Es ändert die
+  Einstellungen keiner CLI. Was jede CLI sendet, steht in ihrer eigenen
+  Dokumentation.
 - **Die App rührt Ihre Zugangsdaten nie an.** Es gibt keinen Anmeldebildschirm:
   Wenn eine CLI Sie zur Anmeldung auffordert, melden Sie sich in ihrem eigenen
   Terminal an, und die App bekommt davon nicht einmal etwas mit.
@@ -443,6 +452,7 @@ speichert und welche Berechtigungen sie anfordert, steht in
 | Codex | Aus `~/.codex/` (oder `CODEX_HOME`): `sessions/` und `archived_sessions/` | `auth.json`, `config.toml` oder die `*.sqlite`-Datenbanken |
 | OpenCode | Die Datenbank `opencode.db`, im Nur-Lese-Modus geöffnet, und daraus nur die Sitzungen, Nachrichten und Teile; dazu der Modellkatalog, für die Größe des Kontextfensters | `auth.json`, `opencode.json` oder die Tabellen für Konten, Zugangsdaten, Berechtigungen und geteilte Sitzungen |
 | Antigravity CLI | Aus `~/.gemini/antigravity-cli/`: die Transkripte jeder Unterhaltung, `history.jsonl`, die letzte Unterhaltung jedes Ordners, Modell und Statuszeile aus `settings.json` und eine temporäre **Kopie** ihres Unterhaltungsindex; aus `~/.gemini/config/projects/` der Ordner jedes Projekts | Die MCP-Konfiguration der CLI, ihr Eintrag im Schlüsselbund des Systems, der Inhalt von `conversations/` und `~/.gemini/antigravity/`, der Ordner ihrer IDE |
+| Pi | Aus `~/.pi/agent/` (oder `PI_CODING_AGENT_DIR`): die Sitzungen in `sessions/`, dazu `models-store.json`, der Modellkatalog, für die Größe des Kontextfensters und die Modellauswahl. Aus dem installierten Pi-Paket: dessen `package.json`, um die Version zu erfahren, ohne Pi auszuführen, und die eingebaute Modellliste | `auth.json`, `models.json`, `settings.json` oder die MCP-Konfiguration |
 
 Die [Importer der Sicherung](#sicherung-ihrer-historie) lesen außerdem, wenn Sie
 sie ausführen, was in ihrem Abschnitt steht. Die vollständige Liste, Datei für
@@ -482,6 +492,12 @@ seiner Befehlszeile (`attach --password`), wo andere Programme, die unter Ihrem
 Benutzer laufen, es sehen können. Es gilt nur für diesen Server und wird
 ungültig, wenn Sie die App schließen.
 
+**Was Pi von sich aus sendet.** Beim Start fragt Pi bei pi.dev die neueste
+Version und den Modellkatalog ab und meldet dort jede Installation und jedes
+Update. Diese Meldung schalten Sie in Pi ab, nicht hier: mit
+`enableInstallTelemetry: false` in den Einstellungen von Pi oder mit der
+Umgebungsvariable `PI_TELEMETRY=0`.
+
 **Was die App schreibt:**
 
 - **In ihren eigenen Konfigurationsordner:** die offenen Tabs, den Index-Cache,
@@ -511,10 +527,21 @@ ungültig, wenn Sie die App schließen.
 ## Fehlerbehebung
 
 **„Der Befehl ‚claude‘ wurde im PATH nicht gefunden“, gefolgt von „Funktioniert
-auch mit: …“** – die App hat keine der vier CLIs gefunden. Prüfen Sie das mit
+auch mit: …“** – die App hat keine der CLIs gefunden. Prüfen Sie das mit
 `where claude` unter Windows (`which claude` auf anderen Systemen) und ebenso mit
-`codex`, `opencode` oder `agy`. Die CLIs werden beim Start gesucht: Wenn Sie eine
-installiert haben, während die App offen war, starten Sie die App neu.
+`codex`, `opencode`, `agy` oder `pi`. Die CLIs werden beim Start gesucht: Wenn Sie
+eine installiert haben, während die App offen war, starten Sie die App neu.
+
+**Pi ist installiert, aber die App sieht es nicht.** Die App führt `pi` nicht
+aus, um es zu finden: Sie liest die Version aus dem Paket von Pi, neben dem
+Befehl. Das funktioniert, wenn Pi mit npm oder mit dem Installer von pi.dev
+installiert wurde; eine eigenständige `pi`-Binärdatei wird nicht erkannt. Und
+wenn in Ihrem `PATH` zuerst ein anderes Programm namens `pi` steht, ignoriert
+die App es und sagt das in ihrer Konsole.
+
+**In einem Pi-Tab meldet das Eingabefeld, dass die CLI auf eine Antwort von
+Ihnen wartet.** Pi fragt, ob es dem Projektordner vertrauen soll. Beantworten
+Sie die Frage im Tab **CLI**: Die App beantwortet sie nie für Sie.
 
 **Die Historie von OpenCode erscheint nicht.** Achten Sie beim Start der App auf
 die Zeile `History`. Steht dort, dass diese Node-Version `node:sqlite` nicht
@@ -656,6 +683,6 @@ und dann erst wieder mit der nächsten Version.
 MIT. Siehe [`LICENSE`](LICENSE).
 
 Agent Workbench ist ein unabhängiges Projekt. Es funktioniert mit den CLIs von
-Claude Code, Codex, OpenCode und Antigravity, steht aber in keiner Verbindung zu
-Anthropic, OpenAI, den Autoren von OpenCode oder Google und wird von ihnen auch
-nicht befürwortet.
+Claude Code, Codex, OpenCode, Antigravity und Pi, steht aber in keiner
+Verbindung zu Anthropic, OpenAI, den Autoren von OpenCode, Google oder Earendil
+und wird von ihnen auch nicht befürwortet.

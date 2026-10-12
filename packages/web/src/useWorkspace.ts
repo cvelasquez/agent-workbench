@@ -78,7 +78,7 @@ export interface HandoffNotice {
   /** `sending`: el servidor la esta mandando sola. `prefilled`: quedo en el cuadro. */
   delivery: HandoffDelivery;
   /** Por que quedo en el cuadro, si quedo; null mientras se manda sola. */
-  prefillReason: ComposerPrefillReason | null;
+  prefillReason: Exclude<ComposerPrefillReason, 'returned-by-cli'> | null;
 }
 
 /** Un texto que llego para el cuadro de una pestana y todavia no se aplico. */
@@ -181,6 +181,13 @@ export interface Workspace {
   handoffs: ReadonlyMap<TerminalId, HandoffNotice>;
   /** Cierra el aviso de una pestana: con la ×, o al mandar el primer mensaje. */
   dismissHandoff: (terminalId: TerminalId) => void;
+  /**
+   * Las pestanas a las que les volvio al cuadro un mensaje que su CLI no llego a
+   * entregar (hito 43, `composer.prefill` con `returned-by-cli`).
+   */
+  returnedMessages: ReadonlySet<TerminalId>;
+  /** Cierra ese aviso: con la ×, o al mandar un mensaje. */
+  dismissReturned: (terminalId: TerminalId) => void;
   /** Textos para el cuadro de escritura que llegaron del servidor, en orden. */
   prefills: readonly ComposerPrefill[];
   /** El cuadro ya aplico ese texto. */
@@ -283,6 +290,8 @@ export function useWorkspace(): Workspace {
   const [handoffs, setHandoffs] = useState<Map<TerminalId, HandoffNotice>>(new Map());
   const [prefills, setPrefills] = useState<ComposerPrefill[]>([]);
   const nextPrefillId = useRef(1);
+  /** Hito 43. Las pestanas con un mensaje devuelto al cuadro y su aviso todavia a la vista. */
+  const [returnedMessages, setReturnedMessages] = useState<Set<TerminalId>>(new Set());
 
   // Las pestanas que abrimos nosotros pasan a estar activas; las que abrio otra
   // ventana, no. Por eso se registran los requestId propios.
@@ -405,6 +414,12 @@ export function useWorkspace(): Workspace {
             }
             return next.size === current.size ? current : next;
           });
+          // Y el de un mensaje devuelto, igual.
+          setReturnedMessages((current) => {
+            if (current.size === 0) return current;
+            const next = new Set([...current].filter((id) => message.terminals.some((t) => t.terminalId === id)));
+            return next.size === current.size ? current : next;
+          });
           break;
         }
 
@@ -434,13 +449,24 @@ export function useWorkspace(): Workspace {
           const id = nextPrefillId.current;
           nextPrefillId.current += 1;
           setPrefills((current) => [...current, { id, terminalId: message.terminalId, text: message.text }]);
+          const { reason } = message;
+          /*
+            Un mensaje que la CLI no llego a entregar y volvio al cuadro (hito
+            43): no es de ninguna continuacion, y tiene su propio aviso.
+          */
+          if (reason === 'returned-by-cli') {
+            setReturnedMessages((current) =>
+              current.has(message.terminalId) ? current : new Set(current).add(message.terminalId),
+            );
+            break;
+          }
           setHandoffs((current) => {
             const notice = current.get(message.terminalId);
             if (notice === undefined) return current;
             return new Map(current).set(message.terminalId, {
               ...notice,
               delivery: 'prefilled',
-              prefillReason: message.reason,
+              prefillReason: reason,
             });
           });
           break;
@@ -724,6 +750,15 @@ export function useWorkspace(): Workspace {
     });
   }, []);
 
+  const dismissReturned = useCallback((terminalId: TerminalId) => {
+    setReturnedMessages((current) => {
+      if (!current.has(terminalId)) return current;
+      const next = new Set(current);
+      next.delete(terminalId);
+      return next;
+    });
+  }, []);
+
   const prefillApplied = useCallback((id: number) => {
     setPrefills((current) => (current.some((item) => item.id === id) ? current.filter((item) => item.id !== id) : current));
   }, []);
@@ -807,6 +842,8 @@ export function useWorkspace(): Workspace {
     continueSession,
     handoffs,
     dismissHandoff,
+    returnedMessages,
+    dismissReturned,
     prefills,
     prefillApplied,
     drafts,

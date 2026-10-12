@@ -9,8 +9,10 @@ import {
   handoffPrefillText,
   sessionAgentLabel,
   effectivePanelTab,
+  effortCommandFor,
   effortInUse,
   instructionsFileFor,
+  queueReturnedText,
   savesModelChoiceFor,
   openToolCallNotice,
   pendingApprovalNotice,
@@ -192,6 +194,8 @@ export function App(): JSX.Element {
     continueSession,
     handoffs,
     dismissHandoff,
+    returnedMessages,
+    dismissReturned,
     prefills,
     prefillApplied,
     drafts,
@@ -726,6 +730,24 @@ export function App(): JSX.Element {
                 ? handoffSendingText()
                 : null,
         };
+
+  /*
+    El aviso de un mensaje que volvio al cuadro porque la CLI no llego a
+    entregarlo (hito 43). El de una continuacion gana: es de una pestana recien
+    abierta, donde esto no puede haber pasado todavia.
+  */
+  const composerNotice =
+    handoffNotice ??
+    (activeTerminalId !== null && returnedMessages.has(activeTerminalId)
+      ? { text: queueReturnedText(activeAgentInfo?.label ?? null), status: null }
+      : null);
+  const dismissComposerNotice = useCallback(
+    (terminalId: TerminalId) => {
+      dismissHandoff(terminalId);
+      dismissReturned(terminalId);
+    },
+    [dismissHandoff, dismissReturned],
+  );
 
   const togglePanel = useCallback(() => {
     setPanelVisible((current) => {
@@ -1330,15 +1352,15 @@ export function App(): JSX.Element {
           blockedReason={blockedReason}
           prefills={prefills}
           onPrefillApplied={prefillApplied}
-          notice={handoffNotice}
-          onDismissNotice={activeTerminalId === null ? undefined : () => dismissHandoff(activeTerminalId)}
+          notice={composerNotice}
+          onDismissNotice={activeTerminalId === null ? undefined : () => dismissComposerNotice(activeTerminalId)}
           /*
             El aviso de una continuacion dura hasta el primer envio de esa
             pestana. Y el envio se sigue hasta su acuse (§6.30): lo que llegue
             al hilo despues del ultimo evento de ahora es la respuesta.
           */
           onSubmitted={(terminalId, requestId, queued) => {
-            dismissHandoff(terminalId);
+            dismissComposerNotice(terminalId);
             const { events } = conversation;
             const lastEvent = terminalId === activeTerminalId ? events[events.length - 1] : undefined;
             threadSignals.track(terminalId, requestId, lastEvent?.eventId ?? null, queued);
@@ -1367,6 +1389,7 @@ export function App(): JSX.Element {
                 modelProvisional={modelProvisional}
                 effortProvisional={effortProvisional}
                 savesChoice={savesModelChoiceFor(activeAgent)}
+                effortCommandName={effortCommandFor(activeAgent)}
                 disabled={!activeTerminal.alive}
                 onCommand={sendCommand}
               />

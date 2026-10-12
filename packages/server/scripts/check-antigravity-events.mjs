@@ -187,7 +187,7 @@ const shared = await import('@agent-workbench/shared');
   for (const entry of registry.all()) entry.location = { resolvedPath: 'C:\\bin\\x.exe', file: 'C:\\bin\\x.exe', prefixArgs: [], version: '1' };
   const listed = registry.list();
   check('15 registry.list(): statusLine null en cada CLI salvo antigravity',
-    listed.length === 4 && listed.filter((a) => a.id !== 'antigravity').every((a) => a.statusLine === null) &&
+    listed.length === 5 && listed.filter((a) => a.id !== 'antigravity').every((a) => a.statusLine === null) &&
     listed.find((a) => a.id === 'antigravity')?.statusLine !== null, show(listed.map((a) => a.statusLine)));
   check('15 las capacidades de claude-code declaran approvesPendingOnCycle false',
     listed.find((a) => a.id === 'claude-code')?.capabilities.permissionCycle?.approvesPendingOnCycle === false);
@@ -1825,8 +1825,9 @@ const statusRecord = (id, over = {}) => ({
   check('8 id, etiqueta, comando y guia de instalacion',
     adapter.id === 'antigravity' && adapter.label === 'Antigravity CLI' && adapter.command === 'agy' &&
     adapter.installUrl === 'https://antigravity.google/docs/cli/getting-started');
-  check('8 AGENT_IDS lo nombra, al final, y la memoria lo conoce',
-    shared.AGENT_IDS.at(-1) === 'antigravity' && shared.MEMORY_AGENT_IDS.includes('antigravity'));
+  // Al final hasta el hito 43, que sumo a Pi detras.
+  check('8 AGENT_IDS lo nombra, detras de las tres primeras, y la memoria lo conoce',
+    shared.AGENT_IDS.indexOf('antigravity') === 3 && shared.MEMORY_AGENT_IDS.includes('antigravity'));
   check('8 el texto de ausencia nombra agy y la guia', es(adapter.missingMessage()).includes('"agy"') && es(adapter.missingMessage()).includes(adapter.installUrl));
   check('8 el log de las pestanas va a la temporal, bajo cli-logs y nunca bajo log (P0-10)',
     logDir === path.join(os.tmpdir(), 'agent-workbench', 'cli-logs') && path.basename(logDir) !== 'log');

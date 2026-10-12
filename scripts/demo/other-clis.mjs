@@ -1,6 +1,6 @@
 /**
- * Lo que la demo escribe de las otras tres CLIs: Codex, OpenCode y Antigravity
- * CLI. Aparte de `fixtures.mjs` porque cada una tiene su formato y juntas
+ * Lo que la demo escribe de las otras cuatro CLIs: Codex, OpenCode, Antigravity
+ * CLI y Pi. Aparte de `fixtures.mjs` porque cada una tiene su formato y juntas
  * duplicarian ese archivo.
  *
  *   <home>/.codex/sessions/AAAA/MM/DD/rollout-*.jsonl   dos rollouts (CLAUDE.md 10)
@@ -8,7 +8,10 @@
  *   <home>/.cache/opencode/models.json                 el catalogo, con un solo modelo
  *   <home>/.gemini/antigravity-cli/brain/<id>/…        dos transcripts (12)
  *   <home>/.gemini/antigravity-cli/history.jsonl       y lo que sale de ahi: la carpeta
- *   <bin>/codex, opencode, agy (+ .cmd)                CLIs simuladas
+ *   <home>/.pi/agent/sessions/--<carpeta>--/*.jsonl    dos sesiones (16)
+ *   <home>/.pi/agent/models-store.json                 el catalogo, con un solo modelo
+ *   <bin>/codex, opencode, agy, pi (+ .cmd)            CLIs simuladas
+ *   <bin>/node_modules/@earendil-works/…/package.json  de donde la app lee la version de Pi
  *
  * Todo con la forma que lee cada adaptador y con textos inventados, igual que
  * las sesiones de Claude Code. Las rutas son las del `projectsRoot` que ve la
@@ -471,19 +474,131 @@ function writeAntigravity(home, conversations) {
 }
 
 // ---------------------------------------------------------------------------
+// Pi
+// ---------------------------------------------------------------------------
+
+/** La version de la Pi simulada: la medida en CLAUDE.md 16. */
+export const SIMULATED_PI_VERSION = '1.1.0';
+const PI_PACKAGE_NAME = '@earendil-works/pi-coding-agent';
+const PI_PROVIDER = 'openai-codex';
+const PI_MODEL = 'gpt-5.5';
+
+/**
+ * La Pi simulada. La app no la ejecuta para saber la version: la lee del
+ * `package.json` del paquete, que tiene que estar junto al comando como lo deja
+ * npm (CLAUDE.md 16.1). Sin el, la demo no veria a Pi.
+ */
+export function writeSimulatedPi(bin) {
+  writeSimulatedCli(bin, 'pi', SIMULATED_PI_VERSION);
+  const packageDir = path.join(bin, 'node_modules', ...PI_PACKAGE_NAME.split('/'));
+  mkdirSync(packageDir, { recursive: true });
+  writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: PI_PACKAGE_NAME, version: SIMULATED_PI_VERSION }, null, 2));
+}
+
+/** Como arma Pi la carpeta de un proyecto: sin barra inicial, con `/`, `\` y `:` cambiados por `-`. */
+const piProjectFolder = (cwd) => `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
+
+/**
+ * Una sesion de la 1.1.0: la cabecera, el modelo, el nivel de razonamiento, el
+ * prompt del sistema y los mensajes, cada entrada colgando de la anterior.
+ *
+ * steps: { u }, { tool, args, output }, { a }
+ */
+function piSession(agentDir, { cwd, startAt, name, steps }) {
+  const id = uuidV7(startAt - 300);
+  const lines = [{ type: 'session', version: 3, id, timestamp: iso(startAt), cwd }];
+  let at = startAt;
+  let parent = null;
+  let context = 2_400;
+  let turnStart = at;
+  const push = (type, body) => {
+    const entryId = randomUUID().slice(0, 8);
+    lines.push({ type, id: entryId, parentId: parent, timestamp: iso(at), ...body });
+    parent = entryId;
+  };
+  const usage = (output) => {
+    context += 380 + output;
+    return { input: 420, output, cacheRead: context - 420, cacheWrite: 0, totalTokens: context + output, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  };
+  const assistant = (content, stopReason, output) =>
+    push('message', {
+      message: {
+        role: 'assistant',
+        content,
+        api: 'openai-codex-responses',
+        provider: PI_PROVIDER,
+        model: PI_MODEL,
+        usage: usage(output),
+        stopReason,
+        thinkingLevel: 'medium',
+        durationMs: at - turnStart,
+        timestamp: at,
+      },
+    });
+
+  push('model_change', { provider: PI_PROVIDER, modelId: PI_MODEL });
+  push('thinking_level_change', { thinkingLevel: 'medium' });
+  push('message', { message: { role: 'system', content: 'You are an expert coding assistant.', sections: {}, toolsAdded: [], timestamp: at } });
+
+  let calls = 0;
+  for (const item of steps) {
+    if (item.u !== undefined) {
+      at += 4_000;
+      turnStart = at;
+      push('message', { message: { role: 'user', content: [{ type: 'text', text: item.u }], timestamp: at } });
+    } else if (item.tool !== undefined) {
+      at += 2_200;
+      calls += 1;
+      const callId = `call_${randomUUID().replace(/-/g, '').slice(0, 24)}|fc_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+      assistant([{ type: 'toolCall', id: callId, name: item.tool, arguments: item.args }], 'toolUse', 40 + calls);
+      at += 600;
+      push('message', {
+        message: { role: 'toolResult', toolCallId: callId, toolName: item.tool, content: [{ type: 'text', text: item.output }], isError: false, durationMs: 500, timestamp: at },
+      });
+    } else if (item.a !== undefined) {
+      at += 6_500;
+      assistant([{ type: 'text', text: item.a }], 'stop', 180);
+    }
+  }
+  if (name !== undefined) {
+    at += 500;
+    push('session_info', { name });
+  }
+
+  const dir = path.join(agentDir, 'sessions', piProjectFolder(cwd));
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${iso(startAt).replace(/[:.]/g, '-')}_${id}.jsonl`);
+  writeFileSync(file, lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
+  utimesSync(file, new Date(at), new Date(at));
+  return { agent: 'pi', sessionId: id, cwd };
+}
+
+/** Las sesiones de Pi y su catalogo de modelos, que es de donde sale la ventana del medidor. */
+function writePi(home, sessions) {
+  const agentDir = path.join(home, '.pi', 'agent');
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(
+    path.join(agentDir, 'models-store.json'),
+    JSON.stringify({ [PI_PROVIDER]: { models: [{ id: PI_MODEL, name: 'GPT-5.5', contextWindow: 272_000 }], checkedAt: 0 } }, null, 2),
+  );
+  return sessions.map((session) => piSession(agentDir, session));
+}
+
+// ---------------------------------------------------------------------------
 // Las sesiones de la demo
 // ---------------------------------------------------------------------------
 
 /**
- * Escribe el historial de las tres CLIs y sus binarios simulados.
+ * Escribe el historial de las otras cuatro CLIs y sus binarios simulados.
  *
  * @param {{ home: string, bin: string, now: number, projects: Record<string, string> }} options
  *   `projects`: nombre del proyecto -> ruta tal como la ve la app.
- * @returns {{ codexTab: object, openCodeTab: object, antigravityTab: object }}
+ * @returns {{ codexTab: object, openCodeTab: object, antigravityTab: object, piTab: object }}
  *   Una sesion de cada CLI para las pestanas guardadas: `{ agent, sessionId, cwd }`.
  */
 export function buildOtherClis({ home, bin, now, projects }) {
   for (const { command, version } of SIMULATED_CLIS) writeSimulatedCli(bin, command, version);
+  writeSimulatedPi(bin);
 
   const codexHome = path.join(home, '.codex');
   const codexTab = codexRollout(codexHome, {
@@ -599,5 +714,28 @@ export function buildOtherClis({ home, bin, now, projects }) {
     },
   ]);
 
-  return { codexTab, openCodeTab: openCodeSessions[1].ref, antigravityTab };
+  const [piTab] = writePi(home, [
+    {
+      cwd: projects.reservas,
+      startAt: now - 16 * MIN,
+      name: 'Booking confirmation email',
+      steps: [
+        { u: 'Send a confirmation email when a booking is created, with the room, the date and the time range.' },
+        { tool: 'read', args: { path: 'src/bookings/service.ts', offset: 1, limit: 80 }, output: 'export async function createBooking(data: NewBooking) {\n  await assertNoOverlap(data);\n  return db.bookings.insert(data);\n}\n' },
+        { tool: 'bash', args: { command: 'npm test -- bookings' }, output: ' Test Files  3 passed (3)\n      Tests  14 passed (14)\n' },
+        { a: 'Done: `createBooking` now queues a confirmation email after the insert, with the room name, the date and the time range in the organizer\'s time zone. If the mail server is down the booking is still created and the email is retried later.\n\nAll fourteen booking tests pass, including a new one for the retry.' },
+      ],
+    },
+    {
+      cwd: projects.portal,
+      startAt: now - 3 * DAY - 4 * HOUR,
+      steps: [
+        { u: 'The password reset link expires too soon. Where is the lifetime set?' },
+        { tool: 'bash', args: { command: 'rg -n "expiresIn" src/auth' }, output: 'src/auth/reset-token.ts:14:  expiresIn: 5 * 60,\n' },
+        { a: 'It is in `src/auth/reset-token.ts`: the token lives five minutes. I raised it to thirty and moved the value to the configuration, so it can change without a deploy.' },
+      ],
+    },
+  ]);
+
+  return { codexTab, openCodeTab: openCodeSessions[1].ref, antigravityTab, piTab };
 }

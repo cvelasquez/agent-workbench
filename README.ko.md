@@ -7,7 +7,7 @@
 
 [English](README.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Português (Brasil)](README.pt-BR.md) · [Русский](README.ru.md) · **한국어** · [Français](README.fr.md) · [Deutsch](README.de.md)
 
-**이미 쓰고 있는 코딩 에이전트(Claude Code, Codex, OpenCode, Antigravity CLI)를 위한 시각적 작업 공간입니다.** 내 컴퓨터에서 실행되고 브라우저에서 열립니다. 이미 설치하고 로그인해 둔 CLI를 그대로 사용하며, 자격 증명에는 절대 손대지 않고, 앱 자체에서는 어떤 네트워크 요청도 보내지 않습니다.
+**이미 쓰고 있는 코딩 에이전트(Claude Code, Codex, OpenCode, Antigravity, Pi CLI)를 위한 시각적 작업 공간입니다.** 내 컴퓨터에서 실행되고 브라우저에서 열립니다. 이미 설치하고 로그인해 둔 CLI를 그대로 사용하며, 자격 증명에는 절대 손대지 않고, 앱 자체에서는 어떤 네트워크 요청도 보내지 않습니다.
 
 ```bash
 npx agent-workbench
@@ -17,7 +17,7 @@ npx agent-workbench
 
 ## 작동 방식
 
-Agent Workbench는 어떤 AI 서비스와도 통신하지 않습니다. 이미 설치된 CLI(`claude`, `codex`, `opencode`, `agy`)를 실제 터미널 안에서 실행하고, 터미널만으로는 얻을 수 없는 것들을 그 주위에 더합니다. 탭, 지난 대화, 읽기 쉬운 카드로 정리된 대화, 컨텍스트 미터, 변경된 파일, 파일 트리가 그것입니다.
+Agent Workbench는 어떤 AI 서비스와도 통신하지 않습니다. 이미 설치된 CLI(`claude`, `codex`, `opencode`, `agy`, `pi`)를 실제 터미널 안에서 실행하고, 터미널만으로는 얻을 수 없는 것들을 그 주위에 더합니다. 탭, 지난 대화, 읽기 쉬운 카드로 정리된 대화, 컨텍스트 미터, 변경된 파일, 파일 트리가 그것입니다.
 
 터미널은 여전히 터미널입니다. 입력하는 모든 내용은 곧바로 CLI로 전달됩니다.
 
@@ -55,24 +55,25 @@ Agent Workbench는 어떤 AI 서비스와도 통신하지 않습니다. 이미 �
 
 세션과 탭마다 해당 CLI를 나타내는 작은 배지가 붙고, 새 탭을 여는 `+`에서 어떤 CLI를 열지 고를 수 있습니다. CLI가 하나뿐이면 이런 표시는 보이지 않습니다.
 
-<img src="assets/captura-clis.png" width="45%" alt="여러 CLI의 세션이 각자의 배지와 함께 나오는 프로젝트 사이드바, 그리고 네 CLI와 각 버전이 나오는 + 메뉴">
+<img src="assets/captura-clis.png" width="45%" alt="여러 CLI의 세션이 각자의 배지와 함께 나오는 프로젝트 사이드바, 그리고 다섯 CLI와 각 버전이 나오는 + 메뉴">
 
 **모든 CLI가 같은 정보를 제공하지는 않기 때문에** 일부 기능은 CLI에 따라 다릅니다.
 
-| | Claude Code | Codex | OpenCode | Antigravity CLI |
-|---|:---:|:---:|:---:|:---:|
-| 탭의 점: 작업 중, 쉬는 중, 내 응답 대기 | ✓ | — | ✓ ¹ | ✓ ² |
-| 대화에서 에이전트의 질문에 답하기 | ✓ | — | ✓ ¹ | — |
-| 컨텍스트 미터 | ✓ | ✓ | ✓ | ✓ ² |
-| 모드와 모델 선택 | ✓ | — | — | ✓ |
-| 이미지 붙여 넣기 | ✓ | ✓ | ✓ | — |
-| 계획 탭 | ✓ | — | — | — |
-| 메모를 새 대화로 보내기 | ✓ | — | — | — |
+| | Claude Code | Codex | OpenCode | Antigravity CLI | Pi |
+|---|:---:|:---:|:---:|:---:|:---:|
+| 탭의 점: 작업 중, 쉬는 중, 내 응답 대기 | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
+| 대화에서 에이전트의 질문에 답하기 | ✓ | — | ✓ ¹ | — | — |
+| 컨텍스트 미터 | ✓ | ✓ | ✓ | ✓ ² | ✓ |
+| 모드와 모델 선택 | ✓ | — | — | ✓ | ✓ ³ |
+| 이미지 붙여 넣기 | ✓ | ✓ | ✓ | — | ✓ ³ |
+| 계획 탭 | ✓ | — | — | — | — |
+| 메모를 새 대화로 보내기 | ✓ | — | — | — | — |
 
 나머지는 언제든 CLI 자체 터미널에서 할 수 있습니다. 예를 들어 "—"로 표시된 곳에서는 질문에 그 터미널에서 답합니다.
 
 ¹ OpenCode에서는 이 정보를 얻으려고 앱이 로컬 OpenCode 서버를 실행합니다([자세히](#데이터와-보안)).
 ² 상태 표시줄을 설정한 경우에만 가능합니다([방법](#antigravity-cli-상태와-컨텍스트-미터)).
+³ Pi에는 권한 모드가 없어서, 선택할 수 있는 것은 모델과 사고 수준입니다. 또 붙여 넣은 것을 첨부하지 않습니다. 이미지는 파일 경로로 전달되고, 모델이 그 파일을 직접 엽니다.
 
 ---
 
@@ -88,6 +89,7 @@ Agent Workbench는 어떤 AI 서비스와도 통신하지 않습니다. 이미 �
 | Codex | `codex` | [가이드](https://learn.chatgpt.com/docs/codex/cli) |
 | OpenCode | `opencode` | [문서](https://opencode.ai/docs/) |
 | Antigravity CLI | `agy` | [가이드](https://antigravity.google/docs/cli/getting-started) |
+| Pi | `pi` | [pi.dev](https://pi.dev) |
 
 Agent Workbench는 어떤 CLI도 포함하거나 다운로드하지 않으며, `PATH`에 있는 CLI를 찾아서 씁니다. 하나도 없으면 그렇다고 알려 주고 세션을 열지 않습니다.
 
@@ -139,11 +141,11 @@ agent-workbench
 
 ### CLI 간 공유 메모리
 
-CLI는 프로젝트에 대해 알게 된 내용을 각자의 위치에 저장하므로, 다른 CLI는 그 내용을 볼 수 없습니다. **메모리** 탭은 네 CLI가 함께 쓰는 메모리 하나를 설정합니다. 프로젝트의 `.agents/memory/` 폴더에 노트를 두고, 모든 CLI가 (여기서든 자체 터미널에서든) `AGENTS.md`와 `CLAUDE.md`를 통해 이 노트를 읽고 씁니다. 이 탭은 처음에는 숨겨져 있으니 ⚙ 설정에서 표시하세요.
+CLI는 프로젝트에 대해 알게 된 내용을 각자의 위치에 저장하므로, 다른 CLI는 그 내용을 볼 수 없습니다. **메모리** 탭은 모든 CLI가 함께 쓰는 메모리 하나를 설정합니다. 프로젝트의 `.agents/memory/` 폴더에 노트를 두고, 모든 CLI가 (여기서든 자체 터미널에서든) `AGENTS.md`와 `CLAUDE.md`를 통해 이 노트를 읽고 씁니다. 이 탭은 처음에는 숨겨져 있으니 ⚙ 설정에서 표시하세요.
 
 **변경 사항 미리 보기**는 무엇이 기록될지 파일별로 보여 주며, 확인하기 전에는 아무것도 건드리지 않습니다. 설정하면 Claude Code가 그 프로젝트에 대해 이미 가지고 있던 메모리도 가져옵니다. 앱은 각 CLI의 전역 설정을 편집하지 않고, 직접 붙여 넣을 스니펫을 보여 줍니다.
 
-<img src="assets/captura-memoria.png" width="70%" alt="네 CLI에 브리지가 설치되고 가져온 노트가 보이는 메모리 탭">
+<img src="assets/captura-memoria.png" width="70%" alt="다섯 CLI에 브리지가 설치되고 가져온 노트가 보이는 메모리 탭">
 
 ### 기록 백업
 
@@ -254,7 +256,8 @@ QR 코드에는 휴대폰의 SSH 개인 키가 들어 있습니다. 컴퓨터는
 
 ## 데이터와 보안
 
-- **아무것도 내 컴퓨터 밖으로 나가지 않습니다.** 텔레메트리도, 분석도, 앱 자체의 네트워크 요청도 없습니다. AI 제공업체와 통신하는 것은 CLI뿐이며, 직접 실행했을 때와 똑같습니다. Android 앱은 내 컴퓨터와만 통신합니다.
+- **Agent Workbench는 어디로도 아무것도 보내지 않습니다.** 텔레메트리도, 분석도, 앱 자체의 네트워크 요청도 없습니다. Android 앱은 내 컴퓨터와만 통신합니다.
+- **각 CLI는 직접 실행했을 때 하던 일을 여전히 스스로 합니다.** AI 제공업체와 통신하고, 업데이트를 확인하거나 자체 사용 데이터를 보낼 수도 있습니다. Agent Workbench는 여기에 아무것도 더하지 않고, 끄지도 않습니다. 어떤 CLI의 설정도 바꾸지 않기 때문입니다. 각 CLI가 무엇을 보내는지는 그 CLI의 문서에 있습니다.
 - **자격 증명에는 절대 손대지 않습니다.** 로그인 화면이 없습니다. CLI가 로그인을 요구하면 그 CLI의 터미널에서 직접 로그인하며, 앱은 그 사실조차 알지 못합니다.
 - **CLI의 기록을 읽지만 CLI 폴더에는 아무것도 쓰지 않습니다.** 무엇을 읽고 무엇을 절대 열지 않는지는 아래 표에 있습니다.
 - **앱 자체 폴더에만 씁니다.** 예외는 프로젝트 안의 한 가지뿐이며, 그것도 확인한 경우에만 씁니다. 바로 공유 메모리입니다.
@@ -267,6 +270,7 @@ QR 코드에는 휴대폰의 SSH 개인 키가 들어 있습니다. 컴퓨터는
 | Codex | `~/.codex/`(또는 `CODEX_HOME`)의 `sessions/`와 `archived_sessions/` | `auth.json`, `config.toml`, `*.sqlite` 데이터베이스 |
 | OpenCode | 읽기 전용으로 여는 `opencode.db` 데이터베이스(그중 세션, 메시지, 파트만), 그리고 컨텍스트 윈도우 크기를 알기 위한 모델 카탈로그 | `auth.json`, `opencode.json`, 그리고 계정, 자격 증명, 권한, 공유 세션 테이블 |
 | Antigravity CLI | `~/.gemini/antigravity-cli/`의 대화별 트랜스크립트, `history.jsonl`, 폴더별 마지막 대화, `settings.json`의 모델과 상태 표시줄, 대화 인덱스의 임시 **사본**. `~/.gemini/config/projects/`에서는 각 프로젝트의 폴더 | MCP 설정, 시스템 키체인의 항목, `conversations/`의 내용, 그리고 IDE의 폴더인 `~/.gemini/antigravity/` |
+| Pi | `~/.pi/agent/`(또는 `PI_CODING_AGENT_DIR`)의 `sessions/`에 있는 세션, 그리고 컨텍스트 윈도우 크기와 모델 선택을 위한 모델 카탈로그 `models-store.json`. 설치된 Pi 패키지에서는 Pi를 실행하지 않고 버전을 알기 위한 `package.json`, 그리고 내장 모델 목록 | `auth.json`, `models.json`, `settings.json`, MCP 설정 |
 
 [백업 가져오기 도구](#기록-백업)를 실행하면 해당 섹션에 적힌 내용도 읽습니다. 파일별 전체 목록은 [`ARCHITECTURE.md`](ARCHITECTURE.md#4-what-is-read-from-each-cli)에 있습니다.
 
@@ -280,6 +284,8 @@ QR 코드에는 휴대폰의 SSH 개인 키가 들어 있습니다. 컴퓨터는
 - **OpenCode를 쓰면 앱이 로컬 OpenCode 서버를 실행합니다**(`opencode serve`). 서버는 하나뿐이며, 첫 OpenCode 탭을 열 때부터 마지막 탭을 닫고 5분이 지날 때까지, 또는 앱을 닫을 때까지 실행됩니다. OpenCode 설정이 다르게 되어 있어도 `127.0.0.1`의 무작위 포트에서, 실행할 때마다 다른 비밀번호로 연결을 받습니다. 앱이 이 서버에 요청하는 것은 세션 상태, 대기 중인 권한 요청과 질문, 세션 생성, 질문에 대한 답변, 세션 중지뿐이며, 설정이나 계정에 관한 것은 묻지 않습니다.
 
 **환경 변수.** CLI는 사용자의 환경을 그대로 물려받으며, 로그인 변수는 하나도 추가되지 않습니다. 예외는 두 가지입니다. 앱은 기록 저장을 끄는 `CLAUDE_CODE_CHILD_SESSION`을 **제거**하고, 제거할 때 배너로 알려 줍니다. 그리고 OpenCode 서버에는 실행할 때마다 바뀌는 그 비밀번호를 담은 변수 `OPENCODE_SERVER_PASSWORD` 하나를 **추가**합니다. 이 비밀번호는 어떤 계정의 비밀번호도 아니며, 이 변수는 어떤 탭에도 들어가지 않습니다. 각 OpenCode 탭은 명령줄(`attach --password`)로 비밀번호를 받는데, 같은 사용자로 실행 중인 다른 프로그램은 그곳에서 비밀번호를 볼 수 있습니다. 이 비밀번호는 그 서버에만 쓸 수 있고, 앱을 닫으면 더 이상 쓸 수 없습니다.
+
+**Pi가 스스로 보내는 것.** Pi는 시작할 때 pi.dev에서 최신 버전과 모델 카탈로그를 확인하고, 설치하거나 업데이트할 때마다 그곳에 보고합니다. 이 보고는 여기가 아니라 Pi에서 끕니다. Pi 설정의 `enableInstallTelemetry: false`나 환경 변수 `PI_TELEMETRY=0`을 쓰면 됩니다.
 
 **앱이 쓰는 것:**
 
@@ -295,7 +301,11 @@ QR 코드에는 휴대폰의 SSH 개인 키가 들어 있습니다. 컴퓨터는
 
 ## 문제 해결
 
-**"PATH에서 "claude" 명령을 찾을 수 없습니다"에 이어 "다음 CLI에서도 사용할 수 있습니다: …"가 표시됩니다.** 앱이 네 CLI 중 하나도 찾지 못한 것입니다. Windows에서는 `where claude`(다른 OS에서는 `which claude`)로 확인하고, `codex`, `opencode`, `agy`도 같은 방법으로 확인하세요. CLI는 앱이 시작할 때 찾으므로, 앱이 열려 있는 동안 CLI를 설치했다면 앱을 다시 시작하세요.
+**"PATH에서 "claude" 명령을 찾을 수 없습니다"에 이어 "다음 CLI에서도 사용할 수 있습니다: …"가 표시됩니다.** 앱이 CLI를 하나도 찾지 못한 것입니다. Windows에서는 `where claude`(다른 OS에서는 `which claude`)로 확인하고, `codex`, `opencode`, `agy`, `pi`도 같은 방법으로 확인하세요. CLI는 앱이 시작할 때 찾으므로, 앱이 열려 있는 동안 CLI를 설치했다면 앱을 다시 시작하세요.
+
+**Pi가 설치되어 있는데 앱이 찾지 못합니다.** 앱은 Pi를 찾으려고 `pi`를 실행하지 않고, 명령 옆에 있는 Pi 패키지에서 버전을 읽습니다. npm이나 pi.dev 설치 프로그램으로 Pi를 설치했다면 이 방식이 통하지만, 단독 실행형 `pi` 바이너리는 인식하지 못합니다. 그리고 `PATH`에서 `pi`라는 다른 프로그램이 먼저 나오면 앱은 그것을 무시하고 자체 콘솔에 그렇다고 알려 줍니다.
+
+**Pi 탭의 입력창에 "CLI가 응답을 기다리고 있습니다"라고 나옵니다.** Pi가 프로젝트 폴더를 신뢰할지 묻고 있는 것입니다. **CLI** 탭에서 답하세요. 앱은 이 질문에 절대 대신 답하지 않습니다.
 
 **OpenCode 기록이 나타나지 않습니다.** 앱이 시작할 때 나오는 `History` 줄을 보세요. 그 Node 버전에 `node:sqlite`가 없다고 나오면 Node를 22.13 이상으로 업데이트하세요. 그런 줄이 없다면 데이터베이스를 찾지 못한 것입니다. 데이터베이스는 `~/.local/share/opencode/opencode.db`에 있거나, `OPENCODE_DB` 또는 `XDG_DATA_HOME`이 가리키는 곳에 있습니다.
 
@@ -375,4 +385,4 @@ Agent Workbench가 유용하다면 [Buy Me a Coffee](https://buymeacoffee.com/cv
 
 MIT. [`LICENSE`](LICENSE)를 참고하세요.
 
-Agent Workbench는 독립 프로젝트입니다. Claude Code, Codex, OpenCode, Antigravity CLI와 함께 작동하지만, Anthropic, OpenAI, OpenCode 제작자, Google과 제휴 관계가 없으며 이들로부터 보증을 받지도 않았습니다.
+Agent Workbench는 독립 프로젝트입니다. Claude Code, Codex, OpenCode, Antigravity, Pi CLI와 함께 작동하지만, Anthropic, OpenAI, OpenCode 제작자, Google, Earendil과 제휴 관계가 없으며 이들로부터 보증을 받지도 않았습니다.

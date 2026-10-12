@@ -7,7 +7,7 @@
 
 [English](README.md) · [Español](README.es.md) · **简体中文** · [日本語](README.ja.md) · [Português (Brasil)](README.pt-BR.md) · [Русский](README.ru.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
-**为你已经在用的编程代理 CLI 打造的可视化工作台：Claude Code、Codex、OpenCode 和 Antigravity CLI**。它运行在你的电脑上，在浏览器中打开。它使用你已经安装并登录好的 CLI，从不碰你的凭据，自己也不发起任何网络请求。
+**为你已经在用的编程代理 CLI 打造的可视化工作台：Claude Code、Codex、OpenCode、Antigravity 和 Pi CLI**。它运行在你的电脑上，在浏览器中打开。它使用你已经安装并登录好的 CLI，从不碰你的凭据，自己也不发起任何网络请求。
 
 ```bash
 npx agent-workbench
@@ -17,7 +17,7 @@ npx agent-workbench
 
 ## 工作原理
 
-Agent Workbench 不和任何 AI 服务通信。它在一个真正的终端里启动你已有的 CLI（`claude`、`codex`、`opencode` 或 `agy`），并在周围补上单靠终端给不了的东西：标签页、你的历史对话、以易读卡片呈现的对话、上下文用量条、改动过的文件，以及文件树。
+Agent Workbench 不和任何 AI 服务通信。它在一个真正的终端里启动你已有的 CLI（`claude`、`codex`、`opencode`、`agy` 或 `pi`），并在周围补上单靠终端给不了的东西：标签页、你的历史对话、以易读卡片呈现的对话、上下文用量条、改动过的文件，以及文件树。
 
 终端依然是终端：你输入的一切都会直接传给 CLI。
 
@@ -55,24 +55,25 @@ Agent Workbench 不和任何 AI 服务通信。它在一个真正的终端里启
 
 每个会话和每个标签页都会显示一个小标记，标明所属的 CLI；新建标签页的 `+` 让你选择要用哪个 CLI 打开。只有一个 CLI 时，这些都不会出现。
 
-<img src="assets/captura-clis.png" width="45%" alt="项目侧边栏中有来自多个 CLI 的会话，各带标记；+ 菜单列出四个 CLI 及其版本">
+<img src="assets/captura-clis.png" width="45%" alt="项目侧边栏中有来自多个 CLI 的会话，各带标记；+ 菜单列出五个 CLI 及其版本">
 
 **并非每个 CLI 都提供同样的信息**，所以有几项功能取决于所用的 CLI：
 
-| | Claude Code | Codex | OpenCode | Antigravity CLI |
-|---|:---:|:---:|:---:|:---:|
-| 标签页圆点：工作中、空闲、等你回应 | ✓ | — | ✓ ¹ | ✓ ² |
-| 在对话中回答代理的提问 | ✓ | — | ✓ ¹ | — |
-| 上下文用量条 | ✓ | ✓ | ✓ | ✓ ² |
-| 模式和模型选择器 | ✓ | — | — | ✓ |
-| 粘贴图片 | ✓ | ✓ | ✓ | — |
-| “计划”标签页 | ✓ | — | — | — |
-| 把笔记发到新对话 | ✓ | — | — | — |
+| | Claude Code | Codex | OpenCode | Antigravity CLI | Pi |
+|---|:---:|:---:|:---:|:---:|:---:|
+| 标签页圆点：工作中、空闲、等你回应 | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
+| 在对话中回答代理的提问 | ✓ | — | ✓ ¹ | — | — |
+| 上下文用量条 | ✓ | ✓ | ✓ | ✓ ² | ✓ |
+| 模式和模型选择器 | ✓ | — | — | ✓ | ✓ ³ |
+| 粘贴图片 | ✓ | ✓ | ✓ | — | ✓ ³ |
+| “计划”标签页 | ✓ | — | — | — | — |
+| 把笔记发到新对话 | ✓ | — | — | — | — |
 
 其余的事情，始终可以交给 CLI 自己的终端：例如在标着“—”的地方，提问就在终端里回答。
 
 ¹ 使用 OpenCode 时，应用会启动一个本地 OpenCode 服务器来实现这一点（[详情](#你的数据与安全)）。
 ² 仅在你配置了它的 status line 时可用（[方法](#antigravity-cli状态与上下文用量条)）。
+³ Pi 没有权限模式：它的选择器是模型和思考级别。另外，它不会附加你粘贴的内容：图片以文件路径的形式传过去，由模型自己打开。
 
 ---
 
@@ -88,6 +89,7 @@ Agent Workbench 不和任何 AI 服务通信。它在一个真正的终端里启
 | Codex | `codex` | [指南](https://learn.chatgpt.com/docs/codex/cli) |
 | OpenCode | `opencode` | [文档](https://opencode.ai/docs/) |
 | Antigravity CLI | `agy` | [指南](https://antigravity.google/docs/cli/getting-started) |
+| Pi | `pi` | [pi.dev](https://pi.dev) |
 
 Agent Workbench 不包含也不会下载任何 CLI：它会在你的 `PATH` 中查找。一个都找不到时，它会告诉你，并且不会打开会话。
 
@@ -139,11 +141,11 @@ agent-workbench
 
 ### CLI 之间的共享记忆
 
-每个 CLI 都把它对项目的了解存放在自己的地方，其他 CLI 看不到。**记忆**标签页为四个 CLI 建立一份共用的记忆：笔记放在项目的 `.agents/memory/` 文件夹中，每个 CLI 都通过 `AGENTS.md` 和 `CLAUDE.md` 读写它，无论是在这里，还是在 CLI 自己的终端里。这个标签页一开始是隐藏的：可以在 ⚙ 设置中让它显示。
+每个 CLI 都把它对项目的了解存放在自己的地方，其他 CLI 看不到。**记忆**标签页为所有 CLI 建立一份共用的记忆：笔记放在项目的 `.agents/memory/` 文件夹中，每个 CLI 都通过 `AGENTS.md` 和 `CLAUDE.md` 读写它，无论是在这里，还是在 CLI 自己的终端里。这个标签页一开始是隐藏的：可以在 ⚙ 设置中让它显示。
 
 **预览更改**会逐个文件列出将要写入的内容，在你确认之前不会改动任何东西。设置时会导入 Claude Code 为该项目保存的已有记忆。应用不会修改各个 CLI 的全局设置：它只给出片段，由你自己去粘贴。
 
-<img src="assets/captura-memoria.png" width="70%" alt="“记忆”标签页：已为四个 CLI 安装桥接，并显示导入的笔记">
+<img src="assets/captura-memoria.png" width="70%" alt="“记忆”标签页：已为五个 CLI 安装桥接，并显示导入的笔记">
 
 ### 历史记录备份
 
@@ -254,7 +256,8 @@ restrict,port-forwarding,permitopen="127.0.0.1:24837",command="exit" ssh-ed25519
 
 ## 你的数据与安全
 
-- **数据不会离开你的电脑**。没有遥测，没有统计分析，应用自己也不发起任何网络请求。只有 CLI 会和它们的 AI 服务商通信，就像你手动打开它们时一样。Android 应用只和你的电脑通信。
+- **Agent Workbench 不向任何地方发送任何东西**。没有遥测，没有统计分析，应用自己也不发起任何网络请求。Android 应用只和你的电脑通信。
+- **每个 CLI 仍会自行做你手动打开它时它会做的事**：和它的 AI 服务商通信，还可能检查更新或发送它自己的使用数据。Agent Workbench 不会在这之上增加任何东西，也不会把它关掉：它不修改任何 CLI 的设置。每个 CLI 会发送什么，见它自己的文档。
 - **从不碰你的凭据**。没有登录界面：如果某个 CLI 要求你登录，你就在它自己的终端里登录，应用甚至不会察觉。
 - **读取 CLI 的历史记录，但不在它们的文件夹中写入任何内容**。下表列出了它读取什么、从不打开什么。
 - **只在自己的文件夹中写入**，另外只在你的项目中写一样东西，而且要经你确认：共享记忆。
@@ -267,6 +270,7 @@ restrict,port-forwarding,permitopen="127.0.0.1:24837",command="exit" ssh-ed25519
 | Codex | `~/.codex/`（或 `CODEX_HOME`）中的 `sessions/` 和 `archived_sessions/` | `auth.json`、`config.toml` 或它的 `*.sqlite` 数据库 |
 | OpenCode | 它的 `opencode.db` 数据库，以只读方式打开，且只读取其中的会话、消息和消息片段；以及它的模型目录，用于获取上下文窗口大小 | `auth.json`、`opencode.json`，以及账户、凭据、权限和共享会话这几张表 |
 | Antigravity CLI | `~/.gemini/antigravity-cli/` 中每个对话的对话记录、`history.jsonl`、每个文件夹的最后一个对话、`settings.json` 中的模型和 status line，以及它的对话索引的一份临时**副本**；`~/.gemini/config/projects/` 中每个项目对应的文件夹 | 它的 MCP 配置、它在系统钥匙串中的条目、`conversations/` 的内容，以及 `~/.gemini/antigravity/`（那是它的 IDE） |
+| Pi | `~/.pi/agent/`（或 `PI_CODING_AGENT_DIR`）中 `sessions/` 里的会话，以及它的模型目录 `models-store.json`，用于获取上下文窗口大小，并供模型选择器使用。已安装的 Pi 软件包中的 `package.json`（用来在不运行 Pi 的情况下得知版本），以及它内置的模型列表 | `auth.json`、`models.json`、`settings.json` 或它的 MCP 配置 |
 
 [备份导入工具](#历史记录备份)在你运行时，还会读取它们那一节所说的内容。逐个文件的完整清单见 [`ARCHITECTURE.md`](ARCHITECTURE.md#4-what-is-read-from-each-cli)。
 
@@ -280,6 +284,8 @@ restrict,port-forwarding,permitopen="127.0.0.1:24837",command="exit" ssh-ed25519
 - **使用 OpenCode 时，应用会运行一个本地 OpenCode 服务器**（`opencode serve`）：只有一个，从你打开第一个 OpenCode 标签页开始，到你关闭最后一个之后五分钟，或到你关闭应用为止。它在 `127.0.0.1` 上监听，使用随机端口，每次启动都用不同的密码，即使你的 OpenCode 配置另有设置也是如此。应用只向它查询会话状态、待处理的权限请求和提问，以及请求创建会话、回答提问和停止会话：不涉及你的配置或账户。
 
 **环境变量**。CLI 原样继承你的环境，不会添加任何登录用的变量。有两个例外：应用会**移除** `CLAUDE_CODE_CHILD_SESSION`（它会关闭历史记录的保存），并在移除时用横幅告诉你；另外，应用会给 OpenCode 服务器**添加**一个变量 `OPENCODE_SERVER_PASSWORD`，值就是那个每次启动都不同的密码。它不是任何账户的密码，也不会传给任何标签页：每个 OpenCode 标签页是从自己的命令行拿到它的（`attach --password`），以你的用户身份运行的其他程序能看到它。它只对那个服务器有效，关闭应用后就失效。
+
+**Pi 自己会发送什么**。启动时，Pi 会向 pi.dev 查询它的最新版本和模型目录，并向那里报告每一次安装和更新。这项报告要在 Pi 里关闭，而不是在这里：在 Pi 的设置中写入 `enableInstallTelemetry: false`，或者设置环境变量 `PI_TELEMETRY=0`。
 
 **应用会写入什么：**
 
@@ -295,7 +301,11 @@ restrict,port-forwarding,permitopen="127.0.0.1:24837",command="exit" ssh-ed25519
 
 ## 故障排除
 
-**“在 PATH 中找不到‘claude’命令”，后面跟着“还支持：…”**——应用一个 CLI 都没找到。在 Windows 上用 `where claude` 检查（其他系统用 `which claude`），`codex`、`opencode` 或 `agy` 也一样。CLI 是在启动时查找的：如果你是在应用打开期间安装的，请重启应用。
+**“在 PATH 中找不到‘claude’命令”，后面跟着“还支持：…”**——应用一个 CLI 都没找到。在 Windows 上用 `where claude` 检查（其他系统用 `which claude`），`codex`、`opencode`、`agy` 或 `pi` 也一样。CLI 是在启动时查找的：如果你是在应用打开期间安装的，请重启应用。
+
+**Pi 已经安装，但应用看不到它**。应用不会运行 `pi` 来查找它：它从命令旁边的 Pi 软件包中读取版本。用 npm 或 pi.dev 的安装程序安装的 Pi 都能这样识别；独立的 `pi` 二进制文件则无法识别。另外，如果你的 `PATH` 中排在前面的是另一个也叫 `pi` 的程序，应用会忽略它，并在自己的控制台输出中说明。
+
+**在 Pi 标签页中，输入框提示 CLI 正在等待你的回答**。Pi 是在询问是否信任项目文件夹。请到 **CLI** 标签页中回答：应用从不替你回答这个问题。
 
 **OpenCode 的历史记录没有显示**。看看应用启动时的 `History` 那一行。如果它说这个 Node 版本不包含 `node:sqlite`，请把 Node 更新到 22.13 或更高版本。如果没有这一行，说明它没找到数据库：数据库位于 `~/.local/share/opencode/opencode.db`，或者 `OPENCODE_DB` 或 `XDG_DATA_HOME` 指向的位置。
 
@@ -375,4 +385,4 @@ android/     the Android app, in Kotlin: the SSH tunnel, the interface, the noti
 
 MIT。详见 [`LICENSE`](LICENSE)。
 
-Agent Workbench 是一个独立项目。它可与 Claude Code、Codex、OpenCode 和 Antigravity CLI 配合使用，但与 Anthropic、OpenAI、OpenCode 的作者或 Google 均无关联，也未获得它们的认可。
+Agent Workbench 是一个独立项目。它可与 Claude Code、Codex、OpenCode、Antigravity 和 Pi CLI 配合使用，但与 Anthropic、OpenAI、OpenCode 的作者、Google 或 Earendil 均无关联，也未获得它们的认可。

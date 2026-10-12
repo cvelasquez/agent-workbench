@@ -918,6 +918,10 @@ function computeReach(
     entry('codex', agentsHasBlock, viaAgents),
     entry('antigravity', agentsHasBlock, viaAgents),
     entry('opencode', openCode.reaches, openCode.via),
+    // Pi busca igual que OpenCode: `AGENTS.md`, y `CLAUDE.md` solo si el primero no
+    // esta (medido que con los dos carga solo el primero; el respaldo, segun su
+    // documentacion, §16.11).
+    entry('pi', openCode.reaches, openCode.via),
   ];
 }
 
@@ -1049,6 +1053,8 @@ function buildGlobalFragments(home: string): MemoryGlobalFragment[] {
 
   const codexTarget = path.join(home, '.codex', 'AGENTS.md');
   const geminiTarget = path.join(home, '.gemini', 'GEMINI.md');
+  // Las instrucciones de usuario de Pi, segun su documentacion (§16.11).
+  const piTarget = path.join(home, '.pi', 'agent', 'AGENTS.md');
   const homeSlashes = home.replace(/\\/g, '/').replace(/\/+$/, '');
 
   return [
@@ -1083,6 +1089,14 @@ function buildGlobalFragments(home: string): MemoryGlobalFragment[] {
       kind: 'json',
       text: `"instructions": ["${homeSlashes}/${GLOBAL_MEMORY_RELATIVE}"]`,
       note: serverText('memoryNoteOpenCode'),
+    },
+    {
+      agent: 'pi',
+      label: MEMORY_AGENT_LABELS.pi,
+      target: piTarget,
+      kind: 'command',
+      text: hardLink(piTarget),
+      note: hardLinkNote,
     },
   ];
 }

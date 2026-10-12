@@ -732,12 +732,13 @@ const adapter = createClaudeCodeAdapter();
   // Hito 29 (D18, §11.4): como nombra cada CLI el transcript de una continuacion.
   const registered = Object.fromEntries(AGENT_IDS.map((id) => [id, appRegistry.adapter(id).input.transcriptReference]));
   check('29 transcriptReference de cada adaptador: Claude Code con @, las demas entre comillas',
-    sameShape(registered, { 'claude-code': 'at-quoted', codex: 'quoted-path', opencode: 'quoted-path', antigravity: 'quoted-path' }),
+    sameShape(registered, { 'claude-code': 'at-quoted', codex: 'quoted-path', opencode: 'quoted-path', antigravity: 'quoted-path', pi: 'quoted-path' }),
     JSON.stringify(registered));
-  // Hito 29, paso 5 (D12): solo OpenCode por `serve`, que publica su espera; con Claude Code no cambia nada.
+  // Hito 29, paso 5 (D12): OpenCode por `serve`, que publica su espera; con Claude Code no cambia nada.
+  // Y Pi desde el hito 43: su dialogo de confianza aceptaria el Enter de un mensaje.
   const blocking = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.waitingBlocksSubmit !== false);
-  check('29 waitingBlocksSubmit: true solo para opencode, false para las demas CLIs registradas',
-    sameShape(blocking, ['opencode']) && appRegistry.adapter('opencode').capabilities.waitingBlocksSubmit === true, blocking.join(','));
+  check('29 waitingBlocksSubmit: true solo para opencode y pi, false para las demas CLIs registradas',
+    sameShape(blocking, ['opencode', 'pi']) && appRegistry.adapter('opencode').capabilities.waitingBlocksSubmit === true, blocking.join(','));
   appRegistry.disposeAll();
 }
 

@@ -26,6 +26,7 @@
  */
 
 import {
+  DEFAULT_EFFORT_COMMAND,
   effortCommand,
   modelCommand,
   modelOptionLabel,
@@ -41,6 +42,8 @@ import { t, type MessageKey } from './i18n/index.js';
  * conoce se muestra con esa etiqueta.
  */
 const EFFORT_KEYS: Readonly<Record<string, MessageKey>> = {
+  off: 'controls.effort.off',
+  minimal: 'controls.effort.minimal',
   low: 'controls.effort.low',
   medium: 'controls.effort.medium',
   high: 'controls.effort.high',
@@ -79,6 +82,11 @@ interface AgentControlsProps {
    * el titulo lo dice.
    */
   savesChoice?: boolean;
+  /**
+   * Como llama la CLI de la pestana al comando de esfuerzo (`effortCommandFor`).
+   * Ausente: `/effort`.
+   */
+  effortCommandName?: string;
   disabled: boolean;
   /** Manda el comando por el mismo camino que un mensaje del cuadro. */
   onCommand: (command: string) => void;
@@ -92,6 +100,7 @@ export function AgentControls({
   modelProvisional = false,
   effortProvisional = false,
   savesChoice = false,
+  effortCommandName = DEFAULT_EFFORT_COMMAND,
   disabled,
   onCommand,
 }: AgentControlsProps): JSX.Element {
@@ -142,7 +151,7 @@ export function AgentControls({
           value={effort ?? ''}
           disabled={disabled}
           onChange={(event) => {
-            if (event.target.value.length > 0) onCommand(effortCommand(event.target.value));
+            if (event.target.value.length > 0) onCommand(effortCommand(event.target.value, effortCommandName));
           }}
           title={
             effort === null
@@ -150,8 +159,8 @@ export function AgentControls({
               : effortProvisional
                 ? t('controls.effort.provisional', { effort })
                 : savesChoice
-                  ? t('controls.effort.inUseSaved', { effort })
-                  : t('controls.effort.inUse', { effort })
+                  ? t('controls.effort.inUseSaved', { effort, command: effortCommandName })
+                  : t('controls.effort.inUse', { effort, command: effortCommandName })
           }
         >
           {effort === null && <option value="">{t('controls.effort.placeholder')}</option>}

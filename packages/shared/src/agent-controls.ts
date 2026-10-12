@@ -179,6 +179,13 @@ export function modelCommand(value: string): string {
   return `/model ${value}`;
 }
 
-export function effortCommand(value: string): string {
-  return `/effort ${value}`;
+/** Como se llama el comando de esfuerzo cuando la CLI no dice otro. */
+export const DEFAULT_EFFORT_COMMAND = '/effort';
+
+/**
+ * El comando que cambia el esfuerzo. `command` es el nombre que usa la CLI de la
+ * pestana: no todas lo llaman igual (con Pi es `/thinking`, hito 43).
+ */
+export function effortCommand(value: string, command: string = DEFAULT_EFFORT_COMMAND): string {
+  return `${command} ${value}`;
 }

@@ -83,7 +83,7 @@ const { url, availableAgents, historyLines, demo, stop } = await startDemoServer
 
 /*
   Segunda red, despues del PATH filtrado de `isolation.mjs`: el servidor tiene
-  que haber visto exactamente las cuatro CLIs simuladas —una de verdad saldria
+  que haber visto exactamente las cinco CLIs simuladas —una de verdad saldria
   con su version, una que falta dejaria el menu incompleto— y ningun historial
   fuera del home de la demo: el de OpenCode se lee aunque su CLI no este
   (hito 26).
@@ -117,6 +117,8 @@ try {
   await context.addInitScript((version) => {
     try {
       window.localStorage.setItem('agent-workbench.support-notice', version);
+      // La solapa Memoria viene escondida (`panel-visibility.ts`): la captura 5 la necesita.
+      window.localStorage.setItem('agent-workbench.hiddenPanels', 'none');
     } catch {
       // Sin localStorage el cartel aparece, y se veria en la captura.
     }
@@ -125,7 +127,7 @@ try {
   page.on('pageerror', (error) => console.error('pageerror:', error.message));
 
   await page.goto(url);
-  // Las cuatro pestanas de workspace.json y los seis proyectos de la barra.
+  // Las cinco pestanas de workspace.json y los seis proyectos de la barra.
   await page.locator('.tab').nth(demo.tabs.length - 1).waitFor({ timeout: 30_000 });
   await page.locator('.project-row').nth(5).waitFor({ timeout: 30_000 });
 
@@ -199,7 +201,7 @@ try {
   await page.locator('section.side-panel').screenshot({ path: path.join(outDir, 'captura-archivos.png') });
 
   /*
-    4. Las cuatro CLIs: la barra con proyectos de varias —cada sesion con su
+    4. Las cinco CLIs: la barra con proyectos de varias —cada sesion con su
     insignia— y el menu del `+` de un proyecto abierto. online-store se pliega
     para que entren los que mezclan CLIs.
   */
@@ -208,7 +210,7 @@ try {
   await page.locator('.session-item .agent-badge', { hasText: 'OC' }).first().waitFor({ timeout: 15_000 });
   await page.locator('.sidebar-scroll').evaluate((element) => element.scrollTo(0, 0));
   await projectRow('sales-dashboard').locator('.split-button-arrow').click();
-  await page.locator('.agent-menu-item').nth(3).waitFor({ timeout: 5_000 });
+  await page.locator('.agent-menu-item').nth(4).waitFor({ timeout: 5_000 });
   await page.waitForTimeout(300);
   const sidebarBox = await page.locator('.sidebar').boundingBox();
   const menuBox = await page.locator('.agent-menu').boundingBox();
@@ -242,7 +244,7 @@ try {
 
   /*
     6. Buscar en todo: la copia propia se mide y se activa desde su dialogo, y
-    se busca una palabra que esta en conversaciones de las cuatro CLIs.
+    se busca una palabra que esta en conversaciones de varias CLIs.
   */
   await page.locator('.sidebar-header').getByRole('button', { name: ui('vault.name'), exact: true }).click();
   await page.locator('.vault-modal').waitFor();

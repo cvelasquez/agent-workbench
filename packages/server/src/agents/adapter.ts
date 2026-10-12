@@ -527,6 +527,47 @@ export interface QuestionChannel {
   ): Promise<QuestionAnswerOutcome>;
 }
 
+// ---- Mensajes en cola que la CLI devuelve a su editor ---------------------------
+
+/** Un mensaje que la app escribio en la pty de una pestana. */
+export interface QueuedSubmission {
+  /** El texto tal como se pego, con las lineas de sus adjuntos. */
+  text: string;
+  /** Epoch ms de cuando termino de escribirse. */
+  at: number;
+}
+
+/**
+ * Hito 43. Presente en la CLI que, al interrumpir un turno, **devuelve a su
+ * propio editor** los mensajes que tenia en cola en vez de entregarlos (medido
+ * con Pi, CLAUDE.md 16.5). Sin hacer nada, el mensaje siguiente del cuadro se
+ * pegaria a continuacion y saldrian los dos juntos.
+ *
+ * Con esto, cuando el usuario interrumpe **desde la app** y habia mensajes
+ * suyos sin entregar, el socket vacia el editor de la CLI con una tecla
+ * (`buildClearEditorKeys`, `pty-input.ts`) y le devuelve ese texto al cuadro
+ * (`composer.prefill`). La decision —y sus tiempos— vive en `queued-submits.ts`;
+ * el adaptador solo dice que llego a la sesion y que no.
+ */
+export interface QueuedSubmitSource {
+  /**
+   * Separacion minima entre dos teclas de vaciar, tambien las que teclee el
+   * usuario: con Pi, dos Ctrl+C seguidos la cierran.
+   */
+  readonly clearGapMs: number;
+  /**
+   * Lee el historial de esa sesion en el acto. `settled`: el turno ya quedo
+   * cerrado despues de `interruptedAt` (epoch ms), o sea que la CLI ya devolvio
+   * lo que tenia en cola. `undelivered`: los textos de `submissions` que no
+   * aparecen en la sesion. Nunca lanza.
+   */
+  check(
+    target: { cwd: string; sessionId: string },
+    submissions: readonly QueuedSubmission[],
+    interruptedAt: number,
+  ): Promise<{ settled: boolean; undelivered: readonly string[] }>;
+}
+
 // ---- Envio desde el cuadro de escritura ---------------------------------------
 
 /**
@@ -679,6 +720,11 @@ export interface AgentAdapter {
    * la pty.
    */
   readonly questions?: QuestionChannel;
+  /**
+   * Presente si la CLI devuelve a su editor los mensajes en cola al interrumpir
+   * (hito 43). Ver `QueuedSubmitSource`. Ausente: interrumpir es solo la tecla.
+   */
+  readonly queuedSubmits?: QueuedSubmitSource;
   /**
    * Con que modelo y esfuerzo arranca una pestana de esa carpeta, segun la
    * configuracion de la CLI, o null si no se lee ninguna.

@@ -54,7 +54,7 @@ const ACTION_KEYS: Record<MemoryChangeAction, MessageKey> = {
  * une con la conjuncion del idioma.
  */
 const FILE_READERS: Record<MemoryInstructionFile, readonly string[]> = {
-  'AGENTS.md': ['Codex', 'Antigravity', 'OpenCode'],
+  'AGENTS.md': ['Codex', 'Antigravity', 'OpenCode', 'Pi'],
   'CLAUDE.md': ['Claude Code'],
 };
 
