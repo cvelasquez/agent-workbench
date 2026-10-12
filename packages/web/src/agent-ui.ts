@@ -294,6 +294,43 @@ export function savesModelChoiceFor(agent: AgentId | null): boolean {
   return agent !== null && AGENT_UI[agent].savesModelChoice;
 }
 
+/**
+ * El esfuerzo que el historial dice que esta en uso **ahora**, o null si no
+ * dice nada que valga para el proceso de ahora (§5.4).
+ *
+ * El combo muestra lo observado en el archivo, y esa regla sigue. Lo que cambia
+ * es que lo observado tiene dueño: una CLI que se vuelve a abrir —al otro dia,
+ * despues de reiniciar la app— arranca con el esfuerzo de su configuracion, no
+ * con el ultimo que escribio la corrida anterior. Medido el 11-10-2026 sobre el
+ * historial de esta instalacion: en cada reanudacion el esfuerzo vuelve de
+ * `max` al nivel guardado (`high`, `xhigh`), sin ningun `/effort` de por medio,
+ * porque `max` vale solo para la sesion en curso. El combo seguia diciendo
+ * "Maximo" y por eso no dejaba elegirlo: ya estaba elegido.
+ *
+ *  - Lo que la CLI publica en el acto (`liveEffort`) manda: es de ahora.
+ *  - Si no, el ultimo evento que trae esfuerzo, **si es de este proceso**
+ *    (`at` desde `launchedAt`). Uno anterior no dice nada del de ahora, y no se
+ *    sigue buscando mas atras: lo de antes es todavia mas viejo.
+ *  - Sin proceso (`launchedAt` null: dormida, terminada, o un servidor que no
+ *    lo manda) no hay CLI a la que contradecir, y vale el ultimo del archivo.
+ *
+ * Con null, quien llama cae a lo que dice la configuracion, marcado como
+ * provisional hasta la primera respuesta.
+ */
+export function effortInUse(
+  events: readonly { at: number; effort: string | null }[],
+  liveEffort: string | null | undefined,
+  launchedAt: number | null,
+): string | null {
+  if (liveEffort !== null && liveEffort !== undefined) return liveEffort;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event === undefined || event.effort === null) continue;
+    return launchedAt === null || event.at >= launchedAt ? event.effort : null;
+  }
+  return null;
+}
+
 /** El archivo de instrucciones de una CLI, o null si la pestana no tiene. */
 export function instructionsFileFor(agent: AgentId | null): string | null {
   return agent === null ? null : AGENT_UI[agent].instructionsFile;

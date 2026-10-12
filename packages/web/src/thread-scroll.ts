@@ -187,3 +187,97 @@ export function ownSeekStep(state: OwnSeekState): 'jump' | 'wait' | 'load' | 'gi
   if (!state.hasMore || state.pagesRequested >= OWN_MESSAGE_MAX_PAGES) return 'give-up';
   return 'load';
 }
+
+/*
+  Volver a una pestana donde se habia subido a leer (11-10-2026). Pedido del
+  usuario: va y viene entre dos pestanas con Shift+Tab, sube en una para leer o
+  copiar algo, y cada vuelta lo devolvia al final. Cada pestana abre al final
+  (§6.27), y eso sigue: lo que cambia es que **subir a mano se recuerda por
+  pestana**. Al volver, el hilo queda donde estaba, y "Ir al final" se enciende
+  en dos pulsos, con su texto a la vista (`attention-pulse.ts`), para que se
+  note que el final no esta a la vista.
+
+  Cuatro reglas:
+
+   - **Se guarda una tarjeta, no una cantidad de pixeles.** Al volver, el hilo
+     se vuelve a pedir: trae el tramo final, con lo que llego mientras tanto, y
+     ya no mide lo mismo. Lo que no cambia es la primera tarjeta que se veia y
+     cuanto asomaba.
+   - **Solo si el usuario habia subido.** Si estaba al final, no hay nada que
+     recordar, y lo guardado de antes se olvida: la pestana vuelve a abrir al
+     final.
+   - **Si la tarjeta ya no esta dibujada, la siguiente que lo este.** Una tanda
+     de herramientas que el usuario habia abierto vuelve plegada. Y si ya no
+     esta ni cargada —quedo mas atras del tramo que se trae al abrir—, la
+     pestana abre al final, como siempre.
+   - **Lo que llego mientras se miraba otra pestana se cuenta**, igual que lo
+     que llega con el hilo subido: "Ir al final: 2 mensajes nuevos".
+*/
+
+/** De que alto de borde se pasa para decir que una tarjeta se ve: una que termina justo ahi no cuenta. */
+export const ANCHOR_SLACK_PX = 1;
+
+/** El borde de arriba y el de abajo de una tarjeta, menos el de arriba de la vista, en px. */
+export interface CardSpan {
+  top: number;
+  bottom: number;
+}
+
+/** Donde estaba la vista de una pestana al salir de ella. */
+export interface ThreadAnchor {
+  /** La primera tarjeta que se veia. */
+  eventId: string;
+  /** Su borde de arriba menos el de la vista: negativo si empezaba mas arriba. */
+  offset: number;
+  /** La ultima tarjeta que habia: lo que venga despues llego mientras tanto. */
+  lastId: string | null;
+}
+
+/**
+ * La tarjeta que ancla la vista: la primera dibujada cuyo borde de abajo pasa
+ * el de arriba de la vista. `spanOf` da null si la tarjeta no esta dibujada
+ * —dentro de una tanda plegada, por ejemplo—.
+ */
+export function threadAnchorOf(
+  ids: readonly string[],
+  spanOf: (eventId: string) => CardSpan | null,
+): ThreadAnchor | null {
+  for (const eventId of ids) {
+    const span = spanOf(eventId);
+    if (span === null || span.bottom <= ANCHOR_SLACK_PX) continue;
+    return { eventId, offset: span.top, lastId: ids[ids.length - 1] ?? null };
+  }
+  return null;
+}
+
+/**
+ * El `scrollTop` que deja la vista donde estaba, o null si no hay donde
+ * volver: la tarjeta guardada ya no esta cargada, o no queda ninguna dibujada
+ * de ahi en adelante.
+ *
+ * Si la tarjeta esta pero no dibujada, se usa la siguiente que lo este, pegada
+ * al borde de arriba: es lo mas cerca que se puede quedar.
+ */
+export function scrollTopForAnchor(
+  anchor: ThreadAnchor,
+  ids: readonly string[],
+  spanOf: (eventId: string) => CardSpan | null,
+  scrollTop: number,
+): number | null {
+  const start = ids.indexOf(anchor.eventId);
+  if (start === -1) return null;
+  for (let index = start; index < ids.length; index += 1) {
+    const id = ids[index];
+    const span = id === undefined ? null : spanOf(id);
+    if (span === null) continue;
+    return Math.max(0, scrollTop + span.top - (index === start ? anchor.offset : 0));
+  }
+  return null;
+}
+
+/** Cuantas tarjetas llegaron despues de la que era la ultima al salir. 0 si esa ya no esta cargada. */
+export function arrivedSince(ids: readonly string[], lastId: string | null): number {
+  if (lastId === null) return 0;
+  const index = ids.lastIndexOf(lastId);
+  return index === -1 ? 0 : ids.length - 1 - index;
+}

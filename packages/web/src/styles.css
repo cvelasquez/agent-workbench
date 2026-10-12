@@ -628,6 +628,36 @@ kbd {
   color: var(--text);
 }
 
+/*
+  El pulso de aviso de una pestana (12-10-2026, §6.20): cuando su agente
+  termina o se frena a esperar, se pinta como la activa —el fondo, la letra y
+  el borde fino del color de su proyecto— en dos pulsos de 300 ms con 200 de
+  pausa. Es el mismo instante en que suena el aviso: con varios proyectos
+  abiertos, el sonido dice que alguien termino y el pulso dice quien. Los
+  numeros son los de `attention-pulse.ts`.
+
+  La pausa se dibuja como una pestana sin elegir, tambien en la activa: ahi el
+  pulso es su marco que se apaga y vuelve.
+*/
+.tab.tab-attention {
+  animation: tab-attention 500ms step-end 2;
+}
+
+@keyframes tab-attention {
+  0% {
+    background: var(--surface);
+    border-color: var(--tab-project-color, var(--border));
+    color: var(--text);
+  }
+
+  60%,
+  100% {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-dim);
+  }
+}
+
 .tab-dead .tab-label {
   text-decoration: line-through;
   opacity: 0.7;
@@ -2095,6 +2125,53 @@ kbd {
 
 .conversation-jump:hover {
   color: var(--accent);
+}
+
+/*
+  `is-hinting`: al volver a una pestana donde se habia subido a leer, el boton
+  se enciende como si tuviera el mouse encima, en dos pulsos de 300 ms con 200
+  de pausa (12-10-2026; los numeros son los de `attention-pulse.ts`, y el
+  chequeo compara los dos sitios). Avisa que el final no esta a la vista sin
+  mover el hilo. `step-end`: encendido o apagado, sin fundido.
+*/
+.conversation-jump.is-hinting {
+  animation: jump-hint 500ms step-end 2;
+}
+
+@keyframes jump-hint {
+  0% {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  60%,
+  100% {
+    border-color: var(--border);
+    color: var(--text);
+  }
+}
+
+/*
+  El texto del boton, a la vista mientras dura el aviso: el `title` solo sale
+  con el mouse quieto encima, y aca nadie lo tiene ahi. Cuelga del boton, a su
+  izquierda, para acompanarlo cuando se ensancha con la cuenta de lo nuevo.
+*/
+.conversation-jump-tip {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
 }
 
 .conversation-jump-count {

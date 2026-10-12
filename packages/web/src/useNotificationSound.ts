@@ -10,6 +10,11 @@
  * Desde el hito 37 el mismo plan dispara también la notificación del sistema
  * (§6.20.1, `system-notification.ts`): avisa lo mismo y cuando lo mismo, pero
  * sólo con la ventana fuera de la vista, y se enciende aparte del sonido.
+ *
+ * Y desde el 12-10-2026, el pulso de la pestaña (`attention`): la del agente
+ * que terminó o que espera se pinta como la activa en dos destellos, en el
+ * mismo instante del aviso. No depende del sonido ni de la notificación: es lo
+ * que dice **cuál** fue, y sirve igual con los dos apagados.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -31,6 +36,7 @@ import {
   type Chime,
   type PhoneChimeSource,
 } from './notification-sound.js';
+import { PULSE_ANIMATION_MS } from './attention-pulse.js';
 import { insidePhoneApp } from './narrow-layout.js';
 import {
   NOTIFY_STORAGE_KEY,
@@ -75,6 +81,11 @@ export interface NotificationSoundState {
    * Android o de la página (`webChimeVolume`). null en un navegador.
    */
   phoneChime: { source: PhoneChimeSource; setSource: (source: PhoneChimeSource) => void } | null;
+  /**
+   * Las pestañas que están pulsando ahora: su agente acaba de terminar o de
+   * frenarse a esperar. La barra de pestañas las pinta (`tab-attention`).
+   */
+  attention: ReadonlySet<TerminalId>;
 }
 
 export function useNotificationSound(
@@ -119,6 +130,32 @@ export function useNotificationSound(
   const playerRef = useRef<ChimePlayer | null>(null);
   const previousRef = useRef<ReadonlyMap<TerminalId, TerminalActivity>>(new Map());
   const timersRef = useRef<Map<TerminalId, number>>(new Map());
+
+  /*
+    El pulso de una pestaña dura lo que su animación, y después se le quita la
+    marca: sin eso, el aviso siguiente no la volvería a arrancar. Un aviso que
+    llega con la pestaña todavía pulsando sólo corre el plazo.
+  */
+  const [attention, setAttention] = useState<ReadonlySet<TerminalId>>(() => new Set());
+  const pulseTimersRef = useRef<Map<TerminalId, number>>(new Map());
+  const pulseTab = useCallback((terminalId: TerminalId): void => {
+    const pulses = pulseTimersRef.current;
+    const running = pulses.get(terminalId);
+    if (running !== undefined) window.clearTimeout(running);
+    setAttention((current) => (current.has(terminalId) ? current : new Set(current).add(terminalId)));
+    pulses.set(
+      terminalId,
+      window.setTimeout(() => {
+        pulses.delete(terminalId);
+        setAttention((current) => {
+          if (!current.has(terminalId)) return current;
+          const next = new Set(current);
+          next.delete(terminalId);
+          return next;
+        });
+      }, PULSE_ANIMATION_MS),
+    );
+  }, []);
 
   /** Un aviso de la actividad: el volumen, o si suena, lo decide `webChimeVolume`. */
   const playChime = useCallback(
@@ -170,8 +207,11 @@ export function useNotificationSound(
     // "terminó" en espera lo silencia también. Dos pestañas que se frenan en
     // el mismo latido suenan una vez.
     if (plan.now.length > 0) playChime('attention');
-    // El sonido es uno por latido; el aviso del sistema, uno por pestaña: dice cuál.
-    for (const terminalId of plan.now) notifySystem('attention', terminalId);
+    // El sonido es uno por latido; el aviso del sistema y el pulso, uno por pestaña: dicen cuál.
+    for (const terminalId of plan.now) {
+      notifySystem('attention', terminalId);
+      pulseTab(terminalId);
+    }
     for (const terminalId of plan.later) {
       timers.set(
         terminalId,
@@ -179,17 +219,21 @@ export function useNotificationSound(
           timers.delete(terminalId);
           playChime('done');
           notifySystem('done', terminalId);
+          pulseTab(terminalId);
         }, DONE_HOLD_MS),
       );
     }
-  }, [activity, notifySystem, playChime]);
+  }, [activity, notifySystem, playChime, pulseTab]);
 
   // Al desmontar no queda ningún plazo vivo.
   useEffect(() => {
     const timers = timersRef.current;
+    const pulses = pulseTimersRef.current;
     return () => {
       for (const timer of timers.values()) window.clearTimeout(timer);
       timers.clear();
+      for (const timer of pulses.values()) window.clearTimeout(timer);
+      pulses.clear();
     };
   }, []);
 
@@ -273,5 +317,5 @@ export function useNotificationSound(
 
   const phoneChime = insideApp ? { source: chimeSource, setSource: setChimeSource } : null;
 
-  return { enabled, toggle, volume, setVolume, previewVolume, notify, phoneChime };
+  return { enabled, toggle, volume, setVolume, previewVolume, notify, phoneChime, attention };
 }

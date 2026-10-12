@@ -426,11 +426,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
    * La lee el adaptador de la CLI de la pestana. Una consola no tiene CLI y no
    * anuncia nada: el cuadro de escritura solo se dibuja para pestanas de agente.
    */
-  const defaultsFor = async (terminalId: TerminalId): Promise<AgentDefaults> => {
+  const defaultsFor = async (terminalId: TerminalId, sessionModel: string | null): Promise<AgentDefaults> => {
     const descriptor = registry.get(terminalId);
     const adapter = adapterOf(terminalId);
     if (descriptor === null || adapter === null) return NO_DEFAULTS;
-    return (await adapter.defaults(descriptor.cwd)) ?? NO_DEFAULTS;
+    // Con el modelo de la sesion: el esfuerzo que se anuncia es el suyo (§5.4).
+    return (await adapter.defaults(descriptor.cwd, sessionModel)) ?? NO_DEFAULTS;
   };
 
   /**
@@ -502,7 +503,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   const onConversationReset = (terminalId: TerminalId): void => {
     const snapshot = conversations.getSnapshot(terminalId);
     if (snapshot === null) return;
-    void defaultsFor(terminalId).then((defaults) => {
+    void defaultsFor(terminalId, snapshot.usage.lastModel).then((defaults) => {
       broadcast({
         type: 'conversation.reset',
         terminalId,
@@ -1437,7 +1438,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               hasMore: snapshot.hasMore,
               usage: snapshot.usage,
               permissionMode: snapshot.permissionMode,
-              defaults: await defaultsFor(message.terminalId),
+              defaults: await defaultsFor(message.terminalId, snapshot.usage.lastModel),
               waitingFor: snapshot.waitingFor,
               openToolCall: conversations.isToolCallOpen(message.terminalId),
               subagents: conversations.getSubagents(message.terminalId),

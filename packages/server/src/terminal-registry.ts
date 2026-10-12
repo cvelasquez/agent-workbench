@@ -340,6 +340,7 @@ export class TerminalRegistry extends EventEmitter {
       alive: false,
       exitCode: null,
       sleeping: true,
+      launchedAt: null,
     };
 
     const entry: TerminalEntry = {
@@ -568,6 +569,7 @@ export class TerminalRegistry extends EventEmitter {
               alive: false,
               exitCode,
               sleeping: false,
+              launchedAt: null,
             };
             target.stopWatchingActivity?.();
             target.stopWatchingActivity = null;
@@ -599,6 +601,8 @@ export class TerminalRegistry extends EventEmitter {
       alive: true,
       exitCode: null,
       sleeping: false,
+      // El mismo instante contra el que el hub mide lo que es de este proceso.
+      launchedAt,
     };
     this.watchActivity(entry);
 
@@ -826,6 +830,7 @@ export class TerminalRegistry extends EventEmitter {
         alive: false,
         exitCode: null,
         sleeping: true,
+        launchedAt: null,
       };
 
       this.terminals.set(terminalId, {

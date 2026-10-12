@@ -45,6 +45,11 @@ interface TabBarProps {
   activeTerminalId: TerminalId | null;
   /** Que esta haciendo la CLI de cada pestana. Sin entrada = sin proceso. */
   activity: ReadonlyMap<TerminalId, TerminalActivity>;
+  /**
+   * Las que pulsan ahora: su agente acaba de terminar o de frenarse a esperar
+   * (§6.20). Se pintan como la activa, en dos destellos, para ver cual fue.
+   */
+  attention?: ReadonlySet<TerminalId>;
   canOpen: boolean;
   onSelect: (terminalId: TerminalId) => void;
   onClose: (terminalId: TerminalId) => void;
@@ -189,6 +194,7 @@ export function TabBar({
   terminals,
   activeTerminalId,
   activity,
+  attention,
   canOpen,
   onSelect,
   onClose,
@@ -261,7 +267,7 @@ export function TabBar({
           <React.Fragment key={terminal.terminalId}>
           {pendingAt(position)}
           <div
-            className={`tab${isActive ? ' tab-active' : ''}${terminal.alive || terminal.sleeping ? '' : ' tab-dead'}`}
+            className={`tab${isActive ? ' tab-active' : ''}${terminal.alive || terminal.sleeping ? '' : ' tab-dead'}${attention?.has(terminal.terminalId) === true ? ' tab-attention' : ''}`}
             draggable={!isEditing}
             onDragStart={() => setDragId(terminal.terminalId)}
             onDragOver={(event) => event.preventDefault()}

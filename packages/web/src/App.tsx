@@ -9,6 +9,7 @@ import {
   handoffPrefillText,
   sessionAgentLabel,
   effectivePanelTab,
+  effortInUse,
   instructionsFileFor,
   savesModelChoiceFor,
   openToolCallNotice,
@@ -628,11 +629,17 @@ export function App(): JSX.Element {
     el historial lo dice recien con el mensaje siguiente, y el combo de modelo
     —que sale de `usage`— ya habria cambiado (R27-5 del hito 27). Con Claude
     Code el campo no viene y se busca en los eventos, como siempre.
+
+    Y solo cuenta el esfuerzo que escribio **el proceso de ahora**
+    (`effortInUse`): una CLI recien abierta arranca con el de su configuracion,
+    y el ultimo de la corrida anterior dejaba el combo en un valor que la CLI
+    ya no tenia.
   */
-  const observedEffort =
-    conversation.usage.lastEffort ??
-    [...conversation.events].reverse().find((event) => event.effort !== null)?.effort ??
-    null;
+  const observedEffort = effortInUse(
+    conversation.events,
+    conversation.usage.lastEffort,
+    activeTerminal?.launchedAt ?? null,
+  );
 
   /*
     Hasta la primera respuesta no hay nada observado, y ahi vale lo que dice la
@@ -1901,6 +1908,7 @@ export function App(): JSX.Element {
             terminals={terminals}
             activeTerminalId={activeTerminalId}
             activity={activity}
+            attention={sound.attention}
             canOpen={cliAvailable && defaultCwd.length > 0}
             onSelect={selectTab}
             onClose={closeTerminal}

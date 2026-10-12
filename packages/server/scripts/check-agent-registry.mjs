@@ -230,6 +230,10 @@ check(
     parseTerminalDescriptor(descriptor({ agent: 'claude-code' }))?.agent === 'claude-code');
   check('descriptor de agente con una CLI desconocida se descarta',
     parseTerminalDescriptor(descriptor({ agent: 'nope' })) === null);
+  check('descriptor sin launchedAt (servidor anterior): null; con el, lo conserva; uno que no es numero, null',
+    parseTerminalDescriptor(descriptor())?.launchedAt === null &&
+      parseTerminalDescriptor(descriptor({ launchedAt: 1_700 }))?.launchedAt === 1_700 &&
+      parseTerminalDescriptor(descriptor({ launchedAt: 'ayer' }))?.launchedAt === null);
   check('descriptor de agente con agent null se descarta',
     parseTerminalDescriptor(descriptor({ agent: null })) === null);
 
@@ -1931,6 +1935,34 @@ const { buildProjects, migrateIndexCache, SessionIndex } = await import('../src/
   check('tooltip: el cwd con el título, y el estado en la segunda línea',
     tabTooltip('D:\\Agent Explorer', 'Mejoras de interfaz', 'activa') === 'D:\\Agent Explorer — Mejoras de interfaz\nactiva' &&
       tabTooltip('D:\\Agent Explorer', undefined, 'activa') === 'D:\\Agent Explorer\nactiva');
+}
+
+// ---------------------------------------------------------------------------
+// El esfuerzo del combo es el del proceso de ahora (11-10-2026, §5.4)
+// ---------------------------------------------------------------------------
+
+{
+  const { effortInUse } = await import('../../web/src/agent-ui.ts');
+  // Ayer se trabajo en maximo; hoy la CLI se volvio a abrir en el instante 5 000.
+  const yesterday = [
+    { at: 1_000, effort: 'high' },
+    { at: 2_000, effort: null },
+    { at: 3_000, effort: 'max' },
+    { at: 3_500, effort: null },
+  ];
+  check('esfuerzo: sin proceso (dormida, terminada o servidor anterior) vale el ultimo del archivo',
+    effortInUse(yesterday, undefined, null) === 'max');
+  check('esfuerzo: con la CLI recien abierta, el de la corrida anterior no cuenta — el combo cae a la configuracion',
+    effortInUse(yesterday, undefined, 5_000) === null);
+  check('esfuerzo: no se busca mas atras un valor todavia mas viejo',
+    effortInUse([{ at: 1_000, effort: 'low' }, { at: 3_000, effort: 'max' }], undefined, 2_000) === 'max' &&
+      effortInUse([{ at: 1_000, effort: 'low' }, { at: 3_000, effort: 'max' }], undefined, 3_001) === null);
+  check('esfuerzo: la primera respuesta del proceso nuevo vuelve a mandar, aunque despues haya lineas sin esfuerzo',
+    effortInUse([...yesterday, { at: 5_200, effort: 'xhigh' }, { at: 5_300, effort: null }], undefined, 5_000) === 'xhigh');
+  check('esfuerzo: lo que la CLI publica en el acto gana siempre',
+    effortInUse(yesterday, 'medium', 5_000) === 'medium' && effortInUse([], 'low', null) === 'low');
+  check('esfuerzo: sin ningun evento que lo diga, null',
+    effortInUse([], undefined, 5_000) === null && effortInUse([{ at: 6_000, effort: null }], null, 5_000) === null);
 }
 
 adapter.dispose();

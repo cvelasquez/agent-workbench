@@ -218,6 +218,35 @@ const plain = await readAgentDefaults(projectDir);
 check('el alias configurado se lee tal cual', plain.model === 'opus', String(plain.model));
 check('y su esfuerzo se casa por familia', plain.effort === 'xhigh', String(plain.effort));
 
+// El esfuerzo que se anuncia es el del modelo de la sesion (11-10-2026, §5.4):
+// al reanudar, la CLI sigue con ese modelo y le aplica su nivel guardado. La
+// forma es la medida: dos entradas de la misma familia, una sin nivel.
+await writeFile(settingsFile, JSON.stringify({
+  model: 'opus[1m]',
+  modelSettings: {
+    'claude-opus-5': {},
+    'claude-haiku-4-5': {},
+    'claude-fable-5-1': { effortLevel: 'high' },
+    'claude-opus-5-5': { effortLevel: 'xhigh' },
+  },
+}));
+const byAlias = await readAgentDefaults(projectDir);
+check('sin modelo de sesion, el esfuerzo es el del alias configurado', byAlias.model === 'opus[1m]' && byAlias.effort === 'xhigh', JSON.stringify(byAlias));
+const resumedFable = await readAgentDefaults(projectDir, 'claude-fable-5-1[1m]');
+check('una sesion de otra familia anuncia el esfuerzo de SU modelo, y el alias no cambia',
+  resumedFable.model === 'opus[1m]' && resumedFable.effort === 'high', JSON.stringify(resumedFable));
+check('un id completo se casa con su propia entrada, la mas larga, no con la que es su prefijo',
+  (await readAgentDefaults(projectDir, 'claude-opus-5-5[1m]')).effort === 'xhigh');
+check('si la entrada del modelo no trae nivel, no se toma prestado el de otro de la familia',
+  (await readAgentDefaults(projectDir, 'claude-opus-5')).effort === null &&
+    (await readAgentDefaults(projectDir, 'claude-haiku-4-5-20251001')).effort === null);
+check('un modelo de sesion que no es de ninguna familia (la linea de un error) no decide: vale el alias',
+  (await readAgentDefaults(projectDir, '<synthetic>')).effort === 'xhigh');
+await writeFile(settingsFile, JSON.stringify({
+  model: 'opus',
+  modelSettings: { 'claude-opus-5': { effortLevel: 'xhigh' } },
+}));
+
 const configured = new ModelVariantRegistry();
 configured.observe('claude-opus-5[1m]', 1000);
 check('el alias configurado toma la variante que usa la instalacion',

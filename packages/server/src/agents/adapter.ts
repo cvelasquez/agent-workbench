@@ -679,7 +679,16 @@ export interface AgentAdapter {
    * la pty.
    */
   readonly questions?: QuestionChannel;
-  defaults(cwd: string): Promise<AgentDefaults | null>;
+  /**
+   * Con que modelo y esfuerzo arranca una pestana de esa carpeta, segun la
+   * configuracion de la CLI, o null si no se lee ninguna.
+   *
+   * `sessionModel` es el ultimo modelo que uso la sesion de la pestana, si ya
+   * uso alguno: una CLI que al reanudar sigue con el modelo de la sesion aplica
+   * el esfuerzo guardado para **ese** modelo, y es el que hay que anunciar
+   * (§5.4). Quien no distingue por modelo lo ignora.
+   */
+  defaults(cwd: string, sessionModel?: string | null): Promise<AgentDefaults | null>;
   /** Carpetas que el selector de directorios no lista ni deja entrar. */
   protectedDirs(): readonly string[];
 

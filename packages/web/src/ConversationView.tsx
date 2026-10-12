@@ -55,16 +55,22 @@ import {
 } from './agent-ui.js';
 import { ContextMeter } from './ContextMeter.js';
 import { threadFontTitle } from './thread-font.js';
+import { PULSE_ANIMATION_MS } from './attention-pulse.js';
 import {
+  arrivedSince,
   isPrepend,
   nearestOwnAbove,
   offerJumpToOwn,
   ownMessageIds,
   ownSeekStep,
   scrollTopAfterPrepend,
+  scrollTopForAnchor,
   scrollTopForOwn,
   shouldLoadEarlier,
+  threadAnchorOf,
   wheelAsksEarlier,
+  type CardSpan,
+  type ThreadAnchor,
 } from './thread-scroll.js';
 import {
   mainStatusText,
@@ -442,6 +448,24 @@ export function ConversationView({
   const [unseen, setUnseen] = useState(0);
 
   /*
+    Volver a una pestana donde se habia subido a leer (11-10-2026,
+    `thread-scroll.ts`). `savedViews` guarda, por pestana, la primera tarjeta
+    que se veia al salir; `pendingRestore` es la de la pestana que se acaba de
+    elegir, hasta que llega su conversacion. Vive lo que vive la vista: recargar
+    la pagina vuelve a abrir todo al final.
+
+    `jumpHint` enciende "Ir al final" al volver, en dos pulsos y con su texto a
+    la vista (`attention-pulse.ts`, pedido del usuario el 12-10-2026): avisa que
+    el final no esta a la vista sin mover nada. El `title` del boton no se
+    puede mostrar a pedido, asi que el texto va en una etiqueta propia.
+  */
+  const shownTerminal = useRef<TerminalId | null>(terminalId);
+  const savedViews = useRef(new Map<TerminalId, ThreadAnchor>());
+  const pendingRestore = useRef<ThreadAnchor | null>(null);
+  const [jumpHint, setJumpHint] = useState(false);
+  const jumpHintTimer = useRef<number | null>(null);
+
+  /*
     "Ir a tu mensaje anterior" (06-10-2026): la misma flecha hacia arriba,
     encima de "Ir al final", que lleva al mensaje propio mas cercano por encima
     de la vista, con las reglas de `thread-scroll.ts`. `ownSeek` es un clic que
@@ -487,6 +511,28 @@ export function ConversationView({
   }, [events]);
 
   /*
+    Los ids de las tarjetas, en orden, para anclar la vista (`thread-scroll.ts`).
+    En un ref: los lee el efecto del cambio de pestana, que corre con el hilo de
+    la pestana que se deja todavia dibujado y no tiene por que volver a correr
+    cuando llega una tarjeta.
+  */
+  const cardIdsRef = useRef<string[]>([]);
+  cardIdsRef.current = useMemo(() => cards.map((card) => card.event.eventId), [cards]);
+
+  /** Los bordes de una tarjeta menos el de arriba de la vista, o null si no esta dibujada. */
+  const spanIn = useCallback((container: HTMLElement) => {
+    const viewTop = container.getBoundingClientRect().top;
+    return (eventId: string): CardSpan | null => {
+      const element = cardRefs.current.get(eventId);
+      if (element === undefined) return null;
+      const rect = element.getBoundingClientRect();
+      // Sin alto no se ve: esta adentro de una tanda plegada.
+      if (rect.height <= 0) return null;
+      return { top: rect.top - viewTop, bottom: rect.bottom - viewTop };
+    };
+  }, []);
+
+  /*
     Las tandas de acciones se agrupan aca y no al dibujar: una tanda es una
     fila de la lista, no un adorno de las tarjetas que la componen.
   */
@@ -523,13 +569,45 @@ export function ConversationView({
     los dos corren en orden.
   */
   useLayoutEffect(() => {
+    /*
+      Antes de soltar la pestana anterior, donde quedo su vista. En este dibujo
+      el hilo todavia es el suyo: la conversacion se vacia recien despues, en
+      el efecto de `useConversation`. Si estaba al final no se guarda nada, y
+      lo guardado de antes se olvida.
+
+      Salvo que su conversacion no hubiera llegado todavia (`pendingRestore`
+      sin usar): ahi el hilo esta vacio y no dice nada de donde estaba. Pasa
+      yendo y viniendo rapido entre dos pestanas, y lo guardado se conserva.
+    */
+    const previous = shownTerminal.current;
+    shownTerminal.current = terminalId;
+    const container = scrollRef.current;
+    if (previous !== null && previous !== terminalId && pendingRestore.current === null) {
+      const anchor =
+        container === null || stickToBottom.current
+          ? null
+          : threadAnchorOf(cardIdsRef.current, spanIn(container));
+      if (anchor === null) savedViews.current.delete(previous);
+      else savedViews.current.set(previous, anchor);
+    }
+    pendingRestore.current = terminalId === null ? null : (savedViews.current.get(terminalId) ?? null);
+
     stickToBottom.current = true;
     setAwayFromEnd(false);
     setUnseen(0);
     ownSeek.current = null;
     setSeekingOwn(false);
     setOfferOwn(false);
-  }, [terminalId]);
+    setJumpHint(false);
+  }, [terminalId, spanIn]);
+
+  // El temporizador del aviso es de esta vista: al desmontar no queda corriendo.
+  useEffect(
+    () => () => {
+      if (jumpHintTimer.current !== null) window.clearTimeout(jumpHintTimer.current);
+    },
+    [],
+  );
 
   /** Mide si el final esta a la vista. No toca `stickToBottom`, que es del usuario. */
   const measureEnd = useCallback(() => {
@@ -592,12 +670,37 @@ export function ConversationView({
    */
   useLayoutEffect(() => {
     const container = scrollRef.current;
+    /*
+      La pestana a la que se vuelve tenia la vista subida: se repone, una sola
+      vez, cuando llega su conversacion. Con una busqueda escrita no: ahi manda
+      el acierto. Si la tarjeta guardada ya no esta, sigue de largo y baja al
+      final, como cualquier pestana.
+    */
+    const pending = pendingRestore.current;
+    if (container !== null && pending !== null && cards.length > 0) {
+      pendingRestore.current = null;
+      const ids = cardIdsRef.current;
+      const top = needle.length > 0 ? null : scrollTopForAnchor(pending, ids, spanIn(container), container.scrollTop);
+      if (top !== null) {
+        container.scrollTop = top;
+        stickToBottom.current = !awayFromEndOf(container);
+        if (!stickToBottom.current) {
+          setUnseen(arrivedSince(ids, pending.lastId));
+          setJumpHint(true);
+          if (jumpHintTimer.current !== null) window.clearTimeout(jumpHintTimer.current);
+          jumpHintTimer.current = window.setTimeout(() => {
+            jumpHintTimer.current = null;
+            setJumpHint(false);
+          }, PULSE_ANIMATION_MS);
+        }
+      }
+    }
     if (container !== null && stickToBottom.current && needle.length === 0) {
       container.scrollTop = container.scrollHeight;
     }
     // Lo nuevo puede haber empujado el final fuera de la vista sin que nadie desplazara.
     measureEnd();
-  }, [cards.length, needle, measureEnd]);
+  }, [cards.length, needle, measureEnd, spanIn]);
 
   /*
     Un clic en "Ir a tu mensaje anterior" sin ningun mensaje propio cargado por
@@ -939,13 +1042,18 @@ export function ConversationView({
         )}
         {awayFromEnd && (
           <button
-            className={`conversation-jump${unseen > 0 ? ' has-unseen' : ''}`}
+            className={`conversation-jump${unseen > 0 ? ' has-unseen' : ''}${jumpHint ? ' is-hinting' : ''}`}
             onClick={jumpToEnd}
             title={unseen > 0 ? t('thread.jumpToEndNew', { count: unseen }) : t('thread.jumpToEnd')}
             aria-label={unseen > 0 ? t('thread.jumpToEndNew', { count: unseen }) : t('thread.jumpToEnd')}
           >
             <span aria-hidden="true">↓</span>
             {unseen > 0 && <span className="conversation-jump-count">{unseen > 99 ? '99+' : unseen}</span>}
+            {jumpHint && (
+              <span className="conversation-jump-tip" aria-hidden="true">
+                {unseen > 0 ? t('thread.jumpToEndNew', { count: unseen }) : t('thread.jumpToEnd')}
+              </span>
+            )}
           </button>
         )}
       </div>

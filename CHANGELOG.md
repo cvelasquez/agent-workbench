@@ -4,6 +4,34 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## Unreleased
+
+### Added
+
+- **The tab of an agent that finishes, or stops to wait for you, pulses
+  twice.** It lights up like the selected tab —framed in its project's
+  color— in two short pulses, at the same moment the notification sounds. With
+  several projects open, the sound tells you someone finished and the pulse
+  tells you who. It works with the sound and the system notifications off,
+  and comes from the same CLIs: the ones that publish their status.
+
+### Fixed
+
+- **The effort picker shows the effort the CLI is really using after you
+  reopen it** (Claude Code). A CLI that is opened again —the next day, or
+  after restarting the app— starts with the effort saved in its settings, not
+  with the last one of the previous run: "max" only lasts for the session. The
+  picker kept showing "Max", so you couldn't choose it again without going to
+  the CLI. It now shows the configured effort until the first reply confirms
+  it; for a resumed session, that's the effort saved for the model the
+  session uses.
+- **Switching tabs keeps your place in the conversation.** If you had scrolled
+  up to read or copy something, coming back to that tab leaves the
+  conversation where you left it instead of jumping to the end. The "Jump to
+  the end" button pulses twice and shows its label, so you notice the end
+  isn't in view, and counts the messages that arrived in the meantime. A tab
+  you left at the end still opens at the end.
+
 ## 0.5.3 — 2026-10-09
 
 ### Changed

@@ -145,5 +145,38 @@ check('idle → busy no suena', chimeFor('idle', 'busy') === null);
     phoneChimeUrl('system') === 'agentworkbench://chime?source=system');
 }
 
+// --- 6. El pulso de la pestaña (12-10-2026) -----------------------------------
+// La pestaña del agente que terminó o que espera se pinta como la activa, en
+// dos pulsos, en el mismo instante del aviso: el sonido dice que alguien
+// terminó y el pulso dice quién. Lo decide `planChimes`, cubierto arriba; acá
+// va lo que no falla en ningún otro lado: los números de la animación, que
+// viven en dos archivos, y que "como la activa" siga siendo cierto si un día
+// cambia cómo se pinta la activa.
+{
+  const pulse = await import('../../web/src/attention-pulse.ts');
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../../web/src/styles.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const declarations = (block) =>
+    block.split(';').map((line) => line.replace(/\s+/g, ' ').trim()).filter((line) => line.length > 0).sort();
+
+  const rule = css.match(/\.tab\.tab-attention\s*\{([^}]*)\}/)?.[1] ?? '';
+  check('la pestaña pulsa dos veces, 300 ms cada una, sin fundido',
+    pulse.PULSE_MS === 300 && pulse.PULSE_COUNT === 2 &&
+    rule.includes(`animation: tab-attention ${pulse.PULSE_CYCLE_MS}ms step-end ${pulse.PULSE_COUNT};`), rule.trim());
+
+  const frames = css.match(/@keyframes tab-attention\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const lit = frames.match(/0%\s*\{([^}]*)\}/)?.[1] ?? '';
+  const active = css.match(/\n\.tab-active\s*\{([^}]*)\}/)?.[1] ?? '';
+  check('encendida se pinta igual que la pestaña activa: fondo, letra y el borde del color del proyecto',
+    declarations(active).length === 3 && JSON.stringify(declarations(lit)) === JSON.stringify(declarations(active)),
+    JSON.stringify({ lit: declarations(lit), active: declarations(active) }));
+  check('y se apaga donde termina el pulso',
+    new RegExp(`${pulse.PULSE_OFF_PERCENT}%,\\s*100%\\s*\\{[^}]*border-color: transparent;`).test(frames),
+    frames.replace(/\s+/g, ' ').trim());
+  check('la marca se quita cuando la animación terminó, ni antes ni mucho después',
+    pulse.PULSE_ANIMATION_MS === pulse.PULSE_COUNT * pulse.PULSE_CYCLE_MS && pulse.PULSE_ANIMATION_MS <= 1_500,
+    String(pulse.PULSE_ANIMATION_MS));
+}
+
 console.log(failures === 0 ? '\nTodo bien.' : `\n${failures} fallo(s).`);
 process.exit(failures === 0 ? 0 : 1);

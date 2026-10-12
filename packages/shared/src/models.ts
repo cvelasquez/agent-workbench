@@ -183,6 +183,16 @@ export interface TerminalDescriptor {
    * ofrece al usuario dice otra cosa.
    */
   sleeping: boolean;
+  /**
+   * Epoch ms en que se lanzo el proceso que la pestana tiene **ahora**, o null
+   * si no tiene: dormida o terminada.
+   *
+   * Dice que parte del historial es de este proceso y que parte es de uno
+   * anterior. Lo usa el combo de esfuerzo (§5.4): una CLI que se vuelve a abrir
+   * arranca con el esfuerzo de su configuracion, no con el ultimo que dejo
+   * escrito la corrida anterior. Un servidor que no lo manda equivale a null.
+   */
+  launchedAt: number | null;
 }
 
 /**
@@ -386,5 +396,7 @@ export function parseTerminalDescriptor(value: unknown): TerminalDescriptor | nu
     // Ausente = de una version anterior del protocolo, donde toda pestana
     // tenia proceso.
     sleeping: record['sleeping'] === true,
+    // Ausente = un servidor anterior: no se sabe cuando arranco el proceso.
+    launchedAt: asFiniteNumber(record['launchedAt']),
   };
 }

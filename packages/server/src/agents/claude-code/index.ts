@@ -184,7 +184,7 @@ export function createClaudeCodeAdapter(): AgentAdapter {
     history: createClaudeCodeHistory(variants),
     status,
 
-    defaults: (cwd) => readAgentDefaults(cwd),
+    defaults: (cwd, sessionModel) => readAgentDefaults(cwd, sessionModel ?? null),
 
     /** La carpeta de la CLI. No se lista ni se entra: regla 2.1. */
     protectedDirs: () => [path.join(homedir(), '.claude')],

@@ -673,6 +673,71 @@ const nextEvent = (hub, name, ms = 5_000) =>
       step({ pagesRequested: OWN_MESSAGE_MAX_PAGES }) === 'give-up' && step({ pagesRequested: OWN_MESSAGE_MAX_PAGES - 1 }) === 'load');
 }
 
+// --- 8. Volver a una pestana donde se habia subido a leer (11-10-2026) -------------
+//
+// El hilo es uno solo para todas las pestanas y cada una abre al final. Subir a
+// mano se recuerda por pestana: al volver queda donde estaba. Lo que se rompe
+// sin verse: volver unos pixeles mas arriba o mas abajo, o quedar clavado en un
+// sitio que ya no existe.
+{
+  const { ANCHOR_SLACK_PX, arrivedSince, scrollTopForAnchor, threadAnchorOf } =
+    await import('../../web/src/thread-scroll.ts');
+  const pulse = await import('../../web/src/attention-pulse.ts');
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../../web/src/styles.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+  // Un hilo de mentira: cada tarjeta mide 300 px y empieza en `tops[id]`.
+  const HEIGHT = 300;
+  const layout = (tops, scrollTop) => (id) =>
+    tops[id] === undefined ? null : { top: tops[id] - scrollTop, bottom: tops[id] + HEIGHT - scrollTop };
+  const tops = { a: 0, b: 300, c: 600, d: 900, e: 1_200 };
+  const ids = ['a', 'b', 'c', 'd', 'e'];
+
+  const left = threadAnchorOf(ids, layout(tops, 700));
+  check('8.1 el ancla es la primera tarjeta que se ve, con lo que asomaba, y la ultima que habia',
+    json(left) === json({ eventId: 'c', offset: -100, lastId: 'e' }), json(left));
+  check('8.2 una tarjeta que termina justo en el borde no se ve: ancla la siguiente',
+    threadAnchorOf(ids, layout(tops, 600))?.eventId === 'c' && threadAnchorOf(ids, layout(tops, 600 - ANCHOR_SLACK_PX - 1))?.eventId === 'b');
+  check('8.3 una tarjeta sin dibujar (adentro de una tanda plegada) no ancla',
+    threadAnchorOf(ids, (id) => (id === 'c' ? null : layout(tops, 700)(id)))?.eventId === 'd');
+  check('8.4 sin ninguna tarjeta a la vista no hay ancla', threadAnchorOf([], layout(tops, 0)) === null && threadAnchorOf(ids, () => null) === null);
+
+  // Al volver el hilo se pide de nuevo: arranca arriba (scrollTop 0) y puede medir otra cosa.
+  check('8.5 al volver, la tarjeta queda donde estaba', scrollTopForAnchor(left, ids, layout(tops, 0), 0) === 700);
+  const grown = { a: 0, b: 300, c: 900, d: 1_200, e: 1_500 };
+  check('8.6 aunque lo de arriba haya cambiado de alto: manda la tarjeta, no los pixeles',
+    scrollTopForAnchor(left, ids, layout(grown, 0), 0) === 1_000);
+  check('8.7 con lo que llego mientras tanto al final, igual',
+    scrollTopForAnchor(left, [...ids, 'f', 'g'], layout({ ...tops, f: 1_500, g: 1_800 }, 0), 0) === 700);
+  check('8.8 si la tarjeta volvio plegada, la siguiente dibujada, pegada arriba',
+    scrollTopForAnchor(left, ids, (id) => (id === 'c' ? null : layout(tops, 0)(id)), 0) === 900);
+  check('8.9 si ya no esta cargada, o no queda ninguna dibujada, no hay donde volver: abre al final',
+    scrollTopForAnchor(left, ['x', 'y'], layout({ x: 0, y: 300 }, 0), 0) === null &&
+      scrollTopForAnchor(left, ids, () => null, 0) === null);
+  check('8.10 nunca por encima del principio',
+    scrollTopForAnchor({ eventId: 'a', offset: 50, lastId: 'e' }, ids, layout(tops, 0), 0) === 0);
+
+  check('8.11 lo que llego despues de la que era la ultima se cuenta',
+    arrivedSince([...ids, 'f', 'g'], 'e') === 2 && arrivedSince(ids, 'e') === 0);
+  check('8.12 si la ultima ya no esta cargada, o no habia ninguna, no se inventa una cuenta',
+    arrivedSince(['x', 'y'], 'e') === 0 && arrivedSince(ids, null) === 0);
+  // El aviso de "Ir al final" (12-10-2026): dos pulsos de 300 ms, con su texto a la vista.
+  check('8.13 el aviso son dos pulsos de 300 ms, y la marca dura lo que la animacion entera',
+    pulse.PULSE_MS === 300 && pulse.PULSE_COUNT === 2 && pulse.PULSE_GAP_MS > 0 &&
+      pulse.PULSE_ANIMATION_MS === pulse.PULSE_COUNT * (pulse.PULSE_MS + pulse.PULSE_GAP_MS),
+    json({ ms: pulse.PULSE_MS, count: pulse.PULSE_COUNT, total: pulse.PULSE_ANIMATION_MS }));
+  const hintRule = css.match(/\.conversation-jump\.is-hinting\s*\{([^}]*)\}/)?.[1] ?? '';
+  check('8.14 la animacion del boton dice lo mismo: una vuelta por pulso, sin fundido',
+    hintRule.includes(`animation: jump-hint ${pulse.PULSE_CYCLE_MS}ms step-end ${pulse.PULSE_COUNT};`), hintRule.trim());
+  const hintFrames = css.match(/@keyframes jump-hint\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+  check('8.15 y se apaga donde termina el pulso: encendido como con el mouse encima, apagado como siempre',
+    /0%\s*\{[^}]*border-color: var\(--accent\);[^}]*color: var\(--accent\);/.test(hintFrames) &&
+      new RegExp(`${pulse.PULSE_OFF_PERCENT}%,\\s*100%\\s*\\{[^}]*border-color: var\\(--border\\);[^}]*color: var\\(--text\\);`).test(hintFrames),
+    hintFrames.replace(/\s+/g, ' ').trim());
+  check('8.16 el texto del boton tiene donde mostrarse mientras dura el aviso',
+    /\.conversation-jump-tip\s*\{[^}]*position: absolute;[^}]*white-space: nowrap;/.test(css));
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

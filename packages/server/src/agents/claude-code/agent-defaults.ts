@@ -103,24 +103,47 @@ async function readSettings(file: string): Promise<SettingsShape | null> {
   }
 }
 
+/** El `effortLevel` de una entrada de `modelSettings`, o null si no lo trae. */
+function levelOf(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const level = (value as Record<string, unknown>)['effortLevel'];
+  return typeof level === 'string' && level.length > 0 ? level : null;
+}
+
 /**
- * El nivel de esfuerzo configurado para un alias de modelo.
+ * El nivel de esfuerzo configurado para un modelo.
  *
- * `model` es un alias (`opus`) y `modelSettings` esta indexado por id
- * (`claude-opus-5`), asi que se casan por familia: es lo unico estable entre
- * versiones, porque los sufijos de fecha cambian solos.
+ * `modelSettings` esta indexado por id (`claude-opus-5`), y lo que llega puede
+ * ser dos cosas:
+ *
+ *  - **Un id completo**, el del modelo que uso la sesion
+ *    (`claude-opus-5-5[1m]`). Se casa con su propia entrada: la mas larga
+ *    contenida en el, que es lo que separa `claude-opus-5-5` de
+ *    `claude-opus-5`. Si esa entrada no trae nivel, no se toma prestado el de
+ *    otro modelo de la familia: la CLI usa su predeterminado, que no esta
+ *    escrito en ningun lado, y la respuesta honesta es null.
+ *  - **Un alias** (`opus`), el de `model`. No contiene ningun id, asi que se
+ *    casa por familia: es lo unico estable entre versiones, porque los sufijos
+ *    de fecha cambian solos.
  */
 function effortFor(model: string, modelSettings: unknown): string | null {
   if (typeof modelSettings !== 'object' || modelSettings === null) return null;
+  const entries = Object.entries(modelSettings as Record<string, unknown>);
+
+  let own: [string, unknown] | null = null;
+  for (const entry of entries) {
+    if (entry[0].length === 0 || !model.includes(entry[0])) continue;
+    if (own === null || entry[0].length > own[0].length) own = entry;
+  }
+  if (own !== null) return levelOf(own[1]);
 
   const family = FAMILIES.find((candidate) => model.includes(candidate));
   if (family === undefined) return null;
 
-  for (const [id, value] of Object.entries(modelSettings as Record<string, unknown>)) {
+  for (const [id, value] of entries) {
     if (!id.includes(family)) continue;
-    if (typeof value !== 'object' || value === null) continue;
-    const level = (value as Record<string, unknown>)['effortLevel'];
-    if (typeof level === 'string' && level.length > 0) return level;
+    const level = levelOf(value);
+    if (level !== null) return level;
   }
   return null;
 }
@@ -132,8 +155,18 @@ function effortFor(model: string, modelSettings: unknown): string | null {
  * que podemos leer: local del proyecto, compartido del proyecto, del usuario.
  * Lo que no sepamos queda en `null` y el combo vuelve a decir "sin datos", que
  * es la respuesta honesta.
+ *
+ * **El esfuerzo es el del modelo de la sesion, si la sesion ya uso uno**
+ * (`sessionModel`, 11-10-2026). Al reanudar, la CLI sigue con el modelo de la
+ * sesion y le aplica el nivel guardado para **ese** modelo, no el del alias de
+ * `model`: medido sobre el historial de esta instalacion, una sesion de Fable
+ * reanudada con `model` en `opus[1m]` siguio en Fable y arranco en `high`,
+ * que es lo guardado para Fable, y no en el `xhigh` de Opus. El combo de
+ * esfuerzo cae a este valor cada vez que la CLI se vuelve a abrir (§5.4), asi
+ * que tiene que ser el del modelo que se va a usar. `model` sigue siendo el
+ * alias configurado: es lo que se muestra mientras no hay nada observado.
  */
-export async function readAgentDefaults(cwd: string): Promise<AgentDefaults> {
+export async function readAgentDefaults(cwd: string, sessionModel: string | null = null): Promise<AgentDefaults> {
   const withWindow = (configured: ConfiguredAgent): AgentDefaults => ({
     ...configured,
     contextWindow: NO_OBSERVATIONS.windowForConfigured(configured.model),
@@ -150,7 +183,11 @@ export async function readAgentDefaults(cwd: string): Promise<AgentDefaults> {
     if (settings === null) continue;
     const { model } = settings;
     if (typeof model !== 'string' || model.length === 0) continue;
-    return withWindow({ model, effort: effortFor(model, settings.modelSettings) });
+    // Un modelo de sesion que no es de ninguna familia conocida —la linea
+    // `<synthetic>` de un error, por ejemplo— no dice con cual se va a seguir.
+    const resumed =
+      sessionModel !== null && FAMILIES.some((family) => sessionModel.includes(family)) ? sessionModel : model;
+    return withWindow({ model, effort: effortFor(resumed, settings.modelSettings) });
   }
 
   return withWindow({ model: null, effort: null });
