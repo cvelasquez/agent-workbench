@@ -837,6 +837,7 @@
   "thread.notice.error": "CLI 返回了错误：{{detail}}",
   "thread.notice.errorNoDetail": "CLI 返回了错误",
   "thread.notice.interrupted": "已中断",
+  "thread.openInFiles": "在“文件”标签页中打开 {{path}}",
   "thread.pasted_other": "粘贴的文本 #{{number}} · {{count}} 行",
   "thread.question.answerInCli": "在 CLI 标签页中回答",
   "thread.question.answered": "已回答",

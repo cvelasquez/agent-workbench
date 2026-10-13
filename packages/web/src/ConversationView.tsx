@@ -29,7 +29,7 @@
  *    bytes se buscan en el archivo solo cuando hay que dibujarlos.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentId,
   AgentInfo,
@@ -68,6 +68,7 @@ import {
   scrollTopForOwn,
   shouldLoadEarlier,
   threadAnchorOf,
+  turnActionsShift,
   wheelAsksEarlier,
   type CardSpan,
   type ThreadAnchor,
@@ -92,6 +93,7 @@ import { nextUrl } from './inline-markup.js';
 import { Markdown } from './Markdown.js';
 import { toolCategory, toolRunSummary } from './tool-categories.js';
 import { imageKey, type ConversationFeed } from './useConversation.js';
+import type { FileLinks } from './useFileLinks.js';
 
 /** Margen para decidir si el usuario estaba mirando el final. */
 const STICK_TO_BOTTOM_PX = 80;
@@ -374,7 +376,19 @@ interface ConversationViewProps {
   receipt?: SubmitReceipt | null;
   /** Cuando trabajo la CLI de esta pestana, o null si no se sabe nada (§6.30). */
   clock?: BusyClock | null;
+  /**
+   * Los archivos del proyecto que el agente nombro y se pueden abrir desde el
+   * hilo (§6.33). null o ausente: las menciones quedan como texto.
+   */
+  fileLinks?: FileLinks | null;
 }
+
+/**
+ * Los enlaces a archivos del proyecto, para el texto del agente. Va por
+ * contexto y no por propiedades: quien lo usa esta tres niveles mas abajo, y
+ * pasarlo de mano en mano es tocar cada tarjeta para llegar a un parrafo.
+ */
+const FileLinksContext = createContext<FileLinks | null>(null);
 
 export function ConversationView({
   view,
@@ -402,6 +416,7 @@ export function ConversationView({
   activity = null,
   receipt = null,
   clock = null,
+  fileLinks = null,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -733,12 +748,50 @@ export function ConversationView({
     measureOwn();
   }, [cards, measureOwn]);
 
+  /*
+    Los botones del mensaje que quedo debajo de una flecha flotante se corren a
+    la izquierda lo justo para salir de ahi (13-10-2026, `turnActionsShift`).
+    Se busca que mensaje hay debajo de cada flecha, a tres alturas por si cae
+    entre dos, y a cada uno se le deja la distancia en una variable de CSS. Va
+    por fuera de React —la tarjeta no tiene `style` propio— para no redibujar
+    el hilo en cada aviso de scroll.
+  */
+  const jumpOwnRef = useRef<HTMLButtonElement | null>(null);
+  const jumpEndRef = useRef<HTMLButtonElement | null>(null);
+  const shiftedTurns = useRef(new Map<HTMLElement, number>());
+  const measureActionShift = useCallback(() => {
+    const next = new Map<HTMLElement, number>();
+    for (const jump of [jumpOwnRef.current, jumpEndRef.current]) {
+      if (jump === null) continue;
+      const jumpBox = jump.getBoundingClientRect();
+      for (const y of [jumpBox.top + 1, (jumpBox.top + jumpBox.bottom) / 2, jumpBox.bottom - 1]) {
+        const turn = document
+          .elementsFromPoint(jumpBox.left + 1, y)
+          .map((hit) => hit.closest<HTMLElement>('.turn'))
+          .find((found) => found !== null);
+        const actions = turn?.querySelector<HTMLElement>(':scope > .turn-actions') ?? null;
+        if (turn === undefined || turn === null || actions === null) continue;
+        const shift = turnActionsShift(turn.getBoundingClientRect(), actions.getBoundingClientRect(), jumpBox);
+        if (shift > 0) next.set(turn, Math.max(next.get(turn) ?? 0, shift));
+      }
+    }
+    for (const turn of shiftedTurns.current.keys()) {
+      if (!next.has(turn)) turn.style.removeProperty('--turn-actions-shift');
+    }
+    for (const [turn, shift] of next) {
+      if (shiftedTurns.current.get(turn) !== shift) turn.style.setProperty('--turn-actions-shift', `${shift}px`);
+    }
+    shiftedTurns.current = next;
+  }, []);
+
   // Despues de cada dibujo, donde quedo la vista: lo que lea la proxima carga de anteriores.
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (container === null) return;
     distanceFromEnd.current = container.scrollHeight - container.scrollTop;
     lastScrollTop.current = container.scrollTop;
+    // Y que mensaje quedo debajo de una flecha: aparecen, se van, y el hilo se mueve solo.
+    measureActionShift();
   });
 
   /*
@@ -778,6 +831,7 @@ export function ConversationView({
     stickToBottom.current = distance <= STICK_TO_BOTTOM_PX;
     measureEnd();
     measureOwn();
+    measureActionShift();
     const earlier = shouldLoadEarlier({
       scrollTop: container.scrollTop,
       previousScrollTop: lastScrollTop.current,
@@ -789,7 +843,7 @@ export function ConversationView({
     lastScrollTop.current = container.scrollTop;
     distanceFromEnd.current = container.scrollHeight - container.scrollTop;
     if (earlier) requestEarlier();
-  }, [measureEnd, measureOwn, hasMore, loadingMore, requestEarlier, needle]);
+  }, [measureEnd, measureOwn, measureActionShift, hasMore, loadingMore, requestEarlier, needle]);
 
   // La rueda hacia arriba ya pegada al borde no produce `scroll` (`wheelAsksEarlier`).
   const onWheel = useCallback(
@@ -854,6 +908,7 @@ export function ConversationView({
   };
 
   return (
+    <FileLinksContext.Provider value={fileLinks}>
     <div className="conversation-pane">
       <div className="conversation-search">
         <input
@@ -1030,6 +1085,7 @@ export function ConversationView({
         </div>
         {awayFromEnd && (offerOwn || seekingOwn) && (
           <button
+            ref={jumpOwnRef}
             className={`conversation-jump conversation-jump-own${seekingOwn ? ' is-seeking' : ''}`}
             onClick={jumpToOwn}
             disabled={seekingOwn}
@@ -1042,6 +1098,7 @@ export function ConversationView({
         )}
         {awayFromEnd && (
           <button
+            ref={jumpEndRef}
             className={`conversation-jump${unseen > 0 ? ' has-unseen' : ''}${jumpHint ? ' is-hinting' : ''}`}
             onClick={jumpToEnd}
             title={unseen > 0 ? t('thread.jumpToEndNew', { count: unseen }) : t('thread.jumpToEnd')}
@@ -1080,6 +1137,7 @@ export function ConversationView({
         <WakeBar presence={cliPresence} exitCode={exitCode} waking={waking} onWake={onWakeCli} />
       )}
     </div>
+    </FileLinksContext.Provider>
   );
 }
 
@@ -1509,6 +1567,7 @@ function PartView({
   answerable,
   onAnswer,
 }: PartViewProps): JSX.Element | null {
+  const fileLinks = useContext(FileLinksContext);
   switch (part.kind) {
     case 'text':
       // Lo propio va tal cual se escribio —es texto, no un documento— y
@@ -1518,7 +1577,7 @@ function PartView({
         <OwnText text={part.text} truncated={part.truncated} needle={needle} />
       ) : (
         <div className="part-text">
-          <Markdown text={part.text} needle={needle} />
+          <Markdown text={part.text} needle={needle} codeLink={fileLinks?.code} localLink={fileLinks?.link} />
           {part.truncated && <span className="part-truncated"> {t('thread.truncated')}</span>}
         </div>
       );

@@ -34,6 +34,7 @@ import { vaultOnlySessions } from '../src/session-index.ts';
 import { DEFAULT_HIDDEN_PANELS, HIDEABLE_PANELS, parseHiddenPanels, serializeHiddenPanels, withPanelVisible } from '../../web/src/panel-visibility.ts';
 import { effectivePanelTab, visiblePanelTabs } from '../../web/src/agent-ui.ts';
 import { narrowViews } from '../../web/src/narrow-layout.ts';
+import { autoOpenShell, withRequestedShell } from '../../web/src/console-shells.ts';
 
 let failures = 0;
 const check = (label, ok, extra = '') => {
@@ -212,6 +213,45 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
   check('6.7 el telefono: las vistas escondidas no se ofrecen; el chat y la CLI siempre',
     json(narrowViews({ hasTab: true, plansAvailable: true, hidden: new Set(['console', 'notes', 'chat', 'cli']) })) === json(['chat', 'cli', 'git', 'files', 'plans', 'memory']) &&
       json(narrowViews({ hasTab: false, plansAvailable: true, hidden: new Set(['notes']) })) === json(['chat']));
+}
+
+// --- 7. La consola: abrir una sola, y cerrar la ultima (13-10-2026) ---------------------
+//
+// Con la consola a la vista y el proyecto activo sin ninguna, se abre una. Lo
+// que se rompe sin verse: que cerrar la ultima abra otra en el acto —era asi, y
+// la unica forma de quedarse sin terminal en un proyecto era esconder la consola
+// entera, que cierra las de todos—, o que nunca mas se abra una sola.
+{
+  const A = 'D:\\proyectos\\uno';
+  const B = 'D:\\proyectos\\dos';
+  const step = (requested, consoleShown, cwd, shellCwds) => autoOpenShell(requested, { consoleShown, cwd, shellCwds });
+  let state = step(new Set(), true, A, []);
+  check('7.1 con la consola a la vista y el proyecto sin ninguna, se abre una', state.open === A && state.requested.has(A));
+  check('7.2 mientras llega no se pide otra', step(state.requested, true, A, []).open === null);
+  state = step(state.requested, true, A, [A]);
+  check('7.3 cuando aparece, el pedido se da por cumplido', state.open === null && !state.requested.has(A));
+
+  // El usuario cierra la unica con su ×.
+  let requested = withRequestedShell(state.requested, A);
+  state = step(requested, true, A, []);
+  check('7.4 cerrar la ultima de un proyecto la deja cerrada: no se abre otra sola', state.open === null && state.requested.has(A));
+  check('7.5 ir a otro proyecto abre la suya, y volver al primero sigue sin abrir nada',
+    step(state.requested, true, B, []).open === B && step(step(state.requested, true, B, [B]).requested, true, A, [B]).open === null);
+
+  // Con dos abiertas, cerrar una no deja anotado nada que dure.
+  requested = withRequestedShell(new Set(), A);
+  state = step(requested, true, A, [A]);
+  check('7.6 cerrar una de dos no frena nada: queda otra, y el pedido se borra', state.open === null && !state.requested.has(A));
+
+  // Plegar o esconder la consola olvida todo: volver a mostrarla es pedirla de nuevo.
+  requested = withRequestedShell(new Set(), A);
+  const folded = step(requested, false, A, []);
+  check('7.7 plegada o escondida no se abre ninguna, y la lista se olvida', folded.open === null && folded.requested.size === 0);
+  check('7.8 al desplegarla, el proyecto que se habia quedado sin ninguna vuelve a tener una', step(folded.requested, true, A, []).open === A);
+  check('7.9 sin pestana activa no se abre nada', step(new Set(), true, null, []).open === null);
+  const same = new Set([A]);
+  check('7.10 lo que no cambia devuelve la misma lista: no hay nada que guardar',
+    step(same, true, A, []).requested === same && withRequestedShell(same, A) === same && step(new Set(), false, A, []).requested.size === 0);
 }
 
 await rm(workDir, { recursive: true, force: true });

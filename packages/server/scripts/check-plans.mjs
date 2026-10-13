@@ -296,6 +296,15 @@ check(
   JSON.stringify(listed),
 );
 check('el tamano sale del disco', listed[0].sizeBytes > 0);
+// La ruta completa, para ponerla en el mensaje desde la lista (13-10-2026): la
+// raiz de cada origen la pone el servidor, y de uno que no esta no se manda.
+check(
+  'cada uno trae su ruta completa: la del proyecto es el cwd mas la relativa, y la de la temporal, su raiz',
+  listed[0].absolutePath === path.join(cwd, 'plans', 'plan-de-sincronizacion.md') &&
+    listed[1].absolutePath === path.join(scratch, 'scratchpad', 'hito-31-spec.md'),
+  JSON.stringify(listed.map((plan) => plan.absolutePath)),
+);
+check('uno que no esta en disco no trae ruta: sin ella no hay boton', listed[2].absolutePath === '');
 
 const readProject = await readPlan(target, 'proj:plans/plan-de-sincronizacion.md');
 check(
@@ -332,8 +341,8 @@ if (linked) {
   check('un .md del proyecto que enlaza afuera no se lee', viaLink === null, JSON.stringify(viaLink));
   const describedLink = await describePlans(target, ['proj:enlace.md']);
   check(
-    'y se lista como que no esta, en vez de esconderse',
-    describedLink.length === 1 && describedLink[0].exists === false,
+    'y se lista como que no esta, en vez de esconderse, sin ruta que poner en el mensaje',
+    describedLink.length === 1 && describedLink[0].exists === false && describedLink[0].absolutePath === '',
     JSON.stringify(describedLink),
   );
 } else {

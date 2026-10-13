@@ -241,8 +241,8 @@ export function CopyPathButton({
   );
 }
 
-/** Boton de poner una ruta en el cuadro de escritura, con acuse. */
-function InsertPathButton({
+/** Boton de poner una ruta en el cuadro de escritura, con acuse. Lo usa tambien la lista de Planes. */
+export function InsertPathButton({
   className,
   title,
   onInsert,

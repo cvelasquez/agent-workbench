@@ -26,6 +26,7 @@ import type { SessionPlan } from '@agent-workbench/shared';
 import { DocTabStrip } from './DocTabStrip.js';
 import type { OpenDoc } from './doc-tabs.js';
 import { DocumentViewer } from './DocumentViewer.js';
+import { InsertPathButton } from './FilesPanel.js';
 import { formatBytes, formatWhen } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
@@ -41,7 +42,14 @@ function headingOf(text: string): string | null {
   return null;
 }
 
-export function PlansPanel({ view, docs }: { view: PlansView; docs: DocStripView }): JSX.Element {
+interface PlansPanelProps {
+  view: PlansView;
+  docs: DocStripView;
+  /** Pone una ruta en el cuadro de escritura, donde esta el cursor (§6.4). */
+  onInsertPath: (text: string) => void;
+}
+
+export function PlansPanel({ view, docs, onInsertPath }: PlansPanelProps): JSX.Element {
   const { plans } = view;
   const activeDoc = docs.active === null ? null : (docs.docs.find((doc) => doc.key === docs.active) ?? null);
   const activeContent = activeDoc === null ? undefined : docs.content(activeDoc.key);
@@ -105,7 +113,12 @@ export function PlansPanel({ view, docs }: { view: PlansView; docs: DocStripView
           ) : (
             <ul className="plan-list">
               {[...plans].reverse().map((plan) => (
-                <PlanRow key={plan.fileName} plan={plan} onOpen={() => docs.open({ key: plan.fileName, title: plan.title })} />
+                <PlanRow
+                  key={plan.fileName}
+                  plan={plan}
+                  onOpen={() => docs.open({ key: plan.fileName, title: plan.title })}
+                  onInsertPath={onInsertPath}
+                />
               ))}
             </ul>
           )}
@@ -123,8 +136,22 @@ export function PlansPanel({ view, docs }: { view: PlansView; docs: DocStripView
  * explicacion. No se puede abrir, y por eso no es un boton. Pasa de verdad con
  * los tres origenes: una linea `plan_mode` puede anunciar un archivo que la CLI
  * todavia no escribio, y lo de la carpeta temporal se borra solo con el tiempo.
+ *
+ * Al lado, el mismo boton que las filas del arbol de archivos (§6.4): pone la
+ * ruta en el mensaje, entera y entre comillas, para pedirle algo al agente
+ * sobre ese documento sin ir a buscarlo a Archivos. La ruta la arma el
+ * servidor (`absolutePath`), que es quien sabe donde vive un plan de la CLI;
+ * sin ella —un servidor anterior, o uno que ya no esta— no hay boton.
  */
-function PlanRow({ plan, onOpen }: { plan: SessionPlan; onOpen: () => void }): JSX.Element {
+function PlanRow({
+  plan,
+  onOpen,
+  onInsertPath,
+}: {
+  plan: SessionPlan;
+  onOpen: () => void;
+  onInsertPath: (text: string) => void;
+}): JSX.Element {
   // La carpeta, que es lo que distingue dos documentos con el mismo nombre. La
   // de un plan de la CLI es siempre la misma y viaja vacia.
   const where = plan.path.length > 0 ? plan.path : null;
@@ -140,7 +167,7 @@ function PlanRow({ plan, onOpen }: { plan: SessionPlan; onOpen: () => void }): J
   }
 
   return (
-    <li>
+    <li className="plan-item">
       <button className="plan-row" onClick={onOpen} title={where ?? undefined}>
         <span className="plan-name">{plan.title}</span>
         {where !== null && <span className="plan-path">{where}</span>}
@@ -148,6 +175,13 @@ function PlanRow({ plan, onOpen }: { plan: SessionPlan; onOpen: () => void }): J
           {formatWhen(plan.modifiedAt)} · {formatBytes(plan.sizeBytes)}
         </span>
       </button>
+      {plan.absolutePath.length > 0 && (
+        <InsertPathButton
+          className="tree-action plan-action"
+          title={t('files.insertPath', { name: plan.absolutePath.split(/[\\/]/).pop() ?? plan.title })}
+          onInsert={() => onInsertPath(`"${plan.absolutePath}"`)}
+        />
+      )}
     </li>
   );
 }

@@ -46,10 +46,10 @@ import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
 import { MemoryBridgeError } from './memory-bridge.js';
 import { UnknownTerminalError, type MemoryHub } from './memory-hub.js';
 import { NotesError, type NotesStore } from './notes-store.js';
-import { DraftTabs, draftEntriesOf, draftOwnerOf, type DraftStore } from './draft-store.js';
+import { DraftTabs, draftEntriesOf, draftOwnerOf, submitClearsDraft, type DraftStore } from './draft-store.js';
 import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
-import { listDirectory, readPreview, searchFiles } from './file-browser.js';
+import { existingFiles, listDirectory, readPreview, searchFiles } from './file-browser.js';
 import { readDiff } from './git-repo.js';
 import { GlobalSearchSlot } from './global-search.js';
 import { deliverWhenReady, prefillReasonFor, type DeliverDeps } from './deliver-when-ready.js';
@@ -742,6 +742,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       defaultCwd,
       shellName: appSettings.currentShell()?.name ?? null,
       remoteClient: deviceId !== null,
+      fileCheck: true,
     });
     send(socket, terminalListMessage());
     /*
@@ -833,16 +834,20 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             Lo que el cuadro mando ya no es un borrador (§6.29), llegue o no a
             la CLI: el cuadro se vacio al mandarlo, y lo guardado tiene que decir
             lo mismo. Si no, volveria al dia siguiente un mensaje ya enviado.
+
+            Salvo lo que no salio del cuadro (`keepDraft`): el comando de un
+            combo no puede llevarse lo que el usuario venia escribiendo.
           */
+          const clearsDraft = submitClearsDraft(message);
           const submittedTab = registry.get(terminalId);
           const submittedOwner = draftOwnerOf(submittedTab);
-          if (submittedOwner !== null) drafts.delete(submittedOwner);
+          if (clearsDraft && submittedOwner !== null) drafts.delete(submittedOwner);
           /*
             Y lo dice a todas las ventanas (09-10-2026): las demas vacian su
             cuadro, y la que lo mando sabe que lo que llegue despues ya no es de
             antes del envio.
           */
-          if (submittedTab !== null) {
+          if (clearsDraft && submittedTab !== null) {
             broadcast({
               type: 'composer.drafts',
               drafts:
@@ -1819,6 +1824,21 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             } catch (error) {
               sendPathError(error, serverText('fileReadFailed'));
             }
+          })();
+          break;
+
+        /*
+          Cuales de esas rutas son archivos del proyecto (§6.33): lo que el
+          hilo vuelve enlace. Sin error para ningun caso —una pestana que ya no
+          esta, una ruta que cae fuera—: nada existe, y el hilo queda como
+          texto. Un cartel por una ruta que escribio el agente no le dice nada
+          al usuario.
+        */
+        case 'files.check':
+          void (async () => {
+            const cwd = cwdOf(message.terminalId);
+            const existing = cwd === null ? [] : await existingFiles(cwd, message.paths).catch(() => []);
+            send(socket, { type: 'files.checked', terminalId: message.terminalId, requestId: message.requestId, existing });
           })();
           break;
 

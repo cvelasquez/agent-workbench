@@ -53,6 +53,14 @@ function withNeedle(text: string, needle: string, keyBase: string): (JSX.Element
  */
 export type LocalLinkResolver = (href: string) => (() => void) | null;
 
+/** Lo que quien renderiza sabe abrir dentro de la app. Sin ninguno, todo queda como texto. */
+interface InlineLinks {
+  /** Un enlace relativo de Markdown. */
+  local: LocalLinkResolver | undefined;
+  /** Una mencion entre acentos graves. */
+  code: LocalLinkResolver | undefined;
+}
+
 const LOCAL_LINK = /^\[([^\]\n]+)\]\(([^)\s]+)\)$/;
 
 function localTarget(
@@ -73,6 +81,9 @@ function localTarget(
  * Que es cada token lo decide `inline-markup.ts`, que no tiene JSX y por eso
  * esta cubierto por `pnpm check`. Aca solo se dibuja.
  *
+ * `links`: lo que quien renderiza sabe abrir dentro de la app, un enlace
+ * relativo o una mencion entre acentos graves.
+ *
  * No cubre anidamientos raros —negrita dentro de un enlace dentro de codigo— y
  * no hace falta: lo que no matchea se muestra tal cual, que en un renderizador
  * de markdown es el unico modo de fallar aceptable.
@@ -81,7 +92,7 @@ function renderInline(
   text: string,
   needle: string,
   keyBase: string,
-  localLink: LocalLinkResolver | undefined,
+  links: InlineLinks,
 ): (JSX.Element | string)[] {
   const nodes: (JSX.Element | string)[] = [];
   let rest = text;
@@ -102,17 +113,52 @@ function renderInline(
     const { token } = match;
 
     switch (token.kind) {
-      case 'code':
-        nodes.push(<code key={id}>{token.text}</code>);
+      case 'code': {
+        // Un archivo del proyecto que quien renderiza reconocio: se abre con un clic (§6.33).
+        const open = links.code === undefined ? null : links.code(token.text);
+        nodes.push(
+          open === null ? (
+            <code key={id}>{token.text}</code>
+          ) : (
+            /*
+              El mismo `<code>`, y no un boton alrededor: un boton es un bloque
+              en linea, y una ruta larga dejaria de partirse al final del
+              renglon como el resto del codigo. Con rol de enlace y Enter o
+              espacio, para el teclado.
+            */
+            <code
+              key={id}
+              className="md-file-link"
+              role="link"
+              tabIndex={0}
+              title={t('thread.openInFiles', { path: token.text })}
+              onClick={open}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                open();
+              }}
+            >
+              {token.text}
+            </code>
+          ),
+        );
         break;
+      }
+      /*
+        Lo de adentro de una negrita, una cursiva o un tachado se vuelve a
+        mirar (13-10-2026): `**\`docs/guia.md\`**` es como los agentes listan
+        archivos, y sin esto salia en negrita con los acentos graves a la vista
+        y sin enlace. El texto de adentro es siempre mas corto, asi que termina.
+      */
       case 'strong':
-        nodes.push(<strong key={id}>{withNeedle(token.text, needle, id)}</strong>);
+        nodes.push(<strong key={id}>{renderInline(token.text, needle, id, links)}</strong>);
         break;
       case 'del':
-        nodes.push(<del key={id}>{withNeedle(token.text, needle, id)}</del>);
+        nodes.push(<del key={id}>{renderInline(token.text, needle, id, links)}</del>);
         break;
       case 'em':
-        nodes.push(<em key={id}>{withNeedle(token.text, needle, id)}</em>);
+        nodes.push(<em key={id}>{renderInline(token.text, needle, id, links)}</em>);
         break;
       case 'link':
         nodes.push(
@@ -122,7 +168,7 @@ function renderInline(
         );
         break;
       default: {
-        const local = localLink === undefined ? null : localTarget(token.text, localLink);
+        const local = links.local === undefined ? null : localTarget(token.text, links.local);
         if (local !== null) {
           nodes.push(
             <button key={id} className="md-local-link" onClick={local.open} title={local.href}>
@@ -246,9 +292,16 @@ interface MarkdownProps {
   needle?: string;
   /** Enlaces relativos que se abren dentro de la app, p. ej. las notas del indice. */
   localLink?: LocalLinkResolver;
+  /**
+   * Menciones entre acentos graves que se abren dentro de la app: en el hilo,
+   * un archivo del proyecto que el servidor confirmo (§6.33). Recibe el texto
+   * de la mencion y devuelve la accion, o null si no la reconoce.
+   */
+  codeLink?: LocalLinkResolver;
 }
 
-export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.Element {
+export function Markdown({ text, needle = '', localLink, codeLink }: MarkdownProps): JSX.Element {
+  const links: InlineLinks = { local: localLink, code: codeLink };
   const lines = text.split('\n');
   const blocks: Block[] = [];
   let index = 0;
@@ -294,7 +347,7 @@ export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.E
         key,
         node: (
           <p key={key} className={`md-heading md-h${level}`}>
-            {renderInline(heading[2] ?? '', needle, key, localLink)}
+            {renderInline(heading[2] ?? '', needle, key, links)}
           </p>
         ),
       });
@@ -319,7 +372,7 @@ export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.E
               <thead>
                 <tr>
                   {header.map((cell, i) => (
-                    <th key={i}>{renderInline(cell, needle, `${key}-h${i}`, localLink)}</th>
+                    <th key={i}>{renderInline(cell, needle, `${key}-h${i}`, links)}</th>
                   ))}
                 </tr>
               </thead>
@@ -327,7 +380,7 @@ export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.E
                 {rows.map((row, r) => (
                   <tr key={r}>
                     {row.map((cell, c) => (
-                      <td key={c}>{renderInline(cell, needle, `${key}-${r}-${c}`, localLink)}</td>
+                      <td key={c}>{renderInline(cell, needle, `${key}-${r}-${c}`, links)}</td>
                     ))}
                   </tr>
                 ))}
@@ -350,7 +403,7 @@ export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.E
         key,
         node: (
           <blockquote key={key} className="md-quote">
-            {renderInline(body.join('\n'), needle, key, localLink)}
+            {renderInline(body.join('\n'), needle, key, links)}
           </blockquote>
         ),
       });
@@ -383,7 +436,7 @@ export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.E
       }
 
       const children = items.map((item, i) => (
-        <li key={i}>{renderInline(item, needle, `${key}-l${i}`, localLink)}</li>
+        <li key={i}>{renderInline(item, needle, `${key}-l${i}`, links)}</li>
       ));
       blocks.push({
         key,
@@ -423,7 +476,7 @@ export function Markdown({ text, needle = '', localLink }: MarkdownProps): JSX.E
       key,
       node: (
         <p key={key} className="md-paragraph">
-          {renderInline(paragraph.join('\n'), needle, key, localLink)}
+          {renderInline(paragraph.join('\n'), needle, key, links)}
         </p>
       ),
     });

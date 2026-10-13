@@ -124,6 +124,8 @@ export interface Workspace {
    * ventana en el escritorio del anfitrion—.
    */
   remoteClient: boolean;
+  /** El servidor dice cuales rutas son archivos del proyecto (§6.33): sin esto, el hilo no enlaza ninguna. */
+  fileCheck: boolean;
   /** Pestanas de la CLI. Son las unicas que aparecen en la barra de pestanas. */
   terminals: TerminalDescriptor[];
   /** Consolas del sistema. Viven en la columna derecha, no en la barra. */
@@ -238,6 +240,7 @@ export function useWorkspace(): Workspace {
   const [defaultCwd, setDefaultCwd] = useState('');
   const [shellName, setShellName] = useState<string | null>(null);
   const [remoteClient, setRemoteClient] = useState(false);
+  const [fileCheck, setFileCheck] = useState(false);
   const [allTerminals, setAllTerminals] = useState<TerminalDescriptor[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [indexStatus, setIndexStatus] = useState<IndexStatus>(EMPTY_INDEX_STATUS);
@@ -366,6 +369,7 @@ export function useWorkspace(): Workspace {
           setDefaultCwd(message.defaultCwd);
           setShellName(message.shellName);
           setRemoteClient(message.remoteClient);
+          setFileCheck(message.fileCheck);
           break;
 
         case 'terminal.list': {
@@ -816,6 +820,7 @@ export function useWorkspace(): Workspace {
     environmentNotice: summary.environmentNotice,
     shellName,
     remoteClient,
+    fileCheck,
     terminals,
     shells,
     /** Hito 31: las pedidas que el servidor todavia no confirmo. */

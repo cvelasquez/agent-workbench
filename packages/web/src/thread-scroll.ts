@@ -281,3 +281,52 @@ export function arrivedSince(ids: readonly string[], lastId: string | null): num
   const index = ids.lastIndexOf(lastId);
   return index === -1 ? 0 : ids.length - 1 - index;
 }
+
+/*
+  Los botones de un mensaje debajo de una flecha flotante (13-10-2026, pedido
+  del usuario: "se sobrepone el boton copiar a la flecha hacia arriba").
+
+  Copiar y "volver aqui" van arriba a la derecha de cada mensaje, y las dos
+  flechas del hilo —"Ir a tu mensaje anterior" arriba, "Ir al final" abajo—
+  flotan sobre esa misma columna. El salto al mensaje propio lo deja debajo de
+  la flecha (`OWN_MESSAGE_MARGIN_PX`), pero subiendo a mano cualquier mensaje
+  pasa por ahi. Los botones de **ese** mensaje se corren a la izquierda lo justo
+  para salir de debajo, y los de los demas no se mueven.
+
+  Se mide contra el lugar donde los botones van **sin correr** —la esquina de su
+  tarjeta—, no contra donde estan: medidos donde estan, una vez corridos ya no
+  se solapan, y volverian a su sitio en el dibujo siguiente, y otra vez afuera.
+*/
+
+/** Un rectangulo en px de la ventana: lo que da `getBoundingClientRect`. */
+export interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** La separacion de `.turn-actions` con la esquina de su tarjeta (`top` y `right` en `styles.css`). */
+export const TURN_ACTIONS_INSET_PX = 2;
+
+/** El aire que queda entre los botones corridos y la flecha. */
+export const TURN_ACTIONS_GAP_PX = 4;
+
+/**
+ * Cuantos px hay que correr a la izquierda los botones de un mensaje para que
+ * salgan de debajo de una flecha; 0 si no se solapan.
+ *
+ * `turn`: la tarjeta. `actions`: los botones, de los que solo cuenta el tamano.
+ * `jump`: la flecha.
+ */
+export function turnActionsShift(turn: Box, actions: Box, jump: Box, gap = TURN_ACTIONS_GAP_PX): number {
+  const width = actions.right - actions.left;
+  const height = actions.bottom - actions.top;
+  if (width <= 0 || height <= 0) return 0;
+  const right = turn.right - TURN_ACTIONS_INSET_PX;
+  const left = right - width;
+  const top = turn.top + TURN_ACTIONS_INSET_PX;
+  const bottom = top + height;
+  const apart = right <= jump.left - gap || left >= jump.right + gap || bottom <= jump.top - gap || top >= jump.bottom + gap;
+  return apart ? 0 : Math.ceil(right - (jump.left - gap));
+}

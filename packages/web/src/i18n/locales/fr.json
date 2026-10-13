@@ -871,6 +871,7 @@
   "thread.notice.error": "La CLI a renvoyé une erreur : {{detail}}",
   "thread.notice.errorNoDetail": "La CLI a renvoyé une erreur",
   "thread.notice.interrupted": "Interrompu",
+  "thread.openInFiles": "Ouvrir {{path}} dans l'onglet Fichiers",
   "thread.pasted_one": "Texte collé #{{number}} · {{count}} ligne",
   "thread.pasted_other": "Texte collé #{{number}} · {{count}} lignes",
   "thread.question.answerInCli": "Répondez dans l'onglet CLI",

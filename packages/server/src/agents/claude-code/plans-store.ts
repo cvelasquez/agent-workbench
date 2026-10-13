@@ -142,6 +142,19 @@ async function resolveRef(ref: PlanRef, target: PlanTarget): Promise<string | nu
   }
 }
 
+/**
+ * La ruta completa que se le muestra al usuario para ponerla en su mensaje.
+ *
+ * No es la de `resolveRef`, que resuelve los enlaces: es la raiz del origen mas
+ * la relativa, la misma que arma el arbol de archivos para una fila (§6.4). Un
+ * proyecto abierto por una junction se nombra como lo abrio el usuario.
+ */
+function shownPathOf(ref: PlanRef, target: PlanTarget): string {
+  if (ref.origin === 'cli-plans') return path.join(plansRoot(), ref.path);
+  if (ref.origin === 'scratch') return path.join(scratchRoot(target.cwd, target.sessionId), ref.path);
+  return path.join(target.cwd, ref.path);
+}
+
 /** El nombre sin extension, que es lo que se muestra. */
 function titleOf(relative: string): string {
   return (path.posix.basename(relative) || relative).replace(/\.md$/i, '');
@@ -175,6 +188,8 @@ export async function describePlans(
       origin: parsed.origin,
       // La carpeta de un plan de la CLI no aporta nada: es siempre la misma.
       path: parsed.origin === 'cli-plans' ? '' : parsed.path,
+      // Solo de uno que esta en disco y paso el guardia: abajo.
+      absolutePath: '',
       exists: false,
       modifiedAt: 0,
       sizeBytes: 0,
@@ -186,6 +201,7 @@ export async function describePlans(
         const info = await stat(absolute);
         if (info.isFile()) {
           plan.exists = true;
+          plan.absolutePath = shownPathOf(parsed, target);
           plan.modifiedAt = info.mtimeMs;
           plan.sizeBytes = info.size;
         }

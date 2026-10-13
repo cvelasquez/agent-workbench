@@ -738,6 +738,50 @@ const nextEvent = (hub, name, ms = 5_000) =>
     /\.conversation-jump-tip\s*\{[^}]*position: absolute;[^}]*white-space: nowrap;/.test(css));
 }
 
+// --- 9. Copiar debajo de una flecha flotante (13-10-2026) ---------------------------
+//
+// Copiar y "volver aqui" van arriba a la derecha de cada mensaje, justo donde
+// flota "Ir a tu mensaje anterior". Lo que se rompe sin verse: que se corran los
+// de todos los mensajes, que el corrido vuelva a su sitio en el dibujo siguiente
+// (y otra vez afuera, parpadeando), o que el CSS y la cuenta dejen de coincidir.
+{
+  const { turnActionsShift, TURN_ACTIONS_INSET_PX, TURN_ACTIONS_GAP_PX } = await import('../../web/src/thread-scroll.ts');
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../../web/src/styles.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const box = (left, top, width, height) => ({ left, top, right: left + width, bottom: top + height });
+  // La flecha: 34 x 32, a 16 px del borde derecho de un hilo de 700 y a 12 del de arriba.
+  const jump = box(650, 12, 34, 32);
+  // Un mensaje de 660 de ancho, y sus dos botones (50 x 22) en su esquina.
+  const turnAt = (top) => box(20, top, 660, 120);
+  const actionsOf = (turn, shift = 0) => box(turn.right - TURN_ACTIONS_INSET_PX - 50 - shift, turn.top + TURN_ACTIONS_INSET_PX, 50, 22);
+
+  const under = turnAt(8);
+  const shift = turnActionsShift(under, actionsOf(under), jump);
+  check('9.1 los botones del mensaje que quedo debajo de la flecha se corren lo justo para salir, con su aire',
+    shift === under.right - TURN_ACTIONS_INSET_PX - (jump.left - TURN_ACTIONS_GAP_PX) && shift > 0 && shift < 60, String(shift));
+  check('9.2 ya corridos, la cuenta da lo mismo: se mide contra su sitio sin correr, no contra donde estan',
+    turnActionsShift(under, actionsOf(under, shift), jump) === shift);
+  check('9.3 un mensaje mas abajo o mas arriba no se toca',
+    turnActionsShift(turnAt(60), actionsOf(turnAt(60)), jump) === 0 && turnActionsShift(turnAt(-40), actionsOf(turnAt(-40)), jump) === 0);
+  check('9.4 el que apenas asoma por debajo de la flecha tambien se corre; con el aire de por medio, ya no',
+    turnActionsShift(turnAt(40), actionsOf(turnAt(40)), jump) > 0 && turnActionsShift(turnAt(46), actionsOf(turnAt(46)), jump) === 0);
+  const narrow = box(20, 8, 500, 120);
+  check('9.5 un mensaje que no llega hasta la flecha no se toca', turnActionsShift(narrow, actionsOf(narrow), jump) === 0);
+  check('9.6 unos botones sin tamano —escondidos— no se corren', turnActionsShift(under, box(0, 0, 0, 0), jump) === 0);
+  // Lo mismo con "Ir al final", abajo: la cuenta no sabe cual de las dos flechas es.
+  const jumpEnd = box(650, 556, 34, 32);
+  check('9.7 vale igual para la flecha de abajo', turnActionsShift(turnAt(560), actionsOf(turnAt(560)), jumpEnd) > 0);
+
+  const actionsRule = /\.turn-actions\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  check('9.8 el CSS pone los botones donde la cuenta cree, y los corre con la variable que deja la vista',
+    new RegExp(`top:\\s*${TURN_ACTIONS_INSET_PX}px;`).test(actionsRule) &&
+      actionsRule.includes(`right: calc(${TURN_ACTIONS_INSET_PX}px + var(--turn-actions-shift, 0px));`),
+    actionsRule.replace(/\s+/g, ' ').trim().slice(0, 200));
+  const view = readFileSync(new URL('../../web/src/ConversationView.tsx', import.meta.url), 'utf8');
+  check('9.9 la vista deja esa variable solo en el mensaje que quedo debajo, y la saca cuando deja de estarlo',
+    view.includes("turn.style.setProperty('--turn-actions-shift'") && view.includes("turn.style.removeProperty('--turn-actions-shift')"));
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

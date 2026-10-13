@@ -30,6 +30,14 @@ change behavior.
     text to the message box, unsent, so the next message doesn't go out glued
     to it.
   - Shared memory reaches Pi through `AGENTS.md`.
+- **A file the agent names opens with a click.** When the agent mentions a
+  file of the project in its answer —`docs/guide.md`, `src/app.ts:12`— the
+  mention is a link: it opens the file in the Files tab, in its own document
+  tab. Only what exists in the project becomes a link; a branch name or a
+  version stays as plain code.
+- **Plans puts a document's path in your message.** Each row has the same
+  button as the rows of the file tree, so you can ask the agent about a plan
+  without looking for it in Files.
 
 ### Changed
 
@@ -38,6 +46,21 @@ change behavior.
   for updates or send its own usage data, as it would if you opened it by hand.
 - With no CLI installed, the notice also names Pi. And `~/.pi` no longer shows
   in the "New project" folder picker, installed or not.
+- **Closing a project's last console tab leaves it closed.** Another one used
+  to open at once, so the only way to have no terminal in a project was hiding
+  the whole console, which closes the terminals of every project. The empty
+  console offers to open one, and folding and unfolding it opens one again.
+- Code inside bold text is drawn as code: a file listed as bold with backticks
+  no longer shows the backticks.
+
+### Fixed
+
+- **Changing the effort or the model no longer erases the message you were
+  writing.** Picking another effort with a half-written message in the box
+  emptied the box, in every window.
+- **The copy button of a message is no longer covered by the "Go to your
+  previous message" arrow.** While a message sits under the arrow, its buttons
+  move to the left of it.
 
 ## 0.5.4 — 2026-10-12
 

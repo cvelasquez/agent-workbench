@@ -2340,11 +2340,17 @@ kbd {
      va posicionado y lo tapaba. */
   z-index: 1;
   top: 2px;
-  right: 2px;
+  /*
+    `--turn-actions-shift`: lo que hay que correrlos para salir de debajo de una
+    flecha flotante del hilo (§6.30). Lo pone la vista solo en el mensaje que
+    quedo ahi (`turnActionsShift`, que cuenta con estos 2 px: el chequeo compara
+    los dos sitios).
+  */
+  right: calc(2px + var(--turn-actions-shift, 0px));
   display: flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity 0.12s, right 0.12s;
   background: color-mix(in srgb, var(--surface) 85%, transparent);
   border-radius: 4px;
 }
@@ -3405,6 +3411,40 @@ kbd {
   background: var(--hover);
 }
 
+/*
+  La fila con su boton de poner la ruta en el mensaje (§6.13). El resaltado al
+  pasar el mouse es de la fila entera, boton incluido, como en el arbol: si
+  fuera solo del nombre, el boton quedaria flotando al lado de un recuadro.
+*/
+.plan-item {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.plan-item:hover {
+  background: var(--hover);
+}
+
+.plan-item .plan-row {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.plan-item .plan-row:hover {
+  background: transparent;
+}
+
+.plan-action {
+  align-self: stretch;
+  padding: 0 10px;
+}
+
+.plan-item:hover .plan-action {
+  visibility: visible;
+}
+
 .plan-name {
   font-size: 12px;
   color: var(--text);
@@ -3868,6 +3908,24 @@ kbd {
 
 .md-local-link:hover {
   text-decoration: underline;
+}
+
+/*
+  Un archivo del proyecto que el agente nombro entre acentos graves (§6.33): un
+  clic lo abre en Archivos. Sigue pareciendo codigo, que es lo que es; el
+  subrayado punteado dice que se puede tocar.
+*/
+.md code.md-file-link {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--accent) 75%, transparent);
+  text-underline-offset: 2px;
+}
+
+.md code.md-file-link:hover,
+.md code.md-file-link:focus-visible {
+  color: var(--accent);
+  text-decoration-style: solid;
 }
 
 /* ---------- previsualizacion ---------- */

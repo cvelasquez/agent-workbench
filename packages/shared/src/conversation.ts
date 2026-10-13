@@ -276,6 +276,13 @@ export interface SessionPlan {
    */
   path: string;
   /**
+   * La ruta completa, para ponerla en el mensaje (§6.13). La arma el servidor,
+   * que es quien sabe la raiz de cada origen; el cliente la muestra o la escribe
+   * en el cuadro, y **nunca la devuelve**: un documento se pide por su ref.
+   * `''` si no esta en disco, o con un servidor anterior: sin ella no hay boton.
+   */
+  absolutePath: string;
+  /**
    * false si el archivo ya no esta en disco.
    *
    * Pasa de verdad: una linea `plan_mode` puede nombrar un plan que nunca se
@@ -724,6 +731,7 @@ export function parseSessionPlan(value: unknown): SessionPlan | null {
     title,
     origin,
     path,
+    absolutePath: asString(record['absolutePath']) ?? '',
     exists: record['exists'] === true,
     modifiedAt,
     sizeBytes,

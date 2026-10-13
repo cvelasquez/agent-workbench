@@ -871,6 +871,7 @@
   "thread.notice.error": "Die CLI hat einen Fehler gemeldet: {{detail}}",
   "thread.notice.errorNoDetail": "Die CLI hat einen Fehler gemeldet",
   "thread.notice.interrupted": "Unterbrochen",
+  "thread.openInFiles": "{{path}} im Tab „Dateien“ öffnen",
   "thread.pasted_one": "Eingefügter Text #{{number}} · {{count}} Zeile",
   "thread.pasted_other": "Eingefügter Text #{{number}} · {{count}} Zeilen",
   "thread.question.answerInCli": "Im CLI-Tab antworten",

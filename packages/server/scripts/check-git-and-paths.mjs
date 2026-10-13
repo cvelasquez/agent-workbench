@@ -20,6 +20,7 @@ import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parsePorcelainV2, parseUnifiedDiff, parseWorktrees } from '../src/git-repo.ts';
 import { InvalidPathError, resolveInside } from '../src/path-guard.ts';
+import { existingFiles } from '../src/file-browser.ts';
 
 const dir = process.argv[2] ?? path.join(process.cwd(), '.check-git');
 await rm(dir, { recursive: true, force: true });
@@ -203,6 +204,24 @@ if (symlinkSupported) {
 } else {
   console.log('OMITIDO enlace simbolico — el sistema no dejo crearlo');
 }
+
+// Cuales de las rutas que nombro el agente son archivos del proyecto (§6.33):
+// lo que el hilo vuelve enlace. Pasa por el mismo guardia que leer, y lo que no
+// esta, no es un archivo o cae fuera cuenta igual: no se dice cual de las tres.
+const asked = [
+  'src/a.ts',
+  'src',
+  'src/fantasma.ts',
+  '../afuera/secreto.txt',
+  'C:\\Windows\\win.ini',
+  '/etc/passwd',
+  'atajo/secreto.txt',
+  'src/a.ts\0.png',
+];
+check('de las rutas que se preguntan, solo las que son un archivo de adentro',
+  JSON.stringify(await existingFiles(root, asked)) === JSON.stringify(['src/a.ts']), JSON.stringify(await existingFiles(root, asked)));
+check('sin rutas, ninguna; y con una carpeta que ya no esta, tampoco, sin lanzar',
+  (await existingFiles(root, [])).length === 0 && (await existingFiles(path.join(dir, 'no-existe'), ['src/a.ts'])).length === 0);
 
 await rm(dir, { recursive: true, force: true });
 

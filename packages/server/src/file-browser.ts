@@ -423,6 +423,27 @@ export async function searchFiles(
   };
 }
 
+/**
+ * De esas rutas relativas, las que son un archivo del `cwd` (§6.33).
+ *
+ * Es lo que le deja al hilo abrir un archivo que el agente nombro: solo se
+ * vuelve enlace lo que esta. Cada ruta pasa por el guardia, como si se fuera a
+ * leer: una que sale del proyecto, un enlace hacia afuera, una carpeta o una que
+ * no existe cuentan igual, como que no esta, y no se dice cual de las cuatro.
+ */
+export async function existingFiles(cwd: string, relativePaths: readonly string[]): Promise<string[]> {
+  const existing: string[] = [];
+  for (const relativePath of relativePaths) {
+    try {
+      const absolute = await resolveInside(cwd, relativePath, { mustExist: true });
+      if ((await stat(absolute)).isFile()) existing.push(relativePath);
+    } catch {
+      // No esta, no es un archivo o cae fuera: no es un enlace.
+    }
+  }
+  return existing;
+}
+
 /** Previsualizacion recortada de un archivo del `cwd`. */
 export async function readPreview(cwd: string, relativePath: string): Promise<FilePreview> {
   const absolute = await resolveInside(cwd, relativePath, { mustExist: true });

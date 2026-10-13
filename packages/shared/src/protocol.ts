@@ -267,6 +267,13 @@ export interface ClientSubmitMessage {
    * mensaje llego a la CLI o no (§6.30). Ausente, no contesta nada, como antes.
    */
   requestId?: string;
+  /**
+   * true si esto **no salio del cuadro**: un comando que manda un control, como
+   * el combo de esfuerzo o el de modelo (§5.4). El borrador de la pestana no se
+   * toca (§6.29): lo que el usuario venia escribiendo sigue siendo suyo. Ausente
+   * —el cuadro, o un cliente anterior— el borrador se vacia, como siempre.
+   */
+  keepDraft?: boolean;
 }
 
 /**
@@ -574,6 +581,31 @@ export interface ClientReadFileMessage {
   type: 'files.read';
   terminalId: TerminalId;
   path: string;
+}
+
+/** Cuantas rutas lleva como mucho un `files.check`. */
+export const FILES_CHECK_MAX_PATHS = 100;
+/** El largo de cada una: una ruta mas larga no es de un proyecto real. */
+export const FILES_CHECK_MAX_PATH_CHARS = 512;
+
+/**
+ * Pregunta cuales de esas rutas son archivos del `cwd` de la pestana (§6.33).
+ *
+ * Es lo que deja abrir desde el hilo un archivo que el agente nombro: el hilo
+ * solo vuelve enlace lo que el servidor dijo que existe. Las rutas son
+ * **relativas**, como en `files.read`, y pasan por el mismo guardia (§6.3): una
+ * que sale del proyecto, o un enlace hacia afuera, cuenta como que no esta. El
+ * parser descarta las que no tienen forma en vez de invalidar el pedido.
+ *
+ * Solo lo manda una pagina cuyo servidor dijo `fileCheck` en `hello`: un
+ * servidor anterior contestaria cada pedido con un cartel de mensaje invalido.
+ */
+export interface ClientCheckFilesMessage {
+  type: 'files.check';
+  terminalId: TerminalId;
+  /** Eco: la respuesta lo trae, y con el la pagina sabe que rutas pregunto. */
+  requestId: string;
+  paths: string[];
 }
 
 /**
@@ -1000,6 +1032,7 @@ export type ClientMessage =
   | ClientListFilesMessage
   | ClientSearchFilesMessage
   | ClientReadFileMessage
+  | ClientCheckFilesMessage
   | ClientRevealFileMessage
   | ClientReadPlanMessage
   | ClientCreateNoteMessage
@@ -1089,6 +1122,12 @@ export interface ServerHelloMessage {
    * es false.
    */
   remoteClient: boolean;
+  /**
+   * Este servidor contesta `files.check` (§6.33). Ausente —un servidor
+   * anterior— es false, y la pagina no lo pregunta: el hilo queda sin enlaces a
+   * archivos, como antes.
+   */
+  fileCheck: boolean;
 }
 
 /**
@@ -1432,6 +1471,18 @@ export interface ServerFilePreviewMessage {
 }
 
 /**
+ * Respuesta a `files.check`: de las rutas pedidas, las que son un archivo del
+ * proyecto. Las demas no estan, no son un archivo o caen fuera. Solo al socket
+ * que pregunto.
+ */
+export interface ServerFilesCheckedMessage {
+  type: 'files.checked';
+  terminalId: TerminalId;
+  requestId: string;
+  existing: string[];
+}
+
+/**
  * Los planes que escribio esta conversacion.
  *
  * Se manda entera al suscribirse y cada vez que aparece uno nuevo. La lista es
@@ -1770,6 +1821,7 @@ export type ServerMessage =
   | ServerPickerListingMessage
   | ServerFilesListingMessage
   | ServerFilePreviewMessage
+  | ServerFilesCheckedMessage
   | ServerFileSearchMessage
   | ServerConversationPlansMessage
   | ServerPlanContentMessage
@@ -1894,6 +1946,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       if (record['send'] === false) message.send = false;
       const requestId = asNonEmptyString(record['requestId']);
       if (requestId !== null) message.requestId = requestId;
+      if (record['keepDraft'] === true) message.keepDraft = true;
       return message;
     }
     case 'agent.mode': {
@@ -2065,6 +2118,21 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return terminalId === null || readPath === null
         ? null
         : { type: 'files.read', terminalId, path: readPath };
+    }
+    case 'files.check': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const rawPaths = record['paths'];
+      if (terminalId === null || requestId === null || !Array.isArray(rawPaths)) return null;
+      // Una ruta sin forma no invalida el pedido: se descarta sola, y pasado el tope, el resto.
+      const paths: string[] = [];
+      for (const candidate of rawPaths) {
+        if (paths.length >= FILES_CHECK_MAX_PATHS) break;
+        if (typeof candidate === 'string' && candidate.length > 0 && candidate.length <= FILES_CHECK_MAX_PATH_CHARS) {
+          paths.push(candidate);
+        }
+      }
+      return { type: 'files.check', terminalId, requestId, paths };
     }
     case 'plans.read': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -2360,6 +2428,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         defaultCwd,
         shellName: asNonEmptyString(record['shellName']),
         remoteClient: record['remoteClient'] === true,
+        fileCheck: record['fileCheck'] === true,
       };
     }
     case 'agents': {
@@ -2625,6 +2694,14 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || preview === null
         ? null
         : { type: 'files.preview', terminalId, preview };
+    }
+    case 'files.checked': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const existing = asStringArray(record['existing']);
+      return terminalId === null || requestId === null || existing === null
+        ? null
+        : { type: 'files.checked', terminalId, requestId, existing };
     }
     case 'conversation.plans': {
       const terminalId = asNonEmptyString(record['terminalId']);

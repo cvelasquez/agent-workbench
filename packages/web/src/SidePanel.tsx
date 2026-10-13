@@ -193,7 +193,7 @@ export function SidePanel({
         <div className={`cli-slot${tab === 'cli' ? '' : ' cli-slot-hidden'}`}>{cli}</div>
 
         {tab === 'git' && <GitPanel view={git} />}
-        {tab === 'plans' && <PlansPanel view={plans} docs={documents.plans} />}
+        {tab === 'plans' && <PlansPanel view={plans} docs={documents.plans} onInsertPath={onInsertPath} />}
         {tab === 'memory' && <MemoryPanel view={memory} />}
         {tab === 'files' && (
           <FilesPanel

@@ -55,6 +55,18 @@ const WRITE_DEBOUNCE_MS = 500;
  */
 export const MAX_STORED_DRAFTS = 100;
 
+/**
+ * true si un envio vacia el borrador de su pestana.
+ *
+ * Lo que mando el cuadro ya no es un borrador. Un comando que mando un control
+ * —el combo de esfuerzo o el de modelo, `keepDraft`— no salio del cuadro, y lo
+ * que el usuario venia escribiendo ahi sigue siendo suyo: vaciarlo le borraba
+ * el mensaje a medio escribir en todas sus ventanas (§6.29).
+ */
+export function submitClearsDraft(message: { keepDraft?: boolean }): boolean {
+  return message.keepDraft !== true;
+}
+
 /** La conversacion de la que es un borrador. */
 export interface DraftOwner {
   agent: string;

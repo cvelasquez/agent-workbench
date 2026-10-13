@@ -155,5 +155,101 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
   check('5.6 que es Markdown: por la extension', isMarkdownPath('docs/x.md') && isMarkdownPath('X.MARKDOWN') && !isMarkdownPath('x.mdx.ts') && !isMarkdownPath('md'));
 }
 
+// --- 6. Las rutas que nombra el hilo (§6.33, 13-10-2026) -----------------------------
+//
+// El agente nombra un archivo del proyecto y un clic lo abre en Archivos. Lo
+// que se rompe sin verse: que el cliente le pregunte al servidor por algo de
+// afuera del proyecto, que cada palabra entre acentos graves sea un pedido, o
+// que una ruta que el servidor no confirmo se vuelva enlace.
+{
+  const paths = await import('../../web/src/project-paths.ts');
+  const shared = await import('@agent-workbench/shared');
+  const { readFileSync } = await import('node:fs');
+  const win = { cwd: 'D:\\Mi Proyecto', platform: 'win32' };
+  const posix = { cwd: '/home/ana/proyecto', platform: 'linux' };
+  const of = (mention, root = win) => paths.projectPathOf(mention, root);
+
+  check('6.1 una relativa, con cualquiera de las dos barras y sin el ./ de adelante',
+    of('apps/mobile/store/listing.md') === 'apps/mobile/store/listing.md' && of('src\\app\\main.ts') === 'src/app/main.ts' &&
+      of('./docs/guia.md') === 'docs/guia.md');
+  check('6.2 sin la linea ni el ancla: src/app.ts:12, :12:5, :12-20 y #L12',
+    of('src/app.ts:12') === 'src/app.ts' && of('src/app.ts:12:5') === 'src/app.ts' && of('src/app.ts:12-20') === 'src/app.ts' &&
+      of('src/app.ts#L12-L20') === 'src/app.ts');
+  check('6.3 entre comillas, como la deja el boton del arbol, y con el @ de una mencion',
+    of('"D:\\Mi Proyecto\\docs\\guia.md"') === 'docs/guia.md' && of('@src/app.ts') === 'src/app.ts');
+  check('6.4 una absoluta vale solo si cae dentro del proyecto; en Windows, sin distinguir mayusculas',
+    of('D:\\Mi Proyecto\\docs\\guia.md') === 'docs/guia.md' && of('d:/mi proyecto/docs/guia.md') === 'docs/guia.md' &&
+      of('D:\\Otro\\docs\\guia.md') === null && of('C:\\Windows\\win.ini') === null && of('\\\\servidor\\share\\x.md') === null &&
+      of('D:\\Mi Proyecto Dos\\x.md') === null && of('D:\\Mi Proyecto') === null);
+  check('6.5 fuera de Windows: una absoluta de adentro vale, distinguiendo mayusculas; una con unidad, no',
+    of('/home/ana/proyecto/src/a.ts', posix) === 'src/a.ts' && of('/home/ana/Proyecto/src/a.ts', posix) === null &&
+      of('/etc/passwd', posix) === null && of('C:/x/a.ts', posix) === null);
+  check('6.6 en Windows, una que empieza con / no se adivina', of('/d/Mi Proyecto/src/a.ts') === null && of('/src/a.ts') === null);
+  check('6.7 nada que salga con .., ni el home, ni una direccion, ni un patron, ni una opcion',
+    of('../afuera/x.md') === null && of('docs/../../x.md') === null && of('~/notas/x.md') === null &&
+      of('https://example.com/a/b.md') === null && of('src/**/*.ts') === null && of('--force/x.md') === null &&
+      of('a.md\nb.md') === null && of('sub/C:x.md') === null);
+  check('6.8 un .. que se queda adentro se resuelve', of('docs/a/../guia.md') === 'docs/guia.md');
+  check('6.9 una palabra sola sin extension no se pregunta; un archivo de la raiz, si',
+    of('main') === null && of('README') === null && of('npm run build') === null && of('localhost:3000') === null &&
+      of('README.md') === 'README.md' && of('.gitignore') === '.gitignore' && of('package.json:5') === 'package.json');
+  check('6.10 vacia, o mas larga de lo que el servidor acepta, no', of('') === null && of('   ') === null &&
+    of(`src/${'x'.repeat(shared.FILES_CHECK_MAX_PATH_CHARS)}.ts`) === null);
+
+  const link = (href, root = win) => paths.projectLinkPathOf(href, root);
+  check('6.11 el destino de un enlace: sin ancla ni consulta, y decodificado',
+    link('docs/mi%20guia.md#pasos') === 'docs/mi guia.md' && link('docs/guia.md?x=1') === 'docs/guia.md');
+  check('6.12 un enlace con esquema, una unidad codificada o un ancla sola no son del proyecto',
+    link('mailto:alguien') === null && link('file:///etc/passwd') === null && link('C%3A/Windows/win.ini') === null &&
+      link('#arriba') === null && link('..%2F..%2Fafuera.md') === null && link('%E0%A4%A') === null);
+
+  const text = [
+    'Los pasos estan en `docs/guia.md` y en [la lista](apps/mobile/notes.md#L3).',
+    'Corre `pnpm build`, mira `src/app.ts:12` y otra vez `docs/guia.md`.',
+    'Texto suelto con barras, src/suelto.ts, no cuenta. Tampoco https://example.com/x.md',
+    '```',
+    'npm run dev',
+    '```',
+  ].join('\n');
+  check('6.13 los candidatos de un texto: lo que va entre acentos graves y los enlaces, sin repetir',
+    json(paths.pathCandidates(text, win)) === json(['docs/guia.md', 'src/app.ts', 'apps/mobile/notes.md']), json(paths.pathCandidates(text, win)));
+
+  const known = new Map([['docs/guia.md', true], ['docs/plan.md', false]]);
+  check('6.14 se pregunta lo que no se conoce y lo que antes no estaba; lo que ya esta, o va en camino, no',
+    json(paths.pathsToCheck(['docs/guia.md', 'docs/plan.md', 'src/a.ts', 'src/b.ts'], known, new Set(['src/b.ts']))) === json(['docs/plan.md', 'src/a.ts']));
+  const after = paths.withChecked(known, ['docs/plan.md', 'src/a.ts'], ['docs/plan.md']);
+  check('6.15 la respuesta dice de cada ruta pedida si esta: lo que no volvio, no esta',
+    after.get('docs/plan.md') === true && after.get('src/a.ts') === false && after.get('docs/guia.md') === true && known.get('docs/plan.md') === false);
+
+  // El protocolo.
+  const many = Array.from({ length: shared.FILES_CHECK_MAX_PATHS + 20 }, (_, index) => `src/f${index}.ts`);
+  const parsed = shared.parseClientMessage(json({ type: 'files.check', terminalId: 't1', requestId: 'r1', paths: ['a.md', 7, '', 'x'.repeat(shared.FILES_CHECK_MAX_PATH_CHARS + 1), 'b.md'] }));
+  check('6.16 files.check: lo que no tiene forma se descarta solo, sin invalidar el pedido',
+    json(parsed) === json({ type: 'files.check', terminalId: 't1', requestId: 'r1', paths: ['a.md', 'b.md'] }), json(parsed));
+  check('6.17 y pasado el tope, el resto tampoco',
+    shared.parseClientMessage(json({ type: 'files.check', terminalId: 't1', requestId: 'r1', paths: many })).paths.length === shared.FILES_CHECK_MAX_PATHS);
+  check('6.18 sin pestana, sin eco o sin lista, no es un pedido',
+    shared.parseClientMessage(json({ type: 'files.check', requestId: 'r', paths: [] })) === null &&
+      shared.parseClientMessage(json({ type: 'files.check', terminalId: 't', paths: [] })) === null &&
+      shared.parseClientMessage(json({ type: 'files.check', terminalId: 't', requestId: 'r' })) === null);
+  check('6.19 files.checked se lee con su eco',
+    json(shared.parseServerMessage(json({ type: 'files.checked', terminalId: 't1', requestId: 'r1', existing: ['a.md'] }))) ===
+      json({ type: 'files.checked', terminalId: 't1', requestId: 'r1', existing: ['a.md'] }) &&
+      shared.parseServerMessage(json({ type: 'files.checked', terminalId: 't1', existing: [] })) === null);
+  const hello = (extra) => shared.parseServerMessage(json({ type: 'hello', protocolVersion: shared.PROTOCOL_VERSION, agents: [], defaultAgent: null, platform: 'win32', defaultCwd: 'D:\\x', shellName: null, ...extra }));
+  check('6.20 un servidor anterior no dice fileCheck, y la pagina no pregunta', hello({}).fileCheck === false && hello({ fileCheck: true }).fileCheck === true);
+
+  // El cableado, leido como texto.
+  const hook = readFileSync(new URL('../../web/src/useFileLinks.ts', import.meta.url), 'utf8');
+  const view = readFileSync(new URL('../../web/src/ConversationView.tsx', import.meta.url), 'utf8');
+  const socket = readFileSync(new URL('../src/terminal-socket.ts', import.meta.url), 'utf8');
+  check('6.21 solo es enlace lo que el servidor confirmo, y solo se pregunta con el servidor que contesta',
+    hook.includes('known?.get(path) === true') && /if \(!enabled \|\| terminalId === null \|\| cwd\.length === 0\) return;/.test(hook));
+  check('6.22 solo el texto del agente: lo del usuario se muestra tal cual',
+    hook.includes("if (event.role !== 'assistant') continue;") && /<Markdown text=\{part\.text\} needle=\{needle\} codeLink=\{fileLinks\?\.code\} localLink=\{fileLinks\?\.link\} \/>/.test(view));
+  check('6.23 el servidor anuncia que contesta, y contesta por el guardia de rutas',
+    socket.includes('fileCheck: true,') && socket.includes('await existingFiles(cwd, message.paths)'));
+}
+
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);
 process.exit(failures === 0 ? 0 : 1);

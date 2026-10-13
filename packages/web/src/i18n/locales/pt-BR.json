@@ -871,6 +871,7 @@
   "thread.notice.error": "A CLI retornou um erro: {{detail}}",
   "thread.notice.errorNoDetail": "A CLI retornou um erro",
   "thread.notice.interrupted": "Interrompido",
+  "thread.openInFiles": "Abrir {{path}} na aba Arquivos",
   "thread.pasted_one": "Texto colado #{{number}} · {{count}} linha",
   "thread.pasted_other": "Texto colado #{{number}} · {{count}} linhas",
   "thread.question.answerInCli": "Responda na aba CLI",

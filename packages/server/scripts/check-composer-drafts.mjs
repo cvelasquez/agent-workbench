@@ -35,7 +35,7 @@ import {
   parseComposerDraft,
   parseServerMessage,
 } from '@agent-workbench/shared';
-import { DraftStore, DraftTabs, MAX_STORED_DRAFTS, draftEntriesOf, draftOwnerOf, workspaceDraftOwners } from '../src/draft-store.ts';
+import { DraftStore, DraftTabs, MAX_STORED_DRAFTS, draftEntriesOf, draftOwnerOf, submitClearsDraft, workspaceDraftOwners } from '../src/draft-store.ts';
 import { ComposerDrafts, draftOf, draftTooLong, localDraftOf, viewToRestore } from '../../web/src/composer-drafts.ts';
 
 let failures = 0;
@@ -88,6 +88,26 @@ const B = { agent: 'codex', sessionId: '0199aaaa-0000-7000-8000-000000000002' };
   check('una lista vacía también se lee: dice que el servidor guarda',
     json(parseServerMessage(json({ type: 'composer.drafts', drafts: [] }))) === json({ type: 'composer.drafts', drafts: [] }));
   check('y sin lista, no', parseServerMessage(json({ type: 'composer.drafts' })) === null);
+
+  // Un comando que manda un control —el combo de esfuerzo o el de modelo— no
+  // salió del cuadro (13-10-2026): con un mensaje a medio escribir, cambiar el
+  // esfuerzo lo borraba, porque el servidor vaciaba el borrador y se lo decía a
+  // todas las ventanas.
+  const fromBox = parseClientMessage(json({ type: 'agent.submit', terminalId: 't1', text: 'hola', images: [] }));
+  const fromCombo = parseClientMessage(json({ type: 'agent.submit', terminalId: 't1', text: '/effort high', images: [], keepDraft: true }));
+  check('un envío del cuadro vacía el borrador; el comando de un combo, no',
+    submitClearsDraft(fromBox) === true && submitClearsDraft(fromCombo) === false && fromBox.keepDraft === undefined, json(fromCombo));
+  check('keepDraft sólo vale como true: cualquier otra cosa es un envío del cuadro',
+    submitClearsDraft(parseClientMessage(json({ type: 'agent.submit', terminalId: 't1', text: 'x', images: [], keepDraft: 'si' }))) === true);
+  // El cableado, leído como texto: el socket pregunta antes de borrar, y los combos lo piden.
+  const socketSource = await readFile(new URL('../src/terminal-socket.ts', import.meta.url), 'utf8');
+  const appSource = await readFile(new URL('../../web/src/App.tsx', import.meta.url), 'utf8');
+  check('el socket no borra ni avisa el borrador sin preguntarlo',
+    /const clearsDraft = submitClearsDraft\(message\);/.test(socketSource) &&
+    /if \(clearsDraft && submittedOwner !== null\) drafts\.delete\(submittedOwner\);/.test(socketSource) &&
+    /if \(clearsDraft && submittedTab !== null\) \{/.test(socketSource));
+  check('los combos mandan su comando sin tocar el borrador',
+    /const sendCommand = useCallback\([\s\S]{0,400}?keepDraft: true/.test(appSource));
 }
 
 // --- 3. El almacén: ida y vuelta ------------------------------------------------

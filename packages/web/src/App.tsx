@@ -32,6 +32,7 @@ import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
 import { Composer, type ComposerInsert } from './Composer.js';
 import { ConsolePane } from './ConsolePane.js';
+import { autoOpenShell, withRequestedShell } from './console-shells.js';
 import { ConversationView } from './ConversationView.js';
 import { FolderPicker } from './FolderPicker.js';
 import { globalSearchVisible, searchHitAction } from './global-search-ui.js';
@@ -50,6 +51,7 @@ import { useFiles } from './useFiles.js';
 import { useGlobalSearch } from './useGlobalSearch.js';
 import { usePlans } from './usePlans.js';
 import { useDocuments } from './useDocuments.js';
+import { useFileLinks } from './useFileLinks.js';
 import { useGit } from './useGit.js';
 import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
@@ -200,6 +202,7 @@ export function App(): JSX.Element {
     prefillApplied,
     drafts,
     remoteClient,
+    fileCheck,
   } = workspace;
 
   const theme = useTheme();
@@ -837,6 +840,41 @@ export function App(): JSX.Element {
     [narrow],
   );
 
+  /*
+    Un archivo del proyecto que el agente nombro en el hilo se abre en la solapa
+    Archivos, en su pestana de documento (§6.33). Con la columna escondida, se
+    la trae: abrir algo que no se ve no es abrirlo. En el telefono, Archivos es
+    una vista.
+
+    La funcion que recibe el hilo es siempre la misma y lee la de ahora por un
+    `ref`: `documents.files` cambia con cada documento que llega, y con una
+    funcion nueva cada vez el hilo entero volveria a dibujarse.
+  */
+  const openProjectFile = (relativePath: string): void => {
+    documents.files.open({ key: relativePath, title: relativePath.split('/').pop() ?? relativePath });
+    if (narrow) {
+      changeNarrowView('files');
+      return;
+    }
+    if (!panelOpen) togglePanel();
+    changePanelTab('files');
+  };
+  const openProjectFileRef = useRef(openProjectFile);
+  openProjectFileRef.current = openProjectFile;
+  const openFromThread = useCallback((relativePath: string) => openProjectFileRef.current(relativePath), []);
+  const liveTerminalIds = useMemo(() => terminals.map((terminal) => terminal.terminalId), [terminals]);
+  const fileLinks = useFileLinks({
+    connection,
+    // Con Archivos escondida en Ajustes no hay donde abrirlo: el hilo queda como texto.
+    enabled: fileCheck && panels.isVisible('files'),
+    terminalId: activeTerminalId,
+    cwd: activeTerminal?.cwd ?? '',
+    platform,
+    events: conversation.events,
+    liveTerminalIds,
+    onOpen: openFromThread,
+  });
+
   /**
    * Manda un comando de barra a la CLI.
    *
@@ -844,6 +882,11 @@ export function App(): JSX.Element {
    * la CLI **es** un mensaje: uno que empieza con `/`. Lo que cambia es donde
    * se ve — en la pestana CLI y no en el hilo de la conversacion, que es
    * justamente lo que se buscaba al separarlas.
+   *
+   * Con `keepDraft`: no salio del cuadro, asi que el borrador de la pestana no
+   * se toca (§6.29). Sin eso, cambiar el esfuerzo o el modelo con un mensaje a
+   * medio escribir lo borraba: el servidor vaciaba el borrador y se lo decia a
+   * todas las ventanas, tambien a esta.
    */
   const sendCommand = useCallback(
     (command: string) => {
@@ -853,6 +896,7 @@ export function App(): JSX.Element {
         terminalId: activeTerminalId,
         text: command,
         images: [],
+        keepDraft: true,
       });
     },
     [connection, activeTerminalId],
@@ -870,28 +914,22 @@ export function App(): JSX.Element {
     Apertura automatica de la consola.
 
     Mostrar el panel y despues tener que apretar "abrir" seria un clic de mas
-    para lo unico que puede querer alguien que abre una consola. El `Set` de
+    para lo unico que puede querer alguien que abre una consola. La lista de
     pedidos evita el bucle: si la apertura falla —no hay consola en el sistema,
     el directorio ya no existe— no se reintenta hasta que el usuario vuelva a
-    prender el interruptor.
+    prender el interruptor. La regla entera esta en `console-shells.ts`;
+    escondida en Ajustes es como plegada, y no se abre ninguna sola.
   */
-  const requestedShells = useRef(new Set<string>());
+  const requestedShells = useRef<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
-    // Escondida en Ajustes es como plegada: no se abre ninguna sola.
-    if (!consoleShown) {
-      requestedShells.current.clear();
-      return;
-    }
-    if (activeTerminal === null) return;
-    const { cwd } = activeTerminal;
-    if (shells.some((shell) => shell.cwd === cwd)) {
-      requestedShells.current.delete(cwd);
-      return;
-    }
-    if (requestedShells.current.has(cwd)) return;
-    requestedShells.current.add(cwd);
-    openShell(cwd);
+    const decision = autoOpenShell(requestedShells.current, {
+      consoleShown,
+      cwd: activeTerminal?.cwd ?? null,
+      shellCwds: shells.map((shell) => shell.cwd),
+    });
+    requestedShells.current = decision.requested;
+    if (decision.open !== null) openShell(decision.open);
   }, [consoleShown, activeTerminal, shells, openShell]);
 
   /**
@@ -899,13 +937,20 @@ export function App(): JSX.Element {
    *
    * No esconde el panel ni abre otra. Con varias abiertas, cerrar una es una
    * operacion sobre esa y nada mas; el panel se pliega con su propio boton, que
-   * no mata nada. Se saca del registro de pedidos para que la apertura
-   * automatica pueda volver a actuar si esta era la ultima.
+   * no mata nada.
+   *
+   * **Cerrar la ultima de un proyecto la deja cerrada** (pedido del usuario,
+   * 13-10-2026). Hasta entonces la apertura automatica abria otra en el acto,
+   * y la unica forma de quedarse sin terminal en un proyecto era esconder la
+   * consola entera, que cierra las de todos. El directorio queda anotado como
+   * pedido, que es lo que frena a la apertura automatica: el hueco ofrece
+   * abrir una, y plegar y desplegar la consola vuelve a abrirla sola
+   * (`console-shells.ts`, §6.0.1).
    */
   const closeShell = useCallback(
     (terminalId: TerminalId) => {
       const shell = consoleShells.find((entry) => entry.terminalId === terminalId);
-      if (shell !== undefined) requestedShells.current.delete(shell.cwd);
+      if (shell !== undefined) requestedShells.current = withRequestedShell(requestedShells.current, shell.cwd);
       closeTerminal(terminalId);
     },
     [consoleShells, closeTerminal],
@@ -955,7 +1000,7 @@ export function App(): JSX.Element {
   /** Abre una consola mas en el directorio de la pestana activa. */
   const openConsoleHere = useCallback(() => {
     if (activeTerminal === null) return;
-    requestedShells.current.add(activeTerminal.cwd);
+    requestedShells.current = withRequestedShell(requestedShells.current, activeTerminal.cwd);
     openShell(activeTerminal.cwd);
   }, [activeTerminal, openShell]);
 
@@ -1264,6 +1309,7 @@ export function App(): JSX.Element {
           view={conversation}
           terminalId={activeTerminalId}
           threadFont={threadFont}
+          fileLinks={fileLinks}
           /*
             Volver aqui e "Insertar como @ruta" le escriben a la terminal: sin
             CLI no hay a quien, y desde que el servidor descarta callado lo que
