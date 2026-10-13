@@ -38,12 +38,12 @@ CLI.
 | **Tabs** | Several agents at once, from any CLI, each in its own folder. A dot on each tab tells you whether the agent is working, idle or waiting for you. Reloading the page doesn't stop anything: the CLIs run on the server, not in the browser. |
 | **Fast start** | When you open the app, your tabs come back **asleep**: you can read them in full, and no CLI starts until you click **Open CLI**. |
 | **History** | Your projects and past conversations in the sidebar, from every CLI, with a filter. Click one to pick it up where you left it, with its CLI. Archive old sessions or a whole project to tidy up: nothing is deleted, and it can be undone. |
-| **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. |
+| **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. A file of the project that the agent names opens in the Files tab with one click. |
 | **Message box** | Room to write, paste images, attach files, and long pasted text kept as a tidy chip. What you're typing survives closing the app, and shows up live in every open window. |
 | **Context meter** | How much of the model's context window the conversation is using. Tokens, never money. |
 | **Changes** | The branch, the changed files and their diff. **Read-only**: no commit or push buttons. |
 | **Files** | The project's file tree, with search and a preview with syntax highlighting. Open several files at once, each in its own tab; Markdown files open formatted. One click puts a file's path in your message. |
-| **Plans** | The plans and `.md` documents the conversation wrote, rendered. |
+| **Plans** | The plans and `.md` documents the conversation wrote, rendered. One click puts a document's path in your message. |
 | **Notes** | A scratchpad next to the conversation, images included. With Claude Code, one click sends a note to a new conversation. |
 | **Console** | Your system's terminal at the bottom, in the project's folder: PowerShell, cmd or Git Bash on Windows; bash or zsh on macOS and Linux. |
 | **Continue with…** | With more than one CLI, continue a conversation with another one in the same folder. The new agent starts from a transcript of the last turns. |
