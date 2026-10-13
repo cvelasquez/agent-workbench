@@ -282,6 +282,19 @@ const describe = (events) =>
     tree.meter.lastRequestTokens === 1358 && tree.meter.lastOutputTokens === 20 && tree.meter.assistantMessages === 2 &&
     tree.meter.totalInputTokens === 2076 && tree.meter.totalOutputTokens === 40 && tree.meter.totalCacheReadTokens === 600, show(tree.meter));
 
+  // El orden medido con Pi 1.1.0 (16.5): el mensaje en cola se escribe despues del
+  // resultado de la herramienta en curso, colgando de el, y el turno sigue.
+  const measured = new PiSessionTree();
+  const feedMeasured = (record) => measured.add(read(record));
+  feedMeasured(userMessage('u1', null, T0 + 1000, 'primero'));
+  feedMeasured(assistantMessage('a1', 'u1', T0 + 2000, { calls: [{ id: 'c1', name: 'bash', arguments: { command: 'ping' } }], stopReason: 'toolUse' }));
+  feedMeasured(toolResult('r1', 'a1', T0 + 8000, 'c1', [{ type: 'text', text: 'ok' }]));
+  const delivered = feedMeasured(userMessage('u2', 'r1', T0 + 8003, 'ademas'));
+  const closing = feedMeasured(assistantMessage('a2', 'u2', T0 + 10000, { text: 'las dos cosas' }));
+  check('P2 medido: el mensaje en cola que Pi entrega cuelga del resultado de la herramienta, sale marcado y no corta el turno',
+    delivered.rebuilt === false && delivered.added[0].queued === true && closing.added[0].durationMs === 9000 &&
+    describe(measured.events) === 'U:primero | A:tool-call | U:tool-result | U:ademas | A:las dos cosas', describe(measured.events));
+
   feed(userMessage('u3', 'a2', T0 + 7000, 'otro'));
   const aborted = feed(assistantMessage('a3', 'u3', T0 + 9000, { text: 'iba por aca', stopReason: 'aborted', errorMessage: 'Operation aborted', usage: ZERO_USAGE }));
   check('P2 una respuesta interrumpida: lo que alcanzo a escribir y un aviso aparte, con la duracion en el aviso',
