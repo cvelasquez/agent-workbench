@@ -4,8 +4,9 @@
  *
  * Son configuracion, no marca (regla 2.3). Todo medido el 12-10-2026 contra la
  * 1.1.0 en Windows, lanzada en una pty como la lanza el registro de terminales
- * (CLAUDE.md 16); donde un valor sale del codigo o de la documentacion del
- * paquete y no de una medicion, se dice.
+ * (CLAUDE.md 16), y vuelto a comprobar el 13-10-2026 contra la 1.2.0; donde un
+ * valor sale del codigo o de la documentacion del paquete y no de una medicion,
+ * se dice.
  */
 
 import type { EffortOption } from '@agent-workbench/shared';

@@ -2,8 +2,8 @@
  * El adaptador de Pi (`pi`).
  *
  * Todo lo que el servidor sabe de esta CLI en un solo objeto, como los de las
- * otras cuatro. Lo medido contra la 1.1.0 esta en CLAUDE.md 16. Cinco cosas
- * que ordenan el resto:
+ * otras cuatro. Lo medido contra la 1.1.0, y comprobado otra vez con la 1.2.0,
+ * esta en CLAUDE.md 16. Cinco cosas que ordenan el resto:
  *
  *  - **El id de sesion lo pone la app, y un solo comando sirve para todo.**
  *    `pi --session-id <id>` abre la sesion si existe y la crea con ese id si no.
