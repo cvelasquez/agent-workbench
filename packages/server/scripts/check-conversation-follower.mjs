@@ -675,6 +675,47 @@ check('una nota larga se recorta como cualquier texto',
   longNote?.kind === 'text' && longNote.truncated === true && longNote.text.length < 20_000,
   `${longNote?.kind} ${longNote?.text?.length}`);
 
+// 11k (13-10-2026). El envoltorio de lo pegado.
+//
+// La CLI 2.1.296 marca lo que el usuario pego con dos etiquetas, cada una en su
+// linea y las dos con el mismo id. Un mensaje del cuadro de la app llega como un
+// pegado, asi que uno largo queda envuelto entero, y en el hilo salian las dos
+// etiquetas arriba y abajo de lo escrito. La forma es la medida en el archivo
+// del reporte: `\n\n<pasted_content id="…">\n…\n</pasted_content id="…">\n`.
+const wrapperFile = path.join(dir, 'pegado.jsonl');
+const wrapped = (id, body) => `\n\n<pasted_content id="${id}">\n${body}\n</pasted_content id="${id}">\n`;
+const pastedBody = '1. Si esta bien que generemos otro build.\n2. Tienes razon sobre los usuarios nuevos.';
+await writeFile(wrapperFile,
+  userRaw('p1', wrapped('3ba5', pastedBody)) +
+  // Como bloque de texto, que es la otra forma de `content`.
+  line({ type: 'user', uuid: 'p2', timestamp: new Date().toISOString(),
+    message: { role: 'user', content: [{ type: 'text', text: wrapped('dff7', 'una sola linea') }] } }) +
+  // Escrito a mano alrededor de dos pegados con el mismo id, que la CLI repite en la sesion.
+  userRaw('p3', `mira esto:${wrapped('dff7', 'PRIMERO')}y esto:${wrapped('dff7', 'SEGUNDO')}que opinas?`) +
+  // Lo que no es un par con el mismo id no se toca.
+  userRaw('p4', 'el texto dice <pasted_content id="aaaa"> y nunca lo cierra') +
+  userRaw('p5', '<pasted_content id="aaaa">\ncierra con otro id\n</pasted_content id="bbbb">') +
+  // Encolado mientras el agente trabajaba: el mismo envoltorio, por el otro camino.
+  attach('p6', { type: 'queued_command', prompt: wrapped('3ba5', 'encolado y pegado'),
+    commandMode: 'prompt', origin: { kind: 'human' } }) +
+  // Un comando pegado adentro sigue sin ser conversacion, como antes de la etiqueta.
+  userRaw('p7', wrapped('3ba5', '<bash-input>ls</bash-input>')));
+const pastedResult = await new ConversationFollower(wrapperFile).poll();
+const pastedText = (id) => pastedResult.added.find((event) => event.eventId === id)?.parts[0]?.text;
+check('un mensaje pegado entero sale sin las dos etiquetas, con sus saltos de linea',
+  pastedText('p1') === pastedBody, JSON.stringify(pastedText('p1')));
+check('tambien cuando el contenido viene como bloque de texto', pastedText('p2') === 'una sola linea', JSON.stringify(pastedText('p2')));
+check('dos pegados con el mismo id en un mensaje, con lo escrito alrededor',
+  pastedText('p3') === 'mira esto:\n\nPRIMERO\ny esto:\n\nSEGUNDO\nque opinas?', JSON.stringify(pastedText('p3')));
+check('una etiqueta sin cerrar se queda como texto', pastedText('p4') === 'el texto dice <pasted_content id="aaaa"> y nunca lo cierra');
+check('y una que cierra con otro id, tambien',
+  pastedText('p5') === '<pasted_content id="aaaa">\ncierra con otro id\n</pasted_content id="bbbb">', JSON.stringify(pastedText('p5')));
+const queuedPasted = pastedResult.added.find((event) => event.eventId === 'p6');
+check('el encolado sale igual de limpio, y sigue marcado', queuedPasted?.parts[0]?.text === 'encolado y pegado' && queuedPasted.queued === true,
+  JSON.stringify(queuedPasted?.parts));
+check('un comando pegado adentro sigue sin generar tarjeta', pastedResult.added.every((event) => event.eventId !== 'p7'),
+  pastedResult.added.map((event) => event.eventId).join(','));
+
 // ---------------------------------------------------------------------------
 // Las imagenes que la CLI adjunta por ruta
 // ---------------------------------------------------------------------------

@@ -76,6 +76,11 @@ import { DEFAULT_WRITE_DEPS, writeSessionFile, type VaultWriteDeps } from './wri
  * de razonamiento (§4.9). Sin recopiar, las copias de las sesiones ya
  * terminadas se quedaban sin ellas, y cuando la CLI borra el original se
  * perdian para siempre.
+ *
+ * No sube por un mapeo que solo **quita** ruido —el aviso de tarea, o las
+ * etiquetas `<pasted_content>` de lo pegado (13-10-2026)—: la copia vieja tiene
+ * todo lo que se dijo, con algo de mas, y recopiar el historial entero de cada
+ * usuario por dos lineas no lo vale.
  */
 export const VAULT_WRITER_REVISION = 2;
 /** Cuanto tiene que llevar quieta una sesion para copiarla. */

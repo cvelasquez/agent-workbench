@@ -61,6 +61,10 @@ change behavior.
 - **The copy button of a message is no longer covered by the "Go to your
   previous message" arrow.** While a message sits under the arrow, its buttons
   move to the left of it.
+- **A long message no longer shows `<pasted_content …>` tags in the
+  conversation** (Claude Code). Recent versions of the CLI wrap what you paste
+  in those tags when they save it, and a long message sent from the message
+  box reaches the CLI as a paste.
 
 ## 0.5.4 — 2026-10-12
 

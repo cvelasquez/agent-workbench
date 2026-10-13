@@ -59,6 +59,24 @@ const HARNESS_TAGS = [
 const HARNESS_BLOCK = new RegExp(`<(${HARNESS_TAGS.join('|')})>[\\s\\S]*?</\\1>`, 'g');
 
 /**
+ * El envoltorio con que la CLI marca lo que el usuario pego (medido con la
+ * 2.1.296, 13-10-2026):
+ *
+ * ```
+ * \n\n<pasted_content id="dff7">\n…lo pegado…\n</pasted_content id="dff7">\n
+ * ```
+ *
+ * Las dos etiquetas llevan el mismo id, tambien la de cierre, y van cada una en
+ * su linea. Un mensaje del cuadro de la app llega a la CLI como un pegado, asi
+ * que uno largo queda envuelto **entero**: en el hilo salia con las dos
+ * etiquetas a la vista, arriba y abajo de lo que el usuario escribio.
+ *
+ * Grupos: 1, el id; 2, lo pegado. Solo casa un par con el **mismo** id: una
+ * etiqueta suelta, o un texto que las nombra sin cerrarlas, se queda como esta.
+ */
+const PASTED_CONTENT = /<pasted_content id="([0-9A-Za-z_-]{1,64})">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
+
+/**
  * Saca del texto del usuario lo que inyecta el arnes y no escribio nadie.
  *
  * **Los comandos se quitan enteros, no se desenvuelven.** Hasta el hito 15 se
@@ -73,9 +91,14 @@ const HARNESS_BLOCK = new RegExp(`<(${HARNESS_TAGS.join('|')})>[\\s\\S]*?</\\1>`
  * envoltorios y nada mas. Un usuario que pega HTML tiene que ver su HTML, y
  * por eso lo que sobreviva al filtro se muestra igual — un mensaje con un
  * comando **y** texto propio conserva el texto propio.
+ *
+ * **Lo pegado se desenvuelve, no se quita** (`PASTED_CONTENT`): es lo que el
+ * usuario mando, y lo unico que sobra son las dos etiquetas que le puso la CLI.
+ * Va antes que los envoltorios del arnes, para que lo de adentro reciba el
+ * mismo trato que cuando la etiqueta no existia.
  */
-function cleanUserText(raw: string): string {
-  return raw.replace(HARNESS_BLOCK, '').trim();
+export function cleanUserText(raw: string): string {
+  return raw.replace(PASTED_CONTENT, '$2').replace(HARNESS_BLOCK, '').trim();
 }
 
 /**
