@@ -32,9 +32,8 @@
  * mas.
  */
 
-import { open, stat } from 'node:fs/promises';
 import type { ConversationEvent, ConversationState } from '@agent-workbench/shared';
-import { parseJsonlLine } from '../jsonl-reader.js';
+import { DISK_FILES, parseJsonlLine, type JsonlFileAccess } from '../jsonl-reader.js';
 import type { EventPage } from './adapter.js';
 
 /** Bloque de lectura. Las lineas largas (hasta 290 KB) igual se arman a mano. */
@@ -90,6 +89,11 @@ export interface JsonlFollowerOptions {
    * reescribio aunque no haya encogido, y se reinicia igual que si encogiera.
    */
   fingerprintBytes?: number;
+  /**
+   * Como se llega a los bytes. Ausente: el disco tal cual. Codex pasa uno que
+   * entrega descomprimido un rollout `.jsonl.zst` (§10.12).
+   */
+  files?: JsonlFileAccess;
 }
 
 export class JsonlFollower implements EventLookup {
@@ -105,6 +109,7 @@ export class JsonlFollower implements EventLookup {
   private readonly fingerprintBytes: number;
   /** Los primeros `fingerprintBytes` del archivo leido; null sin huella o si todavia no llego a ese tamano. */
   private fingerprint: Buffer | null = null;
+  private readonly files: JsonlFileAccess;
 
   /**
    * `filePath` null: todavia no se sabe que archivo es (una CLI que pone el id
@@ -119,6 +124,7 @@ export class JsonlFollower implements EventLookup {
     this.path = filePath;
     this.maxEvents = options.maxEvents ?? MAX_EVENTS;
     this.fingerprintBytes = Math.max(0, Math.floor(options.fingerprintBytes ?? 0));
+    this.files = options.files ?? DISK_FILES;
   }
 
   get filePath(): string | null {
@@ -194,8 +200,7 @@ export class JsonlFollower implements EventLookup {
 
     let size: number;
     try {
-      const info = await stat(this.path);
-      size = info.size;
+      size = await this.files.size(this.path);
     } catch {
       // Todavia no existe, o lo borraron. Si teniamos algo, se descarta.
       if (this.events.length > 0 || this.offset > 0) {
@@ -239,7 +244,7 @@ export class JsonlFollower implements EventLookup {
 
   /** true si el archivo todavia empieza con `expected`. */
   private async sameFingerprint(filePath: string, expected: Buffer): Promise<boolean> {
-    const handle = await open(filePath, 'r');
+    const handle = await this.files.open(filePath);
     try {
       const head = Buffer.alloc(expected.length);
       const { bytesRead } = await handle.read(head, 0, expected.length, 0);
@@ -251,7 +256,7 @@ export class JsonlFollower implements EventLookup {
 
   private async readFrom(filePath: string, size: number): Promise<ConversationEvent[]> {
     const added: ConversationEvent[] = [];
-    const handle = await open(filePath, 'r');
+    const handle = await this.files.open(filePath);
 
     try {
       const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);

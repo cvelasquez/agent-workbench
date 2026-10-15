@@ -247,9 +247,10 @@ function readOutputItems(items: readonly unknown[]): { text: string; imageCount:
  * `custom_tool_call_output`.
  *
  * Medido: `output` es un string en 126 de 126. Un comando de consola empieza
- * con `Exit code: N`; `apply_patch` trae un JSON como texto con `output` y
- * `metadata.exit_code`. Las formas de array y de objeto con `content` son las
- * que la 0.154 declara para salidas con imagenes; no hay ninguna en disco.
+ * con `Exit code: N`, o con la cabecera de `exec_command` (`commandFailed`);
+ * `apply_patch` trae un JSON como texto con `output` y `metadata.exit_code`.
+ * Las formas de array y de objeto con `content` son las que la 0.154 declara
+ * para salidas con imagenes; no hay ninguna en disco.
  *
  * `maxChars`: el tope del texto. El de transporte salvo para la copia propia.
  */
@@ -266,8 +267,7 @@ export function readToolOutput(output: unknown, maxChars: number = TOOL_RESULT_M
       isError = exitCode !== null && exitCode !== 0;
     } else {
       text = output;
-      const match = /^Exit code: (\d+)/.exec(output);
-      isError = match !== null && Number(match[1]) !== 0;
+      isError = commandFailed(output);
     }
   } else if (Array.isArray(output)) {
     ({ text, imageCount } = readOutputItems(output));
@@ -282,6 +282,29 @@ export function readToolOutput(output: unknown, maxChars: number = TOOL_RESULT_M
 
   const limited = cut(text, maxChars);
   return { text: limited.text, truncated: limited.truncated, isError, imageCount };
+}
+
+/**
+ * true si la salida de texto de un comando dice que termino con un codigo
+ * distinto de 0.
+ *
+ * Dos formas:
+ *
+ *  - `shell_command`: empieza con `Exit code: N`.
+ *  - `exec_command`, la consola de la TUI de la 0.162 (medido, §10.12): una
+ *    cabecera de lineas `Clave: valor` —`Chunk ID`, `Wall time`, `Process
+ *    exited with code N`, `Original token count`— y despues `Output:` con lo
+ *    que imprimio el comando. El codigo se busca solo en la cabecera: la misma
+ *    frase dentro de la salida no dice nada del comando. Mientras el proceso
+ *    sigue vivo la cabecera dice `Process running with session ID N`.
+ */
+function commandFailed(output: string): boolean {
+  const legacy = /^Exit code: (-?\d+)/.exec(output);
+  if (legacy !== null) return Number(legacy[1]) !== 0;
+  const headerEnd = output.indexOf('\nOutput:');
+  if (headerEnd === -1) return false;
+  const unified = /^Process exited with code (-?\d+)\r?$/m.exec(output.slice(0, headerEnd));
+  return unified !== null && Number(unified[1]) !== 0;
 }
 
 function parseObject(raw: string): Record<string, unknown> | null {

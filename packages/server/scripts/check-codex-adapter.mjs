@@ -41,7 +41,7 @@
  * nada que cargue `node-pty`.
  */
 
-import { appendFile, mkdir, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setLocale } from '../../web/src/i18n/index.ts';
@@ -672,7 +672,7 @@ const paths = await import('../src/agents/codex/paths.ts');
 const lines = await import('../src/agents/codex/rollout-lines.ts');
 const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts');
 const { CodexSessionFollower } = await import('../src/agents/codex/session-follower.ts');
-const { findRollout } = await import('../src/agents/codex/find-rollout.ts');
+const { findCompressedRollout, findRollout } = await import('../src/agents/codex/find-rollout.ts');
 const { loadRolloutImage } = await import('../src/agents/codex/rollout-image.ts');
 const { scanRollout } = await import('../src/agents/codex/rollout-scan.ts');
 const { createCodexHistory } = await import('../src/agents/codex/history.ts');
@@ -1031,6 +1031,15 @@ async function waitFor(condition, timeoutMs = 5000) {
   const r = lines.readToolOutput;
   check('C7 Exit code: 1 es error', r('Exit code: 1\nWall time: 2 seconds\nOutput:\nfallo').isError === true);
   check('C7 Exit code: 0 no es error', r('Exit code: 0\nOutput:\nok').isError === false);
+  // `exec_command`, la consola de la TUI de la 0.162 (§10.12): el codigo va en la cabecera.
+  const unified = (code, out = '') =>
+    `Chunk ID: 47c633\nWall time: 1.0511 seconds\nProcess exited with code ${code}\nOriginal token count: 0\nOutput:\n${out}`;
+  check('C7 exec_command con codigo 3: error (medido con la 0.162.1)', r(unified(3)).isError === true);
+  check('C7 exec_command con codigo 0: no es error', r(unified(0, 'hola-medicion\r\n')).isError === false);
+  check('C7 exec_command con codigo negativo: error', r(unified(-1073741510)).isError === true);
+  check('C7 exec_command: la frase dentro de la salida no cuenta', r(unified(0, 'Process exited with code 9\n')).isError === false);
+  check('C7 exec_command todavia corriendo: no es error',
+    r('Chunk ID: 1\nWall time: 10.0 seconds\nProcess running with session ID 7\nOriginal token count: 3\nOutput:\nalgo').isError === false);
   check('C7 solo Wall time no es error', r('Wall time: 1.2 seconds\nOutput:\nok').isError === false);
   const patch = r(JSON.stringify({ output: 'Success. Updated the following files:\nA NOTAS.md\n', metadata: { exit_code: 2, duration_seconds: 0.1 } }));
   check('C7 JSON con metadata.exit_code 2: error y el texto es output',
@@ -1206,6 +1215,32 @@ async function waitFor(condition, timeoutMs = 5000) {
   const lost = 'b5b5b5b5-5555-4555-8555-555555555555';
   await writeFile(path.join(junk, rolloutName(BASE, lost)), sessionMeta({ id: lost }));
   check('C11 el recorrido no entra en carpetas que no son de fecha', (await findRollout(lost)) === null);
+
+  // Comprimidos (§10.12): se encuentran aparte y nunca como rollout que se lee.
+  const packed = cid(25);
+  const packedName = `${rolloutName(paths.uuidV7Millis(packed), packed)}.zst`;
+  check('C11 nombre comprimido: mismo id, y ninguno de los dos parsers acepta el del otro',
+    paths.parseCompressedRolloutFileName(packedName)?.sessionId === packed &&
+    paths.parseRolloutFileName(packedName) === null &&
+    paths.parseCompressedRolloutFileName(rolloutName(BASE, packed)) === null);
+  const packedFolder = paths.localDayFolder(sessionsRoot, paths.uuidV7Millis(packed));
+  await mkdir(packedFolder, { recursive: true });
+  const packedFile = path.join(packedFolder, packedName);
+  await writeFile(packedFile, 'zst');
+  check('C11 un comprimido no es un rollout que se lea: findRollout null', (await findRollout(packed)) === null);
+  check('C11 findCompressedRollout lo encuentra en la carpeta de su dia', (await findCompressedRollout(packed)) === packedFile);
+  check('C11 findCompressedRollout de una sesion sin comprimir: null', (await findCompressedRollout(inDay)) === null);
+  const packedArchived = cid(26);
+  const packedArchivedFile = path.join(archivedRoot, `${rolloutName(BASE, packedArchived)}.zst`);
+  await writeFile(packedArchivedFile, 'zst');
+  check('C11 comprimido en archived_sessions', (await findCompressedRollout(packedArchived)) === packedArchivedFile);
+  const v4Packed = 'c6c6c6c6-6666-4666-8666-666666666666';
+  const v4PackedFolder = paths.localDayFolder(sessionsRoot, Date.UTC(2020, 0, 16, 12));
+  await mkdir(v4PackedFolder, { recursive: true });
+  const v4PackedFile = path.join(v4PackedFolder, `${rolloutName(Date.UTC(2020, 0, 16, 12), v4Packed)}.zst`);
+  await writeFile(v4PackedFile, 'zst');
+  check('C11 comprimido v4: por el recorrido', (await findCompressedRollout(v4Packed)) === v4PackedFile);
+  check('C11 comprimido: algo que no es un uuid da null', (await findCompressedRollout('../../auth')) === null);
 }
 
 // C12. scanRollout.
@@ -1267,11 +1302,13 @@ async function waitFor(condition, timeoutMs = 5000) {
     roots.length === 2 && roots[0].path === sessionsRoot && roots[0].depth === 3 &&
     roots[1].path === archivedRoot && roots[1].depth === 0, show(roots.map((r) => [r.path, r.depth])));
   const good = path.join(sessionsRoot, '2026', '05', '05', rolloutName(BASE, cid(40)));
-  check('E2 accepts: un rollout si, history.jsonl y un .zst no',
-    roots[0].accepts(good) && !roots[0].accepts(path.join(codexHome, 'history.jsonl')) && !roots[0].accepts(`${good}.zst`));
-  check('E2 changedRefs de un rollout de sessions o de archived: [ruta]',
-    same(await history.changedRefs(good), [good]) &&
-    same(await history.changedRefs(path.join(archivedRoot, rolloutName(BASE, cid(41)))), [path.join(archivedRoot, rolloutName(BASE, cid(41)))]));
+  check('E2 accepts: un rollout y su comprimido si, history.jsonl y un .zst que no es rollout no',
+    roots[0].accepts(good) && roots[0].accepts(`${good}.zst`) && !roots[0].accepts(path.join(codexHome, 'history.jsonl')) &&
+    !roots[0].accepts(path.join(codexHome, 'history.jsonl.zst')));
+  const archivedRef = path.join(archivedRoot, rolloutName(BASE, cid(41)));
+  check('E2 changedRefs de un rollout de sessions o de archived: la ruta y su comprimido',
+    same(await history.changedRefs(good), [good, `${good}.zst`]) &&
+    same(await history.changedRefs(archivedRef), [archivedRef, `${archivedRef}.zst`]));
   check('E2 changedRefs de history.jsonl o de fuera de las raices: null',
     (await history.changedRefs(path.join(codexHome, 'history.jsonl'))) === null &&
     (await history.changedRefs(path.join(work, rolloutName(BASE, cid(42))))) === null);
@@ -1281,14 +1318,142 @@ async function waitFor(condition, timeoutMs = 5000) {
   await writeFile(zst, 'x');
   const listed = await history.list();
   const refs = listed?.map((item) => item.ref) ?? [];
-  check('E2 list: los rollouts de sessions y de archived, sin .zst ni carpetas que no son de fecha',
-    refs.length > 0 && refs.every((ref) => paths.parseRolloutFileName(path.basename(ref)) !== null) &&
+  check('E2 list: los rollouts de sessions y de archived, comprimidos incluidos, sin carpetas que no son de fecha',
+    refs.length > 0 && refs.some((ref) => ref === zst) &&
+    refs.every((ref) => paths.parseRolloutFileName(path.basename(ref)) !== null || paths.parseCompressedRolloutFileName(path.basename(ref)) !== null) &&
     refs.some((ref) => ref.startsWith(archivedRoot)) && !refs.some((ref) => ref.includes('basura')), show(refs.length));
   const item = listed?.find((entry) => entry.sessionId === cid(20));
   check('E2 cada item: la sesion es su propio grupo', item !== undefined && item.group === cid(20) && item.sizeBytes > 0);
   check('E2 item de una ruta que ya no esta: null', (await history.item(path.join(sessionsRoot, rolloutName(BASE, cid(44))))) === null);
   check('E2 exists con y sin rollout', (await history.exists('', cid(20))) === true && (await history.exists(CWD, cid(45))) === false);
+  // `codex resume` descomprime: sin esto, despertar su pestana abria una sesion nueva (§10.12).
+  check('E2 exists de una sesion que solo esta comprimida: true', (await history.exists(CWD, cid(25))) === true);
+  check('E2 list trae la comprimida', (listed ?? []).some((entry) => entry.sessionId === cid(25)));
   check('E2 sin planes', history.plans === null);
+}
+
+// Z. Rollouts comprimidos (§10.12): la app de escritorio de Codex comprime los
+// `.jsonl` en `.jsonl.zst`, y `codex resume` reemplaza el comprimido por el
+// `.jsonl`. Se leen descomprimidos en memoria y el `.jsonl` gana siempre.
+{
+  const zstd = await import('../src/agents/codex/compressed-rollout.ts');
+  /**
+   * Un frame zstd valido con bloques sin comprimir (Raw_Block, RFC 8878): sin
+   * compresor a mano en Node 22.14. Los rollouts reales los comprime la app de
+   * escritorio; los 17 de la maquina donde se escribio esto se leyeron bien.
+   */
+  const zstdRaw = (content) => {
+    const data = Buffer.from(content);
+    const header = Buffer.alloc(9);
+    header.writeUInt32LE(0xfd2fb528, 0);
+    header[4] = 0xa0; // tamano de 4 bytes y un solo segmento: sin descriptor de ventana
+    header.writeUInt32LE(data.length, 5);
+    const parts = [header];
+    let offset = 0;
+    do {
+      const size = Math.min(128 * 1024, data.length - offset);
+      const block = Buffer.alloc(3);
+      block.writeUIntLE((offset + size >= data.length ? 1 : 0) | (size << 3), 0, 3);
+      parts.push(block, data.subarray(offset, offset + size));
+      offset += size;
+    } while (offset < data.length);
+    return Buffer.concat(parts);
+  };
+  const writePacked = async (base, id, content, folderMs) => {
+    const folder = paths.localDayFolder(base, folderMs);
+    await mkdir(folder, { recursive: true });
+    const file = path.join(folder, `${rolloutName(folderMs, id)}.zst`);
+    await writeFile(file, zstdRaw(content));
+    return file;
+  };
+
+  const text = 'línea uno ñ\n{"a":1}\n';
+  check('Z1 un frame de bloques sin comprimir vuelve igual', zstd.decompressRolloutBytes(zstdRaw(text)).toString('utf8') === text);
+  const big = `${'x'.repeat(300 * 1024)}\nfin\n`;
+  check('Z1 tres bloques: vuelve entero', zstd.decompressRolloutBytes(zstdRaw(big)).toString('utf8') === big);
+  const zlib = await import('node:zlib');
+  if (typeof zlib.zstdCompressSync === 'function') {
+    check('Z1 un frame comprimido de verdad (zlib de este Node)',
+      zstd.decompressRolloutBytes(zlib.zstdCompressSync(Buffer.from(big))).toString('utf8') === big);
+  } else {
+    console.log('     Z1 este Node no comprime zstd: se salta el frame comprimido de verdad');
+  }
+  let garbage = null;
+  try {
+    zstd.decompressRolloutBytes(Buffer.from('esto no es zstd'));
+  } catch (error) {
+    garbage = error;
+  }
+  check('Z1 algo que no es zstd lanza', garbage !== null);
+  check('Z1 nombres: comprimido y su .jsonl',
+    zstd.isCompressedRollout('C:\\x\\rollout-a.JSONL.ZST') && !zstd.isCompressedRollout('rollout-a.jsonl') &&
+    zstd.plainRolloutPathOf('d/r.jsonl.zst') === 'd/r.jsonl' && zstd.compressedRolloutPathOf('d/r.jsonl') === 'd/r.jsonl.zst');
+
+  // Z2. La barra: cabeza y cola del comprimido.
+  const moved = win ? 'D:\\Mi App\\sub' : '/home/u/mi-app/sub';
+  const packedId = cid(60);
+  const packedContent = sessionMeta({ id: packedId }) + taskStarted(BASE) + turnContext(BASE + 1) +
+    userPair(BASE + 2, 'desde el comprimido', [{ mediaType: 'image/png', data: PNG }]) + assistant(BASE + 3, 'listo') +
+    turnContext(BASE + 4, { cwd: moved });
+  const packedFile = await writePacked(sessionsRoot, packedId, packedContent, paths.uuidV7Millis(packedId));
+  const history = createCodexHistory();
+  const packedItem = await history.item(packedFile);
+  const scanned = packedItem === null ? null : await history.scan(packedItem);
+  check('Z2 item y scan de un comprimido: titulo, cwd y carpeta de reanudar',
+    packedItem?.sessionId === packedId && scanned?.summary.title === 'desde el comprimido' &&
+    scanned.cwd === CWD && scanned.resumeCwd === moved, show(scanned?.summary));
+  check('Z2 accepts y changedRefs: las dos formas de la sesion, siempre juntas',
+    history.roots()[0].accepts(packedFile) &&
+    same(await history.changedRefs(packedFile), [zstd.plainRolloutPathOf(packedFile), packedFile]) &&
+    same(await history.changedRefs(zstd.plainRolloutPathOf(packedFile)), [zstd.plainRolloutPathOf(packedFile), packedFile]));
+  const listedPacked = (await history.list())?.filter((entry) => entry.sessionId === packedId) ?? [];
+  check('Z2 list trae el comprimido sin .jsonl', listedPacked.length === 1 && listedPacked[0].ref === packedFile);
+  check('Z2 exists del comprimido', (await history.exists(CWD, packedId)) === true);
+
+  // Z3. El seguidor de un comprimido, y `codex resume` que lo reemplaza.
+  let clock = 5_000_000;
+  const follower = new CodexSessionFollower(CWD, packedId, { now: () => clock });
+  await follower.start();
+  const first = await follower.poll();
+  check('Z3 el seguidor lee el comprimido: live, con sus eventos y su ruta',
+    follower.getState() === 'live' && first.added.length === 2 && follower.label === packedFile, shape(first.added));
+  const userEvent = first.added.find((event) => event.role === 'user');
+  const image = userEvent === undefined ? null : await follower.readImage(userEvent.eventId, 0, 'content');
+  check('Z3 la miniatura sale del comprimido', image?.mediaType === 'image/png' && image.data === PNG);
+  const quiet = await follower.poll();
+  check('Z3 otra vuelta sin cambios: nada nuevo', quiet.reset === false && quiet.added.length === 0);
+
+  const plainFile = zstd.plainRolloutPathOf(packedFile);
+  await writeFile(plainFile, packedContent + userPair(BASE + 10, 'reanudada') + assistant(BASE + 11, 'sigo'));
+  check('Z3 con las dos formas: list trae solo el .jsonl, y el comprimido no es item',
+    ((await history.list()) ?? []).filter((entry) => entry.sessionId === packedId).map((entry) => entry.ref).join() === plainFile &&
+    (await history.item(packedFile)) === null);
+  await rm(packedFile);
+  check('Z3 un aviso del .jsonl de su sesion: true', follower.noticeChange(plainFile) === true);
+  const resumed = await follower.poll();
+  check('Z3 codex resume lo reemplazo: reinicio, todo desde el .jsonl y la ruta nueva',
+    resumed.reset === true && resumed.added.length === 4 && follower.label === plainFile &&
+    resumed.added.at(-1)?.parts[0]?.text === 'sigo', shape(resumed.added));
+  check('Z3 un aviso de otra sesion sigue siendo false', follower.noticeChange(path.join(path.dirname(plainFile), rolloutName(BASE, cid(61)))) === false);
+
+  // Z4. La app de escritorio comprime el que se esta siguiendo.
+  const repacked = zstd.compressedRolloutPathOf(plainFile);
+  await writeFile(repacked, zstdRaw(await readFile(plainFile)));
+  await rm(plainFile);
+  clock += 2_000;
+  const packedAgain = await follower.poll();
+  check('Z4 el .jsonl se comprimio: reinicio, los mismos eventos y la ruta del comprimido',
+    packedAgain.reset === true && packedAgain.added.length === 4 && follower.label === repacked && follower.getState() === 'live',
+    `${packedAgain.reset} ${packedAgain.added.length} ${follower.label}`);
+
+  // Z5. Desaparece sin otra forma: queda esperando, sin reinicios de mas.
+  await rm(repacked);
+  clock += 2_000;
+  const gone = await follower.poll();
+  check('Z5 sin ninguna de las dos formas: reinicio una vez y waiting', gone.reset === true && follower.getState() === 'waiting');
+  clock += 2_000;
+  const still = await follower.poll();
+  check('Z5 la vuelta siguiente: nada', still.reset === false && still.added.length === 0);
 }
 
 // C13. pickPendingTab, pura.

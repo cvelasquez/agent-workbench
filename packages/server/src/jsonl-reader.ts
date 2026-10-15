@@ -11,10 +11,33 @@
  * lineas y otro de bytes, para que un archivo patologico no se lleve la memoria.
  */
 
-import { open } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 
 /** Tamano de cada lectura. Ni tan chico que multiplique syscalls, ni tan grande. */
 const CHUNK_SIZE = 64 * 1024;
+
+/** Lo que estos lectores y `JsonlFollower` usan de un archivo abierto. */
+export interface JsonlHandle {
+  read(buffer: Buffer, offset: number, length: number, position: number): Promise<{ bytesRead: number }>;
+  stat(): Promise<{ size: number }>;
+  close(): Promise<void>;
+}
+
+/**
+ * Como se llega a los bytes de un JSONL. Lo normal es el disco tal cual
+ * (`DISK_FILES`); una CLI que guarda su historial comprimido pasa otro, que
+ * entrega los bytes ya descomprimidos con la misma forma (Codex, §10.12).
+ */
+export interface JsonlFileAccess {
+  /** Tamano en bytes de lo que se lee. Lanza si el archivo no existe. */
+  size(filePath: string): Promise<number>;
+  open(filePath: string): Promise<JsonlHandle>;
+}
+
+export const DISK_FILES: JsonlFileAccess = {
+  size: async (filePath) => (await stat(filePath)).size,
+  open: (filePath) => open(filePath, 'r'),
+};
 
 export interface HeadReadOptions {
   /** Cuantas lineas completas devolver como maximo. */
@@ -43,8 +66,9 @@ export interface TailReadOptions {
 export async function readHeadLines(
   filePath: string,
   options: HeadReadOptions,
+  files: JsonlFileAccess = DISK_FILES,
 ): Promise<string[]> {
-  const handle = await open(filePath, 'r');
+  const handle = await files.open(filePath);
   try {
     const lines: string[] = [];
     let pending = '';
@@ -93,8 +117,9 @@ export async function readHeadLines(
 export async function readTailLines(
   filePath: string,
   options: TailReadOptions,
+  files: JsonlFileAccess = DISK_FILES,
 ): Promise<string[]> {
-  const handle = await open(filePath, 'r');
+  const handle = await files.open(filePath);
   try {
     const { size } = await handle.stat();
     if (size === 0) return [];

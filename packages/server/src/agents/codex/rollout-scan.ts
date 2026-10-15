@@ -14,11 +14,15 @@
  *    escribirse asi, y la conversacion saldria vacia sin explicacion.
  *  - Solo si el id del nombre es el de la `session_meta`: el que no casa no es
  *    un rollout que se pueda reanudar por su nombre.
+ *
+ * Un rollout comprimido (`.jsonl.zst`, §10.12) se lee igual: se descomprime
+ * una vez, en memoria, y la cabeza y la cola salen de ahi.
  */
 
 import type { HistoryItem, ScannedSession } from '../adapter.js';
 import { parseJsonlLine, readHeadLines, readTailLines } from '../../jsonl-reader.js';
 import { debugLog } from '../../debug.js';
+import { createRolloutFiles } from './compressed-rollout.js';
 import { toTitle, UNTITLED_SESSION_TITLE } from '../session-title.js';
 import {
   INTERACTIVE_SOURCES,
@@ -75,6 +79,7 @@ export async function scanRollout(item: HistoryItem): Promise<ScannedSession | n
     —hasta 1 MB cada una— para tirarla era el costo, no la linea 0 de ~22 KB.
   */
   const found: { meta: SessionMeta | null } = { meta: null };
+  const files = createRolloutFiles();
   const head = await readHeadLines(item.ref, {
     maxLines: ROLLOUT_HEAD_MAX_LINES,
     maxBytes: ROLLOUT_HEAD_MAX_BYTES,
@@ -83,7 +88,7 @@ export async function scanRollout(item: HistoryItem): Promise<ScannedSession | n
       found.meta = listableMeta(line, item);
       return found.meta === null;
     },
-  });
+  }, files);
   const meta = found.meta;
   if (meta === null) return null;
 
@@ -97,7 +102,7 @@ export async function scanRollout(item: HistoryItem): Promise<ScannedSession | n
   }
 
   let resumeCwd: string | null = null;
-  const tail = await readTailLines(item.ref, { maxBytes: TAIL_MAX_BYTES });
+  const tail = await readTailLines(item.ref, { maxBytes: TAIL_MAX_BYTES }, files);
   for (let index = tail.length - 1; index >= 0; index -= 1) {
     const line = tail[index];
     const payload = line === undefined ? null : payloadOf(line, 'turn_context');

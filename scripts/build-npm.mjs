@@ -19,9 +19,9 @@
  * lugar de uno, y dejar el import a secas seria un paquete que no arranca.
  * Metido en el bundle, el especificador desaparece.
  *
- * Las cuatro dependencias de produccion quedan **fuera** del bundle y se
- * instalan desde npm como cualquier dependencia: `node-pty` es un modulo nativo
- * y no se puede empaquetar, y a las otras tres no se gana nada duplicandolas.
+ * Las dependencias de produccion quedan **fuera** del bundle y se instalan
+ * desde npm como cualquier dependencia: `node-pty` es un modulo nativo y no se
+ * puede empaquetar, y a las demas no se gana nada duplicandolas.
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

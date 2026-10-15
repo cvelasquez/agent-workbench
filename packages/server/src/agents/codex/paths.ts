@@ -29,9 +29,10 @@ export const LISTED_HISTORY_MODES: readonly string[] = ['legacy', 'paginated'];
 /**
  * `rollout-<AAAA-MM-DDTHH-MM-SS local>-<uuid>.jsonl`. Medido en 13 de 13.
  *
- * No acepta `.jsonl.zst` (compresion detras de una bandera apagada) ni la
- * forma `<uuid>_<rollout_id>` que la 0.154 usa para los hilos `paginated`: esos
- * formatos no se leen, y listarlos daria conversaciones vacias sin explicacion.
+ * No acepta la forma `<uuid>_<rollout_id>` que la 0.154 usa para los hilos
+ * `paginated`: no se lee, y listarla daria conversaciones vacias sin
+ * explicacion. El comprimido, `.jsonl.zst`, tiene su propia funcion
+ * (`parseCompressedRolloutFileName`).
  */
 export const ROLLOUT_FILE_PATTERN =
   /^rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
@@ -113,6 +114,20 @@ export interface RolloutFileName {
   hour: number;
   minute: number;
   second: number;
+}
+
+/**
+ * Lo que dice el nombre de un rollout comprimido, `rollout-…-<uuid>.jsonl.zst`,
+ * o null.
+ *
+ * La app de escritorio de Codex comprime los rollouts de `CODEX_HOME` (medido
+ * el 15-10-2026: los 17 de esta maquina, al abrirse), y `codex resume <id>` de
+ * la 0.162.1 la reemplaza por el `.jsonl` y lo sigue escribiendo. Se leen
+ * descomprimidos en memoria (`compressed-rollout.ts`, §10.12).
+ */
+export function parseCompressedRolloutFileName(name: string): RolloutFileName | null {
+  if (!name.toLowerCase().endsWith('.jsonl.zst')) return null;
+  return parseRolloutFileName(name.slice(0, -'.zst'.length));
 }
 
 /** Lo que dice el nombre de un rollout, o null si no es uno que se lea. */

@@ -16,6 +16,7 @@ import { createInterface } from 'node:readline';
 import { asRecord, MAX_SUBMIT_IMAGE_BYTES } from '@agent-workbench/shared';
 import { parseJsonlLine } from '../../jsonl-reader.js';
 import type { LoadedImage } from '../adapter.js';
+import { isCompressedRollout, readCompressedRollout } from './compressed-rollout.js';
 
 /**
  * El mismo tope que acepta el cuadro de escritura: con uno mas bajo, una imagen
@@ -64,6 +65,7 @@ export async function loadRolloutImage(
 
 /** La linea `lineNumber` (1-based) del archivo, o null si no llega o no se puede leer. */
 async function readLine(filePath: string, lineNumber: number): Promise<string | null> {
+  if (isCompressedRollout(filePath)) return readCompressedLine(filePath, lineNumber);
   const stream = createReadStream(filePath, { encoding: 'utf8' });
   // Un archivo que no existe emite 'error' en el stream; sin esto seria una excepcion suelta.
   const failed = new Promise<null>((resolve) => stream.once('error', () => resolve(null)));
@@ -88,4 +90,27 @@ async function readLine(filePath: string, lineNumber: number): Promise<string | 
     lines.close();
     stream.destroy();
   }
+}
+
+/**
+ * La misma linea de un rollout comprimido (§10.12). Se cuenta igual que el
+ * seguidor, por saltos de linea, y un `\r` final no es parte de la linea.
+ */
+async function readCompressedLine(filePath: string, lineNumber: number): Promise<string | null> {
+  let data: Buffer;
+  try {
+    data = await readCompressedRollout(filePath);
+  } catch {
+    return null;
+  }
+  let start = 0;
+  for (let current = 1; current < lineNumber; current += 1) {
+    const newline = data.indexOf(0x0a, start);
+    if (newline === -1) return null;
+    start = newline + 1;
+  }
+  if (start >= data.length) return null;
+  const newline = data.indexOf(0x0a, start);
+  const line = data.toString('utf8', start, newline === -1 ? data.length : newline);
+  return line.endsWith('\r') ? line.slice(0, -1) : line;
 }

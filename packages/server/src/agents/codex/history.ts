@@ -1,6 +1,7 @@
 /**
  * El historial de Codex: `sessions/AAAA/MM/DD/rollout-*.jsonl` y
- * `archived_sessions/rollout-*.jsonl`, dentro de `CODEX_HOME`.
+ * `archived_sessions/rollout-*.jsonl`, dentro de `CODEX_HOME`, y desde la
+ * 0.162 su forma comprimida, `rollout-*.jsonl.zst` (§10.12).
  *
  * Solo lectura, y solo esas dos carpetas: `CODEX_HOME` no se lista nunca (ahi
  * viven las credenciales y las bases de estado de Codex).
@@ -20,8 +21,15 @@ import type {
   ScannedSession,
   SessionFollower,
 } from '../adapter.js';
-import { findRollout, rolloutFilesIn, walkSessionFiles } from './find-rollout.js';
-import { codexArchivedRoot, codexSessionsRoot, parseRolloutFileName, ROLLOUT_FILE_PATTERN } from './paths.js';
+import { compressedRolloutPathOf, isCompressedRollout, plainRolloutPathOf } from './compressed-rollout.js';
+import {
+  compressedRolloutFilesIn,
+  findReadableRollout,
+  rolloutFilesIn,
+  walkCompressedSessionFiles,
+  walkSessionFiles,
+} from './find-rollout.js';
+import { codexArchivedRoot, codexSessionsRoot, parseCompressedRolloutFileName, parseRolloutFileName } from './paths.js';
 import { scanRollout } from './rollout-scan.js';
 import { CodexSessionFollower } from './session-follower.js';
 
@@ -34,7 +42,13 @@ async function pathExists(candidate: string): Promise<boolean> {
   }
 }
 
-const accepts = (filePath: string): boolean => ROLLOUT_FILE_PATTERN.test(path.basename(filePath));
+/** Lo que dice el nombre de un rollout, comprimido o no. */
+function rolloutNameOf(filePath: string) {
+  const name = path.basename(filePath);
+  return parseRolloutFileName(name) ?? parseCompressedRolloutFileName(name);
+}
+
+const accepts = (filePath: string): boolean => rolloutNameOf(filePath) !== null;
 
 /** Ver `followPollMs` abajo. */
 export const CODEX_FOLLOW_POLL_MS = 1_000;
@@ -46,17 +60,29 @@ function isInside(root: string, filePath: string): boolean {
 }
 
 function toItem(ref: string, info: { mtimeMs: number; size: number }): HistoryItem | null {
-  const name = parseRolloutFileName(path.basename(ref));
+  const name = rolloutNameOf(ref);
   if (name === null) return null;
   return { ref, sessionId: name.sessionId, group: name.sessionId, mtimeMs: info.mtimeMs, sizeBytes: info.size };
 }
 
+/**
+ * El item de un rollout, o null si ya no esta. Un comprimido con su `.jsonl` al
+ * lado no es un item: es la misma sesion, y la que se sigue escribiendo es la
+ * otra. Sin esto la barra la mostraria dos veces.
+ */
 async function itemOf(ref: string): Promise<HistoryItem | null> {
+  if (isCompressedRollout(ref) && (await pathExists(plainRolloutPathOf(ref)))) return null;
   try {
     return toItem(ref, await stat(ref));
   } catch {
     return null;
   }
+}
+
+/** Los comprimidos de la lista sin los que tienen su `.jsonl` en `plain`. */
+function withoutPlainTwin(compressed: readonly string[], plain: readonly string[]): string[] {
+  const plainSet = new Set(plain);
+  return compressed.filter((ref) => !plainSet.has(plainRolloutPathOf(ref)));
 }
 
 export function createCodexHistory(): HistorySource {
@@ -87,10 +113,15 @@ export function createCodexHistory(): HistorySource {
       const hasArchived = await pathExists(archivedRoot);
       if (!hasSessions && !hasArchived) return null;
 
-      const refs = [
+      const plain = [
         ...(hasSessions ? await walkSessionFiles(sessionsRoot) : []),
         ...(hasArchived ? await rolloutFilesIn(archivedRoot) : []),
       ];
+      const compressed = [
+        ...(hasSessions ? await walkCompressedSessionFiles(sessionsRoot) : []),
+        ...(hasArchived ? await compressedRolloutFilesIn(archivedRoot) : []),
+      ];
+      const refs = [...plain, ...withoutPlainTwin(compressed, plain)];
       const items: HistoryItem[] = [];
       for (const ref of refs) {
         // Borrado entre el listado y el stat, o ilegible: se salta.
@@ -100,10 +131,17 @@ export function createCodexHistory(): HistorySource {
       return items;
     },
 
+    /*
+      Las dos formas de la sesion, siempre juntas: cuando `codex resume`
+      reemplaza el comprimido por el `.jsonl`, o la app de escritorio comprime
+      uno, cual de las dos se lista depende de la otra (`itemOf`).
+    */
     async changedRefs(filePath: string): Promise<readonly string[] | null> {
       if (!accepts(filePath)) return null;
       const roots = [codexSessionsRoot(), codexArchivedRoot()];
-      return roots.some((root) => root !== null && isInside(root, filePath)) ? [filePath] : null;
+      if (!roots.some((root) => root !== null && isInside(root, filePath))) return null;
+      const plain = isCompressedRollout(filePath) ? plainRolloutPathOf(filePath) : filePath;
+      return [plain, compressedRolloutPathOf(plain)];
     },
 
     item: (ref) => itemOf(ref),
@@ -116,8 +154,12 @@ export function createCodexHistory(): HistorySource {
     /**
      * true si esa sesion tiene rollout. El `cwd` no importa: la carpeta de
      * Codex es por dia, no por proyecto.
+     *
+     * Un rollout comprimido tambien cuenta: `codex resume` lo reemplaza por el
+     * `.jsonl` y sigue escribiendo ahi (§10.12). Sin eso, despertar la pestana
+     * de una sesion comprimida abria una sesion nueva.
      */
-    exists: async (_cwd, sessionId) => (await findRollout(sessionId)) !== null,
+    exists: async (_cwd, sessionId) => (await findReadableRollout(sessionId)) !== null,
 
     follow(target: { cwd: string; sessionId: string }, options?: FollowOptions): SessionFollower {
       return new CodexSessionFollower(target.cwd, target.sessionId, {
