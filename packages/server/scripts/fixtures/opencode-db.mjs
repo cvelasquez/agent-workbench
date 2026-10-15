@@ -3,7 +3,8 @@
  *
  * El DDL de `project`, `session`, `message` y `part`, con sus indices, esta
  * copiado **literal** del que escribe la CLI 1.18.30 en una base nueva (leido
- * de `sqlite_master`, en solo lectura, el 13-09-2026). Una base que viene
+ * de `sqlite_master`, en solo lectura, el 13-09-2026), y es el mismo que
+ * escribe la 1.19.1 (comparado el 15-10-2026 sobre una base nueva). Una base que viene
  * migrada desde versiones viejas tiene las mismas columnas y los mismos
  * indices, en otro orden.
  *
