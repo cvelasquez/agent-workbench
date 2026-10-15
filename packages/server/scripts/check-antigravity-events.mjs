@@ -213,8 +213,12 @@ const {
 
   check('14 Gemini 3.8 Flash (High) -> gemini-3.8-flash-high',
     modelOptionFor('Gemini 3.8 Flash (High)', options)?.value === 'gemini-3.8-flash-high');
-  check('14 Gemini 3.7 Flash (Medium) -> gemini-3.7-flash-medium',
-    modelOptionFor('Gemini 3.7 Flash (Medium)', options)?.value === 'gemini-3.7-flash-medium');
+  check('14 Gemini 3.8 Flash (Medium) -> gemini-3.8-flash-medium',
+    modelOptionFor('Gemini 3.8 Flash (Medium)', options)?.value === 'gemini-3.8-flash-medium');
+  // La 1.3.6 los saco de `agy models`, y `/model` con ellos da "Invalid model" (§12.12).
+  check('14 los modelos que la 1.3.6 ya no ofrece no casan',
+    ['Gemini 3.7 Flash (Medium)', 'Gemini 3.6 Flash (Low)', 'Gemini 3.1 Pro (High)'].every((label) => modelOptionFor(label, options) === null) &&
+    !options.some((o) => /^gemini-3\.(7|6|1)-/.test(o.value)));
   check('14 cada etiqueta de la lista casa con su propia opcion',
     options.every((option) => modelOptionFor(option.label, options) === option),
     show(options.map((o) => [o.label, modelOptionFor(o.label, options)?.value])));
@@ -267,13 +271,17 @@ const {
 // ---------------------------------------------------------------------------
 
 {
-  check('datos: 14 modelos de `agy models`', ANTIGRAVITY_MODEL_OPTIONS.length === 14, String(ANTIGRAVITY_MODEL_OPTIONS.length));
+  check('datos: los 6 modelos de `agy models` de la 1.3.6, en su orden',
+    ANTIGRAVITY_MODEL_OPTIONS.map((o) => o.value).join(',') ===
+      'gemini-3.8-flash-high,gemini-3.8-flash-medium,gemini-3.8-flash-low,claude-sonnet-4-6,claude-opus-4-6-thinking,gpt-oss-120b-medium',
+    show(ANTIGRAVITY_MODEL_OPTIONS.map((o) => o.value)));
   check('datos: cada value es un slug sin espacios',
     ANTIGRAVITY_MODEL_OPTIONS.every((o) => /^[a-z0-9.-]+$/.test(o.value)), show(ANTIGRAVITY_MODEL_OPTIONS.map((o) => o.value)));
   check('datos: familia = etiqueta, sin ventana ni variante larga',
     ANTIGRAVITY_MODEL_OPTIONS.every((o) => o.family === o.label && o.long === false && o.window === null));
   check('datos: values y etiquetas sin repetir',
-    new Set(ANTIGRAVITY_MODEL_OPTIONS.map((o) => o.value)).size === 14 && new Set(ANTIGRAVITY_MODEL_OPTIONS.map((o) => o.label)).size === 14);
+    new Set(ANTIGRAVITY_MODEL_OPTIONS.map((o) => o.value)).size === ANTIGRAVITY_MODEL_OPTIONS.length &&
+    new Set(ANTIGRAVITY_MODEL_OPTIONS.map((o) => o.label)).size === ANTIGRAVITY_MODEL_OPTIONS.length);
   check('datos: las opciones sobreviven al parser de capacidades',
     same(shared.parseAgentCapabilities({ models: ANTIGRAVITY_MODEL_OPTIONS, efforts: ANTIGRAVITY_EFFORT_OPTIONS }).models, ANTIGRAVITY_MODEL_OPTIONS));
   check('datos: esfuerzos low, medium, high', ANTIGRAVITY_EFFORT_OPTIONS.map((e) => e.value).join(',') === 'low,medium,high');
@@ -1907,11 +1915,11 @@ const statusRecord = (id, over = {}) => ({
   const settingsFile = agyPaths.settingsPath();
   await rm(settingsFile, { force: true });
   check('8 defaults sin settings.json: todo null', same(await adapter.defaults('C:\\p'), { model: null, effort: null, contextWindow: null }));
-  await writeFile(settingsFile, JSON.stringify({ model: 'Gemini 3.7 Flash (Low)' }));
+  await writeFile(settingsFile, JSON.stringify({ model: 'Gemini 3.8 Flash (Low)' }));
   const defaults = await adapter.defaults('C:\\p');
   check('8 defaults: la etiqueta entera como modelo, el esfuerzo aparte, sin ventana',
-    same(defaults, { model: 'Gemini 3.7 Flash (Low)', effort: 'low', contextWindow: null }) &&
-    shared.modelOptionFor(defaults.model, adapter.capabilities.models)?.value === 'gemini-3.7-flash-low', show(defaults));
+    same(defaults, { model: 'Gemini 3.8 Flash (Low)', effort: 'low', contextWindow: null }) &&
+    shared.modelOptionFor(defaults.model, adapter.capabilities.models)?.value === 'gemini-3.8-flash-low', show(defaults));
   await writeFile(settingsFile, JSON.stringify({ model: 'Claude Sonnet 4.6 (Thinking)' }));
   check('8 defaults: un modelo sin esfuerzo en la etiqueta -> effort null', (await adapter.defaults('C:\\p')).effort === null);
 
@@ -2317,8 +2325,8 @@ const claudeCycle = { modes: shared.PERMISSION_MODE_CYCLE, launchMode: 'auto', k
   const { MODEL_OPTIONS } = shared;
 
   check('8 modelOptionIn casa la etiqueta completa con la lista de Antigravity',
-    ui.modelOptionIn(ANTIGRAVITY_MODEL_OPTIONS, 'Gemini 3.7 Flash (Medium)')?.value === 'gemini-3.7-flash-medium',
-    show(ui.modelOptionIn(ANTIGRAVITY_MODEL_OPTIONS, 'Gemini 3.7 Flash (Medium)')));
+    ui.modelOptionIn(ANTIGRAVITY_MODEL_OPTIONS, 'Gemini 3.8 Flash (Medium)')?.value === 'gemini-3.8-flash-medium',
+    show(ui.modelOptionIn(ANTIGRAVITY_MODEL_OPTIONS, 'Gemini 3.8 Flash (Medium)')));
   check('8 modelOptionIn con la lista de Claude Code sigue igual',
     ui.modelOptionIn(MODEL_OPTIONS, 'claude-opus-5[1m]')?.value === 'opus[1m]' &&
     ui.modelOptionIn(MODEL_OPTIONS, 'Gemini 3.7 Flash (Medium)') === null);

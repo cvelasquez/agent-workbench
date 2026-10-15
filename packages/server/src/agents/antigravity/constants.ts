@@ -3,8 +3,9 @@
  * modelos y los nombres que usa esta app para lo suyo.
  *
  * Son configuracion, no marca (regla 2.3). Todo medido el 14-09-2026 contra la
- * 1.2.2, con un home falso (hito 27, paso 0): donde un valor sale de la
- * documentacion y no de una medicion, se dice.
+ * 1.2.2, con un home falso (hito 27, paso 0), y vuelto a medir con la 1.3.6 el
+ * 15-10-2026 (CLAUDE.md 12.12): donde un valor sale de la documentacion y no de
+ * una medicion, se dice.
  */
 
 import type { EffortOption, ModelOption, PermissionMode } from '@agent-workbench/shared';
@@ -47,33 +48,38 @@ const model = (value: string, label: string): ModelOption => ({
 /**
  * Los modelos de `agy models`, tal cual y en su orden.
  *
- * `value` es el slug **con** el esfuerzo: medido, `/model gemini-3.7-flash`
- * falla con "requires effort (available: low, medium, high)" y
- * `/model gemini-3.7-flash-low` funciona. La familia es la etiqueta completa,
+ * `value` es el slug **con** el esfuerzo: medido, `/model gemini-3.8-flash`
+ * falla pidiendo el esfuerzo ("available: low, medium, high") y
+ * `/model gemini-3.8-flash-low` funciona. La familia es la etiqueta completa,
  * porque es lo que la CLI escribe de vuelta —en `settings.json`, en el aviso de
- * cambio de modelo del historial y en la status line—: `Gemini 3.7 Flash (Low)`.
+ * cambio de modelo del historial y en la status line—: `Gemini 3.8 Flash (Low)`.
  * Dos avisos: `/model` y `/effort` **guardan** el elegido como predeterminado de
- * la CLI, y la lista es la de una cuenta en una fecha (no trae 3.5 Flash, que el
- * binario conoce). Sin ventana: la da la status line.
+ * la CLI, y la lista es la de una cuenta en una fecha. Sin ventana: la da la
+ * status line.
+ *
+ * Re-medida con la 1.3.6 el 15-10-2026: de los 14 del 14-09-2026 quedan 6. Los
+ * de Gemini 3.7 Flash, 3.6 Flash y 3.1 Pro ya no estan, y elegirlos da
+ * `Invalid model "gemini-3.7-flash-low" (available: …)` sin cambiar nada. El
+ * binario conoce otros (Gemini 4 Argon, Claude Opus 5.5) que esta cuenta no
+ * ofrece.
  */
 export const ANTIGRAVITY_MODEL_OPTIONS: readonly ModelOption[] = [
   model('gemini-3.8-flash-high', 'Gemini 3.8 Flash (High)'),
   model('gemini-3.8-flash-medium', 'Gemini 3.8 Flash (Medium)'),
   model('gemini-3.8-flash-low', 'Gemini 3.8 Flash (Low)'),
-  model('gemini-3.7-flash-high', 'Gemini 3.7 Flash (High)'),
-  model('gemini-3.7-flash-medium', 'Gemini 3.7 Flash (Medium)'),
-  model('gemini-3.7-flash-low', 'Gemini 3.7 Flash (Low)'),
-  model('gemini-3.6-flash-high', 'Gemini 3.6 Flash (High)'),
-  model('gemini-3.6-flash-medium', 'Gemini 3.6 Flash (Medium)'),
-  model('gemini-3.6-flash-low', 'Gemini 3.6 Flash (Low)'),
-  model('gemini-3.1-pro-high', 'Gemini 3.1 Pro (High)'),
-  model('gemini-3.1-pro-low', 'Gemini 3.1 Pro (Low)'),
   model('claude-sonnet-4-6', 'Claude Sonnet 4.6 (Thinking)'),
   model('claude-opus-4-6-thinking', 'Claude Opus 4.6 (Thinking)'),
   model('gpt-oss-120b-medium', 'GPT-OSS 120B (Medium)'),
 ];
 
-/** Lo que acepta `/effort` (medido con `medium` y `high`; `low` segun `--help`). */
+/**
+ * Lo que acepta `/effort` (medido con `medium` y `high`; `low` segun `--help`).
+ *
+ * La 1.3.6 anuncia ademas `xhigh` y `max` en `--effort`, pero ningun modelo de
+ * la lista los acepta: `/effort xhigh` responde `gemini-3.8-flash has no
+ * "xhigh" effort (available: low, medium, high)`, y con Claude Sonnet 4.6
+ * "Effort isn't adjustable" (medido el 15-10-2026).
+ */
 export const ANTIGRAVITY_EFFORT_OPTIONS: readonly EffortOption[] = [
   { value: 'low', label: 'Bajo' },
   { value: 'medium', label: 'Medio' },
