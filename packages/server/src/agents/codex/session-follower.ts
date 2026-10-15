@@ -14,8 +14,8 @@
  * Y la ruta puede cambiar de forma (§10.12): la app de escritorio de Codex
  * comprime el `.jsonl` en un `.jsonl.zst`, y `codex resume` reemplaza el
  * comprimido por el `.jsonl`. Cuando el archivo seguido desaparece, o llega un
- * aviso de la otra forma de la misma sesion, se vuelve a buscar —el `.jsonl`
- * gana— y se relee desde el principio, con un reinicio para el cliente.
+ * aviso de la otra forma de la misma sesion, se vuelve a buscar (el `.jsonl`
+ * gana) y se relee desde el principio, con un reinicio para el cliente.
  */
 
 import path from 'node:path';
@@ -80,6 +80,11 @@ export class CodexSessionFollower implements SessionFollower {
 
   private followerFor(filePath: string | null): JsonlFollower {
     return new JsonlFollower(filePath, this.sink, { maxEvents: this.maxEvents, files: createRolloutFiles() });
+  }
+
+  /** El rollout que lee, para que la barra se entere de lo que el watcher no ve (§10.10). */
+  get sourcePath(): string | null {
+    return this.jsonl.filePath;
   }
 
   get label(): string {

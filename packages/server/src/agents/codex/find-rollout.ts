@@ -135,7 +135,7 @@ export function findRollout(sessionId: string, roots: FindRolloutRoots = {}): Pr
  * `findRollout`.
  *
  * Una sesion que la app de escritorio de Codex comprimio se puede reanudar
- * —`codex resume` la descomprime—: sin contarla, despertar su pestana abria
+ * (`codex resume` la descomprime): sin contarla, despertar su pestana abria
  * una sesion **nueva** y la pestana perdia la suya (§10.12).
  */
 export function findCompressedRollout(sessionId: string, roots: FindRolloutRoots = {}): Promise<string | null> {

@@ -292,8 +292,8 @@ export function readToolOutput(output: unknown, maxChars: number = TOOL_RESULT_M
  *
  *  - `shell_command`: empieza con `Exit code: N`.
  *  - `exec_command`, la consola de la TUI de la 0.162 (medido, §10.12): una
- *    cabecera de lineas `Clave: valor` —`Chunk ID`, `Wall time`, `Process
- *    exited with code N`, `Original token count`— y despues `Output:` con lo
+ *    cabecera de lineas `Clave: valor` (`Chunk ID`, `Wall time`, `Process
+ *    exited with code N`, `Original token count`) y despues `Output:` con lo
  *    que imprimio el comando. El codigo se busca solo en la cabecera: la misma
  *    frase dentro de la salida no dice nada del comando. Mientras el proceso
  *    sigue vivo la cabecera dice `Process running with session ID N`.

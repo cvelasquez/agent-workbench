@@ -1416,7 +1416,8 @@ async function waitFor(condition, timeoutMs = 5000) {
   await follower.start();
   const first = await follower.poll();
   check('Z3 el seguidor lee el comprimido: live, con sus eventos y su ruta',
-    follower.getState() === 'live' && first.added.length === 2 && follower.label === packedFile, shape(first.added));
+    follower.getState() === 'live' && first.added.length === 2 && follower.label === packedFile &&
+    follower.sourcePath === packedFile, shape(first.added));
   const userEvent = first.added.find((event) => event.role === 'user');
   const image = userEvent === undefined ? null : await follower.readImage(userEvent.eventId, 0, 'content');
   check('Z3 la miniatura sale del comprimido', image?.mediaType === 'image/png' && image.data === PNG);
@@ -2234,6 +2235,82 @@ const orderedIds = (state) => workspace.orderedTabs(state).map((e) => (e.kind ==
   const { createClaudeCodeAdapter } = await import('../src/agents/claude-code/index.ts');
   check('D10 los adaptadores: Codex relee cada segundo, Claude Code no',
     createCodexHistory().followPollMs === 1000 && createClaudeCodeAdapter().history.followPollMs === null);
+}
+
+// D11. La barra se entera de lo que el watcher no ve (§10.10): con el daemon de
+// Codex en frio el rollout nace sin el mensaje, y la barra lo listaba "sin
+// titulo" (medido con la 0.162.1). El hub avisa `historyGrew` cuando la
+// relectura periodica trae algo nuevo, una vez por ventana.
+{
+  const { EventEmitter } = await import('node:events');
+  const { ConversationHub } = await import('../src/conversation-hub.ts');
+  const event = (n) => ({ eventId: `e${n}`, role: 'user', ts: '', parts: [] });
+  let serial = 0;
+  const makeAdapter = (id, followPollMs, sourcePath) => ({
+    id,
+    capabilities: { ...shared.NO_CAPABILITIES, sessionIdAtLaunch: true },
+    status: null,
+    history: {
+      plans: null,
+      followPollMs,
+      follow: () => {
+        const follower = {
+          label: id,
+          ...(sourcePath === undefined ? {} : { sourcePath }),
+          start: async () => undefined,
+          // Siempre crece: cada lectura trae un evento nuevo.
+          poll: async () => ({ reset: false, added: [event(++serial)], turns: [], plans: [], parts: [] }),
+          getState: () => 'live',
+          getUsage: () => ({ ...shared.EMPTY_CONTEXT_USAGE }),
+          getPermissionMode: () => null,
+          getTail: () => ({ events: [], hasMore: false }),
+          getPageBefore: () => ({ events: [], hasMore: false }),
+          getPlanFiles: () => [],
+          readImage: async () => null,
+          noticeChange: () => true,
+          hasOpenToolCall: () => false,
+        };
+        return follower;
+      },
+    },
+  });
+  const grownPath = path.join(sessionsRoot, 'crece.jsonl');
+  const adapters = {
+    crece: makeAdapter('crece', 40, grownPath),
+    suelta: makeAdapter('suelta', 40, path.join(sessionsRoot, 'suelta.jsonl')),
+    'sin-ruta': makeAdapter('sin-ruta', 40, undefined),
+    avisada: makeAdapter('avisada', null, path.join(sessionsRoot, 'avisada.jsonl')),
+  };
+  const descriptors = new Map();
+  const registry = new EventEmitter();
+  registry.get = (terminalId) => descriptors.get(terminalId) ?? null;
+  registry.launchedAtOf = () => null;
+  for (const id of Object.keys(adapters)) {
+    descriptors.set(id, {
+      terminalId: id, kind: 'agent', agent: id, cwd: CWD, sessionId: `S-${id}`, label: '', resumed: false,
+      createdAt: 0, alive: true, exitCode: null, sleeping: false,
+    });
+  }
+  const hub = new ConversationHub(registry, { get: (id) => ({ adapter: adapters[id], location: null }) });
+  const grown = [];
+  hub.on('historyGrew', (agent, filePath) => grown.push(`${agent}:${filePath}`));
+  for (const id of Object.keys(adapters)) await hub.subscribe(id);
+  hub.onHistoryChanged('avisada', path.join(sessionsRoot, 'avisada.jsonl'));
+  hub.unsubscribe('suelta');
+
+  check('D11 crece en cada relectura: un solo aviso por ventana, con su ruta',
+    (await waitFor(() => grown.length >= 1, 6000)) && same(grown, [`crece:${grownPath}`]), show(grown));
+  check('D11 sin ruta, con el watcher que avisa (followPollMs null) o soltada antes de tiempo: ningun aviso',
+    !grown.some((entry) => /^(sin-ruta|avisada|suelta):/.test(entry)), show(grown));
+  hub.disposeAll();
+  const afterDispose = grown.length;
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+  check('D11 despues de cerrar todo no queda ningun aviso pendiente', grown.length === afterDispose, `${grown.length} vs ${afterDispose}`);
+
+  check('D11 el seguidor de Codex dice su rollout', (() => {
+    const follower = new CodexSessionFollower(CWD, cid(70));
+    return follower.sourcePath === null;
+  })());
 }
 
 // D9. El gancho posterior al lanzamiento: a quien le toca cada momento.

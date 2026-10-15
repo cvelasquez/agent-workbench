@@ -460,6 +460,8 @@ async function main(): Promise<void> {
 
   void index.start();
   const stopWatching = watchSessions(index, conversations, agents);
+  // Lo que el watcher no ve de una CLI que se relee sola (§10.10).
+  conversations.on('historyGrew', (agent, filePath) => void index.refreshPath(agent, filePath));
 
   /*
     Las pestanas del arranque anterior tambien van en segundo plano: relanzar

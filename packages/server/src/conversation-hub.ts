@@ -67,6 +67,14 @@ const PENDING_QUESTION_LOOKBACK = 50;
  */
 const POLL_DEBOUNCE_MS = 150;
 
+/**
+ * Cada cuanto, como mucho, la sesion de una CLI que se relee sola le avisa a la
+ * barra que crecio (`historyGrew`). En Windows el watcher no ve lo que Codex
+ * agrega (§10.10), y sin esto la barra se quedaba con lo que leyo al nacer el
+ * archivo: una sesion "sin titulo" si el mensaje llego despues, y la fecha vieja.
+ */
+const GROWTH_REFRESH_MS = 3_000;
+
 export interface ConversationSnapshot {
   sessionId: SessionId;
   state: ConversationState;
@@ -191,6 +199,8 @@ interface Entry {
   stopWatchingStatus: (() => void) | null;
   /** La relectura periodica de una CLI que la pide (`history.followPollMs`), o null. */
   followTicker: NodeJS.Timeout | null;
+  /** El aviso pendiente de que la sesion crecio (`historyGrew`), o null. */
+  growthTimer: NodeJS.Timeout | null;
 }
 
 export interface ConversationHubEvents {
@@ -230,6 +240,11 @@ export interface ConversationHubEvents {
    * campos, y mandar la lista completa deja al cliente sin nada que fusionar.
    */
   plans: (terminalId: TerminalId, plans: SessionPlan[]) => void;
+  /**
+   * La sesion de una CLI que se relee sola crecio, y su watcher puede no
+   * haberlo visto (§10.10): la barra tiene que releer ese archivo.
+   */
+  historyGrew: (agent: AgentId, filePath: string) => void;
 }
 
 export declare interface ConversationHub {
@@ -431,6 +446,7 @@ export class ConversationHub extends EventEmitter {
       primed: false,
       stopWatchingStatus: null,
       followTicker: null,
+      growthTimer: null,
     };
   }
 
@@ -455,6 +471,27 @@ export class ConversationHub extends EventEmitter {
   private stopFollowTicker(entry: Entry): void {
     if (entry.followTicker !== null) clearInterval(entry.followTicker);
     entry.followTicker = null;
+    // El aviso a la barra va con la relectura: sin ella, nadie lo espera.
+    if (entry.growthTimer !== null) clearTimeout(entry.growthTimer);
+    entry.growthTimer = null;
+  }
+
+  /**
+   * La sesion crecio: la barra se entera aunque el watcher no avise, una vez
+   * cada `GROWTH_REFRESH_MS` como mucho y con la ruta de ese momento. Solo con
+   * una CLI que se relee sola y un seguidor que dice su archivo: con Claude Code
+   * el watcher ya avisa.
+   */
+  private noteGrowth(terminalId: TerminalId, entry: Entry): void {
+    if ((entry.adapter.history.followPollMs ?? null) === null || entry.growthTimer !== null) return;
+    if (typeof entry.follower.sourcePath !== 'string') return;
+    entry.growthTimer = setTimeout(() => {
+      entry.growthTimer = null;
+      if (this.entries.get(terminalId) !== entry) return;
+      const filePath = entry.follower.sourcePath;
+      if (typeof filePath === 'string' && filePath.length > 0) this.emit('historyGrew', entry.agent, filePath);
+    }, GROWTH_REFRESH_MS);
+    entry.growthTimer.unref();
   }
 
   /**
@@ -897,6 +934,8 @@ export class ConversationHub extends EventEmitter {
       this.refreshSubagents(terminalId, entry);
 
       if (options.silent) return;
+
+      if (result.reset || result.added.length > 0) this.noteGrowth(terminalId, entry);
 
       /*
         El modo primero, porque el `append` lo lleva adentro y tiene que ir el

@@ -354,6 +354,13 @@ export interface SessionFollower {
    */
   noticeChange(filePath: string): boolean;
   /**
+   * La ruta del archivo que lee, o null si todavia no tiene. Opcional: lo
+   * declara la CLI cuyo watcher no ve lo que se agrega (`followPollMs`), para
+   * que la barra se entere por el hub de lo que el watcher no avisa (§10.10).
+   * Hoy, Codex.
+   */
+  readonly sourcePath?: string | null;
+  /**
    * true si la conversacion tiene una llamada a herramienta sin resultado,
    * hecha por el proceso lanzado en `launchedAt` (epoch ms) o despues.
    *
