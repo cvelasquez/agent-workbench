@@ -28,6 +28,8 @@
  * caja de la CLI es justo lo que esto no hace (`queued-submits.ts`).
  */
 
+import { stat } from 'node:fs/promises';
+
 import { debugLog } from '../../debug.js';
 import { parseJsonlLine, readTailLines } from '../../jsonl-reader.js';
 import type { QueuedSubmission, QueuedSubmitSource } from '../adapter.js';
@@ -41,8 +43,17 @@ import { cleanUserText, readTimestamp } from './jsonl-events.js';
  */
 export const CLAUDE_CODE_CLEAR_GAP_MS = 2_000;
 
-/** Cuanto del final del archivo se mira: el mensaje es de recien. */
+/**
+ * Cuanto del final del archivo se mira primero. El mensaje es de recien, pero
+ * detras de el la CLI escribe sus adjuntos (el CLAUDE.md del proyecto entero) y,
+ * desde la 2.1.301, lineas sin uuid con la peticion al modelo: en uso real
+ * fueron 600 KB y el mensaje quedo afuera (16-10-2026). Por eso la ventana
+ * crece hasta tener las dos ultimas lineas de la conversacion (`readLastTurns`).
+ */
 const TAIL_BYTES = 512 * 1024;
+
+/** El tope de esa ventana. */
+const MAX_TAIL_BYTES = 32 * 1024 * 1024;
 
 /** Cuanto despues del Esc puede estar fechada la linea del mensaje (ver arriba, 1). */
 const HOUR_SLACK_MS = 2_000;
@@ -146,6 +157,32 @@ export function findHandedBack(
   return found;
 }
 
+/** Si la ventana tiene al menos dos lineas del usuario o del asistente. */
+function holdsTwoTurns(lines: readonly string[]): boolean {
+  let count = 0;
+  for (const line of lines) {
+    const record = parseJsonlLine(line);
+    if (record === null || record['isSidechain'] === true) continue;
+    if (record['type'] === 'user' || record['type'] === 'assistant') count += 1;
+    if (count >= 2) return true;
+  }
+  return false;
+}
+
+/**
+ * El final del archivo, con las dos ultimas lineas del usuario o del
+ * asistente adentro: la ultima es la unica que puede ser un mensaje devuelto
+ * (2), y la de antes, la marca de interrupcion de la que colgaria (1). La
+ * ventana crece hasta tenerlas, hasta el principio del archivo o hasta el tope.
+ */
+async function readLastTurns(file: string): Promise<string[]> {
+  const { size } = await stat(file);
+  for (let window = TAIL_BYTES; ; window *= 4) {
+    const lines = await readTailLines(file, { maxBytes: window });
+    if (window >= size || window >= MAX_TAIL_BYTES || holdsTwoTurns(lines)) return lines;
+  }
+}
+
 /** (3) La CLI dijo que esta libre despues del Esc. */
 export function settledAfter(status: CliSessionStatus | null, interruptedAt: number, now: number): boolean {
   if (status === null || status.status !== 'idle') return false;
@@ -169,7 +206,7 @@ export function createClaudeCodeHandback(deps: ClaudeCodeHandbackDeps): QueuedSu
     async check(target, submissions, interruptedAt) {
       try {
         const status = await deps.status(target.sessionId);
-        const lines = await readTailLines(deps.sessionFile(target.cwd, target.sessionId), { maxBytes: TAIL_BYTES });
+        const lines = await readLastTurns(deps.sessionFile(target.cwd, target.sessionId));
         const found = findHandedBack(lines, submissions, interruptedAt);
         const settled = settledAfter(status, interruptedAt, now());
         debugLog('write', `handback check: status ${status?.status ?? 'none'}, settled ${settled}, handed back ${found.length}`);

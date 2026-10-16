@@ -333,6 +333,56 @@ async function visibleOf(records) {
   check('C11 sin archivo todavia: nada que devolver, pero pendiente', result.undelivered.length === 0 && result.pending === true, json(result));
 }
 {
+  // Detras del mensaje, la 2.1.301 escribe adjuntos de cientos de KB (el
+  // CLAUDE.md del proyecto: 270 KB en el de la app) y lineas sin uuid de la
+  // peticion al modelo (16-10-2026, en uso real). El mensaje queda lejos del
+  // final del archivo y tiene que encontrarse igual.
+  const { createClaudeCodeHandback } = await import('../src/agents/claude-code/handback.ts');
+  const file = path.join(root, 'mensaje-lejos-del-final.jsonl');
+  const before = jsonl([user('d1', null, 'antes', -60), assistant('d2', 'd1', 'ok', -59)]);
+  const prompt = jsonl([user('x', 'd2', 'Detenido enseguida', 0)]);
+  const after = jsonl([
+    { ...attachment('big1', 'x'), attachment: { type: 'instructions', content: 'x'.repeat(700 * 1024) } },
+    attachment('big2', 'big1'),
+    { type: 'api-request-blob', hash: 'h1', blob: 'y'.repeat(300 * 1024) },
+    { type: 'api-request', id: 'r1', timestamp: at(0.4) },
+    { type: 'last-prompt', lastPrompt: 'Detenido enseguida', leafUuid: 'big2' },
+  ]);
+  await writeFile(file, before + prompt + after);
+  const interruptedAt = T0 + 1_500;
+  const source = createClaudeCodeHandback({
+    sessionFile: () => file,
+    status: async () => ({ status: 'idle', waitingFor: null, statusUpdatedAt: interruptedAt + 300 }),
+    now: () => interruptedAt + 400,
+  });
+  const result = await source.check({ cwd: root, sessionId: 's' }, [{ text: 'Detenido enseguida', at: T0 - 100 }], interruptedAt);
+  check('C12 (control) lo escrito detras del mensaje pasa de 512 KB', Buffer.byteLength(after) > 512 * 1024);
+  check('C12 un mensaje con cientos de KB escritos detras: devuelto igual',
+    same(result.undelivered, ['Detenido enseguida']) && same(result.withdrawn, ['x']) && result.pending === false, json(result));
+
+  // El de la cola que la CLI manda detras de la marca (c10), con los adjuntos
+  // justo del tamano que deja la marca fuera de una ventana: la ventana tiene
+  // que crecer hasta tenerla, o el mensaje pasaria por devuelto.
+  const queuedFile = path.join(root, 'cola-lejos-del-final.jsonl');
+  const head = jsonl([user('a', null, 'otro', -5), interruptedMarker('m', 'a', 1.6)]);
+  const queued = jsonl([user('x', 'm', 'Detenido enseguida', 1.7)]);
+  const pad = (bytes) => {
+    const base = Buffer.byteLength(jsonl([{ ...attachment('big1', 'x'), attachment: { type: 'instructions', content: '' } }]));
+    return jsonl([{ ...attachment('big1', 'x'), attachment: { type: 'instructions', content: 'x'.repeat(bytes - base) } }]);
+  };
+  const tail = pad(2 * 1024 * 1024 - Buffer.byteLength(queued) - 5);
+  await writeFile(queuedFile, head + queued + tail);
+  const queuedSource = createClaudeCodeHandback({
+    sessionFile: () => queuedFile,
+    status: async () => ({ status: 'idle', waitingFor: null, statusUpdatedAt: interruptedAt + 300 }),
+    now: () => interruptedAt + 400,
+  });
+  const queuedResult = await queuedSource.check({ cwd: root, sessionId: 's' }, [{ text: 'Detenido enseguida', at: T0 - 100 }], interruptedAt);
+  check('C12 (control) una ventana de 2 MB tiene el mensaje de la cola pero no la marca',
+    Buffer.byteLength(queued + tail) <= 2 * 1024 * 1024 && Buffer.byteLength(queued + tail) + 20 > 2 * 1024 * 1024);
+  check('C12 el de la cola, con la marca lejos del final: no se da por devuelto', queuedResult.undelivered.length === 0, json(queuedResult));
+}
+{
   const adapter = createClaudeCodeAdapter();
   check('C9 Claude Code declara el mensaje detenido y el menu de rewind',
     adapter.queuedSubmits?.returnReason === 'stopped-early' && typeof adapter.rewind?.run === 'function' && adapter.capabilities.rewind === true);
