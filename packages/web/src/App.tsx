@@ -207,6 +207,7 @@ export function App(): JSX.Element {
     drafts,
     remoteClient,
     fileCheck,
+    fileWrite,
   } = workspace;
 
   const theme = useTheme();
@@ -610,7 +611,7 @@ export function App(): JSX.Element {
     proyecto (Hito 40, §6.31). Viven aca y no en sus paneles: cambiar de solapa o
     de pestana desmonta el panel, y no puede cerrarlos.
   */
-  const documents = useDocuments(connection, terminals, activeTerminalId);
+  const documents = useDocuments(connection, terminals, activeTerminalId, fileWrite);
   /*
     La memoria, con el panel abierto aunque su solapa no este delante, como
     git: de ahi sale la pastilla con la cantidad de notas, y una pastilla que

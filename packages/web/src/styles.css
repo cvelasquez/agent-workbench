@@ -3632,6 +3632,88 @@ kbd {
 }
 
 /*
+  Editar un archivo (Hito 46, §6.36): el estado en la barra, los avisos, la
+  lista de tus cambios y el cuadro. El cuadro no envuelve, como el codigo del
+  visor, y llena lo que queda debajo de la barra.
+*/
+.doc-edit-button {
+  flex: 0 0 auto;
+}
+
+.doc-edit-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.doc-edit-state {
+  color: var(--text-dim);
+}
+
+.doc-edit-bar {
+  flex: 0 0 auto;
+  margin: 6px 10px 0;
+}
+
+.doc-changes {
+  flex: 0 1 auto;
+  max-height: 35%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 6px 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.doc-changes-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+.doc-changes-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.doc-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 8px 10px 14px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow: auto;
+  resize: none;
+  tab-size: 4;
+  outline: none;
+}
+
+.doc-editor[readonly] {
+  color: var(--text-dim);
+}
+
+/*
   Las coincidencias de "Buscar en este documento". Las marca la API de
   resaltado de CSS sin tocar el DOM (`useDocSearch`); la actual va con el acento.
 */
@@ -6165,6 +6247,11 @@ kbd {
   .narrow-key:active {
     background: var(--accent);
     color: var(--surface);
+  }
+
+  /* Editar un archivo en el telefono (§6.36): con el dedo, la letra de 11 px no se lee. */
+  .app-narrow .doc-editor {
+    font-size: 13px;
   }
 
   /* El cajon de proyectos y las hojas, encima de todo. */

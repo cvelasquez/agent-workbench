@@ -20,6 +20,7 @@ import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parsePorcelainV2, parseUnifiedDiff, parseWorktrees } from '../src/git-repo.ts';
 import { InvalidPathError, resolveInside } from '../src/path-guard.ts';
+import { NO_CLI_FOLDERS } from '../src/cli-folders.ts';
 import { existingFiles } from '../src/file-browser.ts';
 
 const dir = process.argv[2] ?? path.join(process.cwd(), '.check-git');
@@ -219,9 +220,9 @@ const asked = [
   'src/a.ts\0.png',
 ];
 check('de las rutas que se preguntan, solo las que son un archivo de adentro',
-  JSON.stringify(await existingFiles(root, asked)) === JSON.stringify(['src/a.ts']), JSON.stringify(await existingFiles(root, asked)));
+  JSON.stringify(await existingFiles(root, asked, NO_CLI_FOLDERS)) === JSON.stringify(['src/a.ts']), JSON.stringify(await existingFiles(root, asked, NO_CLI_FOLDERS)));
 check('sin rutas, ninguna; y con una carpeta que ya no esta, tampoco, sin lanzar',
-  (await existingFiles(root, [])).length === 0 && (await existingFiles(path.join(dir, 'no-existe'), ['src/a.ts'])).length === 0);
+  (await existingFiles(root, [], NO_CLI_FOLDERS)).length === 0 && (await existingFiles(path.join(dir, 'no-existe'), ['src/a.ts'], NO_CLI_FOLDERS)).length === 0);
 
 await rm(dir, { recursive: true, force: true });
 

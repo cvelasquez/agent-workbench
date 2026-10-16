@@ -1,8 +1,9 @@
 /**
  * El puente de la memoria compartida: `<proyecto>/.agents/memory/`.
  *
- * **Es la unica escritura de la app dentro de un proyecto**, y por eso esta
- * encerrada en reglas que no se negocian:
+ * **Es una de las dos escrituras de la app dentro de un proyecto** (la otra es
+ * guardar un archivo desde Archivos, §6.36), y por eso esta encerrada en reglas
+ * que no se negocian:
  *
  *  1. Todo se escribe dentro del `cwd`. Antes de la primera escritura se valida
  *     el plan entero con `resolveInside`: un `.agents` que sea un enlace o una
@@ -27,18 +28,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import {
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  realpath,
-  rename,
-  stat,
-  unlink,
-  type FileHandle,
-} from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
@@ -67,6 +57,7 @@ import {
   type MemoryStatus,
   type ServerText,
 } from '@agent-workbench/shared';
+import { writeAtomically } from './atomic-write.js';
 import { InvalidPathError, resolveInside } from './path-guard.js';
 import { projectSlugFor } from './agents/claude-code/paths.js';
 
@@ -80,11 +71,6 @@ const MAX_NOTE_BYTES = 256 * 1024;
 /** Lo que se lee de cada nota para sacar el titulo y la descripcion. */
 const NOTE_HEAD_BYTES = 16 * 1024;
 const GIT_TIMEOUT_MS = 15_000;
-/** Reintentos del `rename` en Windows, donde un antivirus puede tener el temporal abierto. */
-const RENAME_ATTEMPTS = 5;
-const RENAME_BACKOFF_MS = 40;
-/** Intentos de crear un temporal con nombre libre. Chocar dos veces ya no es azar. */
-const TEMPORARY_ATTEMPTS = 5;
 
 const INDEX_REL = `${MEMORY_DIR}/${MEMORY_INDEX_FILE}`;
 const AGENTS_DIR_REL = MEMORY_DIR.split('/')[0] ?? '.agents';
@@ -1346,54 +1332,22 @@ function isNotFound(error: unknown): boolean {
 }
 
 /**
- * Temporal en la misma carpeta y `rename`: un corte a mitad no deja un
- * `AGENTS.md` por la mitad. Si algo falla, el temporal se borra.
+ * Temporal en la misma carpeta y `rename` (`atomic-write.ts`): un corte a mitad
+ * no deja un `AGENTS.md` por la mitad. Si algo falla, el temporal se borra.
  *
  * `mustNotExist` es para lo que se crea o se copia: si aparecio entre el plan y
  * la escritura, no se pisa.
  */
 async function writeAtomic(target: string, content: Buffer, mustNotExist: boolean): Promise<void> {
-  const { temporary, handle } = await createTemporary(target);
-  try {
-    try {
-      await handle.writeFile(content);
-    } finally {
-      await handle.close();
-    }
-    if (mustNotExist && (await exists(target))) {
-      throw new MemoryBridgeError(serverText('memoryAppeared', { file: path.basename(target) }));
-    }
-    await renameWithRetry(temporary, target);
-  } catch (error) {
-    await unlink(temporary).catch(() => undefined);
-    throw error;
-  }
-}
-
-/**
- * Crea el temporal **en exclusiva** (`wx`: falla si ya hay algo con ese nombre,
- * enlace incluido) y con un sufijo aleatorio.
- *
- * Con un nombre predecible y `writeFile`, un enlace duro o simbolico puesto de
- * antemano en `.AGENTS.md.<pid>.tmp` hacia un archivo de afuera recibia la
- * escritura, y el `rename` dejaba despues el `AGENTS.md` enlazado a ese
- * archivo. Un choque de nombres se reintenta con otro sufijo; lo que ya existe
- * no se abre nunca, y tampoco se borra: no es nuestro.
- */
-async function createTemporary(target: string): Promise<{ temporary: string; handle: FileHandle }> {
-  for (let attempt = 1; ; attempt += 1) {
-    const suffix = randomBytes(6).toString('hex');
-    const temporary = path.join(
-      path.dirname(target),
-      `.${path.basename(target)}.${process.pid}.${suffix}.tmp`,
-    );
-    try {
-      return { temporary, handle: await open(temporary, 'wx') };
-    } catch (error) {
-      const code = (error as { code?: unknown }).code;
-      if (code !== 'EEXIST' || attempt >= TEMPORARY_ATTEMPTS) throw error;
-    }
-  }
+  await writeAtomically(target, content, {
+    beforeRename: mustNotExist
+      ? async () => {
+          if (await exists(target)) {
+            throw new MemoryBridgeError(serverText('memoryAppeared', { file: path.basename(target) }));
+          }
+        }
+      : undefined,
+  });
 }
 
 async function exists(absolute: string): Promise<boolean> {
@@ -1402,19 +1356,5 @@ async function exists(absolute: string): Promise<boolean> {
     return true;
   } catch {
     return false;
-  }
-}
-
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      await rename(from, to);
-      return;
-    } catch (error) {
-      const code = (error as { code?: unknown }).code;
-      const transient = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
-      if (!transient || attempt >= RENAME_ATTEMPTS) throw error;
-      await new Promise((resolve) => setTimeout(resolve, RENAME_BACKOFF_MS * attempt));
-    }
   }
 }

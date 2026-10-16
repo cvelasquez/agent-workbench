@@ -534,7 +534,7 @@ try {
     check('lo que abre una ventana en el anfitrión se le niega',
       opensOnHost.every((type) => remoteRefusal(type, true)?.key === 'remoteOpensOnHost'));
     check('todo lo demás lo puede pedir',
-      ['input', 'agent.submit', 'terminal.open', 'files.read', 'vault.enable', 'notes.create'].every((type) => remoteRefusal(type, true) === null));
+      ['input', 'agent.submit', 'terminal.open', 'files.read', 'files.write', 'vault.enable', 'notes.create'].every((type) => remoteRefusal(type, true) === null));
     check('al anfitrión no se le niega nada',
       [...hostOnly, ...opensOnHost, 'input'].every((type) => remoteRefusal(type, false) === null));
   }

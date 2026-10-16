@@ -62,8 +62,13 @@ function touch(recent: readonly string[], key: string): string[] {
   return [...recent.filter((item) => item !== key), key];
 }
 
-/** Abre un documento, o lo trae al frente si ya estaba. */
-export function openDoc(strip: DocStrip, doc: OpenDoc): DocStrip {
+/**
+ * Abre un documento, o lo trae al frente si ya estaba.
+ *
+ * `keep` son los que el tope no cierra: uno con cambios sin guardar (Hito 46,
+ * §6.36). Si todos lo tienen, la tira pasa del tope antes que perder algo.
+ */
+export function openDoc(strip: DocStrip, doc: OpenDoc, keep: ReadonlySet<string> = new Set()): DocStrip {
   const known = strip.docs.find((item) => item.key === doc.key);
   if (known !== undefined) {
     // El titulo puede haber cambiado (un plan reescrito): se actualiza.
@@ -73,7 +78,7 @@ export function openDoc(strip: DocStrip, doc: OpenDoc): DocStrip {
   let docs = [...strip.docs, { key: doc.key, title: doc.title }];
   let recent = touch(strip.recent, doc.key);
   while (docs.length > MAX_OPEN_DOCS) {
-    const oldest = recent.find((key) => key !== doc.key);
+    const oldest = recent.find((key) => key !== doc.key && !keep.has(key));
     if (oldest === undefined) break;
     docs = docs.filter((item) => item.key !== oldest);
     recent = recent.filter((key) => key !== oldest);

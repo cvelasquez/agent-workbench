@@ -114,6 +114,7 @@ import {
   type SessionPlan,
 } from './conversation.js';
 import {
+  isContentHash,
   parseDirectoryListing,
   parseDirectoryPickerListing,
   parseFilePreview,
@@ -655,6 +656,28 @@ export interface ClientCheckFilesMessage {
 }
 
 /**
+ * Guarda un archivo del `cwd` editado en el visor (Hito 46, §6.36).
+ *
+ * La ruta es **relativa**, como en `files.read`, y el servidor solo reemplaza
+ * el contenido de un archivo que ya existe: no crea, no renombra, no borra, y
+ * nunca escribe en la carpeta de una CLI. `baseHash` es la huella de lo que se
+ * abrio (`FilePreview.hash`): si el disco ya no la tiene, porque el agente u
+ * otro programa lo cambio, no se escribe nada y se contesta `changed`.
+ *
+ * Solo lo manda una pagina cuyo servidor dijo `fileWrite` en `hello`.
+ */
+export interface ClientWriteFileMessage {
+  type: 'files.write';
+  terminalId: TerminalId;
+  /** Eco: la respuesta, o el error, lo trae. */
+  requestId: string;
+  path: string;
+  /** El texto entero, con `\n`: el servidor le devuelve los saltos de linea del archivo. */
+  text: string;
+  baseHash: string;
+}
+
+/**
  * Pide el contenido de un plan de esta pestana.
  *
  * Viaja el **nombre del archivo** que el servidor mando en la lista de planes,
@@ -1081,6 +1104,7 @@ export type ClientMessage =
   | ClientSearchFilesMessage
   | ClientReadFileMessage
   | ClientCheckFilesMessage
+  | ClientWriteFileMessage
   | ClientRevealFileMessage
   | ClientReadPlanMessage
   | ClientCreateNoteMessage
@@ -1176,6 +1200,12 @@ export interface ServerHelloMessage {
    * archivos, como antes.
    */
   fileCheck: boolean;
+  /**
+   * Este servidor guarda un archivo editado en el visor (`files.write`, Hito
+   * 46, §6.36). Ausente, un servidor anterior, es false: el visor no ofrece
+   * Editar.
+   */
+  fileWrite: boolean;
 }
 
 /**
@@ -1580,6 +1610,29 @@ export interface ServerFilesCheckedMessage {
   existing: string[];
 }
 
+/** Lo que paso con un `files.write`. */
+export type FileSaveOutcome = 'saved' | 'changed';
+
+export const FILE_SAVE_OUTCOMES: readonly FileSaveOutcome[] = ['saved', 'changed'];
+
+/**
+ * Respuesta a `files.write`, solo al socket que guardo. Un fallo llega como
+ * `error`, con el mismo `requestId`.
+ *
+ *  - `saved`: se escribio, y `preview` es el archivo como quedo.
+ *  - `changed`: el disco ya no tenia la huella de lo que se abrio y no se
+ *    escribio nada. `preview` es lo que hay ahora, o null si el archivo ya no
+ *    esta.
+ */
+export interface ServerFileSavedMessage {
+  type: 'files.saved';
+  terminalId: TerminalId;
+  requestId: string;
+  path: string;
+  outcome: FileSaveOutcome;
+  preview: FilePreview | null;
+}
+
 /**
  * Los planes que escribio esta conversacion.
  *
@@ -1857,6 +1910,8 @@ export type ServerErrorCode =
   | 'rewind-failed'
   /** Un `agent.forceSend` que no se hizo (hito 45). No se escribio nada en la pty. */
   | 'force-send-failed'
+  /** Un `files.write` que no se pudo hacer (Hito 46). El archivo quedo como estaba. */
+  | 'write-failed'
   /** Un pedido que a un equipo remoto no se le atiende (hito 37). No se hizo nada. */
   | 'remote-refused'
   /**
@@ -1892,6 +1947,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'settings-failed',
   'rewind-failed',
   'force-send-failed',
+  'write-failed',
   'remote-refused',
   'agent-unsupported',
   'internal',
@@ -1941,6 +1997,7 @@ export type ServerMessage =
   | ServerFilesListingMessage
   | ServerFilePreviewMessage
   | ServerFilesCheckedMessage
+  | ServerFileSavedMessage
   | ServerFileSearchMessage
   | ServerConversationPlansMessage
   | ServerPlanContentMessage
@@ -2267,6 +2324,16 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       }
       return { type: 'files.check', terminalId, requestId, paths };
     }
+    case 'files.write': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const writePath = asNonEmptyString(record['path']);
+      const text = asString(record['text']);
+      const baseHash = record['baseHash'];
+      return terminalId === null || requestId === null || writePath === null || text === null || !isContentHash(baseHash)
+        ? null
+        : { type: 'files.write', terminalId, requestId, path: writePath, text, baseHash };
+    }
     case 'plans.read': {
       const terminalId = asNonEmptyString(record['terminalId']);
       const fileName = asNonEmptyString(record['fileName']);
@@ -2567,6 +2634,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         shellName: asNonEmptyString(record['shellName']),
         remoteClient: record['remoteClient'] === true,
         fileCheck: record['fileCheck'] === true,
+        fileWrite: record['fileWrite'] === true,
       };
     }
     case 'agents': {
@@ -2864,6 +2932,17 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || requestId === null || existing === null
         ? null
         : { type: 'files.checked', terminalId, requestId, existing };
+    }
+    case 'files.saved': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const savedPath = asNonEmptyString(record['path']);
+      const outcome = asLiteral(record['outcome'], FILE_SAVE_OUTCOMES);
+      const preview = record['preview'] === null ? null : parseFilePreview(record['preview']);
+      if (terminalId === null || requestId === null || savedPath === null || outcome === null) return null;
+      // Guardado sin el archivo como quedo no dice nada: el visor no tendria que mostrar.
+      if (preview === null && (outcome === 'saved' || record['preview'] !== null)) return null;
+      return { type: 'files.saved', terminalId, requestId, path: savedPath, outcome, preview };
     }
     case 'conversation.plans': {
       const terminalId = asNonEmptyString(record['terminalId']);

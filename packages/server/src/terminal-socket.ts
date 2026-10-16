@@ -50,7 +50,9 @@ import { NotesError, type NotesStore } from './notes-store.js';
 import { DraftTabs, draftEntriesOf, draftOwnerOf, submitClearsDraft, type DraftStore } from './draft-store.js';
 import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
+import { cliFolders } from './cli-folders.js';
 import { existingFiles, listDirectory, readPreview, searchFiles } from './file-browser.js';
+import { FileWriteError, saveProjectFile } from './file-write.js';
 import { readDiff } from './git-repo.js';
 import { GlobalSearchSlot } from './global-search.js';
 import { deliverWhenReady, prefillReasonFor, type DeliverDeps } from './deliver-when-ready.js';
@@ -800,6 +802,11 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       servidor no lista nada.
     */
     const pickers = new DirectoryPickers(agents.protectedDirs());
+    /*
+      Las mismas carpetas, para Archivos (Hito 46): el arbol no las lista y nada
+      de adentro se lee ni se escribe, aunque caigan dentro del proyecto.
+    */
+    const folders = cliFolders(agents.protectedDirs());
     /** La busqueda global en curso de este socket: una nueva o el cierre la cancelan. */
     const globalSearch = new GlobalSearchSlot();
 
@@ -876,6 +883,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       shellName: appSettings.currentShell()?.name ?? null,
       remoteClient: deviceId !== null,
       fileCheck: true,
+      fileWrite: true,
     });
     send(socket, terminalListMessage());
     /*
@@ -2014,7 +2022,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               return;
             }
             try {
-              const listing = await listDirectory(cwd, message.path, {
+              const listing = await listDirectory(cwd, message.path, await folders, {
                 includeHidden: message.includeHidden === true,
               });
               send(socket, { type: 'files.listing', terminalId: message.terminalId, listing });
@@ -2038,7 +2046,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               return;
             }
             try {
-              const result = await searchFiles(cwd, message.query, {
+              const result = await searchFiles(cwd, message.query, await folders, {
                 includeHidden: message.includeHidden === true,
               });
               send(socket, { type: 'files.results', terminalId: message.terminalId, result });
@@ -2056,10 +2064,52 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               return;
             }
             try {
-              const preview = await readPreview(cwd, message.path);
+              const preview = await readPreview(cwd, message.path, await folders);
               send(socket, { type: 'files.preview', terminalId: message.terminalId, preview });
             } catch (error) {
               sendPathError(error, serverText('fileReadFailed'));
+            }
+          })();
+          break;
+
+        /*
+          Guardar un archivo editado en el visor (Hito 46, §6.36): la segunda
+          escritura de la app dentro de un proyecto. Lo que llega es la ruta
+          relativa, el texto y la huella de lo que se abrio; que se puede
+          escribir lo decide `saveProjectFile`. Un remoto tambien guarda: ya
+          puede pedirle al agente que lo haga (§14.4).
+        */
+        case 'files.write':
+          void (async () => {
+            const { requestId } = message;
+            const cwd = cwdOf(message.terminalId);
+            if (cwd === null) {
+              sendError(socket, 'unknown-terminal', serverText('terminalGone'), undefined, requestId);
+              return;
+            }
+            try {
+              const result = await saveProjectFile(cwd, message.path, message.text, message.baseHash, await folders);
+              send(socket, {
+                type: 'files.saved',
+                terminalId: message.terminalId,
+                requestId,
+                path: message.path,
+                outcome: result.outcome,
+                preview: result.preview,
+              });
+            } catch (error) {
+              if (error instanceof InvalidPathError) {
+                sendError(socket, 'invalid-path', error.text, undefined, requestId);
+                return;
+              }
+              const detail = error instanceof Error ? error.message : String(error);
+              sendError(
+                socket,
+                'write-failed',
+                error instanceof FileWriteError ? error.text : serverText('fileSaveFailed'),
+                detail,
+                requestId,
+              );
             }
           })();
           break;
@@ -2074,7 +2124,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'files.check':
           void (async () => {
             const cwd = cwdOf(message.terminalId);
-            const existing = cwd === null ? [] : await existingFiles(cwd, message.paths).catch(() => []);
+            const existing = cwd === null ? [] : await existingFiles(cwd, message.paths, await folders).catch(() => []);
             send(socket, { type: 'files.checked', terminalId: message.terminalId, requestId: message.requestId, existing });
           })();
           break;
@@ -2087,7 +2137,10 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               return;
             }
             try {
-              revealPath(await resolveInside(cwd, message.path, { mustExist: true }));
+              const absolute = await resolveInside(cwd, message.path, { mustExist: true });
+              // Abrir algo de la carpeta de una CLI con la app del sistema es leerlo por otro lado.
+              if (await (await folders).contains(absolute)) throw new InvalidPathError(serverText('cliFolderClosed'));
+              revealPath(absolute);
             } catch (error) {
               sendPathError(error, serverText('pathOpenFailed'));
             }

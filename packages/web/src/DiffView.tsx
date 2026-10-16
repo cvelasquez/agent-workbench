@@ -37,24 +37,34 @@ export function DiffView({ diff }: DiffViewProps): JSX.Element {
 
   return (
     <div className="panel-scroll">
-      <div className="diff">
-        {diff.lines.map((line, index) => (
-          <div className={`diff-line diff-line-${line.kind}`} key={index}>
-            <span className="diff-num" aria-hidden="true">
-              {line.oldLine ?? ''}
-            </span>
-            <span className="diff-num" aria-hidden="true">
-              {line.newLine ?? ''}
-            </span>
-            <span className="diff-marker" aria-hidden="true">
-              {MARKER[line.kind]}
-            </span>
-            <span className="diff-text">{line.text}</span>
-          </div>
-        ))}
-      </div>
+      <DiffLines lines={diff.lines} />
 
       {diff.truncated && <p className="panel-note">{t('diff.truncated')}</p>}
+    </div>
+  );
+}
+
+/**
+ * Las lineas, sin el desplazamiento alrededor. Las usa tambien el visor para
+ * mostrar tus cambios cuando el archivo cambio mientras lo editabas (§6.36).
+ */
+export function DiffLines({ lines }: { lines: readonly DiffLine[] }): JSX.Element {
+  return (
+    <div className="diff">
+      {lines.map((line, index) => (
+        <div className={`diff-line diff-line-${line.kind}`} key={index}>
+          <span className="diff-num" aria-hidden="true">
+            {line.oldLine ?? ''}
+          </span>
+          <span className="diff-num" aria-hidden="true">
+            {line.newLine ?? ''}
+          </span>
+          <span className="diff-marker" aria-hidden="true">
+            {MARKER[line.kind]}
+          </span>
+          <span className="diff-text">{line.text}</span>
+        </div>
+      ))}
     </div>
   );
 }

@@ -13,15 +13,22 @@
  *    entre coincidencias, Esc limpia. Busca sobre lo que se ve (`useDocSearch`).
  *  - **⟳ relee**: el agente puede haberlo cambiado mientras estaba abierto.
  *  - **Vuelve a la altura donde estaba** cuando se lo muestra de nuevo.
+ *  - **Un archivo de texto se edita** (Hito 46, §6.36): Editar, Guardar y
+ *    Cancelar. Lo escrito vive en `useDocuments`, no aca: este visor se vuelve
+ *    a montar con cada documento. Si el archivo cambio en el disco mientras se
+ *    editaba, lo tuyo ya no se guarda: se descarta, o se pasa a mano a la
+ *    version nueva con la lista de tus cambios al lado.
  */
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { DiffLines } from './DiffView.js';
 import { isMarkdownPath, resolveDocLink } from './doc-search.js';
 import type { DocMode, OpenDoc } from './doc-tabs.js';
 import { CodePreview, PreviewActions } from './FilePreviewView.js';
 import { t } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 import { Markdown } from './Markdown.js';
-import type { DocContent } from './useDocuments.js';
+import type { DocContent, DocEditor } from './useDocuments.js';
 import { useDocSearch } from './useDocSearch.js';
 
 interface DocumentViewerProps {
@@ -42,6 +49,10 @@ interface DocumentViewerProps {
   /** La altura donde se lo dejo, si se lo miro antes. */
   initialScroll: number | undefined;
   onScrollChange: (top: number) => void;
+  /** Solo en Archivos, con un servidor que guarda (Hito 46): editar este archivo. */
+  editor?: DocEditor | null;
+  /** El boton de poner la ruta en tu mensaje, al lado de ⟳. Lo arma Archivos, que es quien la sabe. */
+  insertButton?: ReactNode;
 }
 
 export function DocumentViewer({
@@ -56,6 +67,8 @@ export function DocumentViewer({
   onOpenLink,
   initialScroll,
   onScrollChange,
+  editor = null,
+  insertButton,
 }: DocumentViewerProps): JSX.Element {
   const [query, setQuery] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -91,6 +104,18 @@ export function DocumentViewer({
         };
 
   const searchable = loaded !== null && !binary;
+  const edit = editor?.edit ?? null;
+
+  if (editor !== null && edit !== null) {
+    return <FileEditor title={doc.title} editor={editor} insertButton={insertButton} />;
+  }
+
+  /*
+    Editar se ofrece en un archivo de texto. Apagado, dice por que: uno cortado
+    no se puede guardar entero, y uno que no esta en UTF-8 se danaria.
+  */
+  const editable = loaded !== null && loaded.kind === 'file' && loaded.preview.editable === true;
+  const editTitle = editable ? t('docs.edit.title') : truncated ? t('docs.edit.tooLarge') : t('docs.edit.unsafe');
 
   return (
     <div className="panel-body doc-viewer">
@@ -132,6 +157,17 @@ export function DocumentViewer({
             </button>
           </div>
         )}
+        {editor !== null && loaded !== null && loaded.kind === 'file' && !binary && (
+          <button
+            className="primary-button primary-button-small doc-edit-button"
+            onClick={editor.begin}
+            disabled={!editable}
+            title={editTitle}
+          >
+            {editor.justSaved ? t('docs.edit.saved') : t('docs.edit.button')}
+          </button>
+        )}
+        {insertButton}
         <button className="icon-button" onClick={onReload} disabled={content?.loading === true} title={t('docs.reload')}>
           ⟳
         </button>
@@ -159,6 +195,139 @@ export function DocumentViewer({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Un archivo en edicion (§6.36).
+ *
+ *  - **Guardar** se apaga sin cambios; Ctrl+S (Cmd+S) guarda. **Cancelar** con
+ *    cambios pide confirmar aca mismo, sin ventana del navegador, como las
+ *    notas. Esc no descarta nunca.
+ *  - **Si el archivo cambio en el disco**, lo tuyo queda de solo lectura con el
+ *    aviso: se descarta, o se pasa a la version nueva, que se carga en el
+ *    cuadro con la lista de tus cambios arriba. Si ya no esta, o la version
+ *    nueva no se puede editar, queda lo tuyo para copiarlo, y nada mas.
+ *  - **La × de la tira** con algo sin guardar muestra el documento y pide
+ *    confirmar aca.
+ */
+function FileEditor({
+  title,
+  editor,
+  insertButton,
+}: {
+  title: string;
+  editor: DocEditor;
+  insertButton: ReactNode;
+}): JSX.Element {
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const edit = editor.edit;
+  if (edit === null) return <></>;
+
+  const changed = edit.text !== edit.opened;
+  const conflict = edit.conflict;
+  const canSave = changed && !edit.saving && conflict === null;
+  const status = edit.saving ? t('docs.edit.saving') : changed ? t('docs.edit.unsaved') : t('docs.edit.noChanges');
+
+  const cancel = (): void => {
+    if (editor.unsaved) setConfirmingCancel(true);
+    else editor.discard();
+  };
+
+  return (
+    <div className="panel-body doc-viewer">
+      <div className="doc-toolbar">
+        <span className="doc-edit-status" title={title}>
+          {t('docs.edit.editing', { name: title })}
+          <span className="doc-edit-state"> · {status}</span>
+        </span>
+        <button className="link-button" onClick={cancel} disabled={edit.saving}>
+          {t('docs.edit.cancel')}
+        </button>
+        <button className="primary-button primary-button-small" onClick={editor.save} disabled={!canSave} title={t('docs.edit.saveTitle')}>
+          {t('docs.edit.save')}
+        </button>
+        {insertButton}
+        <button className="icon-button" disabled title={t('docs.reload')}>
+          ⟳
+        </button>
+      </div>
+
+      {edit.closing && (
+        <div className="note-closing doc-edit-bar">
+          <span>{t('docs.edit.closeConfirm')}</span>
+          <button className="link-button link-danger" onClick={editor.confirmClose}>
+            {t('docs.edit.discardAndClose')}
+          </button>
+          <button className="link-button" onClick={editor.keepEditing}>
+            {t('docs.edit.keepEditing')}
+          </button>
+        </div>
+      )}
+
+      {confirmingCancel && !edit.closing && (
+        <div className="note-closing doc-edit-bar">
+          <span>{t('docs.edit.discardConfirm')}</span>
+          <button className="link-button link-danger" onClick={editor.discard}>
+            {t('docs.edit.discard')}
+          </button>
+          <button className="link-button" onClick={() => setConfirmingCancel(false)}>
+            {t('docs.edit.keepEditing')}
+          </button>
+        </div>
+      )}
+
+      {conflict !== null && (
+        <div className="note-closing doc-edit-bar">
+          <span>{conflict.next === null ? t('docs.edit.gone') : t('docs.edit.conflict')}</span>
+          {conflict.next !== null && (
+            <button className="primary-button primary-button-small" onClick={editor.adopt}>
+              {t('docs.edit.adopt')}
+            </button>
+          )}
+          <button className="link-button link-danger" onClick={editor.discard}>
+            {t('docs.edit.discardMine')}
+          </button>
+        </div>
+      )}
+
+      {edit.failure !== null && (
+        <div className="composer-problem doc-edit-bar">
+          <span>{edit.failure.kind === 'lost' ? t('docs.edit.lost') : serverTextMessage(edit.failure.text)}</span>
+        </div>
+      )}
+
+      {edit.pending !== null && (
+        <div className="doc-changes">
+          <div className="doc-changes-head">
+            <span>{t('docs.edit.pending')}</span>
+            <button className="link-button" onClick={editor.dismissPending}>
+              {t('docs.edit.pendingDone')}
+            </button>
+          </div>
+          <div className="doc-changes-body">
+            <DiffLines lines={edit.pending} />
+          </div>
+        </div>
+      )}
+
+      <textarea
+        className="doc-editor"
+        value={edit.text}
+        readOnly={conflict !== null || edit.saving}
+        spellCheck={false}
+        autoFocus
+        aria-label={t('docs.edit.editing', { name: title })}
+        onChange={(event) => editor.change(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
+            event.preventDefault();
+            if (canSave) editor.save();
+          }
+          event.stopPropagation();
+        }}
+      />
     </div>
   );
 }

@@ -133,6 +133,8 @@ export interface Workspace {
   remoteClient: boolean;
   /** El servidor dice cuales rutas son archivos del proyecto (§6.33): sin esto, el hilo no enlaza ninguna. */
   fileCheck: boolean;
+  /** El servidor guarda un archivo editado en el visor (Hito 46, §6.36): sin esto, no se ofrece Editar. */
+  fileWrite: boolean;
   /** Pestanas de la CLI. Son las unicas que aparecen en la barra de pestanas. */
   terminals: TerminalDescriptor[];
   /** Consolas del sistema. Viven en la columna derecha, no en la barra. */
@@ -248,6 +250,7 @@ export function useWorkspace(): Workspace {
   const [shellName, setShellName] = useState<string | null>(null);
   const [remoteClient, setRemoteClient] = useState(false);
   const [fileCheck, setFileCheck] = useState(false);
+  const [fileWrite, setFileWrite] = useState(false);
   const [allTerminals, setAllTerminals] = useState<TerminalDescriptor[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [indexStatus, setIndexStatus] = useState<IndexStatus>(EMPTY_INDEX_STATUS);
@@ -377,6 +380,7 @@ export function useWorkspace(): Workspace {
           setShellName(message.shellName);
           setRemoteClient(message.remoteClient);
           setFileCheck(message.fileCheck);
+          setFileWrite(message.fileWrite);
           break;
 
         case 'terminal.list': {
@@ -834,6 +838,7 @@ export function useWorkspace(): Workspace {
     shellName,
     remoteClient,
     fileCheck,
+    fileWrite,
     terminals,
     shells,
     /** Hito 31: las pedidas que el servidor todavia no confirmo. */

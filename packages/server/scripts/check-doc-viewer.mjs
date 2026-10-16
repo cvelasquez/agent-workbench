@@ -248,7 +248,56 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
   check('6.22 solo el texto del agente: lo del usuario se muestra tal cual',
     hook.includes("if (event.role !== 'assistant') continue;") && /<Markdown text=\{part\.text\} needle=\{needle\} codeLink=\{fileLinks\?\.code\} localLink=\{fileLinks\?\.link\} \/>/.test(view));
   check('6.23 el servidor anuncia que contesta, y contesta por el guardia de rutas',
-    socket.includes('fileCheck: true,') && socket.includes('await existingFiles(cwd, message.paths)'));
+    socket.includes('fileCheck: true,') && socket.includes('await existingFiles(cwd, message.paths, await folders)'));
+}
+
+// --- 7. Editar un archivo (Hito 46, §6.36) ---------------------------------------------
+{
+  const { EMPTY_STRIP, openDoc, selectDoc, MAX_OPEN_DOCS } = tabs;
+  const { editChanges, plainLineBreaks, CHANGES_GAP } = await import('../../web/src/edit-changes.ts');
+  const { readFileSync } = await import('node:fs');
+
+  let full = EMPTY_STRIP;
+  for (let index = 1; index <= MAX_OPEN_DOCS; index++) full = openDoc(full, { key: `d${index}`, title: `d${index}` });
+  full = selectDoc(full, 'd3');
+  const kept = openDoc(full, { key: 'nuevo', title: 'nuevo' }, new Set(['d1', 'd2']));
+  check('7.1 el tope no cierra uno con cambios sin guardar: cierra el siguiente que hace mas que no se mira',
+    keys(kept).includes('d1') && keys(kept).includes('d2') && !keys(kept).includes('d4') && kept.docs.length === MAX_OPEN_DOCS, keys(kept));
+  const allKept = openDoc(full, { key: 'otro', title: 'otro' }, new Set(full.docs.map((doc) => doc.key)));
+  check('7.2 si todos tienen cambios, la tira pasa del tope antes que perder algo', allKept.docs.length === MAX_OPEN_DOCS + 1);
+
+  const kinds = (lines) => lines.map((line) => (line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : line.kind === 'hunk' ? '~' : ' ') + line.text).join('|');
+  const opened = 'A=1\nB=2\nC=3\nD=4\nE=5\nF=6\nG=7\n';
+  check('7.3 sin cambios, la lista esta vacia', editChanges(opened, opened).length === 0);
+  const changed = editChanges(opened, 'A=1\nB=22\nC=3\nD=4\nE=5\nF=6\nG=7\nH=8\n');
+  check('7.4 solo las lineas que cambiaron, con una de contexto, y una marca donde se salta algo',
+    kinds(changed) === ' A=1|-B=2|+B=22| C=3|~…| G=7|+H=8', kinds(changed));
+  const swap = changed.find((line) => line.kind === 'added' && line.text === 'B=22');
+  const gone = changed.find((line) => line.kind === 'removed');
+  check('7.5 cada linea lleva su numero: la quitada el de lo que abriste, la agregada el de lo que escribiste',
+    swap?.newLine === 2 && swap?.oldLine === null && gone?.oldLine === 2 && gone?.newLine === null);
+  check('7.6 un archivo con CRLF no sale entero como cambiado',
+    kinds(editChanges('A=1\r\nB=2\r\nC=3\r\n', 'A=1\nB=2\nC=33\n')) === ' B=2|-C=3|+C=33');
+  check('7.7 los saltos se pasan como los deja el cuadro del navegador', plainLineBreaks('a\r\nb\rc\n') === 'a\nb\nc\n');
+  check('7.8 lo agregado en el medio se ve entre sus vecinas, sin tocarlas',
+    kinds(editChanges('a\nb\nc\nd\n', 'a\nb\nnueva\nc\nd\n')) === ' b|+nueva| c');
+  check('7.9 la marca de salto es una linea de tramo, sin numeros', CHANGES_GAP.kind === 'hunk' && CHANGES_GAP.oldLine === null);
+
+  const big = Array.from({ length: 4_000 }, (_, index) => `linea ${index}`);
+  const rewritten = big.map((line, index) => (index % 2 === 0 ? `${line} cambiada` : line));
+  const started = Date.now();
+  const huge = editChanges(`${big.join('\n')}\n`, `${rewritten.join('\n')}\n`);
+  const elapsed = Date.now() - started;
+  check('7.10 un medio enorme no cuelga la pagina: sale como un bloque, y entero',
+    elapsed < 2_000 && huge.filter((line) => line.kind === 'removed').length === 4_000 - 1 && huge.filter((line) => line.kind === 'added').length === 4_000 - 1,
+    `${elapsed} ms, ${huge.length} lineas`);
+
+  const viewer = readFileSync(new URL('../../web/src/DocumentViewer.tsx', import.meta.url), 'utf8');
+  const documents = readFileSync(new URL('../../web/src/useDocuments.ts', import.meta.url), 'utf8');
+  check('7.11 Ctrl+S guarda y Esc no descarta: el cuadro no mira Escape',
+    /event\.key\.toLowerCase\(\) === 's'/.test(viewer) && !/Escape/.test(viewer.slice(viewer.indexOf('function FileEditor'))));
+  check('7.12 lo que se edita no va a sessionStorage, y F5 con algo sin guardar pregunta',
+    !/sessionStorage[^\n]*edit/i.test(documents) && documents.includes("window.addEventListener('beforeunload', onBeforeUnload)"));
 }
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

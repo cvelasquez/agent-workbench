@@ -95,6 +95,18 @@ export interface FilePreview {
   truncated: boolean;
   /** true si el archivo no es texto: no se manda contenido. */
   binary: boolean;
+  /**
+   * Se puede editar desde el visor (Hito 46, §6.36): el texto vino entero y
+   * guardarlo no cambia nada que no se toque. Solo llega en true, y con `hash`.
+   */
+  editable?: boolean;
+  /** SHA-256 del contenido, en hex: la huella con la que se guarda (`files.write`). */
+  hash?: string;
+}
+
+/** Una huella de `FilePreview.hash`: SHA-256 en hex. */
+export function isContentHash(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +178,7 @@ export function parseFilePreview(value: unknown): FilePreview | null {
     return null;
   }
 
-  return {
+  const preview: FilePreview = {
     path: previewPath,
     language: asString(record['language']),
     text,
@@ -174,6 +186,9 @@ export function parseFilePreview(value: unknown): FilePreview | null {
     truncated: record['truncated'] === true,
     binary,
   };
+  // Sin una huella con forma no hay con que guardar: se ve, pero no se edita.
+  const hash = record['hash'];
+  return record['editable'] === true && isContentHash(hash) ? { ...preview, editable: true, hash } : preview;
 }
 
 // ---------------------------------------------------------------------------

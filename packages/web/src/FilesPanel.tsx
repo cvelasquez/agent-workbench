@@ -400,9 +400,11 @@ export function FilesPanel({
         docs={docs.docs}
         active={docs.active}
         tooltipOf={tooltipOf}
+        // Uno con algo sin guardar lleva un punto, como en un editor (§6.36).
+        labelOf={(doc) => (docs.unsaved(doc.key) ? `${doc.title} •` : doc.title)}
         onShowList={docs.showList}
         onSelect={docs.select}
-        onClose={docs.close}
+        onClose={docs.requestClose}
       />
     ) : null;
 
@@ -423,6 +425,14 @@ export function FilesPanel({
           onOpenLink={openDocument}
           initialScroll={docs.scrollOf(activeDoc.key)}
           onScrollChange={(top) => docs.rememberScroll(activeDoc.key, top)}
+          editor={docs.editorFor(activeDoc.key)}
+          insertButton={
+            <InsertPathButton
+              className="icon-button"
+              title={t('files.insertPath', { name: activeDoc.title })}
+              onInsert={() => insertQuoted(activeDoc.key)}
+            />
+          }
         />
         {menu !== null && (
           <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />
