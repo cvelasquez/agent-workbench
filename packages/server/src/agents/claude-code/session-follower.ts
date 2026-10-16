@@ -167,4 +167,13 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
   runningSubagents(launchedAt: number): readonly ConversationSubagent[] {
     return this.inner.runningSubagents(launchedAt);
   }
+
+  /** Esconde desde un mensaje que la CLI deshizo sin escribirlo todavia (hito 44, §4.16). */
+  withdrawFrom(eventId: string): boolean {
+    return this.inner.withdrawFrom(eventId);
+  }
+
+  withdrawnFrom(): string | null {
+    return this.inner.withdrawnFrom();
+  }
 }

@@ -357,6 +357,26 @@ export interface ClientInterruptMessage {
   terminalId: TerminalId;
 }
 
+/** Que se deshace al volver a antes de un mensaje (hito 44). */
+export type RewindRestore = 'conversation' | 'conversation-and-code';
+export const REWIND_RESTORES: readonly RewindRestore[] = ['conversation', 'conversation-and-code'];
+
+/**
+ * Volver a antes de un mensaje propio (hito 44, §4.16): la app maneja el menu de
+ * rewind de la CLI, comprobando en su pantalla cada paso, y el mensaje vuelve
+ * al cuadro (`composer.prefill` con `rewound`). Solo con la capacidad
+ * `rewind` y la CLI libre. Responde `agent.rewound`, o un `error`
+ * `rewind-failed` con el mismo `requestId`.
+ */
+export interface ClientRewindMessage {
+  type: 'agent.rewind';
+  terminalId: TerminalId;
+  /** El mensaje del hilo: el del usuario antes del que se vuelve. */
+  eventId: string;
+  restore: RewindRestore;
+  requestId: string;
+}
+
 /**
  * Nuevo tamano del terminal. Reenviarlo al pty no es opcional: un pty con
  * tamano desincronizado rompe el renderizado de la CLI.
@@ -1012,6 +1032,7 @@ export type ClientMessage =
   | ClientPermissionModeMessage
   | ClientArchiveSessionsMessage
   | ClientInterruptMessage
+  | ClientRewindMessage
   | ClientResizeMessage
   | ClientOpenTerminalMessage
   | ClientWakeTerminalMessage
@@ -1299,6 +1320,19 @@ export interface ServerAgentSubmittedMessage {
   terminalId: TerminalId;
   requestId: string;
   delivered: boolean;
+}
+
+/**
+ * Un `agent.rewind` que salio bien (hito 44). Solo al socket que lo pidio. El
+ * mensaje ya va en un `composer.prefill` y el hilo, en un `conversation.reset`.
+ * `codeRestored`: false si se pidio deshacer el codigo y la CLI no tenia
+ * cambios que deshacer.
+ */
+export interface ServerAgentRewoundMessage {
+  type: 'agent.rewound';
+  terminalId: TerminalId;
+  requestId: string;
+  codeRestored: boolean;
 }
 
 /**
@@ -1648,12 +1682,20 @@ export interface ServerSessionContinuedMessage {
 }
 
 /** Por que llega un texto al cuadro de escritura. */
-export type ComposerPrefillReason = 'no-delivery' | 'not-ready' | 'send-failed' | 'returned-by-cli';
+export type ComposerPrefillReason =
+  | 'no-delivery'
+  | 'not-ready'
+  | 'send-failed'
+  | 'returned-by-cli'
+  | 'stopped-early'
+  | 'rewound';
 export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
   'no-delivery',
   'not-ready',
   'send-failed',
   'returned-by-cli',
+  'stopped-early',
+  'rewound',
 ];
 
 /**
@@ -1667,6 +1709,10 @@ export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
  *    la CLI no llego a entregar: al interrumpir lo devolvio a su editor, la app
  *    lo saco de ahi y lo trae de vuelta (hito 43, §16.5). Un cliente anterior
  *    no conoce el motivo y descarta el mensaje.
+ *  - `stopped-early`: un mensaje que se detuvo antes de que el agente hiciera
+ *    nada; la CLI lo deshizo y lo devolvio a su caja, y la app lo trae al
+ *    cuadro para corregirlo (hito 44, §4.16).
+ *  - `rewound`: el mensaje antes del que se volvio con `agent.rewind`.
  */
 export interface ServerComposerPrefillMessage {
   type: 'composer.prefill';
@@ -1743,6 +1789,8 @@ export type ServerErrorCode =
   | 'remote-failed'
   /** Un cambio de Ajustes (Hito 41) que no se pudo guardar. El texto dice por que. */
   | 'settings-failed'
+  /** Un `agent.rewind` que no se pudo hacer (hito 44). El menu de la CLI quedo cerrado. */
+  | 'rewind-failed'
   /** Un pedido que a un equipo remoto no se le atiende (hito 37). No se hizo nada. */
   | 'remote-refused'
   /**
@@ -1776,6 +1824,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'search-failed',
   'remote-failed',
   'settings-failed',
+  'rewind-failed',
   'remote-refused',
   'agent-unsupported',
   'internal',
@@ -1811,6 +1860,7 @@ export type ServerMessage =
   | ServerConversationToolCallMessage
   | ServerConversationSubagentsMessage
   | ServerAgentSubmittedMessage
+  | ServerAgentRewoundMessage
   | ServerConversationPageMessage
   | ServerConversationStateMessage
   | ServerConversationTurnsMessage
@@ -1974,6 +2024,15 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'agent.interrupt': {
       const terminalId = asNonEmptyString(record['terminalId']);
       return terminalId === null ? null : { type: 'agent.interrupt', terminalId };
+    }
+    case 'agent.rewind': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const eventId = asNonEmptyString(record['eventId']);
+      const restore = asLiteral(record['restore'], REWIND_RESTORES);
+      const requestId = asNonEmptyString(record['requestId']);
+      return terminalId === null || eventId === null || restore === null || requestId === null
+        ? null
+        : { type: 'agent.rewind', terminalId, eventId, restore, requestId };
     }
     case 'resize': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -2556,6 +2615,14 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || requestId === null || delivered === null
         ? null
         : { type: 'agent.submitted', terminalId, requestId, delivered };
+    }
+    case 'agent.rewound': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const codeRestored = asBoolean(record['codeRestored']);
+      return terminalId === null || requestId === null || codeRestored === null
+        ? null
+        : { type: 'agent.rewound', terminalId, requestId, codeRestored };
     }
     case 'conversation.append': {
       const terminalId = asNonEmptyString(record['terminalId']);

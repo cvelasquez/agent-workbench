@@ -34,6 +34,7 @@ import {
   type UserImageAttachment,
 } from './jsonl-events.js';
 import type { EventPage, FollowOptions, PartsUpdate, PollResult, TurnUpdate } from '../adapter.js';
+import { BranchTracker } from './branch-tracker.js';
 import { JsonlFollower, type EventLookup, type JsonlLineSink } from '../jsonl-follower.js';
 import { TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import { ModelVariantRegistry } from './model-variants.js';
@@ -143,6 +144,14 @@ export class ConversationFollower implements JsonlLineSink {
   private readonly limits: EventLimits;
 
   /**
+   * Que ramas del archivo quedaron abandonadas (hito 44, §4.16): un mensaje que
+   * se deshizo no se entrega. Va antes que `jsonl`, que lo consulta.
+   */
+  private readonly branch = new BranchTracker();
+  /** true si en la lectura en curso cambio lo que se ve: el `poll` avisa un reinicio. */
+  private branchChanged = false;
+
+  /**
    * `installVariants`: lo que sabemos de la instalacion, para las sesiones que
    * todavia no escribieron ningun `cost-state` — que son casi todas mientras se
    * trabaja.
@@ -166,7 +175,10 @@ export class ConversationFollower implements JsonlLineSink {
   ) {
     this.limits = options.limits ?? TRANSPORT_LIMITS;
     this.target = options.target ?? { cwd: '', sessionId: '' };
-    this.jsonl = new JsonlFollower(filePath, this, { maxEvents: options.maxEvents });
+    this.jsonl = new JsonlFollower(filePath, this, {
+      maxEvents: options.maxEvents,
+      isVisible: (event) => !this.branch.isHidden(event.eventId),
+    });
   }
 
   /** La pestana cuyos documentos se reconocen. Ver el constructor. */
@@ -253,7 +265,14 @@ export class ConversationFollower implements JsonlLineSink {
     this.turns = [];
     this.partUpdates = [];
     this.freshPlans = [];
-    const { reset, added } = await this.jsonl.poll();
+    const read = await this.jsonl.poll();
+    const { added } = read;
+    /*
+      Una rama que se abandono (o que volvio) cambia mensajes que el cliente ya
+      tiene: se le avisa un reinicio, y el hub le manda la conversacion de nuevo.
+    */
+    const reset = read.reset || this.branchChanged;
+    this.branchChanged = false;
     // Lo que se aplico a un evento de este mismo lote ya viaja dentro de el.
     const fresh = new Set(added.map((event) => event.eventId));
     const turns = this.turns.filter((turn) => !fresh.has(turn.eventId));
@@ -291,6 +310,19 @@ export class ConversationFollower implements JsonlLineSink {
     this.attachmentRoots.clear();
     this.planFiles = [];
     this.subagents.reset();
+    this.branch.reset();
+  }
+
+  /**
+   * Esconde desde ese mensaje: la CLI lo deshizo y todavia no escribio nada
+   * (hito 44). true si cambio lo que se ve; quien llama avisa el reinicio.
+   */
+  withdrawFrom(eventId: string): boolean {
+    return this.branch.withdraw(eventId);
+  }
+
+  withdrawnFrom(): string | null {
+    return this.branch.withdrawnFrom();
   }
 
   /** true si la linea es la invocacion de `/model` que la CLI guarda. */
@@ -309,6 +341,43 @@ export class ConversationFollower implements JsonlLineSink {
    * los que ya guardo, para pegarle a uno anterior la duracion o una imagen.
    */
   consume(
+    record: Record<string, unknown>,
+    lineNumber: number,
+    events: EventLookup,
+  ): ConversationEvent | null {
+    const event = this.consumeRecord(record, lineNumber, events);
+    this.observeBranch(record, event);
+    return event;
+  }
+
+  /**
+   * Anota la linea en el arbol de la conversacion (hito 44, §4.16). Solo las de
+   * la cadena principal: las de un subagente son otra conversacion.
+   */
+  private observeBranch(record: Record<string, unknown>, event: ConversationEvent | null): void {
+    const uuid = record['uuid'];
+    if (typeof uuid !== 'string' || uuid.length === 0 || record['isSidechain'] === true) return;
+    // La CLI escribe el campo siempre, `null` en la raiz (medido). Sin el campo
+    // la linea no dice de quien cuelga, y no puede abrir ni cerrar ninguna rama.
+    if (!Object.prototype.hasOwnProperty.call(record, 'parentUuid')) return;
+    const parentUuid = record['parentUuid'];
+    const logicalParent = record['logicalParentUuid'];
+    const parent =
+      typeof parentUuid === 'string' && parentUuid.length > 0
+        ? parentUuid
+        : typeof logicalParent === 'string' && logicalParent.length > 0
+          ? logicalParent
+          : null;
+    const prompt =
+      event !== null &&
+      event.role === 'user' &&
+      event.parts.some((part) => part.kind === 'text' || part.kind === 'image');
+    const mayBranch = record['type'] === 'user' && !isToolResultRecord(record);
+    const speaks = record['type'] === 'user' || record['type'] === 'assistant';
+    if (this.branch.observe({ uuid, parent, prompt, mayBranch, speaks })) this.branchChanged = true;
+  }
+
+  private consumeRecord(
     record: Record<string, unknown>,
     lineNumber: number,
     events: EventLookup,
@@ -599,4 +668,15 @@ export class ConversationFollower implements JsonlLineSink {
     }
     return model;
   }
+}
+
+/** true si la linea `user` es el resultado de una herramienta y no algo que alguien escribio. */
+function isToolResultRecord(record: Record<string, unknown>): boolean {
+  const message = record['message'];
+  if (typeof message !== 'object' || message === null) return false;
+  const content = (message as Record<string, unknown>)['content'];
+  return (
+    Array.isArray(content) &&
+    content.some((block) => typeof block === 'object' && block !== null && (block as Record<string, unknown>)['type'] === 'tool_result')
+  );
 }

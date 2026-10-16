@@ -78,8 +78,15 @@ export interface HandoffNotice {
   /** `sending`: el servidor la esta mandando sola. `prefilled`: quedo en el cuadro. */
   delivery: HandoffDelivery;
   /** Por que quedo en el cuadro, si quedo; null mientras se manda sola. */
-  prefillReason: Exclude<ComposerPrefillReason, 'returned-by-cli'> | null;
+  prefillReason: Exclude<ComposerPrefillReason, ReturnedReason | 'rewound'> | null;
 }
+
+/**
+ * Por que volvio al cuadro un mensaje que ya se habia mandado: Pi devolvio lo
+ * que tenia en cola (hito 43), o Claude Code deshizo uno que se detuvo antes de
+ * que el agente hiciera nada (hito 44). Cada uno con su aviso.
+ */
+export type ReturnedReason = 'returned-by-cli' | 'stopped-early';
 
 /** Un texto que llego para el cuadro de una pestana y todavia no se aplico. */
 export interface ComposerPrefill {
@@ -184,10 +191,10 @@ export interface Workspace {
   /** Cierra el aviso de una pestana: con la ×, o al mandar el primer mensaje. */
   dismissHandoff: (terminalId: TerminalId) => void;
   /**
-   * Las pestanas a las que les volvio al cuadro un mensaje que su CLI no llego a
-   * entregar (hito 43, `composer.prefill` con `returned-by-cli`).
+   * Las pestanas a las que les volvio al cuadro un mensaje ya mandado, y por
+   * que (hito 43, `returned-by-cli`; hito 44, `stopped-early`).
    */
-  returnedMessages: ReadonlySet<TerminalId>;
+  returnedMessages: ReadonlyMap<TerminalId, ReturnedReason>;
   /** Cierra ese aviso: con la ×, o al mandar un mensaje. */
   dismissReturned: (terminalId: TerminalId) => void;
   /** Textos para el cuadro de escritura que llegaron del servidor, en orden. */
@@ -293,8 +300,8 @@ export function useWorkspace(): Workspace {
   const [handoffs, setHandoffs] = useState<Map<TerminalId, HandoffNotice>>(new Map());
   const [prefills, setPrefills] = useState<ComposerPrefill[]>([]);
   const nextPrefillId = useRef(1);
-  /** Hito 43. Las pestanas con un mensaje devuelto al cuadro y su aviso todavia a la vista. */
-  const [returnedMessages, setReturnedMessages] = useState<Set<TerminalId>>(new Set());
+  /** Hitos 43 y 44. Las pestanas con un mensaje devuelto al cuadro y su aviso todavia a la vista. */
+  const [returnedMessages, setReturnedMessages] = useState<Map<TerminalId, ReturnedReason>>(new Map());
 
   // Las pestanas que abrimos nosotros pasan a estar activas; las que abrio otra
   // ventana, no. Por eso se registran los requestId propios.
@@ -421,7 +428,9 @@ export function useWorkspace(): Workspace {
           // Y el de un mensaje devuelto, igual.
           setReturnedMessages((current) => {
             if (current.size === 0) return current;
-            const next = new Set([...current].filter((id) => message.terminals.some((t) => t.terminalId === id)));
+            const next = new Map(
+              [...current].filter(([id]) => message.terminals.some((t) => t.terminalId === id)),
+            );
             return next.size === current.size ? current : next;
           });
           break;
@@ -458,12 +467,14 @@ export function useWorkspace(): Workspace {
             Un mensaje que la CLI no llego a entregar y volvio al cuadro (hito
             43): no es de ninguna continuacion, y tiene su propio aviso.
           */
-          if (reason === 'returned-by-cli') {
+          if (reason === 'returned-by-cli' || reason === 'stopped-early') {
             setReturnedMessages((current) =>
-              current.has(message.terminalId) ? current : new Set(current).add(message.terminalId),
+              current.get(message.terminalId) === reason ? current : new Map(current).set(message.terminalId, reason),
             );
             break;
           }
+          // El mensaje antes del que se volvio (hito 44): lo pidio el usuario en su dialogo, sin aviso.
+          if (reason === 'rewound') break;
           setHandoffs((current) => {
             const notice = current.get(message.terminalId);
             if (notice === undefined) return current;
@@ -545,6 +556,8 @@ export function useWorkspace(): Workspace {
           if (message.code === 'remote-failed') break;
           // Y Ajustes (Hito 41): lo dice su ventana. Ver `useAppSettings`.
           if (message.code === 'settings-failed') break;
+          // Y volver a antes de un mensaje (hito 44): lo dice su dialogo. Ver `useRewind`.
+          if (message.code === 'rewind-failed') break;
           setError({ message: serverTextMessage(message.text), at: Date.now() });
           // Un fallo al abrir la CLI no puede dejar el boton diciendo
           // "Abriendo…" para siempre. Ni "Relanzando…".
@@ -757,7 +770,7 @@ export function useWorkspace(): Workspace {
   const dismissReturned = useCallback((terminalId: TerminalId) => {
     setReturnedMessages((current) => {
       if (!current.has(terminalId)) return current;
-      const next = new Set(current);
+      const next = new Map(current);
       next.delete(terminalId);
       return next;
     });

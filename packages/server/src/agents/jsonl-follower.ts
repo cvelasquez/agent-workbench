@@ -94,6 +94,12 @@ export interface JsonlFollowerOptions {
    * entrega descomprimido un rollout `.jsonl.zst` (§10.12).
    */
   files?: JsonlFileAccess;
+  /**
+   * Que eventos ya guardados se entregan (hito 44). Ausente: todos. Claude Code
+   * esconde los de una rama que la CLI abandono (§4.16): siguen guardados, por
+   * si la rama vuelve, y no salen ni en las paginas ni en lo nuevo de un `poll`.
+   */
+  isVisible?: (event: ConversationEvent) => boolean;
 }
 
 export class JsonlFollower implements EventLookup {
@@ -110,6 +116,7 @@ export class JsonlFollower implements EventLookup {
   /** Los primeros `fingerprintBytes` del archivo leido; null sin huella o si todavia no llego a ese tamano. */
   private fingerprint: Buffer | null = null;
   private readonly files: JsonlFileAccess;
+  private readonly isVisible: ((event: ConversationEvent) => boolean) | null;
 
   /**
    * `filePath` null: todavia no se sabe que archivo es (una CLI que pone el id
@@ -125,6 +132,7 @@ export class JsonlFollower implements EventLookup {
     this.maxEvents = options.maxEvents ?? MAX_EVENTS;
     this.fingerprintBytes = Math.max(0, Math.floor(options.fingerprintBytes ?? 0));
     this.files = options.files ?? DISK_FILES;
+    this.isVisible = options.isVisible ?? null;
   }
 
   get filePath(): string | null {
@@ -166,23 +174,30 @@ export class JsonlFollower implements EventLookup {
 
   /** Ultimos `limit` eventos, que es lo que se quiere ver al abrir el panel. */
   getTail(limit: number): EventPage {
-    const events = this.events.slice(-limit);
+    const visible = this.visibleEvents();
+    const events = visible.slice(-limit);
     return {
       events,
-      hasMore: this.events.length > events.length || this.dropped > 0,
+      hasMore: visible.length > events.length || this.dropped > 0,
     };
   }
 
   /** Tramo anterior a un evento ya entregado. Vacio si ese id ya no esta. */
   getPageBefore(beforeEventId: string, limit: number): EventPage {
-    const index = this.events.findIndex((event) => event.eventId === beforeEventId);
+    const visible = this.visibleEvents();
+    const index = visible.findIndex((event) => event.eventId === beforeEventId);
     if (index <= 0) return { events: [], hasMore: false };
 
     const start = Math.max(0, index - limit);
     return {
-      events: this.events.slice(start, index),
+      events: visible.slice(start, index),
       hasMore: start > 0 || this.dropped > 0,
     };
+  }
+
+  /** Los eventos que se entregan: todos, salvo los que `isVisible` deja afuera. */
+  private visibleEvents(): ConversationEvent[] {
+    return this.isVisible === null ? this.events : this.events.filter(this.isVisible);
   }
 
   /**
@@ -229,7 +244,7 @@ export class JsonlFollower implements EventLookup {
     }
 
     const added = await this.readFrom(this.path, size);
-    return { reset: didReset, added };
+    return { reset: didReset, added: this.isVisible === null ? added : added.filter(this.isVisible) };
   }
 
   private reset(): void {

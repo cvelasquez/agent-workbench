@@ -35,6 +35,7 @@ import { debugLog } from './debug.js';
 import { LaunchHookSlot } from './launch-hook-slot.js';
 import { OutputBuffer } from './output-buffer.js';
 import { PtySession, type LaunchSpec } from './pty-session.js';
+import { createPtyScreen, type PtyScreen } from './pty-screen.js';
 import type { ShellLocation } from './shell-locator.js';
 
 import { ActivityBook, wakeActionFor, type ActivityEntry } from './terminal-activity.js';
@@ -927,6 +928,28 @@ export class TerminalRegistry extends EventEmitter {
    * normal de una pestana restaurada. Quien llama decide que hacer —el socket
    * lo dice, el cliente ofrece abrir la CLI.
    */
+  /**
+   * La pantalla de la CLI de esa pestana, emulada, para leerla mientras se le
+   * escribe (hito 44: el menu de rewind, §4.16). Arranca con la salida reciente
+   * y sigue con la que llegue, al tamano actual de la pty. `dispose` la suelta.
+   * null sin proceso.
+   */
+  watchScreen(terminalId: TerminalId): PtyScreen | null {
+    const entry = this.terminals.get(terminalId);
+    if (entry === undefined || entry.session === null) return null;
+    const screen = createPtyScreen(entry.size.cols, entry.size.rows, entry.buffer.read());
+    const listener: OutputListener = (_terminalId, chunk) => screen.feed(chunk);
+    entry.listeners.add(listener);
+    return {
+      feed: (chunk) => screen.feed(chunk),
+      lines: () => screen.lines(),
+      dispose: () => {
+        entry.listeners.delete(listener);
+        screen.dispose();
+      },
+    };
+  }
+
   write(terminalId: TerminalId, data: string): boolean {
     const entry = this.terminals.get(terminalId);
     if (entry === undefined || entry.session === null) return false;

@@ -361,6 +361,16 @@ export interface SessionFollower {
    */
   readonly sourcePath?: string | null;
   /**
+   * Esconde desde ese mensaje del usuario en adelante, porque la CLI lo
+   * deshizo y todavia no escribio nada que lo diga (hito 44, §4.16): lo
+   * devolvio a su caja al detenerlo antes de que el agente hiciera algo, o se
+   * volvio a antes de el con su menu de rewind. true si cambio lo que se ve.
+   * Lo que la CLI escriba despues manda. Ausente: la CLI no deshace mensajes.
+   */
+  withdrawFrom?(eventId: string): boolean;
+  /** El mensaje desde el que se escondio, mientras la CLI no escriba otra cosa; null si no hay. */
+  withdrawnFrom?(): string | null;
+  /**
    * true si la conversacion tiene una llamada a herramienta sin resultado,
    * hecha por el proceso lanzado en `launchedAt` (epoch ms) o despues.
    *
@@ -540,6 +550,12 @@ export interface QuestionChannel {
 export interface QueuedSubmission {
   /** El texto tal como se pego, con las lineas de sus adjuntos. */
   text: string;
+  /**
+   * El texto del cuadro, sin las referencias a sus adjuntos (hito 44). Es lo
+   * que vuelve al cuadro cuando la CLI devuelve el mensaje entero. Ausente: el
+   * de `text`.
+   */
+  original?: string;
   /** Epoch ms de cuando termino de escribirse. */
   at: number;
 }
@@ -563,16 +579,83 @@ export interface QueuedSubmitSource {
    */
   readonly clearGapMs: number;
   /**
+   * Que devuelve la CLI, y con que aviso vuelve al cuadro: Pi, los mensajes que
+   * tenia en cola (`returned-by-cli`); Claude Code, el mensaje que se detuvo
+   * antes de que el agente hiciera nada (`stopped-early`, hito 44).
+   */
+  readonly returnReason: 'returned-by-cli' | 'stopped-early';
+  /**
    * Lee el historial de esa sesion en el acto. `settled`: el turno ya quedo
    * cerrado despues de `interruptedAt` (epoch ms), o sea que la CLI ya devolvio
-   * lo que tenia en cola. `undelivered`: los textos de `submissions` que no
-   * aparecen en la sesion. Nunca lanza.
+   * lo que iba a devolver. `undelivered`: los textos de `submissions` que la
+   * CLI devolvio a su editor. `withdrawn`: los mensajes que eso deshizo y el
+   * hilo tiene que esconder (Claude Code los escribe al mandarlos). `pending`:
+   * todavia no se puede decir que no hay nada, aunque hoy no haya nada que
+   * devolver (Claude Code escribe su historial en tandas, y la linea del
+   * mensaje puede no estar en disco todavia). Nunca lanza.
    */
   check(
     target: { cwd: string; sessionId: string },
     submissions: readonly QueuedSubmission[],
     interruptedAt: number,
-  ): Promise<{ settled: boolean; undelivered: readonly string[] }>;
+  ): Promise<{ settled: boolean; undelivered: readonly string[]; withdrawn?: readonly string[]; pending?: boolean }>;
+}
+
+// ---- Volver a antes de un mensaje (hito 44) ------------------------------------
+
+/** Lo que el socket le pide al menu de rewind de la CLI. */
+export interface RewindRequest {
+  /** La primera linea del mensaje, que es como lo muestra la CLI en su lista. */
+  firstLine: string;
+  /**
+   * Cuantos mensajes con esa misma primera linea hay desde el elegido hasta el
+   * final, contandolo a el: 1 es el ultimo. Asi, dos mensajes iguales no se
+   * confunden aunque la lista de la CLI tenga uno mas o uno menos que el hilo.
+   */
+  occurrence: number;
+  /** Tope de pasos por la lista. */
+  maxSteps: number;
+  /** true: deshacer tambien los cambios de archivos. */
+  restoreCode: boolean;
+}
+
+/** Como el menu habla con la pty de la pestana. */
+export interface RewindIo {
+  write(data: string): boolean;
+  /** Las lineas de la pantalla de la CLI, emulada, de arriba abajo. */
+  screen(): Promise<readonly string[]>;
+  wait(ms: number): Promise<void>;
+  now(): number;
+}
+
+/**
+ * Por que no se pudo. En todos los casos se cerro el menu sin elegir nada, o
+ * la terminal ya no estaba.
+ */
+export type RewindFailure = 'menu-not-open' | 'message-not-found' | 'option-missing' | 'not-confirmed' | 'gone';
+
+export type RewindOutcome =
+  | {
+      kind: 'done';
+      /** false si la CLI no ofrecio deshacer el codigo: no habia cambios. */
+      codeRestored: boolean;
+      /** true si el mensaje estaba en la caja de la CLI y se vacio. */
+      editorCleared: boolean;
+    }
+  | { kind: 'failed'; reason: RewindFailure };
+
+/**
+ * Hito 44. Presente en la CLI cuyo menu de rewind la app puede manejar: abrirlo,
+ * llegar al mensaje comprobando en pantalla que es ese, elegir la opcion por
+ * su texto y vaciar la caja donde la CLI deja el mensaje (§4.16).
+ */
+export interface RewindDriver {
+  run(io: RewindIo, request: RewindRequest): Promise<RewindOutcome>;
+  /**
+   * El texto entero de un mensaje del usuario, para el cuadro, cuando el hilo
+   * lo tiene recortado por el tope de transporte. null si no se encuentra.
+   */
+  fullText(target: { cwd: string; sessionId: string }, eventId: string): Promise<string | null>;
 }
 
 // ---- Envio desde el cuadro de escritura ---------------------------------------
@@ -732,6 +815,11 @@ export interface AgentAdapter {
    * (hito 43). Ver `QueuedSubmitSource`. Ausente: interrumpir es solo la tecla.
    */
   readonly queuedSubmits?: QueuedSubmitSource;
+  /**
+   * Presente si la app puede manejar el menu de rewind de la CLI (hito 44).
+   * Solo con la capacidad `rewind`. Ver `RewindDriver`.
+   */
+  readonly rewind?: RewindDriver;
   /**
    * Con que modelo y esfuerzo arranca una pestana de esa carpeta, segun la
    * configuracion de la CLI, o null si no se lee ninguna.

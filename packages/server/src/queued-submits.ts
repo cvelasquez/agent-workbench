@@ -50,11 +50,15 @@ export class QueuedSubmitBook {
   private readonly submissions = new Map<TerminalId, QueuedSubmission[]>();
   private readonly clearKeyAt = new Map<TerminalId, number>();
 
-  /** Un mensaje termino de escribirse en la pty, Enter incluido. */
-  note(terminalId: TerminalId, text: string, at: number): void {
+  /**
+   * Un mensaje termino de escribirse en la pty, Enter incluido. `original`: el
+   * texto del cuadro sin las referencias a adjuntos (hito 44), si difiere.
+   */
+  note(terminalId: TerminalId, text: string, at: number, original?: string): void {
     if (text.trim().length === 0) return;
     const kept = (this.submissions.get(terminalId) ?? []).filter((each) => at - each.at < SUBMISSION_MAX_AGE_MS);
-    this.submissions.set(terminalId, [...kept, { text, at }].slice(-SUBMISSIONS_KEPT));
+    const submission: QueuedSubmission = original === undefined || original === text ? { text, at } : { text, original, at };
+    this.submissions.set(terminalId, [...kept, submission].slice(-SUBMISSIONS_KEPT));
   }
 
   /** Se lleva lo anotado de esa pestana. */
@@ -104,6 +108,11 @@ export interface ReclaimDeps {
   writeClearKey: () => boolean;
   /** Devuelve el texto al cuadro de escritura. */
   prefill: (text: string) => void;
+  /**
+   * Esconde del hilo los mensajes que la CLI deshizo al devolverlos (hito 44).
+   * Ausente: no hay nada que esconder (Pi no los escribe hasta entregarlos).
+   */
+  withdraw?: (eventIds: readonly string[]) => void;
   wait: (ms: number) => Promise<void>;
   now: () => number;
   timeoutMs?: number;
@@ -131,13 +140,15 @@ export async function reclaimQueuedSubmits(deps: ReclaimDeps): Promise<ReclaimOu
   const pollMs = deps.pollMs ?? RECLAIM_POLL_MS;
   const deadline = deps.now() + timeoutMs;
   let undelivered: readonly string[] = [];
+  let withdrawn: readonly string[] = [];
   for (;;) {
     const target = deps.target();
     if (target === null) return 'gone';
     const result = await deps.source.check(target, submissions, deps.interruptedAt);
-    if (result.undelivered.length === 0) return 'nothing';
-    if (result.settled) {
+    if (result.undelivered.length === 0 && result.pending !== true) return 'nothing';
+    if (result.settled && result.undelivered.length > 0) {
       undelivered = result.undelivered;
+      withdrawn = result.withdrawn ?? [];
       break;
     }
     if (deps.now() >= deadline) return 'not-settled';
@@ -154,5 +165,6 @@ export async function reclaimQueuedSubmits(deps: ReclaimDeps): Promise<ReclaimOu
   if (!deps.writeClearKey()) return 'refused';
 
   deps.prefill(undelivered.join('\n\n'));
+  if (withdrawn.length > 0) deps.withdraw?.(withdrawn);
   return 'reclaimed';
 }

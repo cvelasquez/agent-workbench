@@ -35,6 +35,9 @@ import { claudeCodeEnvironment } from './environment.js';
 import { createClaudeCodeHistory } from './history.js';
 import { ModelVariantRegistry } from './model-variants.js';
 import { autoAnswerResumeDialog } from './resume-dialog.js';
+import { createClaudeCodeHandback } from './handback.js';
+import { sessionFilePath } from './paths.js';
+import { createClaudeCodeRewind } from './rewind-menu.js';
 
 /**
  * Lo que la interfaz dibuja para esta CLI. Todo medido contra la CLI de verdad
@@ -183,6 +186,18 @@ export function createClaudeCodeAdapter(): AgentAdapter {
 
     history: createClaudeCodeHistory(variants),
     status,
+
+    /*
+      Un mensaje detenido antes de que el agente hiciera nada: la CLI lo deshace
+      y lo devuelve a su caja, y la app lo trae al cuadro (hito 44, §4.16).
+    */
+    queuedSubmits: createClaudeCodeHandback({
+      sessionFile: sessionFilePath,
+      status: (sessionId) => watcher.read(sessionId),
+    }),
+
+    // Volver a antes de un mensaje con el menu de rewind de la CLI (hito 44, §4.16).
+    rewind: createClaudeCodeRewind(),
 
     defaults: (cwd, sessionModel) => readAgentDefaults(cwd, sessionModel ?? null),
 

@@ -1013,6 +1013,14 @@ export function queueReturnedText(label: string | null): string {
   return label === null ? t('agent.queueReturned.noLabel') : t('agent.queueReturned.withLabel', { label });
 }
 
+/**
+ * El aviso de un mensaje que se detuvo antes de que el agente hiciera nada: la
+ * CLI lo deshizo y volvio al cuadro (hito 44, §4.16).
+ */
+export function stoppedEarlyText(): string {
+  return t('agent.stoppedEarly');
+}
+
 /** Lo que agrega el aviso cuando la continuacion no se mando sola y quedo en el cuadro. */
 export function handoffPrefillText(reason: 'no-delivery' | 'not-ready' | 'send-failed'): string {
   switch (reason) {

@@ -94,6 +94,7 @@ import { Markdown } from './Markdown.js';
 import { toolCategory, toolRunSummary } from './tool-categories.js';
 import { imageKey, type ConversationFeed } from './useConversation.js';
 import type { FileLinks } from './useFileLinks.js';
+import { isPromptEvent } from './rewind-ui.js';
 
 /** Margen para decidir si el usuario estaba mirando el final. */
 const STICK_TO_BOTTOM_PX = 80;
@@ -299,11 +300,13 @@ interface ConversationViewProps {
    */
   terminalId: TerminalId | null;
   /**
-   * Manda `Esc Esc` a la pty para abrir el menu de rewind de la CLI. Sin el,
-   * los mensajes propios no ofrecen "volver aqui": la CLI de la pestana no
-   * tiene ese menu.
+   * Abre el dialogo de volver a antes de ese mensaje (hito 44). Sin el, los
+   * mensajes propios no ofrecen "volver aqui": la CLI de la pestana no tiene
+   * ese menu, o no esta abierta.
    */
-  onRewind?: () => void;
+  onRewind?: (eventId: string) => void;
+  /** true con el agente trabajando o esperando: "volver aqui" se ve apagado. */
+  rewindBlocked?: boolean;
   /**
    * false si la CLI de la pestana no deja contestar sus preguntas desde la
    * tarjeta. La pregunta se sigue leyendo; las opciones quedan apagadas y la
@@ -394,6 +397,7 @@ export function ConversationView({
   view,
   terminalId,
   onRewind,
+  rewindBlocked = false,
   questionsAnswerable,
   contextWindowSource,
   instructionsFile,
@@ -1045,6 +1049,7 @@ export function ConversationView({
                   onRequestImage={requestImage}
                   onCopy={() => copyCard(block.card)}
                   onRewind={onRewind}
+                  rewindBlocked={rewindBlocked}
                   register={registerCard}
                   answered={answered}
                   answerFailed={answerFailed}
@@ -1072,6 +1077,7 @@ export function ConversationView({
                     onRequestImage={requestImage}
                     onCopy={() => copyCard(card)}
                     onRewind={onRewind}
+                    rewindBlocked={rewindBlocked}
                     register={registerCard}
                     answered={answered}
                     answerFailed={answerFailed}
@@ -1375,7 +1381,8 @@ interface MessageBlockProps {
   onRequestImage: (eventId: string, index: number, source: ConversationImageSource) => void;
   onCopy: () => void;
   /** Sin el no hay "volver aqui". */
-  onRewind?: () => void;
+  onRewind?: (eventId: string) => void;
+  rewindBlocked?: boolean;
   register: (eventId: string, element: HTMLElement | null) => void;
   /** Respuestas mandadas desde aca y todavia sin confirmar por el archivo. */
   answered: Record<string, AnswerSelection[]>;
@@ -1396,6 +1403,7 @@ function MessageBlock({
   onRequestImage,
   onCopy,
   onRewind,
+  rewindBlocked = false,
   register,
   answered,
   answerFailed,
@@ -1434,11 +1442,12 @@ function MessageBlock({
         <button className="icon-button" onClick={onCopy} title={t('thread.copyMessage')}>
           {copied ? '✓' : '⧉'}
         </button>
-        {mine && onRewind !== undefined && (
+        {mine && onRewind !== undefined && isPromptEvent(event) && (
           <button
             className="icon-button"
-            onClick={onRewind}
-            title={t('thread.rewind')}
+            onClick={() => onRewind(event.eventId)}
+            disabled={rewindBlocked}
+            title={rewindBlocked ? t('thread.rewindBusy') : t('thread.rewind')}
           >
             ↩
           </button>

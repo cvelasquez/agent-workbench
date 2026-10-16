@@ -39,7 +39,7 @@ import {
   type TerminalOfflineReason,
   type TerminalId,
 } from '@agent-workbench/shared';
-import type { AgentAdapter, AgentInput, PartsUpdate } from './agents/adapter.js';
+import type { AgentAdapter, AgentInput, PartsUpdate, RewindOutcome } from './agents/adapter.js';
 import type { AgentRegistry } from './agents/registry.js';
 import type { ArchivedSessions } from './archived-sessions.js';
 import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
@@ -98,6 +98,12 @@ import { authorizeRequest, type Credential } from './security.js';
  * quede mirando un boton que no dice nada.
  */
 const NOTE_SEND_TIMEOUT_MS = 15_000;
+
+/**
+ * Pasos de mas por la lista del menu de rewind, sobre los mensajes que ve el
+ * hilo: la CLI puede listar alguno que el hilo no muestra (hito 44).
+ */
+const REWIND_EXTRA_STEPS = 30;
 
 /** Lo que se anuncia cuando no hay configuracion que leer. */
 const NO_DEFAULTS: AgentDefaults = { model: null, effort: null, contextWindow: null };
@@ -1038,6 +1044,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                   terminalId,
                   submissionPayload(fullText, imagePaths, input.imageReference) ?? fullText,
                   Date.now(),
+                  fullText,
                 );
               }
               if (outcome === 'interrupted') interrupted();
@@ -1317,8 +1324,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                         type: 'composer.prefill',
                         terminalId: reclaimId,
                         text: returned,
-                        reason: 'returned-by-cli',
+                        reason: reclaimFrom.returnReason,
                       }),
+                    // La CLI deshizo el mensaje sin escribirlo (hito 44): el hilo lo esconde desde el primero.
+                    withdraw: (eventIds) => {
+                      const first = eventIds[0];
+                      if (first !== undefined) conversations.withdraw(reclaimId, first);
+                    },
                     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
                     now: Date.now,
                   });
@@ -1346,6 +1358,100 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               { interruptible: false },
             );
           }
+          break;
+        }
+
+        /*
+          Volver a antes de un mensaje (hito 44, §4.16): la app maneja el menu de
+          rewind de la CLI mirando su pantalla en cada paso, y el mensaje vuelve
+          al cuadro. Por la fila de la pestana y sin dejarse cortar: un envio que
+          llegara en el medio caeria como teclas sobre el menu.
+        */
+        case 'agent.rewind': {
+          const { terminalId, eventId, requestId } = message;
+          const adapter = adapterOf(terminalId);
+          const driver = adapter !== null && adapter.capabilities.rewind ? (adapter.rewind ?? null) : null;
+          if (driver === null) {
+            sendError(socket, 'agent-unsupported', serverText('rewindUnsupported'), undefined, requestId);
+            break;
+          }
+          const tab = registry.get(terminalId);
+          if (tab === null || !tab.alive) {
+            sendError(socket, 'rewind-failed', serverText('rewindNoCli'), undefined, requestId);
+            break;
+          }
+          // Con la CLI trabajando o esperando, `Esc Esc` interrumpe en vez de abrir el menu.
+          if (registry.activityOf(terminalId) !== 'idle') {
+            sendError(socket, 'rewind-failed', serverText('rewindBusy'), undefined, requestId);
+            break;
+          }
+          const target = conversations.rewindTarget(terminalId, eventId);
+          if (target === null) {
+            sendError(socket, 'rewind-failed', serverText('rewindUnknownMessage'), undefined, requestId);
+            break;
+          }
+          const restoreCode = message.restore === 'conversation-and-code';
+          const session = { cwd: tab.cwd, sessionId: tab.sessionId };
+          void writeQueue.enqueue(
+            terminalId,
+            async () => {
+              const screen = registry.watchScreen(terminalId);
+              if (screen === null) {
+                sendError(socket, 'rewind-failed', serverText('rewindNoCli'), undefined, requestId);
+                return;
+              }
+              // Las ultimas pantallas distintas que se leyeron: con la traza, es lo que explica un fallo.
+              const seen: string[] = [];
+              let outcome: RewindOutcome;
+              try {
+                outcome = await driver.run(
+                  {
+                    write: (data) => registry.write(terminalId, data),
+                    screen: async () => {
+                      const lines = await screen.lines();
+                      const text = lines.join('\n');
+                      if (seen.at(-1) !== text) seen.push(text);
+                      if (seen.length > 4) seen.shift();
+                      return lines;
+                    },
+                    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                    now: Date.now,
+                  },
+                  {
+                    firstLine: target.firstLine,
+                    occurrence: Math.max(1, target.occurrence),
+                    maxSteps: target.promptsFromHere + REWIND_EXTRA_STEPS,
+                    restoreCode,
+                  },
+                );
+              } catch (error) {
+                console.warn(`[rewind] ${terminalId.slice(0, 8)}:`, error);
+                outcome = { kind: 'failed', reason: 'gone' };
+              } finally {
+                screen.dispose();
+              }
+              debugLog('write', `rewind of ${terminalId.slice(0, 8)}: ${JSON.stringify(outcome)}`);
+              if (outcome.kind === 'failed') debugLog('rewind', `last screens:\n${seen.join('\n-----\n')}`);
+              if (outcome.kind === 'failed') {
+                sendError(
+                  socket,
+                  'rewind-failed',
+                  outcome.reason === 'gone' ? serverText('rewindNoCli') : serverText('rewindFailed'),
+                  outcome.reason,
+                  requestId,
+                );
+                return;
+              }
+              // El hilo lo tiene recortado si era largo: el cuadro lo recibe entero.
+              const text = target.truncated ? ((await driver.fullText(session, eventId)) ?? target.text) : target.text;
+              if (text.trim().length > 0) {
+                send(socket, { type: 'composer.prefill', terminalId, text, reason: 'rewound' });
+              }
+              conversations.withdraw(terminalId, eventId);
+              send(socket, { type: 'agent.rewound', terminalId, requestId, codeRestored: outcome.codeRestored });
+            },
+            { interruptible: false },
+          );
           break;
         }
 

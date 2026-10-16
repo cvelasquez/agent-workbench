@@ -205,6 +205,7 @@ export function createPiAdapter(options: PiAdapterOptions = {}): AgentAdapter {
 
     queuedSubmits: {
       clearGapMs: PI_CLEAR_GAP_MS,
+      returnReason: 'returned-by-cli',
       check: (target, submissions, interruptedAt) => live.check(target.sessionId, submissions, interruptedAt),
     },
 

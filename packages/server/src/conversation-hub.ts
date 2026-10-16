@@ -45,6 +45,7 @@ import type {
 } from './agents/adapter.js';
 import type { AgentRegistry } from './agents/registry.js';
 import { debugLog } from './debug.js';
+import { rewindTargetFrom, type RewindTarget } from './rewind-target.js';
 import type { TerminalRegistry } from './terminal-registry.js';
 
 /** Cuantos eventos manda el primer envio. El resto se pide con loadMore. */
@@ -74,6 +75,14 @@ const POLL_DEBOUNCE_MS = 150;
  * archivo: una sesion "sin titulo" si el mensaje llego despues, y la fecha vieja.
  */
 const GROWTH_REFRESH_MS = 3_000;
+
+/**
+ * Cuanto se espera a que el seguidor lea el mensaje que hay que esconder
+ * (hito 44). La app se entera de que la CLI lo deshizo leyendo el archivo por
+ * su cuenta, y el seguidor lo lee con el aviso siguiente del watcher: puede
+ * llegar un poco despues (medido en la prueba en vivo).
+ */
+const WITHDRAWAL_PENDING_MS = 15_000;
 
 export interface ConversationSnapshot {
   sessionId: SessionId;
@@ -258,6 +267,26 @@ export declare interface ConversationHub {
 export class ConversationHub extends EventEmitter {
   private readonly entries = new Map<TerminalId, Entry>();
 
+  /**
+   * El mensaje que la CLI deshizo sin escribirlo todavia, por pestana (hito 44,
+   * §4.16): desde ahi el hilo se esconde. Vive aca y no en el seguidor porque
+   * tiene que sobrevivir a que nadie mire la conversacion: un seguidor nuevo
+   * relee el archivo, donde lo deshecho sigue igual, y se lo vuelve a esconder.
+   * Se olvida cuando la CLI escribe otra cosa (el seguidor lo suelta), al
+   * cambiar de sesion o al cerrar la pestana.
+   */
+  private readonly withdrawals = new Map<
+    TerminalId,
+    {
+      sessionId: SessionId;
+      eventId: string;
+      /** true cuando un seguidor ya lo escondio: si despues no puede, es que la CLI escribio otra cosa. */
+      applied: boolean;
+      /** Hasta cuando se espera a que el seguidor lea el mensaje, sin haberlo escondido nunca. */
+      until: number;
+    }
+  >();
+
   constructor(
     private readonly registry: TerminalRegistry,
     /**
@@ -358,6 +387,7 @@ export class ConversationHub extends EventEmitter {
     // Primera lectura completa del archivo, si ya existe.
     entry.primed = true;
     await this.runPoll(terminalId, entry, { silent: true });
+    this.applyWithdrawal(terminalId, entry);
 
     const tail = entry.follower.getTail(INITIAL_EVENT_LIMIT);
     const plans = entry.adapter.history.plans;
@@ -685,9 +715,66 @@ export class ConversationHub extends EventEmitter {
 
   /** La pestana se cerro: se suelta sin importar cuantos la miraban. */
   drop(terminalId: TerminalId): void {
+    this.withdrawals.delete(terminalId);
     const entry = this.entries.get(terminalId);
     if (entry === undefined) return;
     this.release(terminalId, entry);
+  }
+
+  /**
+   * Esconde del hilo desde ese mensaje: la CLI lo deshizo y todavia no escribio
+   * nada que lo diga (hito 44, §4.16). Quien mira recibe un `reset`. Se anota
+   * aunque nadie mire: se aplica al suscribirse. false si la pestana no esta.
+   */
+  withdraw(terminalId: TerminalId, eventId: string): boolean {
+    const descriptor = this.registry.get(terminalId);
+    if (descriptor === null) return false;
+    this.withdrawals.set(terminalId, {
+      sessionId: descriptor.sessionId,
+      eventId,
+      applied: false,
+      until: Date.now() + WITHDRAWAL_PENDING_MS,
+    });
+    const entry = this.entries.get(terminalId);
+    if (entry === undefined) return true;
+    // Si el seguidor todavia no leyo el mensaje, se lee ya: queda pendiente y se aplica despues de leer.
+    if (!this.applyWithdrawal(terminalId, entry, true)) this.schedulePoll(terminalId, entry);
+    return true;
+  }
+
+  /**
+   * Esconde lo anotado en un seguidor (recien creado, o el de siempre). true si
+   * quedo escondido. Si nunca se pudo, se sigue esperando a que el seguidor lea
+   * el mensaje, con un tope; si ya se habia podido y ahora no, la CLI escribio
+   * otra cosa (otra rama, u otra sesion) y se olvida.
+   */
+  private applyWithdrawal(terminalId: TerminalId, entry: Entry, announce = false): boolean {
+    const withdrawal = this.withdrawals.get(terminalId);
+    if (withdrawal === undefined) return false;
+    if (withdrawal.sessionId !== entry.sessionId || entry.follower.withdrawFrom === undefined) {
+      this.withdrawals.delete(terminalId);
+      return false;
+    }
+    const changed = entry.follower.withdrawFrom(withdrawal.eventId);
+    if (entry.follower.withdrawnFrom?.() === withdrawal.eventId) {
+      withdrawal.applied = true;
+      if (changed && announce) this.emit('reset', terminalId);
+      return true;
+    }
+    if (withdrawal.applied || Date.now() > withdrawal.until) this.withdrawals.delete(terminalId);
+    return false;
+  }
+
+  /**
+   * Lo que el menu de rewind necesita del mensaje `eventId` (hito 44): su
+   * texto, su primera linea y cuantos iguales hay despues. Sale de lo que se
+   * ve, que es lo que la CLI lista. null si nadie mira la conversacion o el
+   * mensaje no es uno que escribio el usuario.
+   */
+  rewindTarget(terminalId: TerminalId, eventId: string): RewindTarget | null {
+    const entry = this.entries.get(terminalId);
+    if (entry === undefined) return null;
+    return rewindTargetFrom(entry.follower.getTail(Number.MAX_SAFE_INTEGER).events, eventId);
   }
 
   getPage(
@@ -914,6 +1001,7 @@ export class ConversationHub extends EventEmitter {
       if (this.entries.get(terminalId) !== entry) return;
 
       let result;
+      const withdrawnBefore = entry.follower.withdrawnFrom?.() ?? null;
       try {
         // Lo que la CLI tenga que rehacer antes de que se emita —con Claude
         // Code, releer la configuracion tras un `/model`— pasa adentro del
@@ -923,6 +1011,11 @@ export class ConversationHub extends EventEmitter {
         // Un archivo ilegible no puede tumbar el seguimiento del resto.
         console.warn(`[conversation] couldn't read ${entry.follower.label}:`, error);
         return;
+      }
+
+      // La CLI escribio despues de deshacer: lo que escondio la app ya lo dice el archivo.
+      if (withdrawnBefore !== null && entry.follower.withdrawnFrom?.() !== withdrawnBefore) {
+        if (this.withdrawals.get(terminalId)?.eventId === withdrawnBefore) this.withdrawals.delete(terminalId);
       }
 
       /*
@@ -936,6 +1029,16 @@ export class ConversationHub extends EventEmitter {
       if (options.silent) return;
 
       if (result.reset || result.added.length > 0) this.noteGrowth(terminalId, entry);
+
+      /*
+        Un mensaje que habia que esconder y el seguidor recien leyo (hito 44):
+        lo que llego en esta lectura ya no se manda suelto, va el hilo entero.
+      */
+      const pending = this.withdrawals.get(terminalId);
+      if (pending !== undefined && !pending.applied && this.applyWithdrawal(terminalId, entry)) {
+        this.emit('reset', terminalId);
+        return;
+      }
 
       /*
         El modo primero, porque el `append` lo lleva adentro y tiene que ir el

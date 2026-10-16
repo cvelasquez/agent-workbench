@@ -13,6 +13,7 @@ import {
   effortInUse,
   instructionsFileFor,
   queueReturnedText,
+  stoppedEarlyText,
   savesModelChoiceFor,
   openToolCallNotice,
   pendingApprovalNotice,
@@ -88,6 +89,9 @@ import { SectionHideButton } from './SectionHideButton.js';
 import { usePanelVisibility, type HideablePanel } from './panel-visibility.js';
 import { useAppSettings } from './useAppSettings.js';
 import { VaultDialog } from './VaultDialog.js';
+import { RewindDialog } from './RewindDialog.js';
+import { changedFilesAfter, rewindPreview } from './rewind-ui.js';
+import { useRewind } from './useRewind.js';
 import type { ConnectionStatus } from './connection.js';
 import { blindToApprovals, type GlobalSearchHit, type TerminalId } from '@agent-workbench/shared';
 
@@ -739,11 +743,15 @@ export function App(): JSX.Element {
     entregarlo (hito 43). El de una continuacion gana: es de una pestana recien
     abierta, donde esto no puede haber pasado todavia.
   */
+  const returnedReason = activeTerminalId === null ? undefined : returnedMessages.get(activeTerminalId);
   const composerNotice =
     handoffNotice ??
-    (activeTerminalId !== null && returnedMessages.has(activeTerminalId)
-      ? { text: queueReturnedText(activeAgentInfo?.label ?? null), status: null }
-      : null);
+    (returnedReason === undefined
+      ? null
+      : {
+          text: returnedReason === 'stopped-early' ? stoppedEarlyText() : queueReturnedText(activeAgentInfo?.label ?? null),
+          status: null,
+        });
   const dismissComposerNotice = useCallback(
     (terminalId: TerminalId) => {
       dismissHandoff(terminalId);
@@ -805,15 +813,17 @@ export function App(): JSX.Element {
   }, []);
 
   /**
-   * "Volver aqui": manda `Esc Esc` a la pty.
-   *
-   * Eso abre el menu de rewind de la CLI, que ademas revierte los archivos. No
-   * se reimplementa nada: el panel solo da el punto de referencia visual.
+   * "Volver aqui" (hito 44, §4.16): abre el dialogo. Al confirmar, el servidor
+   * maneja el menu de rewind de la CLI y el mensaje vuelve al cuadro.
    */
-  const rewind = useCallback(() => {
-    if (activeTerminalId === null) return;
-    connection.send({ type: 'input', terminalId: activeTerminalId, data: '\x1b\x1b' });
-  }, [connection, activeTerminalId]);
+  const rewindFlow = useRewind(connection);
+  const { open: openRewind } = rewindFlow;
+  const rewind = useCallback(
+    (eventId: string) => {
+      if (activeTerminalId !== null) openRewind(activeTerminalId, eventId);
+    },
+    [openRewind, activeTerminalId],
+  );
 
   /**
    * Escribe texto en la terminal **sin enviarlo**.
@@ -1316,6 +1326,7 @@ export function App(): JSX.Element {
             llega a una pestana sin proceso, no se ofrecen.
           */
           onRewind={activeControls.rewind && activeTerminal?.alive === true ? rewind : undefined}
+          rewindBlocked={activeActivity !== 'idle'}
           questionsAnswerable={activeControls.questionsAnswerable}
           contextWindowSource={activeControls.contextWindowSource}
           instructionsFile={instructionsFileFor(activeAgent)}
@@ -1677,8 +1688,19 @@ export function App(): JSX.Element {
     </>
   );
 
+  const rewindState = rewindFlow.state;
   const dialogs = (
     <>
+      {rewindState !== null && (
+        <RewindDialog
+          preview={rewindPreview(conversation.events.find((event) => event.eventId === rewindState.eventId))}
+          files={changedFilesAfter(conversation.events, rewindState.eventId, activeTerminal?.cwd ?? '')}
+          running={rewindState.phase === 'running'}
+          error={rewindState.error}
+          onConfirm={rewindFlow.confirm}
+          onClose={rewindFlow.close}
+        />
+      )}
       {/*
         Se dibuja con la status line de la pestana activa, la de ahora: al
         pegar el fragmento y comprobar, el estado de arriba cambia en el sitio.

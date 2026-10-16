@@ -4395,6 +4395,60 @@ kbd {
 }
 
 /*
+  Volver a antes de un mensaje (hito 44, §4.16): el mensaje citado, los
+  archivos que se deshacen y una fila de botones como la de la status line.
+*/
+.rewind-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.rewind-quote {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  max-height: 160px;
+  overflow-y: auto;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rewind-files {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.rewind-error {
+  margin: 10px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rewind-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.rewind-actions .primary-button {
+  margin-top: 0;
+}
+
+.rewind-actions .primary-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/*
   Dialogo del acceso remoto (hito 37). Reusa el estado, el fragmento para copiar
   y las filas de botones de los otros dos dialogos; lo propio es el puerto y la
   lista de equipos.

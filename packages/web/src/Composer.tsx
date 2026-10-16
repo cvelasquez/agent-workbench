@@ -42,6 +42,7 @@ import { draftTooLong, viewToRestore, type ComposerDrafts, type DraftView } from
 import { formatBytes } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
+import { continueList, type ListEdit } from './list-continuation.js';
 import { enterSubmits } from './narrow-layout.js';
 import type { ThreadFontSize } from './thread-font.js';
 import { newSubmitRequestId } from './thread-status.js';
@@ -461,6 +462,29 @@ export function Composer({
     connection.send({ type: 'agent.interrupt', terminalId });
   }, [connection, terminalId]);
 
+  /*
+    El cambio de una lista que sigue sola (hito 44), escrito como algo tecleado:
+    Ctrl+Z lo saca, y `onChange` avisa como siempre. Si el navegador no lo
+    acepta, `setRangeText`, sin deshacer, como el texto pegado de abajo.
+  */
+  const applyListEdit = useCallback((element: HTMLTextAreaElement, change: ListEdit) => {
+    element.setSelectionRange(change.from, change.to);
+    let done = false;
+    try {
+      done =
+        change.text.length > 0
+          ? document.execCommand('insertText', false, change.text)
+          : document.execCommand('delete');
+    } catch {
+      done = false;
+    }
+    if (!done) {
+      element.setRangeText(change.text, change.from, change.to, 'end');
+      setText(element.value);
+    }
+    element.setSelectionRange(change.caret, change.caret);
+  }, []);
+
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       // En una pantalla tactil, Enter salta de linea: se manda con el boton (§6.25).
@@ -469,12 +493,26 @@ export function Composer({
         submit();
         return;
       }
+      /*
+        Un salto de linea dentro de una lista la sigue (hito 44): `2. ` despues
+        de `1. `, y en un item vacio, el fin de la lista. Con el IME a mitad de
+        una palabra, Enter confirma la palabra y no se toca.
+      */
+      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+        const element = event.currentTarget;
+        const change = continueList(element.value, element.selectionStart, element.selectionEnd);
+        if (change !== null) {
+          event.preventDefault();
+          applyListEdit(element, change);
+          return;
+        }
+      }
       if (event.key === 'Escape') {
         event.preventDefault();
         interrupt();
       }
     },
-    [submit, interrupt, touch],
+    [submit, interrupt, touch, applyListEdit],
   );
 
   /*
