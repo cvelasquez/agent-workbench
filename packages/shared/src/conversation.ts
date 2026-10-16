@@ -366,6 +366,41 @@ export const MAX_SUBAGENT_DESCRIPTION = 120;
 export const MAX_REPORTED_SUBAGENTS = 20;
 
 /**
+ * Un mensaje del usuario que espera en la cola de la CLI (hito 45, §6.35).
+ *
+ * No es parte de la conversacion: la CLI todavia no se lo dio al agente. El
+ * hilo lo dibuja al final, como una burbuja propia atenuada, hasta que la CLI
+ * lo entrega y aparece donde el agente lo leyo. Viaja la cola entera cada vez
+ * que cambia (`conversation.queue`, o dentro del `conversation.append` que la
+ * cambio, para que la burbuja y el mensaje no se crucen).
+ */
+export interface QueuedPrompt {
+  /** Estable mientras espera. */
+  id: string;
+  /** El texto, sin envoltorios y recortado a `MAX_QUEUED_PROMPT_CHARS`. */
+  text: string;
+  truncated: boolean;
+  /** Cuantas imagenes lleva: la burbuja no tiene de donde pedir los bytes. */
+  images: number;
+  /** Epoch ms de cuando se mando, o 0 si no se sabe. */
+  at: number;
+  /**
+   * El evento del hilo que ya es este mensaje, si la CLI lo escribe al
+   * encolarlo (OpenCode): el hilo lo esconde mientras espera. Ausente: todavia
+   * no esta en el hilo.
+   */
+  eventId?: string;
+  /** true si se forzo su envio y la CLI ya se lo paso al agente. */
+  forced?: boolean;
+}
+
+/** Cuantos mensajes en cola viajan como mucho. */
+export const MAX_QUEUED_PROMPTS = 20;
+
+/** Tope del texto de un mensaje en cola: la burbuja lo pliega igual que un mensaje propio. */
+export const MAX_QUEUED_PROMPT_CHARS = 4_000;
+
+/**
  * Medidor de contexto.
  *
  * Tokens, nunca dinero: los precios cambian y una cifra desactualizada es peor
@@ -667,6 +702,30 @@ export function parseConversationSubagent(value: unknown): ConversationSubagent 
     background: record['background'] === true,
     startedAt,
   };
+}
+
+/** Un mensaje en cola, o null si no se entiende. Los topes se aplican aca tambien. */
+export function parseQueuedPrompt(value: unknown): QueuedPrompt | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+
+  const id = asNonEmptyString(record['id']);
+  const text = asString(record['text']);
+  const images = asFiniteNumber(record['images']);
+  const at = asFiniteNumber(record['at']);
+  if (id === null || text === null || images === null || at === null) return null;
+
+  const prompt: QueuedPrompt = {
+    id,
+    text: text.slice(0, MAX_QUEUED_PROMPT_CHARS),
+    truncated: record['truncated'] === true || text.length > MAX_QUEUED_PROMPT_CHARS,
+    images: Math.max(0, Math.floor(images)),
+    at,
+  };
+  const eventId = asNonEmptyString(record['eventId']);
+  if (eventId !== null) prompt.eventId = eventId;
+  if (record['forced'] === true) prompt.forced = true;
+  return prompt;
 }
 
 export function parseContextUsage(value: unknown): ContextUsage | null {

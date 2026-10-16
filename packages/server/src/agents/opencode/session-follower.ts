@@ -29,12 +29,15 @@
 
 import {
   EMPTY_CONTEXT_USAGE,
+  MAX_QUEUED_PROMPT_CHARS,
+  MAX_QUEUED_PROMPTS,
   MAX_SUBMIT_IMAGE_BYTES,
   type ContextUsage,
   type ConversationEvent,
   type ConversationImageSource,
   type ConversationState,
   type PermissionMode,
+  type QueuedPrompt,
 } from '@agent-workbench/shared';
 import { debugLog } from '../../debug.js';
 import type { EventPage, LoadedImage, PartsUpdate, PollResult, SessionFollower, TurnUpdate } from '../adapter.js';
@@ -423,6 +426,67 @@ export class OpenCodeSessionFollower implements SessionFollower {
     }
     return false;
   }
+
+  /**
+   * Los mensajes del usuario que esperan en la cola de OpenCode (hito 45,
+   * §11.13).
+   *
+   * OpenCode escribe el mensaje en la base en el acto, aunque el agente este
+   * contestando otro: medido con la 1.19.1, el hilo lo mostraba a los 0,9 s
+   * como uno mas, y la respuesta que se seguia escribiendo aparecia despues
+   * encima de el. Su TUI lo marca "QUEUED" con una regla que se lee en el
+   * binario: va despues de la respuesta que se esta escribiendo, la ultima sin
+   * `time.completed` detras de la ultima completa. Es la misma, mas el corte
+   * del proceso: una respuesta que quedo a medias con un proceso anterior no se
+   * va a terminar nunca.
+   *
+   * Detenida, la respuesta se cierra (con `MessageAbortedError`) y el mensaje
+   * sale de la cola sin contestar: OpenCode no lo atiende despues (medido), y
+   * el hilo lo muestra donde esta. El mensaje ya es un evento: va con su
+   * `eventId` y la web lo esconde de su lugar mientras espera.
+   */
+  queuedPrompts(launchedAt: number): QueuedPrompt[] {
+    const messages = this.visibleMessages;
+    const lastCompleted = findLastIndex(messages, (message) => message.role === 'assistant' && message.completed_at !== null);
+    const pending = findLastIndex(
+      messages,
+      (message, index) => index > lastCompleted && message.role === 'assistant' && message.completed_at === null,
+    );
+    const running = messages[pending];
+    if (running === undefined || running.time_created < launchedAt) return [];
+
+    const queued: QueuedPrompt[] = [];
+    for (const message of messages.slice(pending + 1)) {
+      if (message.role !== 'user') continue;
+      const event = this.delivered.find((each) => each.eventId === message.id);
+      if (event === undefined) continue;
+      const text = event.parts
+        .flatMap((part) => (part.kind === 'text' ? [part.text] : []))
+        .join('\n')
+        .trim();
+      const images = event.parts.filter((part) => part.kind === 'image').length;
+      if (text.length === 0 && images === 0) continue;
+      queued.push({
+        id: message.id,
+        eventId: message.id,
+        text: text.slice(0, MAX_QUEUED_PROMPT_CHARS),
+        truncated: text.length > MAX_QUEUED_PROMPT_CHARS,
+        images,
+        at: event.at,
+      });
+      if (queued.length >= MAX_QUEUED_PROMPTS) break;
+    }
+    return queued;
+  }
+}
+
+/** El indice del ultimo que cumple, o -1. */
+function findLastIndex<T>(items: readonly T[], test: (item: T, index: number) => boolean): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item !== undefined && test(item, index)) return index;
+  }
+  return -1;
 }
 
 function addPart(target: Map<string, Map<string, PartRow>>, part: PartRow): void {

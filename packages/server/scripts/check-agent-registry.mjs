@@ -150,6 +150,13 @@ check('29 waitingBlocksSubmit que no es true cae a false; true se lee',
   parseAgentCapabilities({ waitingBlocksSubmit: 'true' }).waitingBlocksSubmit === false &&
   parseAgentCapabilities({ waitingBlocksSubmit: 1 }).waitingBlocksSubmit === false &&
   parseAgentCapabilities({ waitingBlocksSubmit: true }).waitingBlocksSubmit === true);
+// Hito 45: un servidor anterior no la manda, y sin ella no hay boton de forzar el envio.
+check('45 forceSend ausente es false, y NO_CAPABILITIES la declara en false',
+  parseAgentCapabilities({ statusSource: true }).forceSend === false && NO_CAPABILITIES.forceSend === false);
+check('45 forceSend que no es true cae a false; true se lee',
+  parseAgentCapabilities({ forceSend: 'true' }).forceSend === false &&
+  parseAgentCapabilities({ forceSend: 1 }).forceSend === false &&
+  parseAgentCapabilities({ forceSend: true }).forceSend === true);
 {
   const models = [
     { value: 'default', label: 'Por defecto', family: '', long: false, window: null },
@@ -638,6 +645,7 @@ const adapter = createClaudeCodeAdapter();
     contextWindowSource: 'usage-with-variants',
     plans: true,
     waitingBlocksSubmit: false,
+    forceSend: true,
   };
   check('capacidades de claude-code iguales al literal', sameShape(adapter.capabilities, expected), JSON.stringify(adapter.capabilities));
   check('el ciclo declarado es el que usa el servidor', sameShape([...adapter.capabilities.permissionCycle.modes], [...PERMISSION_MODE_CYCLE]));
@@ -739,6 +747,27 @@ const adapter = createClaudeCodeAdapter();
   const blocking = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.waitingBlocksSubmit !== false);
   check('29 waitingBlocksSubmit: true solo para opencode y pi, false para las demas CLIs registradas',
     sameShape(blocking, ['opencode', 'pi']) && appRegistry.adapter('opencode').capabilities.waitingBlocksSubmit === true, blocking.join(','));
+  /*
+    Hito 45: forzar el envio, solo donde se midio una forma. La capacidad y la
+    forma del adaptador dicen lo mismo, y la fuente de la cola es la medida.
+  */
+  const forcing = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.forceSend);
+  check('45 forceSend: true para claude-code, antigravity y pi; false para codex y opencode',
+    sameShape(forcing, ['claude-code', 'antigravity', 'pi']), forcing.join(','));
+  check('45 la capacidad y la forma del adaptador coinciden',
+    AGENT_IDS.every((id) => {
+      const registered = appRegistry.adapter(id);
+      return registered.capabilities.forceSend === ((registered.promptQueue?.forceSend ?? null) !== null);
+    }));
+  const queues = Object.fromEntries(AGENT_IDS.map((id) => [id, appRegistry.adapter(id).promptQueue ?? null]));
+  check('45 de donde sale la cola: el historial en claude-code y opencode, la app en pi y antigravity, ninguna en codex',
+    sameShape(queues, {
+      'claude-code': { source: 'session', forceSend: 'ctrl-x-ctrl-s' },
+      codex: null,
+      opencode: { source: 'session', forceSend: null },
+      antigravity: { source: 'app', forceSend: 'alt-m' },
+      pi: { source: 'app', forceSend: 'interrupt-and-resend' },
+    }), JSON.stringify(queues));
   appRegistry.disposeAll();
 }
 
@@ -954,7 +983,7 @@ const adapter = createClaudeCodeAdapter();
     controls.efforts !== null && JSON.stringify(controls.efforts) === JSON.stringify(EFFORT_OPTIONS));
   check('claude-code: imagenes, volver aqui, preguntas, @ruta, planes y nota, todo encendido',
     controls.imagesAllowed && controls.rewind && controls.questionsAnswerable && controls.fileMentions &&
-    controls.plansAvailable && controls.noteSendable, JSON.stringify(controls));
+    controls.plansAvailable && controls.noteSendable && controls.forceSend, JSON.stringify(controls));
   check('claude-code: el medidor mide con variantes', controls.contextWindowSource === 'usage-with-variants');
 
   // --- Sin capacidades, todo apagado ---
@@ -963,13 +992,13 @@ const adapter = createClaudeCodeAdapter();
     none.modeCycle === null && none.models === null && none.efforts === null, JSON.stringify(none));
   check('sin capacidades: sin imagenes, volver aqui, preguntas, @ruta, planes, nota ni medidor',
     !none.imagesAllowed && !none.rewind && !none.questionsAnswerable && !none.fileMentions &&
-    !none.plansAvailable && !none.noteSendable && none.contextWindowSource === null, JSON.stringify(none));
+    !none.plansAvailable && !none.noteSendable && !none.forceSend && none.contextWindowSource === null, JSON.stringify(none));
 
   // --- Cada capacidad apaga su control y ninguno mas ---
   const controlOf = {
     permissionCycle: 'modeCycle', models: 'models', efforts: 'efforts', imagesByPath: 'imagesAllowed',
     rewind: 'rewind', questionCards: 'questionsAnswerable', fileMentions: 'fileMentions', plans: 'plansAvailable',
-    contextWindowSource: 'contextWindowSource', readySignal: 'noteSendable',
+    contextWindowSource: 'contextWindowSource', readySignal: 'noteSendable', forceSend: 'forceSend',
   };
   for (const [capability, control] of Object.entries(controlOf)) {
     const without = ui.controlsFor({ ...claude.capabilities, [capability]: NO_CAPABILITIES[capability] });

@@ -106,8 +106,11 @@ export interface ReclaimDeps {
   lastClearKeyAt: () => number | null;
   /** Escribe la tecla que vacia el editor. false si la terminal no la acepto. */
   writeClearKey: () => boolean;
-  /** Devuelve el texto al cuadro de escritura. */
-  prefill: (text: string) => void;
+  /**
+   * Devuelve el texto al cuadro de escritura. O, al forzar el envio (hito 45,
+   * §16.18), se lo manda de nuevo a la CLI: por eso puede ser asincrono.
+   */
+  prefill: (text: string) => void | Promise<void>;
   /**
    * Esconde del hilo los mensajes que la CLI deshizo al devolverlos (hito 44).
    * Ausente: no hay nada que esconder (Pi no los escribe hasta entregarlos).
@@ -164,7 +167,7 @@ export async function reclaimQueuedSubmits(deps: ReclaimDeps): Promise<ReclaimOu
   if (deps.target() === null) return 'gone';
   if (!deps.writeClearKey()) return 'refused';
 
-  deps.prefill(undelivered.join('\n\n'));
+  await deps.prefill(undelivered.join('\n\n'));
   if (withdrawn.length > 0) deps.withdraw?.(withdrawn);
   return 'reclaimed';
 }

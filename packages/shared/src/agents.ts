@@ -248,6 +248,13 @@ export interface AgentCapabilities {
    * quedaria ninguno. Hoy ninguna CLI lo declara.
    */
   waitingBlocksSubmit: boolean;
+  /**
+   * "Forzar envio ahora" en los mensajes en cola (hito 45, §6.35): la app sabe
+   * hacer que el agente lea ya lo que espera, con la tecla de "enviar ya" de la
+   * CLI o deteniendo y volviendo a mandar. Medido por CLI; la forma la decide el
+   * servidor (`AgentAdapter.promptQueue`).
+   */
+  forceSend: boolean;
 }
 
 /**
@@ -286,6 +293,7 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   contextWindowSource: null,
   plans: false,
   waitingBlocksSubmit: false,
+  forceSend: false,
 };
 
 /** Una CLI tal como la ve el cliente. */
@@ -438,6 +446,7 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     contextWindowSource: asLiteral(record['contextWindowSource'], CONTEXT_WINDOW_SOURCES),
     plans: record['plans'] === true,
     waitingBlocksSubmit: record['waitingBlocksSubmit'] === true,
+    forceSend: record['forceSend'] === true,
   };
 }
 

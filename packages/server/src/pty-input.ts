@@ -40,7 +40,7 @@ import {
   type ServerText,
   type TerminalActivity,
 } from '@agent-workbench/shared';
-import type { QuestionAnswerOutcome } from './agents/adapter.js';
+import type { ForceSendMethod, QuestionAnswerOutcome } from './agents/adapter.js';
 
 /** DECSET 2004. La CLI lo activa sola al arrancar. */
 const PASTE_START = '\x1b[200~';
@@ -77,6 +77,21 @@ export const INTERRUPT = '\x1b';
  * tambien de las que teclee el usuario (`queued-submits.ts`).
  */
 export const CLEAR_EDITOR = '\x03';
+
+/**
+ * Lo que fuerza que el agente lea ya lo que espera en la cola de la CLI (hito
+ * 45, §6.35), en la CLI que tiene una tecla para eso. La que no la tiene
+ * (`interrupt-and-resend`) no pasa por aca: se detiene como con Detener.
+ *
+ *  - `ctrl-x-ctrl-s`: Claude Code, "ctrl+x ctrl+s to send now". Medido con la
+ *    2.1.301: las dos teclas en un solo write funcionan (§4.4.3).
+ *  - `alt-m`: Antigravity, "(alt+m to send immediately)". Alt es un Esc delante
+ *    de la letra, y en un solo write ConPTY lo entrega como Alt+M (medido con la
+ *    1.3.6, §12.13). Partido en dos, el Esc solo interrumpiria el turno.
+ */
+export function buildForceSendKeys(method: Exclude<ForceSendMethod, 'interrupt-and-resend'>): string {
+  return method === 'ctrl-x-ctrl-s' ? '\x18\x13' : '\x1bm';
+}
 
 /**
  * Tope de lo que se acepta en un envio.

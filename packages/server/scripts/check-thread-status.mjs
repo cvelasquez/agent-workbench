@@ -782,6 +782,277 @@ const nextEvent = (hub, name, ms = 5_000) =>
     view.includes("turn.style.setProperty('--turn-actions-shift'") && view.includes("turn.style.removeProperty('--turn-actions-shift')"));
 }
 
+// --- 10. La cola de la CLI (hito 45, §4.4.3, §6.35) ------------------------------
+//
+// Las lineas imitan las medidas con la 2.1.301 (c11 y c12): `enqueue` con el
+// texto, un `popAll` por mensaje al sacarlos con la flecha arriba, el `enqueue`
+// de lo editado con los dos juntos, `remove` al entregarlo a mitad del turno y
+// `dequeue` al terminar.
+
+const { PromptQueueTracker } = await import('../src/agents/claude-code/prompt-queue.ts');
+const { IDLE_CLEARS_QUEUE_MS } = await import('../src/conversation-hub.ts');
+
+const queueOp = (operation, content, seconds, extra = {}) => ({
+  type: 'queue-operation',
+  operation,
+  timestamp: at(seconds),
+  sessionId: 's',
+  ...(content === undefined ? {} : { content }),
+  ...extra,
+});
+const wrappedPaste = (id, text) => `<pasted_content id="${id}">\n${text}\n</pasted_content id="${id}">`;
+const texts = (list) => list.map((prompt) => prompt.text).join(' | ');
+const humanQueued = (uuid, prompt, seconds) => ({
+  type: 'attachment',
+  uuid,
+  parentUuid: null,
+  timestamp: at(seconds),
+  isSidechain: false,
+  attachment: { type: 'queued_command', prompt, commandMode: 'prompt', origin: { kind: 'human' } },
+});
+
+{
+  const tracker = new PromptQueueTracker();
+  tracker.observe(queueOp('enqueue', 'Mensaje B en cola', 45));
+  const first = tracker.pending(LAUNCHED_AT);
+  check('10.1 un enqueue del usuario queda en cola, con su hora', texts(first) === 'Mensaje B en cola' && first[0]?.at === Date.parse(at(45)), json(first));
+  tracker.observe(queueOp('enqueue', wrappedPaste('dae8', 'Mensaje C en cola\nsegunda linea'), 48));
+  check('10.2 lo pegado sale sin el envoltorio de la CLI',
+    texts(tracker.pending(LAUNCHED_AT)) === 'Mensaje B en cola | Mensaje C en cola\nsegunda linea', json(tracker.pending(LAUNCHED_AT)));
+  check('10.3 cada mensaje con su id, distinto y estable',
+    json(tracker.pending(LAUNCHED_AT).map((prompt) => prompt.id)) === json(tracker.pending(LAUNCHED_AT).map((prompt) => prompt.id)) &&
+      new Set(tracker.pending(LAUNCHED_AT).map((prompt) => prompt.id)).size === 2);
+  tracker.observe(queueOp('popAll', 'Mensaje B en cola', 51));
+  tracker.observe(queueOp('popAll', wrappedPaste('dae8', 'Mensaje C en cola\nsegunda linea'), 51));
+  check('10.4 la flecha arriba los saca a los dos (un popAll por mensaje)', tracker.pending(LAUNCHED_AT).length === 0);
+  const merged = `Mensaje B en cola\n${wrappedPaste('dae8', 'Mensaje C en cola\nsegunda linea')}`;
+  tracker.observe(queueOp('enqueue', merged, 58));
+  check('10.5 lo editado vuelve como un solo mensaje',
+    tracker.pending(LAUNCHED_AT).length === 1 && texts(tracker.pending(LAUNCHED_AT)) === 'Mensaje B en cola\nMensaje C en cola\nsegunda linea',
+    json(tracker.pending(LAUNCHED_AT)));
+  tracker.observe(queueOp('remove', merged, 65, { reason: 'absorbed_mid_turn', commandUuid: 'c1', deliveryId: 'd1' }));
+  check('10.6 entregado a mitad del turno (remove con su texto), sale', tracker.pending(LAUNCHED_AT).length === 0);
+
+  tracker.observe(queueOp('enqueue', notification('a1', 'toolu_X'), 70));
+  tracker.observe(queueOp('enqueue', 'el que sigue', 71));
+  check('10.7 un aviso del agente no se muestra', texts(tracker.pending(LAUNCHED_AT)) === 'el que sigue');
+  tracker.observe(queueOp('dequeue', undefined, 72));
+  check('10.8 dequeue saca el primero de la cola: el aviso, no el mensaje', texts(tracker.pending(LAUNCHED_AT)) === 'el que sigue');
+  tracker.observe(queueOp('dequeue', undefined, 73));
+  check('10.9 el segundo dequeue entrega el mensaje', tracker.pending(LAUNCHED_AT).length === 0);
+  tracker.observe(queueOp('enqueue', '<agent-message from="x">informe</agent-message>', 74));
+  check('10.10 un <agent-message> tampoco es del usuario', tracker.pending(LAUNCHED_AT).length === 0);
+  tracker.observe(queueOp('remove', 'uno que no estaba', 75, { reason: 'absorbed_mid_turn' }));
+  tracker.observe(queueOp('operacion-nueva', undefined, 75));
+  check('10.11 un remove sin su enqueue, o una operacion sin texto, no tocan nada', tracker.pending(LAUNCHED_AT).length === 0);
+
+  const old = new PromptQueueTracker();
+  old.observe({ ...queueOp('enqueue', 'de un proceso que murio', 0), timestamp: BEFORE });
+  old.observe(queueOp('enqueue', 'del proceso de ahora', 80));
+  check('10.12 lo de un proceso anterior no se muestra', texts(old.pending(LAUNCHED_AT)) === 'del proceso de ahora');
+  old.observe(queueOp('dequeue', undefined, 90));
+  check('10.13 y se olvida: el dequeue de ahora entrega el de ahora, no el viejo', old.pending(LAUNCHED_AT).length === 0, json(old.pending(LAUNCHED_AT)));
+
+  const pasted = path.join(root, 'temporal', 'agent-workbench', 'pasted', 't1', 'pegada-1-0a1b2c3d.png');
+  const withImage = new PromptQueueTracker();
+  withImage.observe(queueOp('enqueue', `@"${pasted}" mira esto`, 81));
+  const [image] = withImage.pending(LAUNCHED_AT);
+  check('10.14 una imagen pegada se cuenta y sale del texto', image?.images === 1 && image.text === 'mira esto', json(image));
+  const noTime = new PromptQueueTracker();
+  noTime.observe({ type: 'queue-operation', operation: 'enqueue', content: 'sin hora' });
+  check('10.15 un enqueue sin hora no se atribuye a ningun proceso', noTime.pending(0).length === 0);
+  withImage.reset();
+  check('10.16 reset olvida todo', withImage.pending(LAUNCHED_AT).length === 0);
+  const long = new PromptQueueTracker();
+  long.observe(queueOp('enqueue', 'x'.repeat(shared.MAX_QUEUED_PROMPT_CHARS + 50), 82));
+  const [cut] = long.pending(LAUNCHED_AT);
+  check('10.17 un texto largo viaja recortado y marcado', cut?.text.length === shared.MAX_QUEUED_PROMPT_CHARS && cut.truncated === true);
+}
+
+// El seguidor de verdad, sobre un archivo: la cola sale de lineas que no son tarjetas.
+{
+  const file = path.join(root, 'cola.jsonl');
+  await writeFile(file, lines(userText('u1', 'hola'), assistantText('a1', 'trabajando'), queueOp('enqueue', 'Mensaje B', 45)));
+  const follower = new ConversationFollower(file);
+  await follower.poll();
+  check('10.20 el seguidor dice la cola', texts(follower.queuedPrompts(LAUNCHED_AT)) === 'Mensaje B');
+  await appendFile(file, lines(queueOp('remove', 'Mensaje B', 60, { reason: 'absorbed_mid_turn' }), humanQueued('q1', 'Mensaje B', 45)));
+  const read = await follower.poll();
+  check('10.21 entregado: sale de la cola y llega al hilo como "enviado mientras trabajaba"',
+    follower.queuedPrompts(LAUNCHED_AT).length === 0 && read.added.length === 1 && read.added[0].queued === true, json(read.added));
+}
+
+// El hub: la cola en el snapshot, sola cuando no hay mensajes, y dentro del append que la cambia.
+{
+  const cwd = path.join(root, 'proyecto-cola');
+  await mkdir(cwd, { recursive: true });
+  const sessionId = '7a1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4c';
+  const file = sessionFilePath(cwd, sessionId);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, lines(userText('u1', 'hola'), assistantText('a1', 'trabajando')));
+
+  const variants = new ModelVariantRegistry();
+  const claudeAdapter = {
+    id: 'claude-code',
+    capabilities: { ...shared.NO_CAPABILITIES, sessionIdAtLaunch: true, forceSend: true },
+    status: null,
+    promptQueue: { source: 'session', forceSend: 'ctrl-x-ctrl-s' },
+    history: { follow: (target) => new ClaudeCodeSessionFollower(target.cwd, target.sessionId, variants), plans: null },
+  };
+  // Una CLI cuya cola lleva la app: el seguidor dice lo que haya en `appEvents`.
+  let appEvents = [];
+  const appFollower = {
+    label: 'app', start: async () => undefined,
+    poll: async () => ({ reset: false, added: appEvents.splice(0), turns: [], plans: [], parts: [] }),
+    getState: () => 'live', getUsage: () => ({ ...shared.EMPTY_CONTEXT_USAGE }), getPermissionMode: () => null,
+    getTail: () => ({ events: tail, hasMore: false }), getPageBefore: () => ({ events: [], hasMore: false }),
+    getPlanFiles: () => [], readImage: async () => null, noticeChange: () => true, hasOpenToolCall: () => false,
+  };
+  let tail = [];
+  const appAdapter = {
+    id: 'pi',
+    capabilities: { ...shared.NO_CAPABILITIES, sessionIdAtLaunch: true, forceSend: true },
+    status: null,
+    promptQueue: { source: 'app', forceSend: 'interrupt-and-resend' },
+    history: { follow: () => appFollower, plans: null },
+  };
+  const adapters = { 'claude-code': claudeAdapter, pi: appAdapter };
+  const agents = { get: (id) => (adapters[id] === undefined ? null : { adapter: adapters[id], location: null }) };
+  const registry = new EventEmitter();
+  const descriptors = new Map();
+  let launchedAt = LAUNCHED_AT;
+  registry.get = (terminalId) => descriptors.get(terminalId) ?? null;
+  registry.launchedAtOf = () => launchedAt;
+  const describe = (terminalId, agent) => ({
+    terminalId, kind: 'agent', agent, cwd, sessionId, label: '', resumed: false,
+    createdAt: 0, alive: true, exitCode: null, sleeping: false,
+  });
+  descriptors.set('t-cola', describe('t-cola', 'claude-code'));
+  descriptors.set('t-app', describe('t-app', 'pi'));
+
+  const hub = new ConversationHub(registry, agents);
+  try {
+    const snapshot = await hub.subscribe('t-cola');
+    check('10.30 sin nada en cola, el reset no trae nada', snapshot !== null && hub.getQueue('t-cola').length === 0);
+
+    const queued = nextEvent(hub, 'queue');
+    await appendFile(file, lines(queueOp('enqueue', 'Mensaje B en cola', 45)));
+    hub.onHistoryChanged('claude-code', file);
+    const queuedArgs = await queued;
+    check('10.31 un enqueue sin mensajes nuevos llega como "queue", con el mensaje',
+      queuedArgs !== null && queuedArgs[0] === 't-cola' && texts(queuedArgs[1]) === 'Mensaje B en cola', json(queuedArgs));
+    check('10.32 y getQueue dice lo mismo (es lo que lleva un reset)', texts(hub.getQueue('t-cola')) === 'Mensaje B en cola');
+    check('10.33 hasQueue: hay algo que forzar', hub.hasQueue('t-cola'));
+
+    const appended = nextEvent(hub, 'append');
+    const loose = [];
+    const looseListener = (terminalId, queue) => loose.push([terminalId, queue.length]);
+    hub.on('queue', looseListener);
+    await appendFile(file, lines(queueOp('remove', 'Mensaje B en cola', 60, { reason: 'absorbed_mid_turn' }), humanQueued('q-cola', 'Mensaje B en cola', 45)));
+    hub.onHistoryChanged('claude-code', file);
+    const appendArgs = await appended;
+    hub.off('queue', looseListener);
+    check('10.34 entregado: el mensaje y la cola vacia llegan en el mismo append, sin aviso suelto',
+      appendArgs !== null && appendArgs[1].some((event) => event.eventId === 'q-cola') && json(appendArgs[4]) === '[]' && loose.length === 0,
+      json({ cola: appendArgs?.[4], sueltos: loose }));
+
+    const again = nextEvent(hub, 'queue');
+    await appendFile(file, lines(queueOp('enqueue', 'Mensaje C', 70)));
+    hub.onHistoryChanged('claude-code', file);
+    await again;
+    const emptied = nextEvent(hub, 'queue', IDLE_CLEARS_QUEUE_MS + 3_000);
+    const idleAt = Date.now();
+    registry.emit('activity', 't-cola', 'idle', null);
+    registry.emit('activity', 't-cola', 'idle', null);
+    const emptiedArgs = await emptied;
+    check('10.35 libre un rato, la cola se vacia (la red por si la CLI cambia lo que escribe)',
+      emptiedArgs !== null && emptiedArgs[1].length === 0 && Date.now() - idleAt >= IDLE_CLEARS_QUEUE_MS - 50, json(emptiedArgs));
+    registry.emit('activity', 't-cola', 'busy', null);
+
+    const gone = nextEvent(hub, 'queue');
+    launchedAt = null;
+    registry.emit('changed');
+    const goneArgs = await gone;
+    check('10.36 sin pty no hay cola', goneArgs !== null && goneArgs[1].length === 0 && hub.getQueue('t-cola').length === 0, json(goneArgs));
+    launchedAt = LAUNCHED_AT;
+
+    // La cola que lleva la app (Pi, Antigravity).
+    await hub.subscribe('t-app');
+    const noted = nextEvent(hub, 'queue');
+    const sentAt = Date.now();
+    hub.noteQueued('t-app', { text: 'Mensaje B', images: 0, at: sentAt });
+    const notedArgs = await noted;
+    check('10.40 lo mandado con el agente trabajando queda en cola', notedArgs !== null && texts(notedArgs[1]) === 'Mensaje B', json(notedArgs));
+    const forced = nextEvent(hub, 'queue');
+    hub.markQueueForced('t-app');
+    const forcedArgs = await forced;
+    check('10.41 forzado, sigue en cola marcado', forcedArgs?.[1][0]?.forced === true, json(forcedArgs));
+
+    const delivered = { eventId: 'pi-u2', role: 'user', at: sentAt + 300, parts: [{ kind: 'text', text: 'Mensaje B', truncated: false }],
+      model: null, usage: null, effort: null, durationMs: null, queued: true };
+    appEvents = [delivered];
+    tail = [delivered];
+    const settled = nextEvent(hub, 'append');
+    hub.onHistoryChanged('pi', 'x');
+    const settledArgs = await settled;
+    check('10.42 aparece en el hilo: sale de la cola en el mismo append', settledArgs !== null && json(settledArgs[4]) === '[]', json(settledArgs?.[4]));
+
+    hub.noteQueued('t-app', { text: 'otro', images: 1, at: Date.now() });
+    const cleared = nextEvent(hub, 'queue');
+    hub.clearQueued('t-app');
+    check('10.43 Detener lo devuelve al cuadro: sale de la cola', (await cleared)?.[1].length === 0);
+    hub.noteQueued('t-app', { text: 'uno mas', images: 0, at: Date.now() });
+    const offline = nextEvent(hub, 'queue');
+    registry.emit('activity', 't-app', 'offline', null);
+    check('10.44 sin proceso tampoco', (await offline)?.[1].length === 0);
+  } finally {
+    hub.disposeAll();
+  }
+}
+
+// El protocolo de la cola y de forzar el envio.
+{
+  const { parseServerMessage, parseClientMessage } = shared;
+  const base = {
+    type: 'conversation.reset', terminalId: 't1', sessionId: 's', state: 'live', events: [], hasMore: false,
+    usage: shared.EMPTY_CONTEXT_USAGE, permissionMode: null, defaults: { model: null, effort: null, contextWindow: null },
+    waitingFor: null, openToolCall: false, subagents: [],
+  };
+  check('10.50 un reset de un servidor anterior, sin cola, se lee con la cola vacia', json(parseServerMessage(JSON.stringify(base))?.queue) === '[]');
+  const good = { id: 'queue-1', text: 'hola', truncated: false, images: 0, at: 5 };
+  const read = parseServerMessage(JSON.stringify({ ...base, queue: [good, { id: '', text: 'x', images: 0, at: 1 }, 'basura', { ...good, id: 'q2', eventId: 'msg_1', forced: true }] }));
+  check('10.51 un mensaje en cola que no se entiende se descarta solo; eventId y forced se leen',
+    json(read?.queue) === json([good, { ...good, id: 'q2', eventId: 'msg_1', forced: true }]), json(read?.queue));
+  const many = Array.from({ length: 40 }, (_, index) => ({ ...good, id: `q${index}`, text: 'y'.repeat(shared.MAX_QUEUED_PROMPT_CHARS + 10) }));
+  const update = parseServerMessage(JSON.stringify({ type: 'conversation.queue', terminalId: 't1', queue: many }));
+  check('10.52 conversation.queue: con tope de cantidad y de texto, y el recorte marcado',
+    update?.type === 'conversation.queue' && update.queue.length === shared.MAX_QUEUED_PROMPTS &&
+      update.queue[0].text.length === shared.MAX_QUEUED_PROMPT_CHARS && update.queue[0].truncated === true);
+  check('10.53 conversation.queue sin lista no se lee', parseServerMessage(JSON.stringify({ type: 'conversation.queue', terminalId: 't1' })) === null);
+  const append = { type: 'conversation.append', terminalId: 't1', events: [], usage: shared.EMPTY_CONTEXT_USAGE, permissionMode: null };
+  const withQueue = parseServerMessage(JSON.stringify({ ...append, queue: [] }));
+  const withoutQueue = parseServerMessage(JSON.stringify(append));
+  check('10.54 un append con la cola la trae (vacia es vacia); sin ella, no la inventa',
+    json(withQueue?.queue) === '[]' && withoutQueue !== null && !('queue' in withoutQueue));
+  const ask = parseClientMessage(JSON.stringify({ type: 'agent.forceSend', terminalId: 't1', requestId: 'r1' }));
+  check('10.55 agent.forceSend con su requestId; sin el, no se lee',
+    ask?.type === 'agent.forceSend' && ask.requestId === 'r1' &&
+      parseClientMessage(JSON.stringify({ type: 'agent.forceSend', terminalId: 't1' })) === null);
+  const answer = parseServerMessage(JSON.stringify({ type: 'agent.forceSent', terminalId: 't1', requestId: 'r1', sent: false }));
+  check('10.56 agent.forceSent, hecho o no; sin sent no se lee',
+    answer?.type === 'agent.forceSent' && answer.sent === false &&
+      parseServerMessage(JSON.stringify({ type: 'agent.forceSent', terminalId: 't1', requestId: 'r1' })) === null);
+  const failed = parseServerMessage(JSON.stringify({ type: 'error', code: 'force-send-failed', text: { key: 'forceSendNothing' }, requestId: 'r1' }));
+  check('10.57 force-send-failed es un codigo de error y no cae a internal', failed?.code === 'force-send-failed', json(failed));
+}
+
+// Las teclas de forzar el envio: las medidas.
+{
+  const { buildForceSendKeys } = await import('../src/pty-input.ts');
+  check('10.60 Claude Code: Ctrl+X Ctrl+S en un solo write', buildForceSendKeys('ctrl-x-ctrl-s') === '\x18\x13');
+  check('10.61 Antigravity: Alt+M, Esc pegado a la letra', buildForceSendKeys('alt-m') === '\x1bm');
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

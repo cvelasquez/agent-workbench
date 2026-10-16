@@ -81,6 +81,8 @@ export const PI_BASE_CAPABILITIES: AgentCapabilities = {
   plans: false,
   // Con el dialogo de confianza abierto, el Enter de un mensaje lo aceptaria (16.11).
   waitingBlocksSubmit: true,
+  // Sin tecla de "enviar ya": se detiene y se vuelve a mandar lo que tenia en cola (hito 45, §16.18).
+  forceSend: true,
 };
 
 /**
@@ -208,6 +210,13 @@ export function createPiAdapter(options: PiAdapterOptions = {}): AgentAdapter {
       returnReason: 'returned-by-cli',
       check: (target, submissions, interruptedAt) => live.check(target.sessionId, submissions, interruptedAt),
     },
+
+    /*
+      Pi no escribe su cola hasta entregarla (16.5): es lo que la app le mando
+      con el agente trabajando. Sin tecla de "enviar ya", se detiene y se vuelve
+      a mandar lo que devolvio a su editor (hito 45, §16.18).
+    */
+    promptQueue: { source: 'app', forceSend: 'interrupt-and-resend' },
 
     // `settings.json` no se abre: sin modelo por defecto que anunciar. Al reanudar,
     // el modelo y el nivel salen de la propia sesion.

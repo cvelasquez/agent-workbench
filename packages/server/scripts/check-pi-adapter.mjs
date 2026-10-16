@@ -971,7 +971,73 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
   check('P8 lo mandado despues de interrumpir no estaba en cola', result.outcome === 'nothing' && result.log.length === 0);
   result = await run({ checks: [{ settled: true, undelivered: [] }], submissions: [] });
   check('P8 sin nada anotado no se pregunta nada', result.outcome === 'nothing' && result.log.length === 0);
+  // Hito 45: al forzar el envio en Pi, lo devuelto no vuelve al cuadro, se manda de nuevo. Se espera a que termine.
+  {
+    let clock = 100_000;
+    const log = [];
+    const outcome = await queued.reclaimQueuedSubmits({
+      source: { clearGapMs: 750, check: async () => ({ settled: true, undelivered: ['B'] }) },
+      target: () => ({ cwd: 'c', sessionId: 's' }),
+      submissions: [{ text: 'B', at: 99_500 }],
+      interruptedAt: 100_000,
+      lastClearKeyAt: () => null,
+      writeClearKey: () => { log.push('clear'); return true; },
+      prefill: async (text) => {
+        log.push(`reenvio:${text}`);
+        await new Promise((resolve) => setImmediate(resolve));
+        log.push('reenviado');
+      },
+      wait: async (ms) => { clock += ms; },
+      now: () => clock,
+    });
+    log.push(`fin:${outcome}`);
+    check('P8 (hito 45) un reenvio asincrono se espera: vaciar, mandar de nuevo y recien ahi terminar',
+      same(log, ['clear', 'reenvio:B', 'reenviado', 'fin:reclaimed']), show(log));
+  }
 }
+
+// ---------------------------------------------------------------------------
+// P13. La cola que lleva la app (hito 45, §16.18)
+// ---------------------------------------------------------------------------
+{
+  const { AppPromptQueue } = await import('../src/app-prompt-queue.ts');
+  const T = 1_000_000;
+  const user = (eventId, text, at, extra = {}) => ({
+    eventId, role: 'user', at, parts: text === null ? [] : [{ kind: 'text', text, truncated: false }],
+    model: null, usage: null, effort: null, durationMs: null, queued: true, ...extra,
+  });
+  const queue = new AppPromptQueue();
+  queue.note('t1', { text: 'Mensaje B', images: 0, at: T });
+  queue.note('t1', { text: '   ', images: 0, at: T + 10 });
+  queue.note('t1', { text: 'Mensaje C\ncon dos lineas', images: 2, at: T + 20 });
+  const listed = queue.list('t1');
+  check('P13 lo mandado con el agente trabajando queda en cola, sin los vacios, con sus imagenes contadas',
+    same(listed.map((each) => [each.text, each.images, each.at]), [['Mensaje B', 0, T], ['Mensaje C\ncon dos lineas', 2, T + 20]]) &&
+      listed[0].id !== listed[1].id && listed.every((each) => each.forced === undefined), show(listed));
+
+  check('P13 un mensaje de antes de mandarlo (mas de 2 s) no lo saca', !queue.settle('t1', [user('u0', 'Mensaje B', T - 5_000)]));
+  check('P13 un resultado de herramienta no es un mensaje escrito',
+    !queue.settle('t1', [{ ...user('u1', 'Mensaje B', T + 100), parts: [{ kind: 'tool-result', toolUseId: 'x', text: 'Mensaje B', isError: false, truncated: false, imageCount: 0 }] }]));
+  check('P13 aparece en el hilo con su texto: sale', queue.settle('t1', [user('u2', 'Mensaje B', T + 300)]) && queue.list('t1').length === 1);
+  check('P13 con lo que la CLI le agrega alrededor (las lineas de un adjunto) tambien sale',
+    queue.settle('t1', [user('u3', 'Attached file: "C:\\x.txt"\nMensaje C con dos lineas', T + 400)]) && queue.list('t1').length === 0);
+
+  queue.note('t2', { text: 'igual', images: 0, at: T });
+  queue.note('t2', { text: 'igual', images: 0, at: T + 50 });
+  queue.settle('t2', [user('u4', 'igual', T + 100)]);
+  check('P13 un mensaje del hilo se lleva una sola entrada, la mas vieja', queue.list('t2').length === 1 && queue.list('t2')[0].at === T + 50);
+  check('P13 forzado: sigue en cola, marcado', queue.markForced('t2') && queue.list('t2')[0].forced === true && !queue.markForced('t2'));
+  check('P13 Detener o sin proceso: no queda nada', queue.clear('t2') && queue.list('t2').length === 0 && !queue.clear('t2'));
+
+  queue.note('t3', { text: '', images: 1, at: T });
+  check('P13 solo una imagen: la saca un mensaje con imagen y sin texto',
+    queue.settle('t3', [{ ...user('u5', null, T + 100), parts: [{ kind: 'image', index: 0, mediaType: 'image/png', source: 'pasted' }] }]) &&
+      queue.list('t3').length === 0);
+  check('P13 cada pestana con lo suyo', queue.list('t1').length === 0 && queue.list('otra').length === 0);
+  for (let index = 0; index < 30; index += 1) queue.note('t4', { text: `m${index}`, images: 0, at: T + index });
+  check('P13 la cola tiene tope, y se quedan los ultimos', queue.list('t4').length === 20 && queue.list('t4')[0].text === 'm10');
+}
+
 
 // ---------------------------------------------------------------------------
 // P9. Lo que se escribe en la pty
@@ -1037,6 +1103,7 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
       contextWindowSource: 'usage-with-catalog',
       plans: false,
       waitingBlocksSubmit: true,
+      forceSend: true,
     }), show(piIndex.PI_BASE_CAPABILITIES));
   check('P10 como se le escribe, contra un literal',
     same(piIndex.PI_INPUT, { imageReference: 'quoted-path-line', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1, transcriptReference: 'quoted-path', readyAfterLaunchMs: 3000 }), show(piIndex.PI_INPUT));

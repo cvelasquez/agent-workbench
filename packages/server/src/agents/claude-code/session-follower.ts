@@ -24,6 +24,7 @@ import {
   type ConversationState,
   type ConversationSubagent,
   type PermissionMode,
+  type QueuedPrompt,
 } from '@agent-workbench/shared';
 import type { EventPage, FollowOptions, LoadedImage, PollResult, SessionFollower } from '../adapter.js';
 import { readAgentDefaults } from './agent-defaults.js';
@@ -166,6 +167,11 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
   /** Los subagentes del proceso de `launchedAt` que siguen trabajando (§4.15). */
   runningSubagents(launchedAt: number): readonly ConversationSubagent[] {
     return this.inner.runningSubagents(launchedAt);
+  }
+
+  /** Los mensajes del proceso de `launchedAt` que esperan en la cola de la CLI (hito 45, §4.4.3). */
+  queuedPrompts(launchedAt: number): readonly QueuedPrompt[] {
+    return this.inner.queuedPrompts(launchedAt);
   }
 
   /** Esconde desde un mensaje que la CLI deshizo sin escribirlo todavia (hito 44, §4.16). */

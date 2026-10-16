@@ -1327,6 +1327,8 @@ export function App(): JSX.Element {
           */
           onRewind={activeControls.rewind && activeTerminal?.alive === true ? rewind : undefined}
           rewindBlocked={activeActivity !== 'idle'}
+          // Forzar el envio de lo que espera en la cola le escribe a la CLI: sin proceso, no se ofrece (hito 45).
+          forceSendAvailable={activeControls.forceSend && activeTerminal?.alive === true}
           questionsAnswerable={activeControls.questionsAnswerable}
           contextWindowSource={activeControls.contextWindowSource}
           instructionsFile={instructionsFileFor(activeAgent)}

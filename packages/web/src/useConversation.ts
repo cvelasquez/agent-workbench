@@ -21,6 +21,7 @@ import {
   type ConversationSubagent,
   type AnswerSelection,
   type PermissionMode,
+  type QueuedPrompt,
   type TerminalId,
 } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
@@ -48,6 +49,14 @@ const ANSWER_CONFIRM_MS = 20_000;
 const NO_ANSWERS: Record<string, AnswerSelection[]> = {};
 const NO_FAILURES: Record<string, string> = {};
 const NO_SUBAGENTS: ConversationSubagent[] = [];
+const NO_QUEUE: QueuedPrompt[] = [];
+
+/**
+ * Cuanto se muestra "Enviando…" en el boton de forzar el envio si la cola no
+ * cambia. La CLI suele contestar en un segundo; esto es para que el boton no
+ * quede apagado para siempre si no lo hace.
+ */
+const FORCE_SEND_HOLD_MS = 15_000;
 
 export interface ConversationFeed {
   events: ConversationEvent[];
@@ -84,6 +93,16 @@ export interface ConversationFeed {
    * el servidor (`conversation.subagents`); vacio con una CLI que no los sigue.
    */
   subagents: ConversationSubagent[];
+  /**
+   * Los mensajes que esperan en la cola de la CLI (hito 45, §6.35). Lo calcula
+   * el servidor (`conversation.queue`, y dentro del `append` que la cambia);
+   * vacia con una CLI que no hace cola.
+   */
+  queue: QueuedPrompt[];
+  /** Pide que el agente lea ya lo que espera en la cola ("Forzar envio ahora"). */
+  forceSend: () => void;
+  /** true desde el clic hasta que la cola cambia, el servidor dice que no, o pasa un rato. */
+  forcing: boolean;
   /**
    * Lo que la configuracion anuncia, para cuando el archivo todavia no dijo
    * nada. Es provisional: en cuanto llega una respuesta manda lo observado.
@@ -160,6 +179,18 @@ export function useConversation(
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const [openToolCall, setOpenToolCall] = useState(false);
   const [subagents, setSubagents] = useState<ConversationSubagent[]>(NO_SUBAGENTS);
+  const [queue, setQueue] = useState<QueuedPrompt[]>(NO_QUEUE);
+  const [forcing, setForcing] = useState(false);
+  /** El `requestId` del ultimo "forzar envio", hasta su respuesta. */
+  const forceRequest = useRef<string | null>(null);
+  const forceTimer = useRef<number | null>(null);
+
+  const stopForcing = useCallback(() => {
+    forceRequest.current = null;
+    if (forceTimer.current !== null) window.clearTimeout(forceTimer.current);
+    forceTimer.current = null;
+    setForcing(false);
+  }, []);
 
   /*
     Lo respondido y lo que fallo, **indexado por pestana**.
@@ -293,6 +324,8 @@ export function useConversation(
     setWaitingFor(null);
     setOpenToolCall(false);
     setSubagents(NO_SUBAGENTS);
+    setQueue(NO_QUEUE);
+    stopForcing();
     requested.current.clear();
     oldestEventId.current = null;
 
@@ -307,6 +340,7 @@ export function useConversation(
           setWaitingFor(message.waitingFor);
           setOpenToolCall(message.openToolCall);
           setSubagents(message.subagents);
+          setQueue(message.queue);
           setState(message.state);
           setHasMore(message.hasMore);
           setLoadingMore(false);
@@ -328,6 +362,8 @@ export function useConversation(
           });
           setUsage(message.usage);
           if (message.permissionMode !== null) setPermissionModeState(message.permissionMode);
+          // La cola que cambio con estos mensajes: en el mismo dibujo, la burbuja se va y el mensaje aparece.
+          if (message.queue !== undefined) setQueue(message.queue);
           setState('live');
           break;
         }
@@ -436,6 +472,20 @@ export function useConversation(
           break;
 
         /*
+          La cola de la CLI cambio sin mensajes nuevos (hito 45): se mando uno
+          con el agente trabajando, se forzo el envio, o la CLI quedo libre.
+        */
+        case 'conversation.queue':
+          if (message.terminalId !== terminalId) break;
+          setQueue(message.queue);
+          break;
+
+        // Forzar el envio no se hizo: el motivo llega en su `error`, y el boton vuelve.
+        case 'agent.forceSent':
+          if (message.requestId === forceRequest.current && !message.sent) stopForcing();
+          break;
+
+        /*
           El servidor rechazo una respuesta.
 
           Pasa cuando la pregunta ya no esta esperando —porque se contesto en
@@ -445,6 +495,10 @@ export function useConversation(
           confirmacion. Lo importante es que la tarjeta deje de mentir.
         */
         case 'error': {
+          if (message.requestId !== undefined && message.requestId === forceRequest.current) {
+            stopForcing();
+            break;
+          }
           if (message.code !== 'answer-failed') break;
           if (terminalId === null) break;
           for (const [toolUseId, timer] of timers.current) {
@@ -479,7 +533,33 @@ export function useConversation(
       offReopen();
       connection.send({ type: 'conversation.unsubscribe', terminalId });
     };
-  }, [connection, terminalId, fail]);
+  }, [connection, terminalId, fail, stopForcing]);
+
+  /*
+    El boton deja de decir "Enviando…" cuando ya no queda nada sin forzar: la
+    CLI lo entrego (la cola se vacio) o ya se lo esta pasando al agente.
+  */
+  useEffect(() => {
+    if (forcing && queue.every((prompt) => prompt.forced === true)) stopForcing();
+  }, [forcing, queue, stopForcing]);
+
+  // El plazo es de esta pantalla: al desmontar no queda corriendo.
+  useEffect(
+    () => () => {
+      if (forceTimer.current !== null) window.clearTimeout(forceTimer.current);
+    },
+    [],
+  );
+
+  const forceSend = useCallback(() => {
+    if (terminalId === null || forceRequest.current !== null) return;
+    const requestId = crypto.randomUUID();
+    forceRequest.current = requestId;
+    setForcing(true);
+    if (forceTimer.current !== null) window.clearTimeout(forceTimer.current);
+    forceTimer.current = window.setTimeout(stopForcing, FORCE_SEND_HOLD_MS);
+    connection.send({ type: 'agent.forceSend', terminalId, requestId });
+  }, [connection, terminalId, stopForcing]);
 
   const loadMore = useCallback(() => {
     const before = oldestEventId.current;
@@ -562,6 +642,9 @@ export function useConversation(
     waitingFor,
     openToolCall,
     subagents,
+    queue,
+    forceSend,
+    forcing,
     hasMore,
     loadingMore,
     loadMore,

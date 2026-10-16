@@ -34,6 +34,7 @@ import type {
   ImageReferenceStyle,
   PermissionMode,
   PlanContent,
+  QueuedPrompt,
   ServerText,
   SessionPlan,
   SessionSummary,
@@ -393,6 +394,15 @@ export interface SessionFollower {
    * declara Claude Code, que es la que se midio.
    */
   runningSubagents?(launchedAt: number): readonly ConversationSubagent[];
+  /**
+   * Hito 45 (§6.35). Los mensajes del usuario que esperan en la cola de la CLI,
+   * del proceso lanzado en `launchedAt` (epoch ms) o despues, en orden. Lo
+   * declara el seguidor de la CLI cuyo historial dice la cola
+   * (`PromptQueueSupport.source` `session`): Claude Code por su JSONL
+   * (§4.4.3), OpenCode por su base (§11.13). La cola vive en el proceso, y uno
+   * de un proceso anterior murio con ella. Ausente: la cola no sale de aca.
+   */
+  queuedPrompts?(launchedAt: number): readonly QueuedPrompt[];
 }
 
 /**
@@ -599,6 +609,39 @@ export interface QueuedSubmitSource {
     submissions: readonly QueuedSubmission[],
     interruptedAt: number,
   ): Promise<{ settled: boolean; undelivered: readonly string[]; withdrawn?: readonly string[]; pending?: boolean }>;
+}
+
+// ---- La cola de mensajes que esperan en la CLI (hito 45) -----------------------
+
+/**
+ * Como se fuerza que el agente lea ya lo que espera en la cola (§6.35). Las
+ * teclas las arma `pty-input.ts` (`buildForceSendKeys`): el adaptador solo dice
+ * cual.
+ *
+ *  - `ctrl-x-ctrl-s`: la tecla de "enviar ya" de Claude Code (medida, §4.4.3).
+ *  - `alt-m`: la de Antigravity (§12.13).
+ *  - `interrupt-and-resend`: la CLI no tiene esa tecla (Pi, §16.18). Se detiene
+ *    como con el boton Detener, y lo que la CLI devuelve a su editor se vacia y
+ *    se manda de nuevo.
+ */
+export type ForceSendMethod = 'ctrl-x-ctrl-s' | 'alt-m' | 'interrupt-and-resend';
+
+/**
+ * Hito 45. Presente en la CLI que deja en cola lo que se le escribe con el
+ * agente trabajando, y donde la app sabe ver esa cola.
+ */
+export interface PromptQueueSupport {
+  /**
+   * De donde sale la cola:
+   *
+   *  - `session`: la dice el historial, y el seguidor declara `queuedPrompts`
+   *    (Claude Code, OpenCode). Tambien se ve lo escrito en la solapa CLI.
+   *  - `app`: la CLI no la escribe en ningun lado (Pi, Antigravity). Es lo que la
+   *    app le mando con el agente trabajando, hasta que aparece en el hilo.
+   */
+  readonly source: 'session' | 'app';
+  /** Como se fuerza el envio, o null si no hay forma medida. Va igual que `capabilities.forceSend`. */
+  readonly forceSend: ForceSendMethod | null;
 }
 
 // ---- Volver a antes de un mensaje (hito 44) ------------------------------------
@@ -815,6 +858,13 @@ export interface AgentAdapter {
    * (hito 43). Ver `QueuedSubmitSource`. Ausente: interrumpir es solo la tecla.
    */
   readonly queuedSubmits?: QueuedSubmitSource;
+  /**
+   * Presente si la CLI deja en cola lo que se le escribe con el agente
+   * trabajando y la app sabe verla (hito 45). Ver `PromptQueueSupport`.
+   * Ausente: la CLI no hace cola (Codex le pasa el mensaje al modelo en el
+   * acto) o no esta medida.
+   */
+  readonly promptQueue?: PromptQueueSupport;
   /**
    * Presente si la app puede manejar el menu de rewind de la CLI (hito 44).
    * Solo con la capacidad `rewind`. Ver `RewindDriver`.

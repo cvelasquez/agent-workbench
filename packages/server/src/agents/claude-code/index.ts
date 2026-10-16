@@ -66,6 +66,8 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
   plans: true,
   // Hito 29: sin candado nuevo. Con la CLI esperando, el cuadro manda como siempre.
   waitingBlocksSubmit: false,
+  // Su tecla de "enviar ya", Ctrl+X Ctrl+S, medida con la 2.1.301 (hito 45, §4.4.3).
+  forceSend: true,
 };
 
 /**
@@ -198,6 +200,9 @@ export function createClaudeCodeAdapter(): AgentAdapter {
 
     // Volver a antes de un mensaje con el menu de rewind de la CLI (hito 44, §4.16).
     rewind: createClaudeCodeRewind(),
+
+    // La cola la dice el JSONL (hito 45, §4.4.3), y "enviar ya" es su tecla.
+    promptQueue: { source: 'session', forceSend: 'ctrl-x-ctrl-s' },
 
     defaults: (cwd, sessionModel) => readAgentDefaults(cwd, sessionModel ?? null),
 

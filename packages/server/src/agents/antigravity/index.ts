@@ -114,6 +114,8 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
   plans: false,
   // Con la status line, su confirmacion abierta ya la frena `submitRefusal` (12.7).
   waitingBlocksSubmit: false,
+  // Su tecla de "send immediately", Alt+M (hito 45, §12.13). Sin status line no hay cola que forzar.
+  forceSend: true,
 };
 
 /** Las mismas con la status line configurada: estado, "esperando" y medidor. */
@@ -344,6 +346,12 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
 
     history: createAntigravityHistory({ statusLine: createFollowerStatusLine(store, isActive) }),
     status,
+
+    /*
+      La cola no queda escrita en ningun lado que la app lea (hito 45, §12.13):
+      es lo que la app le mando con el agente trabajando. "Enviar ya" es Alt+M.
+    */
+    promptQueue: { source: 'app', forceSend: 'alt-m' },
 
     /**
      * El modelo de `settings.json`, provisional hasta la primera respuesta. La

@@ -32,7 +32,9 @@ import {
   type PermissionMode,
   type PlanContent,
   type SessionId,
+  type QueuedPrompt,
   type SessionPlan,
+  type TerminalActivity,
   type TerminalId,
 } from '@agent-workbench/shared';
 import type {
@@ -44,6 +46,7 @@ import type {
   TurnUpdate,
 } from './agents/adapter.js';
 import type { AgentRegistry } from './agents/registry.js';
+import { AppPromptQueue } from './app-prompt-queue.js';
 import { debugLog } from './debug.js';
 import { rewindTargetFrom, type RewindTarget } from './rewind-target.js';
 import type { TerminalRegistry } from './terminal-registry.js';
@@ -83,6 +86,18 @@ const GROWTH_REFRESH_MS = 3_000;
  * llegar un poco despues (medido en la prueba en vivo).
  */
 const WITHDRAWAL_PENDING_MS = 15_000;
+
+/**
+ * Cuanto tiene que llevar libre una pestana para que no quede nada en su cola
+ * (hito 45, §6.35). Ninguna de las CLIs medidas queda libre con algo en cola:
+ * al cerrar el turno entregan lo que esperaba. Es la red por si una version
+ * cambia lo que escribe, y no se aplica en el acto porque entre un turno y el
+ * que abre el mensaje en cola la CLI puede decir "libre" un instante.
+ */
+export const IDLE_CLEARS_QUEUE_MS = 3_000;
+
+/** Cuantos eventos del final se miran para saber si un mensaje de la cola de la app ya llego al hilo. */
+const QUEUE_SETTLE_LOOKBACK = 50;
 
 export interface ConversationSnapshot {
   sessionId: SessionId;
@@ -231,12 +246,19 @@ export interface ConversationHubEvents {
   toolCall: (terminalId: TerminalId, open: boolean) => void;
   /** Cambiaron los subagentes que siguen trabajando. Va la lista entera. */
   subagents: (terminalId: TerminalId, subagents: ConversationSubagent[]) => void;
+  /**
+   * Mensajes nuevos. `queue`, la cola de la CLI si cambio con ellos (hito 45):
+   * la CLI entrego uno que esperaba, y la burbuja se va con el mismo aviso.
+   */
   append: (
     terminalId: TerminalId,
     events: ConversationEvent[],
     usage: ContextUsage,
     permissionMode: PermissionMode | null,
+    queue?: QueuedPrompt[],
   ) => void;
+  /** La cola de la CLI cambio sin mensajes nuevos (hito 45). Va entera. */
+  queue: (terminalId: TerminalId, queue: QueuedPrompt[]) => void;
   state: (terminalId: TerminalId, state: ConversationState) => void;
   /** Duraciones de turnos cuyo mensaje ya se habia entregado. */
   turns: (terminalId: TerminalId, turns: TurnUpdate[]) => void;
@@ -266,6 +288,21 @@ export declare interface ConversationHub {
 
 export class ConversationHub extends EventEmitter {
   private readonly entries = new Map<TerminalId, Entry>();
+
+  /**
+   * La cola de las CLIs que no la escriben en ningun lado (hito 45): lo que la
+   * app les mando con el agente trabajando. Vive aca y no en el seguidor porque
+   * no sale del historial, y tiene que sobrevivir a que nadie mire la pestana.
+   */
+  private readonly appQueue = new AppPromptQueue();
+  /** La ultima cola avisada de cada pestana, por su clave: un aviso igual no se repite. */
+  private readonly announcedQueues = new Map<TerminalId, string>();
+  /** La ultima actividad vista de cada pestana: solo cuentan los cambios. */
+  private readonly lastActivity = new Map<TerminalId, TerminalActivity>();
+  /** El temporizador de cada pestana que quedo libre (`IDLE_CLEARS_QUEUE_MS`). */
+  private readonly idleTimers = new Map<TerminalId, NodeJS.Timeout>();
+  /** Las pestanas libres hace mas de `IDLE_CLEARS_QUEUE_MS`: no tienen nada en cola. */
+  private readonly idleSettled = new Set<TerminalId>();
 
   /**
    * El mensaje que la CLI deshizo sin escribirlo todavia, por pestana (hito 44,
@@ -315,7 +352,13 @@ export class ConversationHub extends EventEmitter {
         this.refreshOpenToolCall(terminalId, entry);
         this.refreshSubagents(terminalId, entry);
       }
+      // La cola vive en el proceso: sin pty no queda nada, y una pty nueva empieza vacia (hito 45).
+      for (const terminalId of new Set([...this.entries.keys(), ...this.announcedQueues.keys()])) {
+        if (this.registry.launchedAtOf(terminalId) === null) this.appQueue.clear(terminalId);
+        this.refreshQueue(terminalId);
+      }
     });
+    registry.on('activity', (terminalId, activity) => this.noteActivity(terminalId, activity));
   }
 
   /**
@@ -564,6 +607,104 @@ export class ConversationHub extends EventEmitter {
   }
 
   /**
+   * La cola de la CLI de una pestana, ahora (hito 45, §6.35): la del historial
+   * si su seguidor la dice, o la que lleva la app. Vacia sin proceso, si la CLI
+   * no hace cola, o si lleva libre `IDLE_CLEARS_QUEUE_MS`. La de una CLI cuyo
+   * historial la dice se ve solo con alguien siguiendo la pestana: quien mira
+   * la cola mira el hilo.
+   */
+  private computeQueue(terminalId: TerminalId): QueuedPrompt[] {
+    const descriptor = this.registry.get(terminalId);
+    if (descriptor === null || descriptor.agent === null) return [];
+    const support = this.agents.get(descriptor.agent)?.adapter.promptQueue;
+    const launchedAt = this.registry.launchedAtOf(terminalId);
+    if (support === undefined || launchedAt === null || this.idleSettled.has(terminalId)) return [];
+    if (support.source === 'app') return this.appQueue.list(terminalId);
+    const follower = this.entries.get(terminalId)?.follower;
+    return follower?.queuedPrompts === undefined ? [] : [...follower.queuedPrompts(launchedAt)];
+  }
+
+  /** La cola si cambio desde el ultimo aviso, que pasa a ser esta; null si es la misma. */
+  private takeQueueChange(terminalId: TerminalId): QueuedPrompt[] | null {
+    const queue = this.computeQueue(terminalId);
+    const key = JSON.stringify(queue);
+    if ((this.announcedQueues.get(terminalId) ?? '[]') === key) return null;
+    if (queue.length === 0) this.announcedQueues.delete(terminalId);
+    else this.announcedQueues.set(terminalId, key);
+    return queue;
+  }
+
+  /** Recalcula la cola y avisa si cambio. */
+  private refreshQueue(terminalId: TerminalId): void {
+    const queue = this.takeQueueChange(terminalId);
+    if (queue !== null) this.emit('queue', terminalId, queue);
+  }
+
+  /**
+   * La cola de una pestana, para un `conversation.reset`: va dentro, y desde
+   * ahi es lo avisado.
+   */
+  getQueue(terminalId: TerminalId): QueuedPrompt[] {
+    this.takeQueueChange(terminalId);
+    return this.computeQueue(terminalId);
+  }
+
+  /** true si la CLI de la pestana tiene algo en cola. Lo pregunta el socket antes de forzar el envio. */
+  hasQueue(terminalId: TerminalId): boolean {
+    return this.computeQueue(terminalId).length > 0;
+  }
+
+  /**
+   * La app termino de escribirle un mensaje a una CLI cuya cola no queda
+   * escrita (`source: 'app'`), con el agente trabajando: queda en cola hasta
+   * que aparezca en el hilo.
+   */
+  noteQueued(terminalId: TerminalId, input: { text: string; images: number; at: number }): void {
+    this.appQueue.note(terminalId, input);
+    this.refreshQueue(terminalId);
+  }
+
+  /** Lo que la app llevaba en cola ya no esta ahi: Detener se lo devolvio al cuadro. */
+  clearQueued(terminalId: TerminalId): void {
+    if (this.appQueue.clear(terminalId)) this.refreshQueue(terminalId);
+  }
+
+  /** Se forzo el envio: lo que la app llevaba en cola ya se le esta pasando al agente. */
+  markQueueForced(terminalId: TerminalId): void {
+    if (this.appQueue.markForced(terminalId)) this.refreshQueue(terminalId);
+  }
+
+  /**
+   * Cambio la actividad de una pestana. Libre un rato, no queda nada en cola;
+   * sin proceso, tampoco. Otra cosa (trabajando, esperando) cancela la cuenta.
+   */
+  private noteActivity(terminalId: TerminalId, activity: TerminalActivity): void {
+    if (this.lastActivity.get(terminalId) === activity) return;
+    this.lastActivity.set(terminalId, activity);
+    const timer = this.idleTimers.get(terminalId);
+    if (timer !== undefined) clearTimeout(timer);
+    this.idleTimers.delete(terminalId);
+    const wasSettled = this.idleSettled.delete(terminalId);
+
+    if (activity === 'offline') {
+      this.appQueue.clear(terminalId);
+      this.refreshQueue(terminalId);
+      return;
+    }
+    if (activity === 'idle') {
+      const idleTimer = setTimeout(() => {
+        this.idleTimers.delete(terminalId);
+        this.idleSettled.add(terminalId);
+        this.appQueue.clear(terminalId);
+        this.refreshQueue(terminalId);
+      }, IDLE_CLEARS_QUEUE_MS);
+      idleTimer.unref();
+      this.idleTimers.set(terminalId, idleTimer);
+    }
+    if (wasSettled) this.refreshQueue(terminalId);
+  }
+
+  /**
    * La pestana cambio de sesion: se suelta el seguidor viejo y se sigue la
    * nueva, sin perder a quien estaba mirando.
    *
@@ -716,6 +857,13 @@ export class ConversationHub extends EventEmitter {
   /** La pestana se cerro: se suelta sin importar cuantos la miraban. */
   drop(terminalId: TerminalId): void {
     this.withdrawals.delete(terminalId);
+    this.appQueue.clear(terminalId);
+    this.announcedQueues.delete(terminalId);
+    this.lastActivity.delete(terminalId);
+    this.idleSettled.delete(terminalId);
+    const idleTimer = this.idleTimers.get(terminalId);
+    if (idleTimer !== undefined) clearTimeout(idleTimer);
+    this.idleTimers.delete(terminalId);
     const entry = this.entries.get(terminalId);
     if (entry === undefined) return;
     this.release(terminalId, entry);
@@ -972,6 +1120,8 @@ export class ConversationHub extends EventEmitter {
       entry.stopWatchingStatus?.();
     }
     this.entries.clear();
+    for (const timer of this.idleTimers.values()) clearTimeout(timer);
+    this.idleTimers.clear();
   }
 
   private schedulePoll(terminalId: TerminalId, entry: Entry): void {
@@ -1025,8 +1175,23 @@ export class ConversationHub extends EventEmitter {
       */
       this.refreshOpenToolCall(terminalId, entry);
       this.refreshSubagents(terminalId, entry);
+      /*
+        Lo que la app llevaba en cola y ya aparecio en el hilo sale (hito 45).
+        Tambien en la lectura silenciosa: al volver a mirar una pestana, lo
+        entregado mientras tanto no puede seguir en cola.
+      */
+      if (entry.adapter.promptQueue?.source === 'app') {
+        this.appQueue.settle(terminalId, entry.follower.getTail(QUEUE_SETTLE_LOOKBACK).events);
+      }
 
       if (options.silent) return;
+
+      /*
+        La cola, antes de cualquier aviso: un `reset` la lleva adentro, y un
+        `append` tambien si cambio con el, para que la burbuja de un mensaje
+        entregado no se vaya un dibujo antes de que aparezca el mensaje.
+      */
+      const queue = this.takeQueueChange(terminalId);
 
       if (result.reset || result.added.length > 0) this.noteGrowth(terminalId, entry);
 
@@ -1060,7 +1225,9 @@ export class ConversationHub extends EventEmitter {
       // Un `append` vacio si solo cambio el uso: los tokens de un paso llegan
       // al cerrarlo, despues de sus eventos (`PollResult.usageChanged`).
       if (result.added.length > 0 || result.usageChanged === true) {
-        this.emit('append', terminalId, result.added, entry.follower.getUsage(), mode);
+        this.emit('append', terminalId, result.added, entry.follower.getUsage(), mode, queue ?? undefined);
+      } else if (queue !== null) {
+        this.emit('queue', terminalId, queue);
       }
       if (result.turns.length > 0) this.emit('turns', terminalId, result.turns);
       // Un plan nuevo: la solapa lo muestra sin que nadie tenga que recargar.

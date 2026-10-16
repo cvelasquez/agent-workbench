@@ -66,6 +66,13 @@
  * los subagentes que siguen trabajando (§4.15). Un servidor anterior no contesta
  * ni manda nada de eso, y la web lo lleva como "sin acuse" y "sin subagentes".
  *
+ * Y el hito 45, sin subir la version (§6.35): la cola de mensajes que esperan
+ * en la CLI, en `conversation.queue`, en `queue` dentro de `conversation.reset`
+ * y, opcional, dentro del `conversation.append` que la cambio; y el pedido
+ * `agent.forceSend` con su respuesta `agent.forceSent` y el error
+ * `force-send-failed`. Un servidor anterior no manda cola ni contesta el pedido,
+ * y la web no ofrece el boton sin la capacidad `forceSend`.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -90,9 +97,11 @@ import {
   parseConversationPart,
   parseConversationSubagent,
   parsePlanContent,
+  parseQueuedPrompt,
   parseSessionPlan,
   CONVERSATION_IMAGE_SOURCES,
   CONVERSATION_STATES,
+  MAX_QUEUED_PROMPTS,
   MAX_REPORTED_SUBAGENTS,
   type ContextUsage,
   type ConversationEvent,
@@ -101,6 +110,7 @@ import {
   type ConversationState,
   type ConversationSubagent,
   type PlanContent,
+  type QueuedPrompt,
   type SessionPlan,
 } from './conversation.js';
 import {
@@ -355,6 +365,22 @@ export interface ClientArchiveSessionsMessage {
 export interface ClientInterruptMessage {
   type: 'agent.interrupt';
   terminalId: TerminalId;
+}
+
+/**
+ * Que el agente lea ya lo que espera en la cola de la CLI (hito 45, §6.35).
+ *
+ * Es para cuando el agente va por mal camino: en lo demas conviene que la CLI
+ * elija cuando entregarlo. Viaja el pedido y no las teclas: cual es la forma
+ * de cada CLI —su tecla de "enviar ya", o detener y volver a mandar— lo decide
+ * el servidor. Solo con la capacidad `forceSend`, algo en cola y la CLI sin
+ * esperar al usuario. Responde `agent.forceSent` una sola vez, con un `error`
+ * antes si no se hizo.
+ */
+export interface ClientForceSendMessage {
+  type: 'agent.forceSend';
+  terminalId: TerminalId;
+  requestId: string;
 }
 
 /** Que se deshace al volver a antes de un mensaje (hito 44). */
@@ -1032,6 +1058,7 @@ export type ClientMessage =
   | ClientPermissionModeMessage
   | ClientArchiveSessionsMessage
   | ClientInterruptMessage
+  | ClientForceSendMessage
   | ClientRewindMessage
   | ClientResizeMessage
   | ClientOpenTerminalMessage
@@ -1292,6 +1319,37 @@ export interface ServerConversationResetMessage {
    * `conversation.subagents`. Un servidor que no lo manda equivale a ninguno.
    */
   subagents: ConversationSubagent[];
+  /**
+   * Los mensajes que esperan en la cola de la CLI (hito 45). Ver
+   * `conversation.queue`. Un servidor que no lo manda equivale a ninguno.
+   */
+  queue: QueuedPrompt[];
+}
+
+/**
+ * La cola de mensajes que esperan en la CLI cambio, sin mensajes nuevos en el
+ * hilo (hito 45, §6.35): se mando uno con el agente trabajando, se forzo el
+ * envio, o la CLI quedo libre o sin proceso. Va la cola entera. Cuando cambia
+ * junto con mensajes nuevos —la CLI entrego uno— va dentro de ese
+ * `conversation.append`, para que la burbuja no se vaya antes de que aparezca
+ * el mensaje.
+ */
+export interface ServerConversationQueueMessage {
+  type: 'conversation.queue';
+  terminalId: TerminalId;
+  queue: QueuedPrompt[];
+}
+
+/**
+ * Como termino un `agent.forceSend` (hito 45). Solo al socket que lo pidio, y
+ * una sola vez. `sent`: se escribio lo que fuerza el envio; false, el motivo
+ * ya llego en su `error`.
+ */
+export interface ServerAgentForceSentMessage {
+  type: 'agent.forceSent';
+  terminalId: TerminalId;
+  requestId: string;
+  sent: boolean;
 }
 
 /**
@@ -1413,6 +1471,12 @@ export interface ServerConversationAppendMessage {
    * lo cambia — desde el combo o con `shift+tab` en la solapa CLI.
    */
   permissionMode: PermissionMode | null;
+  /**
+   * La cola de la CLI, si cambio con estos mensajes (hito 45): la CLI entrego
+   * uno que esperaba, y la burbuja se va en el mismo dibujo en que aparece el
+   * mensaje. Ausente: la cola no cambio.
+   */
+  queue?: QueuedPrompt[];
 }
 
 /** Tramo anterior, en respuesta a `conversation.loadMore`. Va al principio. */
@@ -1791,6 +1855,8 @@ export type ServerErrorCode =
   | 'settings-failed'
   /** Un `agent.rewind` que no se pudo hacer (hito 44). El menu de la CLI quedo cerrado. */
   | 'rewind-failed'
+  /** Un `agent.forceSend` que no se hizo (hito 45). No se escribio nada en la pty. */
+  | 'force-send-failed'
   /** Un pedido que a un equipo remoto no se le atiende (hito 37). No se hizo nada. */
   | 'remote-refused'
   /**
@@ -1825,6 +1891,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'remote-failed',
   'settings-failed',
   'rewind-failed',
+  'force-send-failed',
   'remote-refused',
   'agent-unsupported',
   'internal',
@@ -1859,7 +1926,9 @@ export type ServerMessage =
   | ServerConversationWaitingMessage
   | ServerConversationToolCallMessage
   | ServerConversationSubagentsMessage
+  | ServerConversationQueueMessage
   | ServerAgentSubmittedMessage
+  | ServerAgentForceSentMessage
   | ServerAgentRewoundMessage
   | ServerConversationPageMessage
   | ServerConversationStateMessage
@@ -2024,6 +2093,11 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'agent.interrupt': {
       const terminalId = asNonEmptyString(record['terminalId']);
       return terminalId === null ? null : { type: 'agent.interrupt', terminalId };
+    }
+    case 'agent.forceSend': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      return terminalId === null || requestId === null ? null : { type: 'agent.forceSend', terminalId, requestId };
     }
     case 'agent.rewind': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -2466,6 +2540,11 @@ function parseSubagentList(value: unknown): ConversationSubagent[] | null {
   return asArrayFiltered(value, parseConversationSubagent)?.slice(0, MAX_REPORTED_SUBAGENTS) ?? null;
 }
 
+/** La cola de una pestana, o null si no es una lista. Un mensaje que no se entiende se descarta solo. */
+function parseQueue(value: unknown): QueuedPrompt[] | null {
+  return asArrayFiltered(value, parseQueuedPrompt)?.slice(0, MAX_QUEUED_PROMPTS) ?? null;
+}
+
 export function parseServerMessage(raw: string): ServerMessage | null {
   const record = asRecord(parseJson(raw));
   if (record === null) return null;
@@ -2599,6 +2678,8 @@ export function parseServerMessage(raw: string): ServerMessage | null {
             openToolCall: record['openToolCall'] === true,
             // Ausente es ninguno: un servidor anterior no los sigue.
             subagents: parseSubagentList(record['subagents']) ?? [],
+            // Ausente es vacia: un servidor anterior no muestra la cola (hito 45).
+            queue: parseQueue(record['queue']) ?? [],
           };
     }
     case 'conversation.subagents': {
@@ -2607,6 +2688,19 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || subagents === null
         ? null
         : { type: 'conversation.subagents', terminalId, subagents };
+    }
+    case 'conversation.queue': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const queue = parseQueue(record['queue']);
+      return terminalId === null || queue === null ? null : { type: 'conversation.queue', terminalId, queue };
+    }
+    case 'agent.forceSent': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const sent = asBoolean(record['sent']);
+      return terminalId === null || requestId === null || sent === null
+        ? null
+        : { type: 'agent.forceSent', terminalId, requestId, sent };
     }
     case 'agent.submitted': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -2628,17 +2722,18 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       const terminalId = asNonEmptyString(record['terminalId']);
       const events = asArrayFiltered(record['events'], parseConversationEvent);
       const usage = parseContextUsage(record['usage']);
-      return terminalId === null || events === null || usage === null
-        ? null
-        : {
-            type: 'conversation.append',
-            terminalId,
-            events,
-            usage,
-            permissionMode: isPermissionMode(record['permissionMode'])
-              ? record['permissionMode']
-              : null,
-          };
+      if (terminalId === null || events === null || usage === null) return null;
+      const append: ServerConversationAppendMessage = {
+        type: 'conversation.append',
+        terminalId,
+        events,
+        usage,
+        permissionMode: isPermissionMode(record['permissionMode']) ? record['permissionMode'] : null,
+      };
+      // Solo si vino y se entiende: ausente es "la cola no cambio", no "vacia".
+      const queue = parseQueue(record['queue']);
+      if (queue !== null) append.queue = queue;
+      return append;
     }
     case 'conversation.mode': {
       const terminalId = asNonEmptyString(record['terminalId']);

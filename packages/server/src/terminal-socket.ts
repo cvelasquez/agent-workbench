@@ -30,6 +30,7 @@ import {
   type IndexStatus,
   type MemoryStatus,
   type ProjectSummary,
+  type QueuedPrompt,
   type ServerErrorCode,
   type ServerErrorMessage,
   type ServerMessage,
@@ -70,6 +71,7 @@ import {
   CLEAR_EDITOR,
   answerFailureText,
   buildAnswerKeys,
+  buildForceSendKeys,
   buildInterruptKeys,
   buildSubmissionWrites,
   planModeChange,
@@ -377,8 +379,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     events: ConversationEvent[],
     usage: ContextUsage,
     permissionMode: PermissionMode | null,
+    queue?: QueuedPrompt[],
   ): void => {
-    broadcast({ type: 'conversation.append', terminalId, events, usage, permissionMode });
+    // La cola va solo si cambio con estos mensajes (hito 45): ausente es "igual que antes".
+    broadcast(
+      queue === undefined
+        ? { type: 'conversation.append', terminalId, events, usage, permissionMode }
+        : { type: 'conversation.append', terminalId, events, usage, permissionMode, queue },
+    );
     // Si el agente escribio en el JSONL, es probable que acabe de tocar
     // archivos. Es el refresco del panel de cambios "al terminar un turno".
     repos.onConversationActivity(terminalId);
@@ -417,6 +425,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   */
   const onConversationSubagents = (terminalId: TerminalId, subagents: ConversationSubagent[]): void =>
     broadcast({ type: 'conversation.subagents', terminalId, subagents });
+
+  /*
+    La cola de la CLI cambio sin mensajes nuevos (hito 45, §6.35): se mando uno
+    con el agente trabajando, se forzo el envio, o la CLI quedo libre o sin
+    proceso. Cuando la cambia un mensaje que llega, va dentro de su `append`.
+  */
+  const onConversationQueue = (terminalId: TerminalId, queue: QueuedPrompt[]): void =>
+    broadcast({ type: 'conversation.queue', terminalId, queue });
 
   const onConversationPlans = (terminalId: TerminalId, plans: SessionPlan[]): void =>
     broadcast({ type: 'conversation.plans', terminalId, plans });
@@ -463,6 +479,115 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     (socket: WebSocket, terminalId: TerminalId): PieceWriter =>
     (piece) =>
       writeToTerminal(socket, terminalId, piece);
+
+  /**
+   * Interrumpe lo que la CLI de una pestana este haciendo: el boton Detener, y
+   * "Forzar envio ahora" en la CLI que no tiene tecla para eso (hito 45, Pi,
+   * §16.18). Esc no hace fila: tiene que llegar ya. Lo que faltaba escribir en
+   * esa terminal se descarta antes, para que no caiga detras del Esc un Enter
+   * que mande lo que el usuario acaba de interrumpir.
+   *
+   * Una CLI que al interrumpir devuelve a su editor lo que tenia en cola (hito
+   * 43): cuando su historial cierre el turno, se vacia ese editor y el texto
+   * vuelve al cuadro. Con `resend`, en vez de volver al cuadro se le manda de
+   * nuevo a la CLI, que ya quedo libre: el agente lo lee como pedido nuevo.
+   *
+   * true si la primera tecla se escribio.
+   */
+  const interruptAgent = (socket: WebSocket, terminalId: TerminalId, options: { resend: boolean }): boolean => {
+    writeQueue.interrupt(terminalId);
+    const [first, ...rest] = buildInterruptKeys(inputOf(terminalId).interruptPresses);
+    if (first === undefined || !writeToTerminal(socket, terminalId, first)) return false;
+    const adapter = adapterOf(terminalId);
+    /*
+      La cola que llevaba la app ya no esta en la CLI (hito 45): Pi la devolvio a
+      su editor, y de ahi vuelve al cuadro; o ya habia llegado al hilo. Al forzar
+      el envio, en cambio, la burbuja sigue (marcada) hasta que el mensaje que se
+      manda de nuevo aparece en el hilo: sin eso, quedaba un segundo sin ninguno
+      de los dos (medido en vivo).
+    */
+    if (!options.resend && adapter?.queuedSubmits !== undefined && adapter.promptQueue?.source === 'app') {
+      conversations.clearQueued(terminalId);
+    }
+    /*
+      La lista se toma ya, antes de que el aviso de "libre" la olvide, y el
+      trabajo va por la fila sin dejarse cortar: un envio que llegue justo
+      despues cae detras de la tecla.
+    */
+    const reclaimFrom = adapter?.queuedSubmits;
+    if (reclaimFrom !== undefined) {
+      const taken = queuedSubmits.take(terminalId);
+      const interruptedAt = Date.now();
+      if (taken.length > 0) {
+        void writeQueue.enqueue(
+          terminalId,
+          async (lane) => {
+            const outcome = await reclaimQueuedSubmits({
+              source: reclaimFrom,
+              target: () => {
+                const tab = registry.get(terminalId);
+                return tab === null || !tab.alive || tab.sessionId.length === 0
+                  ? null
+                  : { cwd: tab.cwd, sessionId: tab.sessionId };
+              },
+              submissions: taken,
+              interruptedAt,
+              lastClearKeyAt: () => queuedSubmits.lastClearKeyAt(terminalId),
+              writeClearKey: () => {
+                if (!registry.write(terminalId, CLEAR_EDITOR)) return false;
+                queuedSubmits.noteClearKey(terminalId, Date.now());
+                return true;
+              },
+              prefill: options.resend
+                ? async (returned) => {
+                    // El mismo envio de un mensaje del cuadro, con lo que la CLI devolvio.
+                    const input = inputOf(terminalId);
+                    const pieces = buildSubmissionWrites(returned, [], input, { send: true });
+                    if (pieces === null) return;
+                    registry.noteSubmitted(terminalId, returned);
+                    const written = await lane.writePieces(pieces, input.pieceGapMs, pieceWriter(socket, terminalId));
+                    if (written === 'written') queuedSubmits.note(terminalId, returned, Date.now());
+                    debugLog('write', `force send to ${terminalId.slice(0, 8)}: resent, ${written}`);
+                  }
+                : (returned) =>
+                    send(socket, {
+                      type: 'composer.prefill',
+                      terminalId,
+                      text: returned,
+                      reason: reclaimFrom.returnReason,
+                    }),
+              // La CLI deshizo el mensaje sin escribirlo (hito 44): el hilo lo esconde desde el primero.
+              withdraw: (eventIds) => {
+                const first = eventIds[0];
+                if (first !== undefined) conversations.withdraw(terminalId, first);
+              },
+              wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+              now: Date.now,
+            });
+            debugLog('write', `queued messages of ${terminalId.slice(0, 8)} after an interrupt: ${outcome}`);
+          },
+          { interruptible: false },
+        );
+      }
+    }
+    /*
+      Una CLI que pide mas de un Esc: el resto va por la fila, espaciado, y sin
+      dejarse cortar. Por la fila para que un envio que llegue justo despues
+      caiga detras del ultimo Esc y no entre dos; sin cortarse porque otro clic
+      en interrumpir no deshace el primero. Con un solo Esc no se encola nada.
+    */
+    if (rest.length > 0) {
+      void writeQueue.enqueue(
+        terminalId,
+        async (lane) => {
+          await new Promise((resolve) => setTimeout(resolve, ANSWER_KEY_INTERVAL_MS));
+          await lane.writePieces(rest, ANSWER_KEY_INTERVAL_MS, pieceWriter(socket, terminalId));
+        },
+        { interruptible: false },
+      );
+    }
+    return true;
+  };
 
   /**
    * Cierra una pestana y suelta todo lo que la seguia, para todos: el hub, git,
@@ -539,6 +664,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         // y un aviso que salio mientras tanto no puede quedar pisado por uno viejo.
         openToolCall: conversations.isToolCallOpen(terminalId),
         subagents: conversations.getSubagents(terminalId),
+        queue: conversations.getQueue(terminalId),
       });
     });
   };
@@ -555,6 +681,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('waiting', onConversationWaiting);
   conversations.on('toolCall', onConversationToolCall);
   conversations.on('subagents', onConversationSubagents);
+  conversations.on('queue', onConversationQueue);
   conversations.on('turns', onConversationTurns);
   conversations.on('plans', onConversationPlans);
   conversations.on('parts', onConversationParts);
@@ -1035,6 +1162,20 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               );
               settle(outcome === 'written');
               /*
+                Una CLI cuya cola no queda escrita (hito 45, `source: 'app'`):
+                lo mandado con el agente trabajando queda en cola hasta que
+                aparezca en el hilo. Un comando de barra no hace cola.
+              */
+              if (
+                outcome === 'written' &&
+                message.send !== false &&
+                submitting?.promptQueue?.source === 'app' &&
+                registry.activityOf(terminalId) === 'busy' &&
+                !text.trimStart().startsWith('/')
+              ) {
+                conversations.noteQueued(terminalId, { text, images: images.length, at: Date.now() });
+              }
+              /*
                 Con la CLI que devuelve a su editor lo que tenia en cola al
                 interrumpir (hito 43), se anota lo que llego hasta el Enter: es
                 lo que una interrupcion puede tener que recuperar.
@@ -1283,81 +1424,70 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           terminal se descarta antes, para que no caiga detras del Esc un
           Enter que mande lo que el usuario acaba de interrumpir.
         */
-        case 'agent.interrupt': {
-          writeQueue.interrupt(message.terminalId);
-          const [first, ...rest] = buildInterruptKeys(inputOf(message.terminalId).interruptPresses);
-          if (first === undefined || !writeToTerminal(socket, message.terminalId, first)) break;
-          /*
-            Una CLI que al interrumpir devuelve a su editor lo que tenia en cola
-            (hito 43): cuando su historial cierre el turno, se vacia ese editor y
-            el texto vuelve al cuadro. La lista se toma ya, antes de que el
-            aviso de "libre" la olvide, y el trabajo va por la fila sin dejarse
-            cortar: un envio que llegue justo despues cae detras de la tecla.
-          */
-          const reclaimFrom = adapterOf(message.terminalId)?.queuedSubmits;
-          if (reclaimFrom !== undefined) {
-            const reclaimId = message.terminalId;
-            const taken = queuedSubmits.take(reclaimId);
-            const interruptedAt = Date.now();
-            if (taken.length > 0) {
-              void writeQueue.enqueue(
-                reclaimId,
-                async () => {
-                  const outcome = await reclaimQueuedSubmits({
-                    source: reclaimFrom,
-                    target: () => {
-                      const tab = registry.get(reclaimId);
-                      return tab === null || !tab.alive || tab.sessionId.length === 0
-                        ? null
-                        : { cwd: tab.cwd, sessionId: tab.sessionId };
-                    },
-                    submissions: taken,
-                    interruptedAt,
-                    lastClearKeyAt: () => queuedSubmits.lastClearKeyAt(reclaimId),
-                    writeClearKey: () => {
-                      if (!registry.write(reclaimId, CLEAR_EDITOR)) return false;
-                      queuedSubmits.noteClearKey(reclaimId, Date.now());
-                      return true;
-                    },
-                    prefill: (returned) =>
-                      send(socket, {
-                        type: 'composer.prefill',
-                        terminalId: reclaimId,
-                        text: returned,
-                        reason: reclaimFrom.returnReason,
-                      }),
-                    // La CLI deshizo el mensaje sin escribirlo (hito 44): el hilo lo esconde desde el primero.
-                    withdraw: (eventIds) => {
-                      const first = eventIds[0];
-                      if (first !== undefined) conversations.withdraw(reclaimId, first);
-                    },
-                    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-                    now: Date.now,
-                  });
-                  debugLog('write', `queued messages of ${reclaimId.slice(0, 8)} after an interrupt: ${outcome}`);
-                },
-                { interruptible: false },
-              );
-            }
+        case 'agent.interrupt':
+          interruptAgent(socket, message.terminalId, { resend: false });
+          break;
+
+        /*
+          "Forzar envio ahora" (hito 45, §6.35): que el agente lea ya lo que
+          espera en la cola de la CLI. Es para cuando va por mal camino. Se
+          comprueba todo antes de escribir nada: escribir de mas en una pty no
+          se deshace. Con su tecla de "enviar ya" (Claude Code, Antigravity), por
+          la fila de la pestana: no puede caer en medio de un pegado. Sin tecla
+          (Pi), se detiene y se vuelve a mandar lo que la CLI devuelve.
+        */
+        case 'agent.forceSend': {
+          const { terminalId, requestId } = message;
+          let replied = false;
+          const reply = (sent: boolean): void => {
+            if (replied) return;
+            replied = true;
+            send(socket, { type: 'agent.forceSent', terminalId, requestId, sent });
+          };
+          const refuse = (code: ServerErrorCode, text: ServerText): void => {
+            sendError(socket, code, text, undefined, requestId);
+            reply(false);
+          };
+          const adapter = adapterOf(terminalId);
+          const method = adapter !== null && adapter.capabilities.forceSend ? (adapter.promptQueue?.forceSend ?? null) : null;
+          if (method === null) {
+            refuse('agent-unsupported', serverText('forceSendUnsupported'));
+            break;
           }
-          /*
-            Una CLI que pide mas de un Esc: el resto va por la fila, espaciado,
-            y sin dejarse cortar. Por la fila para que un envio que llegue
-            justo despues caiga detras del ultimo Esc y no entre dos; sin
-            cortarse porque otro clic en interrumpir no deshace el primero.
-            Con un solo Esc no se encola nada: es lo de siempre.
-          */
-          if (rest.length > 0) {
-            const terminalId = message.terminalId;
-            void writeQueue.enqueue(
+          const tab = registry.get(terminalId);
+          if (tab === null || !tab.alive) {
+            refuse('force-send-failed', serverText('forceSendNoCli'));
+            break;
+          }
+          // Con un permiso o una pregunta abiertos, las teclas caerian en ese menu.
+          if (registry.activityOf(terminalId) === 'waiting') {
+            refuse('force-send-failed', serverText('forceSendWaiting'));
+            break;
+          }
+          // Sin nada en cola no hay que forzar nada: y en Pi, un Esc cortaria el turno por nada.
+          if (!conversations.hasQueue(terminalId)) {
+            refuse('force-send-failed', serverText('forceSendNothing'));
+            break;
+          }
+          conversations.markQueueForced(terminalId);
+          if (method === 'interrupt-and-resend') {
+            if (interruptAgent(socket, terminalId, { resend: true })) reply(true);
+            else refuse('force-send-failed', serverText('forceSendFailed'));
+            break;
+          }
+          const keys = buildForceSendKeys(method);
+          void writeQueue
+            .enqueue(
               terminalId,
               async (lane) => {
-                await new Promise((resolve) => setTimeout(resolve, ANSWER_KEY_INTERVAL_MS));
-                await lane.writePieces(rest, ANSWER_KEY_INTERVAL_MS, pieceWriter(socket, terminalId));
+                const outcome = await lane.writePieces([keys], 0, pieceWriter(socket, terminalId));
+                debugLog('write', `force send to ${terminalId.slice(0, 8)}: ${method}, ${outcome}`);
+                if (outcome === 'written') reply(true);
+                else refuse('force-send-failed', serverText('forceSendFailed'));
               },
               { interruptible: false },
-            );
-          }
+            )
+            .then(() => reply(false));
           break;
         }
 
@@ -1629,6 +1759,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               waitingFor: snapshot.waitingFor,
               openToolCall: conversations.isToolCallOpen(message.terminalId),
               subagents: conversations.getSubagents(message.terminalId),
+              queue: conversations.getQueue(message.terminalId),
             });
             // Los planes van en su propio mensaje y no dentro del reset: la
             // conversacion se rehace muchas veces —cada `conversation.reset`—
@@ -2469,6 +2600,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('waiting', onConversationWaiting);
     conversations.off('toolCall', onConversationToolCall);
     conversations.off('subagents', onConversationSubagents);
+    conversations.off('queue', onConversationQueue);
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);
     stopAgentChanges();

@@ -71,6 +71,8 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   plans: false,
   // Sin estado publicado no hay espera que mirar: manda el candado de 10.8.
   waitingBlocksSubmit: false,
+  // No hace cola: un mensaje con el agente trabajando le llega al modelo en el acto (hito 45).
+  forceSend: false,
 };
 
 /**

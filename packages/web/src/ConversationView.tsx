@@ -41,6 +41,7 @@ import type {
   ConversationSubagent,
   ConversationToolResultPart,
   ContextWindowSource,
+  QueuedPrompt,
   StatusLineState,
   TerminalActivity,
   TerminalId,
@@ -384,6 +385,11 @@ interface ConversationViewProps {
    * hilo (§6.33). null o ausente: las menciones quedan como texto.
    */
   fileLinks?: FileLinks | null;
+  /**
+   * true si la CLI de la pestana sabe forzar el envio de lo que espera en su
+   * cola y esta abierta (hito 45, §6.35). Sin eso la cola se ve, sin boton.
+   */
+  forceSendAvailable?: boolean;
 }
 
 /**
@@ -421,6 +427,7 @@ export function ConversationView({
   receipt = null,
   clock = null,
   fileLinks = null,
+  forceSendAvailable = false,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -429,6 +436,9 @@ export function ConversationView({
     state,
     waitingFor,
     subagents,
+    queue,
+    forceSend,
+    forcing,
     hasMore,
     loadingMore,
     loadMore,
@@ -493,13 +503,25 @@ export function ConversationView({
   const [offerOwn, setOfferOwn] = useState(false);
   const [seekingOwn, setSeekingOwn] = useState(false);
   const ownSeek = useRef<{ pages: number } | null>(null);
-  const ownIds = useMemo(() => ownMessageIds(events), [events]);
+  /*
+    Un mensaje en cola que la CLI ya escribio en su historial (OpenCode) se
+    esconde de su lugar mientras espera: se ve abajo, en la cola (hito 45).
+  */
+  const queuedEventIds = useMemo(
+    () => new Set(queue.flatMap((prompt) => (prompt.eventId === undefined ? [] : [prompt.eventId]))),
+    [queue],
+  );
+  const shownEvents = useMemo(
+    () => (queuedEventIds.size === 0 ? events : events.filter((event) => !queuedEventIds.has(event.eventId))),
+    [events, queuedEventIds],
+  );
+  const ownIds = useMemo(() => ownMessageIds(shownEvents), [shownEvents]);
 
   const { cards, results } = useMemo(() => {
     const resultsByTool = new Map<string, ConversationToolResultPart>();
     const callIds = new Set<string>();
 
-    for (const event of events) {
+    for (const event of shownEvents) {
       for (const part of event.parts) {
         if (part.kind === 'tool-result') resultsByTool.set(part.toolUseId, part);
         // Una pregunta cuenta como llamada: su resultado se absorbe igual, y
@@ -511,7 +533,7 @@ export function ConversationView({
     }
 
     const built: Card[] = [];
-    for (const event of events) {
+    for (const event of shownEvents) {
       // Un resultado cuya llamada no esta cargada si se muestra: es preferible
       // una tarjeta suelta a que el dato desaparezca sin decir nada.
       //
@@ -527,7 +549,7 @@ export function ConversationView({
     }
 
     return { cards: built, results: resultsByTool };
-  }, [events]);
+  }, [shownEvents]);
 
   /*
     Los ids de las tarjetas, en orden, para anclar la vista (`thread-scroll.ts`).
@@ -719,7 +741,8 @@ export function ConversationView({
     }
     // Lo nuevo puede haber empujado el final fuera de la vista sin que nadie desplazara.
     measureEnd();
-  }, [cards.length, needle, measureEnd, spanIn]);
+    // La cola va al final: una burbuja nueva baja la vista como un mensaje (hito 45).
+  }, [cards.length, queue.length, needle, measureEnd, spanIn]);
 
   /*
     Un clic en "Ir a tu mensaje anterior" sin ningun mensaje propio cargado por
@@ -1088,6 +1111,21 @@ export function ConversationView({
               </ToolGroup>
             );
           })}
+
+          {/*
+            Los mensajes que esperan en la cola de la CLI (hito 45, §6.35), al
+            final, hasta que la CLI los entrega. Sin CLI no queda ninguno: la
+            cola vivia en su proceso.
+          */}
+          {cliPresence === 'live' && queue.length > 0 && (
+            <QueuedPrompts
+              queue={queue}
+              canForce={forceSendAvailable && queue.some((prompt) => prompt.forced !== true)}
+              forceBlocked={waitingFor !== null}
+              forcing={forcing}
+              onForce={forceSend}
+            />
+          )}
         </div>
         {awayFromEnd && (offerOwn || seekingOwn) && (
           <button
@@ -1473,6 +1511,68 @@ function MessageBlock({
 
       <TurnFooter event={event} mine={mine} />
     </article>
+  );
+}
+
+/**
+ * Los mensajes que esperan en la cola de la CLI (hito 45, §6.35), al final del
+ * hilo.
+ *
+ * Cada uno se ve como un mensaje propio atenuado, con "En cola", hasta que la
+ * CLI lo entrega y aparece donde el agente lo leyo. No son tarjetas del hilo:
+ * no se buscan, no se copian ni se vuelve a ellos. Debajo va un solo boton,
+ * para todos: las CLIs entregan juntos los que esperan. Es para cuando el
+ * agente va por mal camino; en lo demas, conviene dejar que la CLI elija el
+ * momento, y por eso el boton es discreto.
+ */
+function QueuedPrompts({
+  queue,
+  canForce,
+  forceBlocked,
+  forcing,
+  onForce,
+}: {
+  queue: readonly QueuedPrompt[];
+  canForce: boolean;
+  /** true si la CLI espera una respuesta: las teclas caerian en ese dialogo. */
+  forceBlocked: boolean;
+  forcing: boolean;
+  onForce: () => void;
+}): JSX.Element {
+  return (
+    <div className="queued-prompts">
+      {queue.map((prompt) => (
+        <article key={prompt.id} className={`turn turn-user turn-pending${prompt.forced === true ? ' turn-pending-forced' : ''}`}>
+          {prompt.text.length > 0 && <OwnText text={prompt.text} truncated={prompt.truncated} needle="" />}
+          {prompt.images > 0 && (
+            <div className="turn-pending-images">{t('thread.queue.images', { count: prompt.images })}</div>
+          )}
+          <div className="turn-meta">
+            <span className="turn-who">{t('thread.turn.you')}</span>
+            {prompt.at > 0 && <span>{formatTime(prompt.at)}</span>}
+            <span
+              className="turn-pending-state"
+              title={prompt.forced === true ? t('thread.queue.forcedTitle') : t('thread.queue.labelTitle')}
+            >
+              {prompt.forced === true ? t('thread.queue.forced') : t('thread.queue.label')}
+            </span>
+          </div>
+        </article>
+      ))}
+      {canForce && (
+        <div className="queued-prompts-actions">
+          <button
+            className="queued-force"
+            onClick={onForce}
+            disabled={forcing || forceBlocked}
+            aria-busy={forcing}
+            title={forceBlocked ? t('thread.queue.forceBlocked') : t('thread.queue.forceSendTitle')}
+          >
+            {forcing ? t('thread.queue.forcing') : t('thread.queue.forceSend')}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

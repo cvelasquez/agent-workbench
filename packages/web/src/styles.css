@@ -2396,6 +2396,63 @@ kbd {
 }
 
 /*
+  Los mensajes que esperan en la cola de la CLI (hito 45, §6.35), al final del
+  hilo: el marco de un mensaje propio, punteado y atenuado, porque todavia no
+  son parte de la conversacion. "En cola" va con el color de aviso, como
+  "enviado mientras trabajaba", que es lo que va a decir el mensaje si la CLI
+  lo entrega a mitad del turno.
+*/
+.queued-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.turn-pending {
+  border-left-style: dashed;
+  opacity: 0.72;
+}
+
+.turn-pending-state {
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px dashed var(--warning);
+  color: var(--warning);
+}
+
+/* Ya se forzo el envio: la CLI se lo esta pasando al agente. */
+.turn-pending-forced .turn-pending-state {
+  border-style: solid;
+}
+
+.turn-pending-images {
+  font-size: calc(12px * var(--thread-scale, 1));
+  color: var(--text-dim);
+}
+
+/*
+  "Forzar envio ahora": discreto a proposito, como "Cargar anteriores". Es para
+  cuando el agente va por mal camino; lo normal es dejar que la CLI elija.
+*/
+.queued-prompts-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.queued-force {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.queued-force:hover:not(:disabled) {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+/*
   Un aviso del hilo: compactacion, interrupcion o error del proveedor. Una linea
   centrada entre dos bordes punteados, que se lee como un corte y no como algo
   que alguien escribio.

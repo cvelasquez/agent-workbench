@@ -1898,6 +1898,7 @@ const statusRecord = (id, over = {}) => ({
     contextWindowSource: null,
     plans: false,
     waitingBlocksSubmit: false,
+    forceSend: true,
   };
   check('9 sin status line: capacidades iguales al literal', same(adapter.capabilities, expectedBase) && adapter.capabilities === ANTIGRAVITY_BASE_CAPABILITIES, show(adapter.capabilities));
   check('9 con status line: estado y medidor, y lista para recibir sigue apagada (P0-4)',

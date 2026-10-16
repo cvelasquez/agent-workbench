@@ -412,6 +412,8 @@ export interface AgentControlsView {
   contextWindowSource: ContextWindowSource | null;
   /** El boton de mandar una nota al agente. */
   noteSendable: boolean;
+  /** "Forzar envio ahora" en los mensajes en cola (hito 45). */
+  forceSend: boolean;
 }
 
 export function controlsFor(capabilities: AgentCapabilities): AgentControlsView {
@@ -428,6 +430,7 @@ export function controlsFor(capabilities: AgentCapabilities): AgentControlsView 
     // Mandar una nota abre una pestana y espera a que la CLI este lista antes
     // de pegar: sin esa senal, la pestana se abriria para nada.
     noteSendable: capabilities.readySignal,
+    forceSend: capabilities.forceSend,
   };
 }
 

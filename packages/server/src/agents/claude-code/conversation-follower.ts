@@ -24,6 +24,7 @@ import {
   type ConversationState,
   type ConversationSubagent,
   type PermissionMode,
+  type QueuedPrompt,
 } from '@agent-workbench/shared';
 import {
   stripFileReference,
@@ -38,6 +39,7 @@ import { BranchTracker } from './branch-tracker.js';
 import { JsonlFollower, type EventLookup, type JsonlLineSink } from '../jsonl-follower.js';
 import { TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import { ModelVariantRegistry } from './model-variants.js';
+import { PromptQueueTracker } from './prompt-queue.js';
 import { SubagentTracker } from './subagent-tracker.js';
 
 /**
@@ -139,6 +141,12 @@ export class ConversationFollower implements JsonlLineSink {
    * —el aviso de fin es una `queue-operation`—, asi que va antes de todo filtro.
    */
   private readonly subagents = new SubagentTracker();
+
+  /**
+   * Los mensajes que esperan en la cola de la CLI (hito 45, §4.4.3). Tambien
+   * son lineas que no son tarjetas (`queue-operation`): va antes de todo filtro.
+   */
+  private readonly promptQueue = new PromptQueueTracker();
 
   /** Los topes de cada parte. Los de transporte salvo que se lea para la copia propia. */
   private readonly limits: EventLimits;
@@ -245,6 +253,11 @@ export class ConversationFollower implements JsonlLineSink {
     return this.subagents.running(launchedAt);
   }
 
+  /** Los mensajes del proceso de `launchedAt` que esperan en la cola de la CLI (§4.4.3). */
+  queuedPrompts(launchedAt: number): QueuedPrompt[] {
+    return this.promptQueue.pending(launchedAt);
+  }
+
   /** Ultimos `limit` eventos, que es lo que se quiere ver al abrir el panel. */
   getTail(limit: number): EventPage {
     return this.jsonl.getTail(limit);
@@ -310,6 +323,7 @@ export class ConversationFollower implements JsonlLineSink {
     this.attachmentRoots.clear();
     this.planFiles = [];
     this.subagents.reset();
+    this.promptQueue.reset();
     this.branch.reset();
   }
 
@@ -383,6 +397,7 @@ export class ConversationFollower implements JsonlLineSink {
     events: EventLookup,
   ): ConversationEvent | null {
     this.subagents.observe(record);
+    this.promptQueue.observe(record);
 
     /*
       `cost-state` no es una tarjeta de la conversacion, pero es la unica linea

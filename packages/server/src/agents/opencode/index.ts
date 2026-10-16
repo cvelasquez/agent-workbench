@@ -117,6 +117,8 @@ export const OPENCODE_CAPABILITIES: AgentCapabilities = {
     apaga con `statusSource`.
   */
   waitingBlocksSubmit: true,
+  // Detenerla con algo en cola lo deja sin contestar: no hay forma de forzarlo (hito 45, §11.13).
+  forceSend: false,
 };
 
 /**
@@ -298,6 +300,9 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
     }),
     status,
     questions,
+
+    // La cola la dice la base: un mensaje sin respuesta detras de uno que se esta contestando (hito 45, §11.13).
+    promptQueue: { source: 'session', forceSend: null },
 
     /**
      * La base que se lee, para el arranque. Solo si hay algo que decir, para que

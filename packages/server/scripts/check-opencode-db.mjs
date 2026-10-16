@@ -1129,6 +1129,61 @@ const followerOf = (db, sessionId, extra = {}) => new OpenCodeSessionFollower({ 
   db.close();
 }
 
+// 11q. La cola (hito 45, §11.13): la regla del "QUEUED" del TUI, leida en su binario.
+{
+  const db = openDb(base.file);
+  base.insertSession({ id: 'ses_cola', directory: 'D:/Otro', title: 'Cola', time_created: 30000, time_updated: 30000 });
+  const userAt = (id, at, text) => {
+    const row = messageRow('ses_cola', id, at, { role: 'user', time: { created: at } });
+    base.insertMessage(row);
+    base.insertPart(partRow(row, `prt_${id}`, at + 1, { type: 'text', text }));
+    return row;
+  };
+  const assistantData = (parentID, created, completed = null, error = null) => ({
+    role: 'assistant', parentID, providerID: 'openai', modelID: 'gpt-5.6-terra',
+    time: completed === null ? { created } : { created, completed },
+    ...(error === null ? {} : { error: { name: error, data: { message: 'x' } } }),
+  });
+  const assistantAt = (id, parentID, created) => {
+    const row = messageRow('ses_cola', id, created, assistantData(parentID, created));
+    base.insertMessage(row);
+    base.insertPart(partRow(row, `prt_${id}`, created + 1, { type: 'text', text: 'escribiendo' }));
+    return row;
+  };
+  userAt('msg_q1', 30000, 'Escribe un poema');
+  assistantAt('msg_q2', 'msg_q1', 30100);
+  userAt('msg_q3', 30200, 'Mensaje B');
+
+  const follower = followerOf(db, 'ses_cola');
+  await follower.poll();
+  const queue = follower.queuedPrompts(30000);
+  check('11q un mensaje detras de la respuesta que se esta escribiendo esta en cola, con su evento',
+    same(queue, [{ id: 'msg_q3', eventId: 'msg_q3', text: 'Mensaje B', truncated: false, images: 0, at: 30200 }]), show(queue));
+  check('11q el mensaje sigue siendo un evento del hilo: la web lo esconde mientras espera',
+    follower.getTail(100).events.some((event) => event.eventId === 'msg_q3'));
+  check('11q una respuesta a medias de un proceso anterior no deja nada en cola', follower.queuedPrompts(40000).length === 0);
+
+  userAt('msg_q4', 30300, 'Mensaje C');
+  await follower.poll();
+  check('11q dos en cola, en orden', same(follower.queuedPrompts(30000).map((each) => each.id), ['msg_q3', 'msg_q4']));
+
+  // La respuesta termina y OpenCode empieza a contestar lo que esperaba.
+  base.update('message', 'msg_q2', { data: assistantData('msg_q1', 30100, 30500), time_updated: 30500 });
+  assistantAt('msg_q5', 'msg_q4', 30600);
+  await follower.poll();
+  check('11q contestandolos, ya no estan en cola', follower.queuedPrompts(30000).length === 0, show(follower.queuedPrompts(30000)));
+
+  // Detenida con algo en cola: la respuesta se cierra con error y lo que esperaba no se contesta (medido).
+  userAt('msg_q6', 30700, 'Mensaje D');
+  await follower.poll();
+  check('11q otro en cola detras de la respuesta nueva', same(follower.queuedPrompts(30000).map((each) => each.id), ['msg_q6']));
+  base.update('message', 'msg_q5', { data: assistantData('msg_q4', 30600, 30800, 'MessageAbortedError'), time_updated: 30800 });
+  await follower.poll();
+  check('11q detenida: el mensaje sale de la cola y queda en el hilo sin contestar',
+    follower.queuedPrompts(30000).length === 0 && follower.getTail(100).events.some((event) => event.eventId === 'msg_q6'));
+  db.close();
+}
+
 // 11. El hub manda un append vacio cuando solo cambio el uso (M2).
 {
   const { ConversationHub } = await import('../src/conversation-hub.ts');
@@ -1322,7 +1377,7 @@ const historyOf = (file, extra = {}) => {
   check('13 capacidades iguales al literal', same(adapter.capabilities, {
     sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, models: null, efforts: null,
     questionCards: true, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
-    waitingBlocksSubmit: true,
+    waitingBlocksSubmit: true, forceSend: false,
   }) && adapter.capabilities === OPENCODE_CAPABILITIES, show(adapter.capabilities));
   check('13 las capacidades sobreviven al viaje por la red', same(shared.parseAgentCapabilities(JSON.parse(JSON.stringify(adapter.capabilities))), adapter.capabilities));
   check('13 envio: imagenes por ruta pegada sola (medido en vivo), el Enter aparte, 400 ms y dos Esc', same(adapter.input, {

@@ -2504,6 +2504,7 @@ const throwsOn = (run) => {
     contextWindowSource: 'token-count',
     plans: false,
     waitingBlocksSubmit: false,
+    forceSend: false,
   }), show(adapter.capabilities));
   const onWindows = process.platform === 'win32';
   check('E1 envio: imagenes por ruta sola, 400 ms entre piezas, con marcadores, transcript entre comillas; en Windows, Fin antes del Enter y 3 s de arranque',

@@ -603,7 +603,7 @@ export function sameFilePath(a: string, b: string): boolean {
  * un `@docs/captura.png` tecleado a mano sigue siendo texto, porque nada
  * garantiza que haya bytes que mostrar en su lugar.
  */
-function takePastedImages(text: string): {
+export function takePastedImages(text: string): {
   text: string;
   images: { path: string; mediaType: string }[];
 } {
