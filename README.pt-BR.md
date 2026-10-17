@@ -39,11 +39,11 @@ CLI.
 | **Abas** | Vários agentes ao mesmo tempo, de qualquer CLI, cada um na sua pasta. Um ponto em cada aba mostra se o agente está trabalhando, ocioso ou esperando por você. Recarregar a página não interrompe nada: as CLIs rodam no servidor, não no navegador. |
 | **Início rápido** | Ao abrir o app, as suas abas voltam **suspensas**: dá para lê-las por inteiro, e nenhuma CLI é iniciada até você clicar em **Abrir CLI**. |
 | **Histórico** | Os seus projetos e conversas anteriores na barra lateral, de todas as CLIs, com um filtro. Clique em uma para retomá-la de onde você parou, com a CLI dela. Arquive sessões antigas ou um projeto inteiro para organizar: nada é excluído, e dá para desfazer. |
-| **Conversa** | As mensagens como cartões, ao vivo, com as chamadas de ferramentas recolhidas. As mensagens mais antigas carregam conforme você rola para cima. Busque, copie qualquer mensagem ou bloco de código, e vá para a sua mensagem anterior (↑) ou para o final (↓). Uma linha embaixo mostra quando a sua mensagem chegou à CLI e se o agente ainda está trabalhando. Dependendo da CLI, você pode responder às perguntas do agente ali mesmo. Um arquivo do projeto que o agente menciona abre na aba Arquivos com um clique. |
-| **Caixa de mensagem** | Espaço para escrever, colar imagens e anexar arquivos; um texto longo colado vira um chip compacto. O que você está digitando não se perde ao fechar o app e aparece ao vivo em todas as janelas abertas. |
+| **Conversa** | As mensagens como cartões, ao vivo, com as chamadas de ferramentas recolhidas. As mensagens mais antigas carregam conforme você rola para cima. Busque, copie qualquer mensagem ou bloco de código, e vá para a sua mensagem anterior (↑) ou para o final (↓). Uma linha embaixo mostra quando a sua mensagem chegou à CLI e se o agente ainda está trabalhando. Dependendo da CLI, você pode responder às perguntas do agente ali mesmo. Um arquivo do projeto que o agente menciona abre na aba Arquivos com um clique. Com o Claude Code, uma mensagem que você interrompe antes de o agente começar volta para a caixa para você corrigir, e **↩** em uma mensagem volta para antes dela: a conversa e, se você quiser, o código. Uma mensagem enviada com o agente trabalhando espera no final, marcada na fila; dependendo da CLI, **Forçar envio agora** faz o agente lê-la na hora. |
+| **Caixa de mensagem** | Espaço para escrever, colar imagens e anexar arquivos; um texto longo colado vira um chip compacto. O que você está digitando não se perde ao fechar o app e aparece ao vivo em todas as janelas abertas. Shift+Enter continua uma lista numerada ou com marcadores. |
 | **Medidor de contexto** | Quanto da janela de contexto do modelo a conversa está usando. Tokens, nunca dinheiro. |
 | **Alterações** | O branch, os arquivos alterados e o diff deles. **Somente leitura**: sem botões de commit nem de push. |
-| **Arquivos** | A árvore de arquivos do projeto, com busca e pré-visualização com realce de sintaxe. Abra vários arquivos ao mesmo tempo, cada um na sua aba; os arquivos Markdown abrem formatados. Um clique coloca o caminho de um arquivo na sua mensagem. |
+| **Arquivos** | A árvore de arquivos do projeto, com busca e pré-visualização com realce de sintaxe. Abra vários arquivos ao mesmo tempo, cada um na sua aba; os arquivos Markdown abrem formatados. Um clique coloca o caminho de um arquivo na sua mensagem. Edite um arquivo de texto, um `.env` por exemplo, e salve ali mesmo: se o agente o alterou enquanto você editava, nada é sobrescrito, e você passa suas alterações para a versão nova. |
 | **Planos** | Os planos e os documentos `.md` que a conversa escreveu, renderizados. Um clique coloca o caminho de um documento na sua mensagem. |
 | **Notas** | Um bloco de anotações ao lado da conversa, com imagens. Com o Claude Code, um clique envia uma nota para uma nova conversa. |
 | **Console** | O terminal do seu sistema embaixo, na pasta do projeto: PowerShell, cmd ou Git Bash no Windows; bash ou zsh no macOS e no Linux. |
@@ -410,8 +410,9 @@ no celular e as permissões que ele pede estão em [`PRIVACY.md`](PRIVACY.md).
   sabendo.
 - **Lê o histórico das CLIs e não grava nada nas pastas delas.** A tabela abaixo
   lista o que ele lê e o que nunca abre.
-- **Só grava nas próprias pastas**, mais uma coisa nos seus projetos, e só se
-  você confirmar: a memória compartilhada.
+- **Só grava nas próprias pastas**, mais duas coisas nos seus projetos: a
+  memória compartilhada, só se você confirmar, e um arquivo que você mesmo edita
+  e salva na aba Arquivos.
 - **O servidor só escuta no seu computador** (`127.0.0.1`), em uma porta
   aleatória, com um token aleatório novo a cada inicialização, e rejeita
   requisições vindas de outras páginas da web. O acesso remoto não muda isso: a
@@ -482,10 +483,12 @@ ambiente `PI_TELEMETRY=0`.
   por você e é apagado na primeira inicialização depois de completar 24 horas; e
   a transcrição de uma conversa que você continua com outra CLI, apagada quando
   você fecha essa aba ou depois de 24 horas.
-- **Nos seus projetos, uma única coisa, e só se você confirmar:** a memória
-  compartilhada. Ela se limita a `.agents/memory/`, ao que está entre os
-  marcadores dela em `AGENTS.md` e `CLAUDE.md`, e a algumas linhas no final do
-  `.gitignore`.
+- **Nos seus projetos, duas coisas:** a memória compartilhada, só se você
+  confirmar, limitada a `.agents/memory/`, ao que está entre os marcadores dela
+  em `AGENTS.md` e `CLAUDE.md`, e a algumas linhas no final do `.gitignore`; e
+  um arquivo que você edita na aba Arquivos, quando o salva. Isso só substitui o
+  conteúdo de um arquivo que já existe: nada é criado, renomeado nem excluído, e
+  nada é gravado dentro da pasta de uma CLI.
 
 </details>
 

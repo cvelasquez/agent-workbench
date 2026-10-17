@@ -38,11 +38,11 @@ Le terminal reste le terminal : tout ce que vous tapez va directement à la CLI.
 | **Onglets** | Plusieurs agents à la fois, de n'importe quelle CLI, chacun dans son dossier. Un point sur chaque onglet indique si l'agent travaille, s'il est au repos ou s'il vous attend. Recharger la page n'arrête rien : les CLI tournent sur le serveur, pas dans le navigateur. |
 | **Démarrage rapide** | Quand vous ouvrez l'application, vos onglets reviennent **en veille** : vous pouvez les lire en entier, et aucune CLI ne démarre tant que vous ne cliquez pas sur **Ouvrir la CLI**. |
 | **Historique** | Vos projets et vos conversations passées dans la barre latérale, de toutes les CLI, avec un filtre. Cliquez sur une conversation pour la reprendre là où vous l'aviez laissée, avec sa CLI. Archivez les anciennes sessions ou un projet entier pour faire le ménage : rien n'est supprimé, et c'est réversible. |
-| **Conversation** | Les messages sous forme de cartes, en direct, avec les appels d'outils repliés. Les messages plus anciens se chargent quand vous remontez. Recherchez, copiez n'importe quel message ou bloc de code, et revenez à votre message précédent (↑) ou allez à la fin (↓). Une ligne en bas indique quand votre message a été remis à la CLI et si l'agent travaille encore. Selon la CLI, vous pouvez répondre aux questions de l'agent directement dans la conversation. Un fichier du projet que l'agent mentionne s'ouvre dans l'onglet Fichiers en un clic. |
-| **Zone de saisie** | De la place pour écrire, coller des images, joindre des fichiers, et les longs textes collés rangés dans une pastille compacte. Ce que vous êtes en train d'écrire survit à la fermeture de l'application et s'affiche en direct dans toutes les fenêtres ouvertes. |
+| **Conversation** | Les messages sous forme de cartes, en direct, avec les appels d'outils repliés. Les messages plus anciens se chargent quand vous remontez. Recherchez, copiez n'importe quel message ou bloc de code, et revenez à votre message précédent (↑) ou allez à la fin (↓). Une ligne en bas indique quand votre message a été remis à la CLI et si l'agent travaille encore. Selon la CLI, vous pouvez répondre aux questions de l'agent directement dans la conversation. Un fichier du projet que l'agent mentionne s'ouvre dans l'onglet Fichiers en un clic. Avec Claude Code, un message que vous arrêtez avant que l'agent commence revient dans la zone de saisie pour le corriger, et **↩** sur un message revient avant lui : la conversation et, si vous le voulez, le code. Un message envoyé pendant que l'agent travaille attend à la fin, marqué en file d'attente ; selon la CLI, **Forcer l'envoi maintenant** le fait lire tout de suite à l'agent. |
+| **Zone de saisie** | De la place pour écrire, coller des images, joindre des fichiers, et les longs textes collés rangés dans une pastille compacte. Ce que vous êtes en train d'écrire survit à la fermeture de l'application et s'affiche en direct dans toutes les fenêtres ouvertes. Maj+Entrée continue une liste numérotée ou à puces. |
 | **Jauge de contexte** | La part de la fenêtre de contexte du modèle qu'occupe la conversation. En tokens, jamais en argent. |
 | **Modifications** | La branche, les fichiers modifiés et leur diff. **Lecture seule** : aucun bouton de commit ni de push. |
-| **Fichiers** | L'arborescence du projet, avec une recherche et un aperçu avec coloration syntaxique. Ouvrez plusieurs fichiers à la fois, chacun dans son onglet ; les fichiers Markdown s'ouvrent mis en forme. Un clic place le chemin d'un fichier dans votre message. |
+| **Fichiers** | L'arborescence du projet, avec une recherche et un aperçu avec coloration syntaxique. Ouvrez plusieurs fichiers à la fois, chacun dans son onglet ; les fichiers Markdown s'ouvrent mis en forme. Un clic place le chemin d'un fichier dans votre message. Modifiez un fichier texte, un `.env` par exemple, et enregistrez-le sur place : si l'agent l'a changé pendant que vous le modifiiez, rien n'est écrasé, et vous reportez vos modifications dans la nouvelle version. |
 | **Plans** | Les plans et les documents `.md` que la conversation a écrits, mis en forme. Un clic place le chemin d'un document dans votre message. |
 | **Notes** | Un bloc-notes à côté de la conversation, images comprises. Avec Claude Code, un clic envoie une note dans une nouvelle conversation. |
 | **Console** | Le terminal de votre système, en bas, dans le dossier du projet : PowerShell, cmd ou Git Bash sous Windows ; bash ou zsh sous macOS et Linux. |
@@ -436,8 +436,9 @@ décrits dans [`PRIVACY.md`](PRIVACY.md).
   son propre terminal, et l'application ne s'en aperçoit même pas.
 - **Elle lit l'historique des CLI et n'écrit rien dans leurs dossiers.** Le
   tableau ci-dessous liste ce qu'elle lit et ce qu'elle n'ouvre jamais.
-- **Elle n'écrit que dans ses propres dossiers**, plus une seule chose dans vos
-  projets, et seulement si vous le confirmez : la mémoire partagée.
+- **Elle n'écrit que dans ses propres dossiers**, plus deux choses dans vos
+  projets : la mémoire partagée, seulement si vous le confirmez, et un fichier
+  que vous modifiez et enregistrez vous-même dans l'onglet Fichiers.
 - **Le serveur n'écoute que sur votre ordinateur** (`127.0.0.1`), sur un port
   aléatoire, avec un nouveau jeton aléatoire à chaque démarrage, et il rejette
   les requêtes venant d'autres pages web. L'accès à distance n'y change rien :
@@ -516,10 +517,13 @@ variable d'environnement `PI_TELEMETRY=0`.
   de 24 heures ; et la transcription d'une conversation que vous poursuivez
   avec une autre CLI, supprimée quand vous fermez cet onglet ou au bout de
   24 heures.
-- **Dans vos projets, une seule chose, et seulement si vous confirmez :** la
-  mémoire partagée. Elle se limite à `.agents/memory/`, à ce qui se trouve
-  entre ses marqueurs dans `AGENTS.md` et `CLAUDE.md`, et à quelques lignes à
-  la fin de `.gitignore`.
+- **Dans vos projets, deux choses :** la mémoire partagée, seulement si vous
+  confirmez, limitée à `.agents/memory/`, à ce qui se trouve entre ses marqueurs
+  dans `AGENTS.md` et `CLAUDE.md`, et à quelques lignes à la fin de
+  `.gitignore` ; et un fichier que vous modifiez dans l'onglet Fichiers, quand
+  vous l'enregistrez. Cela ne remplace que le contenu d'un fichier qui existe
+  déjà : rien n'est créé, renommé ni supprimé, et rien n'est écrit dans le
+  dossier d'une CLI.
 
 </details>
 

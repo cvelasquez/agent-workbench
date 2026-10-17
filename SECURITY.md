@@ -42,8 +42,12 @@ Only the latest published version is supported.
   it launches.
 - The browser never names an absolute path: every path is resolved inside the
   folder of a tab the server itself opened.
-- Nothing is written in any CLI's folder. Inside a project, the only writes are
-  the shared-memory files, after a preview and your confirmation.
+- Nothing is written in any CLI's folder, and the Files tab doesn't show those
+  folders even when they fall inside a project. Inside a project, the only
+  writes are the shared-memory files, after a preview and your confirmation,
+  and a file you edit and save yourself in the Files tab: only the contents of a
+  file that already exists, and never if it changed on disk since you opened
+  it.
 
 The full list of what is read and what is never opened, per CLI, is in
 [`ARCHITECTURE.md`](ARCHITECTURE.md#4-what-is-read-from-each-cli).

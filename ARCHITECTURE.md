@@ -144,7 +144,9 @@ packages/
       terminal-registry.ts    the ptys and their life cycle
       session-index.ts        the projects sidebar, built from every adapter's history
       path-guard.ts           resolveInside: the only way a client path becomes a real one
-      memory-hub.ts           shared memory: the one thing written inside a project
+      cli-folders.ts          the CLIs' own folders, kept out of the Files tab
+      file-write.ts           saving a file edited in the Files viewer, one of two writes in a project
+      memory-hub.ts           shared memory, the other write inside a project
       queued-submits.ts       messages a CLI hands back to its editor on interrupt
       handoff/                continue a conversation with another CLI
       global-search.ts        search across the text of every conversation
@@ -278,7 +280,11 @@ itself. Nothing is ever **written** in any CLI's folder.
 | **Pi** (`PI_CODING_AGENT_DIR` or `~/.pi/agent`) | `sessions/--<folder>--/*.jsonl` (or the files of `PI_CODING_AGENT_SESSION_DIR`); `models-store.json`, the model catalog Pi downloads. From the installed package, not from Pi's folder: its `package.json` and the model list of one provider. With the pi.dev installer, also `install/current-version`. The folder itself is never listed | `auth.json`, `oauth.json`, `mcp-auth.json`, `models.json` (can carry API keys), `mcp.json`, `settings.json` (global and per project) |
 
 Every folder above is in its adapter's `protectedDirs()`: the folder picker
-won't list or enter it, installed or not.
+won't list or enter it, installed or not. Neither does the Files tab, even when
+the folder falls inside the project (a project opened in the home folder has
+`~/.claude` inside it): it isn't listed or searched, and nothing in it is read,
+opened or saved. The real path is compared too, so a link or a junction doesn't
+hide it.
 
 **Pi's status comes from its session file.** Pi can report its status through
 the terminal, but only if the terminal answers a query, and on Windows the
@@ -305,13 +311,23 @@ touch credentials.
   the history copy (or the folder the user picks).
 - The system temp folder: pasted images and attachments, per-tab CLI logs,
   temporary database copies. Folders are created `0o700`, files `0o600`.
-- **One place inside a project: shared memory** — `.agents/memory/`, the text
+- **Two places inside a project.** Shared memory: `.agents/memory/`, the text
   *between the markers* of a block in `AGENTS.md`/`CLAUDE.md`, and a few lines
   at the end of `.gitignore`. Always after a file-by-file preview and the
   user's confirmation. The client sends **options**, never changes or paths;
   the server builds the plan, validates all of it with `resolveInside` before
   the first write, and rebuilds it on confirm instead of trusting what the
   browser saw.
+- And a file the user edits in the Files viewer, when they save it
+  (`file-write.ts`). Only the contents of a file that already exists, inside the
+  tab's `cwd` and outside every CLI's folder: nothing is created, renamed or
+  deleted, and no copy is kept. The client sends the relative path, the text
+  and the SHA-256 of what it opened; if the file on disk no longer has that
+  hash, nothing is written and the server sends back what is there now. The
+  file keeps its own line endings, and the write is atomic (`atomic-write.ts`:
+  an exclusive temp file and `rename`, keeping the file's mode outside
+  Windows). A read-only file, or one the viewer doesn't offer to edit, is never
+  replaced.
 
 ---
 
@@ -320,8 +336,9 @@ touch credentials.
 The web has no test runner; the server has `pnpm check`, a chain of scripts in
 `packages/server/scripts/`. They cover what breaks silently: the incremental
 JSONL follower (lines split across reads, UTF-8 cut in half), the context
-window, `git status --porcelain=v2 -z` parsing, the path guard, the shared
-memory bridge, every adapter's event mapping, the history copy, handoff, global
+window, `git status --porcelain=v2 -z` parsing, the path guard, saving a file
+from the Files tab and keeping the CLIs' folders out of it, the shared memory
+bridge, every adapter's event mapping, the history copy, handoff, global
 search, remote access (pairing codes, device credentials, what a paired device
 is refused, and that with it off nothing of it is accepted) and the nine locale
 files. The Android app has its own tests, on the JVM (section 7).

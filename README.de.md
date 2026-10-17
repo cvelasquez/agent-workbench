@@ -38,11 +38,11 @@ Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 | **Tabs** | Mehrere Agenten gleichzeitig, aus jeder CLI, jeder in seinem eigenen Ordner. Ein Punkt auf jedem Tab zeigt, ob der Agent arbeitet, bereit ist oder auf Sie wartet. Das Neuladen der Seite stoppt nichts: Die CLIs laufen auf dem Server, nicht im Browser. |
 | **Schneller Start** | Wenn Sie die App öffnen, kommen Ihre Tabs **schlafend** zurück: Sie können sie vollständig lesen, und keine CLI startet, bevor Sie auf **CLI öffnen** klicken. |
 | **Historie** | Ihre Projekte und früheren Unterhaltungen in der Seitenleiste, aus allen CLIs, mit Filter. Ein Klick auf eine Unterhaltung setzt sie dort fort, wo Sie aufgehört haben, mit ihrer CLI. Archivieren Sie alte Sitzungen oder ein ganzes Projekt, um aufzuräumen: Es wird nichts gelöscht, und es lässt sich rückgängig machen. |
-| **Unterhaltung** | Die Nachrichten als Karten, live, mit eingeklappten Tool-Aufrufen. Ältere Nachrichten werden beim Hochscrollen geladen. Sie können suchen, jede Nachricht und jeden Codeblock kopieren und zu Ihrer vorherigen Nachricht (↑) oder ans Ende (↓) springen. Eine Zeile unten zeigt, wann Ihre Nachricht bei der CLI angekommen ist und ob der Agent noch arbeitet. Je nach CLI können Sie die Fragen des Agenten direkt dort beantworten. Eine Datei des Projekts, die der Agent nennt, öffnet sich mit einem Klick im Tab „Dateien“. |
-| **Eingabefeld** | Platz zum Schreiben, zum Einfügen von Bildern und zum Anhängen von Dateien; langer eingefügter Text wird zu einem übersichtlichen Chip. Was Sie gerade tippen, übersteht das Schließen der App und erscheint live in jedem offenen Fenster. |
+| **Unterhaltung** | Die Nachrichten als Karten, live, mit eingeklappten Tool-Aufrufen. Ältere Nachrichten werden beim Hochscrollen geladen. Sie können suchen, jede Nachricht und jeden Codeblock kopieren und zu Ihrer vorherigen Nachricht (↑) oder ans Ende (↓) springen. Eine Zeile unten zeigt, wann Ihre Nachricht bei der CLI angekommen ist und ob der Agent noch arbeitet. Je nach CLI können Sie die Fragen des Agenten direkt dort beantworten. Eine Datei des Projekts, die der Agent nennt, öffnet sich mit einem Klick im Tab „Dateien“. Mit Claude Code kommt eine Nachricht, die Sie anhalten, bevor der Agent beginnt, zum Korrigieren ins Eingabefeld zurück, und **↩** an einer Nachricht geht zurück vor sie: die Unterhaltung und, wenn Sie wollen, der Code. Eine Nachricht, die Sie senden, während der Agent arbeitet, wartet am Ende als eingereiht; je nach CLI lässt **Senden jetzt erzwingen** den Agenten sie sofort lesen. |
+| **Eingabefeld** | Platz zum Schreiben, zum Einfügen von Bildern und zum Anhängen von Dateien; langer eingefügter Text wird zu einem übersichtlichen Chip. Was Sie gerade tippen, übersteht das Schließen der App und erscheint live in jedem offenen Fenster. Umschalt+Eingabe setzt eine nummerierte Liste oder eine Aufzählung fort. |
 | **Kontextanzeige** | Wie viel vom Kontextfenster des Modells die Unterhaltung belegt. Tokens, nie Geld. |
 | **Änderungen** | Der Branch, die geänderten Dateien und ihr Diff. **Nur zum Lesen**: keine Schaltflächen für Commit oder Push. |
-| **Dateien** | Der Dateibaum des Projekts, mit Suche und einer Vorschau mit Syntaxhervorhebung. Öffnen Sie mehrere Dateien gleichzeitig, jede in ihrem eigenen Tab; Markdown-Dateien öffnen sich formatiert. Ein Klick fügt den Pfad einer Datei in Ihre Nachricht ein. |
+| **Dateien** | Der Dateibaum des Projekts, mit Suche und einer Vorschau mit Syntaxhervorhebung. Öffnen Sie mehrere Dateien gleichzeitig, jede in ihrem eigenen Tab; Markdown-Dateien öffnen sich formatiert. Ein Klick fügt den Pfad einer Datei in Ihre Nachricht ein. Bearbeiten Sie eine Textdatei, etwa eine `.env`, und speichern Sie sie direkt dort: Hat der Agent sie inzwischen geändert, wird nichts überschrieben, und Sie übernehmen Ihre Änderungen in die neue Version. |
 | **Pläne** | Die Pläne und `.md`-Dokumente, die die Unterhaltung geschrieben hat, formatiert dargestellt. Ein Klick fügt den Pfad eines Dokuments in Ihre Nachricht ein. |
 | **Notizen** | Ein Notizblock neben der Unterhaltung, Bilder inklusive. Mit Claude Code schickt ein Klick eine Notiz an eine neue Unterhaltung. |
 | **Konsole** | Das Terminal Ihres Systems am unteren Rand, im Ordner des Projekts: PowerShell, cmd oder Git Bash unter Windows; bash oder zsh unter macOS und Linux. |
@@ -434,8 +434,9 @@ speichert und welche Berechtigungen sie anfordert, steht in
   Terminal an, und die App bekommt davon nicht einmal etwas mit.
 - **Die App liest die Historie der CLIs und schreibt nichts in deren Ordner.**
   Die Tabelle unten zeigt, was sie liest und was sie nie öffnet.
-- **Die App schreibt nur in ihre eigenen Ordner**, dazu eine einzige Sache in
-  Ihre Projekte, und nur, wenn Sie es bestätigen: das gemeinsame Gedächtnis.
+- **Die App schreibt nur in ihre eigenen Ordner**, dazu zwei Dinge in Ihre
+  Projekte: das gemeinsame Gedächtnis, nur wenn Sie es bestätigen, und eine
+  Datei, die Sie selbst im Tab „Dateien“ bearbeiten und speichern.
 - **Der Server lauscht nur auf Ihrem Computer** (`127.0.0.1`), auf einem
   zufälligen Port, mit einem neuen zufälligen Token bei jedem Start, und er
   weist Anfragen ab, die von anderen Webseiten kommen. Der Fernzugriff ändert
@@ -513,10 +514,13 @@ Umgebungsvariable `PI_TELEMETRY=0`.
   alt geworden ist; und das Transkript einer Unterhaltung, die Sie mit einer
   anderen CLI fortsetzen, das gelöscht wird, wenn Sie diesen Tab schließen, oder
   nach 24 Stunden.
-- **In Ihre Projekte nur eine Sache, und nur, wenn Sie bestätigen:** das
-  gemeinsame Gedächtnis. Es beschränkt sich auf `.agents/memory/`, auf das, was
-  in `AGENTS.md` und `CLAUDE.md` zwischen seinen Markierungen steht, und auf ein
-  paar Zeilen am Ende von `.gitignore`.
+- **In Ihre Projekte zwei Dinge:** das gemeinsame Gedächtnis, nur wenn Sie
+  bestätigen, beschränkt auf `.agents/memory/`, auf das, was in `AGENTS.md` und
+  `CLAUDE.md` zwischen seinen Markierungen steht, und auf ein paar Zeilen am Ende
+  von `.gitignore`; und eine Datei, die Sie im Tab „Dateien“ bearbeiten, wenn
+  Sie sie speichern. Dabei wird nur der Inhalt einer vorhandenen Datei ersetzt:
+  Nichts wird angelegt, umbenannt oder gelöscht, und nichts wird in den Ordner
+  einer CLI geschrieben.
 
 </details>
 
