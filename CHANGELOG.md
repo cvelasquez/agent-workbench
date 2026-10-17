@@ -4,6 +4,66 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## 0.7.0 - 2026-10-16
+
+### Added
+
+- **Edit a file from the Files tab.** A text file open in the viewer, a `.env`
+  for instance, has **Edit**: change it, and **Save** (or Ctrl+S) writes it
+  back with its own line endings. Cancel asks before discarding changes, and Esc
+  never discards anything.
+  - **If the agent changed the file while you were editing, nothing is
+    overwritten.** You discard your changes, or move them to the new version:
+    it loads in the editor with the lines you changed listed above it, and you
+    carry them over and save. No copy is saved anywhere, so a `.env` with keys
+    can't end up in a commit by accident.
+  - What you're writing survives switching documents or tabs, a document with
+    unsaved changes isn't closed by the × or by the limit of open documents, and
+    reloading the page asks first.
+  - Only files that already exist inside the project: nothing is created,
+    renamed or deleted. A file over 512 KB, one that isn't plain UTF-8 text, or
+    a read-only one can be viewed but not saved.
+  - It works from the phone and from a paired computer too.
+  - Next to ⟳, the viewer also has the button that puts the file's path in your
+    message.
+- **A message you send while the agent works shows in the conversation.** It
+  waits at the end, marked as queued, until the CLI delivers it: Claude Code
+  and OpenCode from their history, Pi and Antigravity from what the app sent.
+  Codex doesn't queue: it reads the message right away.
+  - **Force send now** makes the agent read it at once: Ctrl+X Ctrl+S in Claude
+    Code, Alt+M in Antigravity, and in Pi a stop and resend. OpenCode shows the
+    queue without the button.
+- **Fix a message you just sent, with Claude Code.** A message you stop before
+  the agent does anything leaves the conversation and comes back to the message
+  box, as in the CLI.
+  - **↩ on a message goes back to before it.** A dialog offers to undo the
+    conversation and the code, or only the conversation; the app drives the
+    CLI's rewind menu, checking its screen at every step, and the message comes
+    back to the box to edit.
+  - The conversation follows the branches Claude Code leaves when you go back,
+    and a message stopped and sent again no longer shows twice.
+- **Shift+Enter continues a list** in the message box: numbered, lettered or
+  bulleted.
+
+### Changed
+
+- **The Files tab no longer shows any CLI's folder.** A project opened in your
+  home folder has `~/.claude` inside it: the tree listed it, and the viewer
+  could open what was in it. Now those folders aren't listed or searched, and
+  nothing in them is opened, not even through a link or a junction.
+- The Antigravity model picker offers only the six models Antigravity CLI 1.3.6
+  has.
+
+### Fixed
+
+- **Codex sessions compressed by the Codex desktop app show again in the
+  sidebar.** The desktop app compresses old sessions to `.jsonl.zst`, and the
+  sidebar lost every Codex session; they're read decompressed in memory now, and
+  a tab follows Codex when `codex resume` replaces the compressed file.
+- A failed command in Codex 0.162 no longer shows as successful.
+- A new Codex session no longer stays "untitled" in the sidebar, and its date
+  keeps up while Codex writes.
+
 ## 0.6.0 — 2026-10-13
 
 ### Added
