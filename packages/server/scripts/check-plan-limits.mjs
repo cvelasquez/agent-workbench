@@ -135,11 +135,25 @@ function runProcess(file, args, input, env = process.env) {
   check('1.3 una lista con una ventana rara se lee sin ella',
     parsePlanLimits({ agent: 'codex', windows: [good, { id: 'x' }] })?.windows.length === 1);
 
-  const older = win('five_hour', 40, NOW - HOUR);
-  const newer = win('five_hour', 10, NOW);
-  check('1.4 entre dos sesiones gana lo observado mas tarde, aunque diga menos (la ventana se reinicio)',
-    mergePlanLimitWindows([older], [newer])[0].usedPercent === 10 && mergePlanLimitWindows([newer], [older])[0].usedPercent === 10);
-  check('1.4 con la misma hora, el uso mayor', mergePlanLimitWindows([win('five_hour', 5, NOW)], [win('five_hour', 7, NOW)])[0].usedPercent === 7);
+  /** El uso que queda al juntar `a` y `b`, en los dos ordenes; null si el orden cambia el resultado. */
+  const winner = (a, b) => {
+    const one = mergePlanLimitWindows([a], [b])[0].usedPercent;
+    return mergePlanLimitWindows([b], [a])[0].usedPercent === one ? one : null;
+  };
+  // Lo que se vio el 19-10-2026 al pegar la status line: tres sesiones la
+  // corrieron a la vez, y la quieta llego ultima con lo que habia visto antes.
+  check('1.4 en la misma ventana gana el uso mayor, aunque se haya observado antes',
+    winner(win('five_hour', 11, NOW - 500), win('five_hour', 10, NOW)) === 11);
+  check('1.4 una ventana posterior gana aunque diga menos y se haya observado antes (la anterior se reinicio)',
+    winner(win('five_hour', 40, NOW, { resetsAt: NOW - HOUR }), win('five_hour', 10, NOW - HOUR, { resetsAt: NOW + 4 * HOUR })) === 10);
+  check('1.4 unos segundos de diferencia en el reinicio son la misma ventana',
+    winner(win('300m', 20, NOW, { resetsAt: NOW + 3 * HOUR + 2000 }), win('300m', 25, NOW - HOUR, { resetsAt: NOW + 3 * HOUR })) === 25);
+  const sameUse = mergePlanLimitWindows([win('five_hour', 7, NOW - HOUR)], [win('five_hour', 7, NOW)])[0];
+  check('1.4 con el mismo uso, la observada mas tarde', sameUse.observedAt === NOW);
+  check('1.4 sin reinicio en alguna, gana lo observado mas tarde aunque diga menos',
+    winner(win('quota-x', 40, NOW - HOUR, { resetsAt: null }), win('quota-x', 10, NOW)) === 10);
+  check('1.4 sin reinicio y con la misma hora, el uso mayor',
+    winner(win('quota-x', 5, NOW, { resetsAt: null }), win('quota-x', 7, NOW, { resetsAt: null })) === 7);
   const merged = mergePlanLimitWindows([], [win('quota-x', 1, NOW), win('seven_day', 2, NOW), win('five_hour', 3, NOW)]);
   check('1.5 ordenadas de la mas corta a la mas larga, las sin duracion al final',
     same(merged.map((w) => w.id), ['five_hour', 'seven_day', 'quota-x']));
@@ -170,7 +184,8 @@ function runProcess(file, args, input, env = process.env) {
   let calls = 0;
   const stop = book.subscribe(() => calls++);
   book.observe([win('five_hour', 10, NOW)]);
-  book.observe([win('five_hour', 50, NOW - HOUR)]);
+  // Lo de la ventana anterior, aunque dijera mas.
+  book.observe([win('five_hour', 50, NOW - 6 * HOUR, { resetsAt: NOW - 2 * HOUR })]);
   book.observe([]);
   check('2.1 el libro avisa solo si cambio algo; lo viejo no pisa', calls === 1 && book.current()[0].usedPercent === 10, show({ calls, current: book.current() }));
   stop();
@@ -190,7 +205,7 @@ function runProcess(file, args, input, env = process.env) {
   const stopSource = source.subscribe(() => notified++);
   await source.tick();
   const current = source.current();
-  check('2.2 la carpeta: por ventana gana la sesion que vio mas tarde',
+  check('2.2 la carpeta: por ventana gana la lectura mas actual, de la sesion que sea',
     current.length === 2 && current[0].id === 'five_hour' && current[0].usedPercent === 35 && current[1].usedPercent === 20, show(current));
   check('2.2 un archivo que no se llama <uuid>.json no se lee, y uno enorme tampoco', !current.some((w) => w.usedPercent === 99));
   check('2.2 avisa al cambiar', notified >= 1);
@@ -322,7 +337,10 @@ function runProcess(file, args, input, env = process.env) {
   const fresh = '01a145b3-5bb3-75e3-ae4b-1fab6b3c93b3';
   const stale = '01a145b3-5bb3-75e3-ae4b-1fab6b3c93b4';
   await rolloutOf(fresh, at, rec(at, paid));
-  await rolloutOf(stale, at - HOUR, rec(at - HOUR, { type: 'token_count', info: null, rate_limits: { primary: { used_percent: 80, window_minutes: 300, resets_at: 1794500000 } } }) + rec(at - HOUR, free));
+  // Una sesion de la ventana de 5 horas anterior, que se reinicio hace 5 horas.
+  const staleAt = at - 6 * HOUR;
+  const staleResets = Math.floor((at - 5 * HOUR) / 1000);
+  await rolloutOf(stale, staleAt, rec(staleAt, { type: 'token_count', info: null, rate_limits: { primary: { used_percent: 80, window_minutes: 300, resets_at: staleResets } } }) + rec(staleAt, free));
   for (const sessionId of [fresh, stale]) {
     const follower = adapter.history.follow({ cwd: root, sessionId });
     await follower.start();

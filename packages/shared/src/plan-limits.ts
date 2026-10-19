@@ -88,10 +88,40 @@ export function parsePlanLimits(value: unknown): PlanLimits | null {
 }
 
 /**
- * Junta lo que se sabia con lo nuevo: por ventana, gana lo observado mas tarde;
- * con la misma hora, el uso mayor (dentro de una ventana el uso solo sube).
- * Ordenadas de la mas corta a la mas larga, las sin duracion al final, y con
- * tope. No descarta las vencidas: eso depende de la hora a la que se miren.
+ * Dos lecturas de la misma ventana pueden dar el reinicio con unos segundos de
+ * diferencia (Codex y Antigravity a veces lo dan en segundos relativos); dos
+ * ventanas distintas del mismo id, por lo menos la duracion de una.
+ */
+export const SAME_PLAN_WINDOW_SLACK_MS = 10 * 60 * 1000;
+
+/**
+ * true si `candidate` dice algo mas actual que `known` del mismo id. La hora en
+ * que se observo no alcanza: una status line vuelve a correr en una sesion
+ * quieta (al recargar la configuracion, al cambiar de modo) y presenta lo que
+ * vio hace horas como recien medido. Decide el reinicio, porque una ventana
+ * posterior es mas nueva, y dentro de la misma ventana el uso mayor, porque ahi
+ * el uso solo sube. La hora decide sin reinicio en alguna de las dos, o con el
+ * mismo uso.
+ */
+function isNewerPlanReading(known: PlanLimitWindow, candidate: PlanLimitWindow): boolean {
+  if (known.resetsAt !== null && candidate.resetsAt !== null) {
+    if (Math.abs(candidate.resetsAt - known.resetsAt) > SAME_PLAN_WINDOW_SLACK_MS) {
+      return candidate.resetsAt > known.resetsAt;
+    }
+    if (candidate.usedPercent !== known.usedPercent) return candidate.usedPercent > known.usedPercent;
+    return candidate.observedAt > known.observedAt;
+  }
+  return (
+    candidate.observedAt > known.observedAt ||
+    (candidate.observedAt === known.observedAt && candidate.usedPercent > known.usedPercent)
+  );
+}
+
+/**
+ * Junta lo que se sabia con lo nuevo: por ventana, la lectura mas actual
+ * (`isNewerPlanReading`). Ordenadas de la mas corta a la mas larga, las sin
+ * duracion al final, y con tope. No descarta las vencidas: eso depende de la
+ * hora a la que se miren.
  */
 export function mergePlanLimitWindows(
   current: readonly PlanLimitWindow[],
@@ -100,13 +130,7 @@ export function mergePlanLimitWindows(
   const byId = new Map<string, PlanLimitWindow>();
   for (const window of [...current, ...incoming]) {
     const known = byId.get(window.id);
-    if (
-      known === undefined ||
-      window.observedAt > known.observedAt ||
-      (window.observedAt === known.observedAt && window.usedPercent > known.usedPercent)
-    ) {
-      byId.set(window.id, window);
-    }
+    if (known === undefined || isNewerPlanReading(known, window)) byId.set(window.id, window);
   }
   return [...byId.values()].sort(byLength).slice(0, MAX_PLAN_LIMIT_WINDOWS);
 }

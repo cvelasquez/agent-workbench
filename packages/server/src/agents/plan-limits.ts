@@ -11,7 +11,7 @@
  *    sondea mientras alguien escucha, y solo relee lo que cambio de fecha o
  *    tamano.
  *
- * En los dos casos, por ventana gana lo observado mas tarde
+ * En los dos casos, por ventana gana la lectura mas actual
  * (`mergePlanLimitWindows`): los limites son de la cuenta, y dos sesiones de la
  * misma CLI publican lo mismo visto en momentos distintos.
  */
