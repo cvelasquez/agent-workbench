@@ -924,7 +924,7 @@
   "theme.light": "Tema claro",
   "theme.system": "Tema del sistema",
   "theme.title": "{{theme}} — clic para cambiar",
-  "thread.continueWith": "↪ Continuar con…",
+  "thread.continueCli": "CLI",
   "thread.copyMessage": "Copiar el texto de este mensaje",
   "thread.empty.noMessages": "La sesión todavía no tiene mensajes.",
   "thread.empty.unavailable": "Esta pestaña no tiene un directorio conocido, así que no hay archivo de sesión que seguir.",

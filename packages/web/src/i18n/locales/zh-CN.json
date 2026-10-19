@@ -892,7 +892,7 @@
   "theme.light": "浅色主题",
   "theme.system": "系统主题",
   "theme.title": "{{theme}} — 点击切换",
-  "thread.continueWith": "↪ 继续使用…",
+  "thread.continueCli": "CLI",
   "thread.copyMessage": "复制此消息的文本",
   "thread.empty.noMessages": "此会话还没有任何消息。",
   "thread.empty.unavailable": "此标签页没有已知的目录，因此没有可跟踪的会话文件。",

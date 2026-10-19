@@ -924,7 +924,7 @@
   "theme.light": "Helles Design",
   "theme.system": "Systemdesign",
   "theme.title": "{{theme}} – zum Wechseln klicken",
-  "thread.continueWith": "↪ Fortsetzen mit…",
+  "thread.continueCli": "CLI",
   "thread.copyMessage": "Text dieser Nachricht kopieren",
   "thread.empty.noMessages": "Die Sitzung hat noch keine Nachrichten.",
   "thread.empty.unavailable": "Für diesen Tab ist kein Verzeichnis bekannt, daher gibt es keine Sitzungsdatei zum Verfolgen.",

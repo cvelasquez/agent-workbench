@@ -924,7 +924,7 @@
   "theme.light": "Thème clair",
   "theme.system": "Thème du système",
   "theme.title": "{{theme}} — cliquez pour changer",
-  "thread.continueWith": "↪ Continuer avec…",
+  "thread.continueCli": "CLI",
   "thread.copyMessage": "Copier le texte de ce message",
   "thread.empty.noMessages": "La session ne contient encore aucun message.",
   "thread.empty.unavailable": "Cet onglet n'a pas de répertoire connu : il n'y a donc aucun fichier de session à suivre.",

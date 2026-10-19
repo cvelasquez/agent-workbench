@@ -892,7 +892,7 @@
   "theme.light": "ライトテーマ",
   "theme.system": "システムのテーマ",
   "theme.title": "{{theme}} — クリックで切り替え",
-  "thread.continueWith": "↪ …で続ける",
+  "thread.continueCli": "CLI",
   "thread.copyMessage": "このメッセージのテキストをコピー",
   "thread.empty.noMessages": "このセッションにはまだメッセージがありません。",
   "thread.empty.unavailable": "このタブのディレクトリが不明なため、追跡するセッションファイルがありません。",

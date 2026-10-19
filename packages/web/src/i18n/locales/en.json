@@ -924,7 +924,7 @@
   "theme.light": "Light theme",
   "theme.system": "System theme",
   "theme.title": "{{theme}} — click to change",
-  "thread.continueWith": "↪ Continue with…",
+  "thread.continueCli": "CLI",
   "thread.copyMessage": "Copy this message's text",
   "thread.empty.noMessages": "The session doesn't have any messages yet.",
   "thread.empty.unavailable": "This tab doesn't have a known directory, so there's no session file to follow.",

@@ -963,7 +963,7 @@ export function continueButtonTitle(): string {
 }
 
 /**
- * Por que el `↪` del medidor esta apagado, o null si no lo esta.
+ * Por que el boton de continuar del hilo esta apagado, o null si no lo esta.
  *
  * `hasMessages` es si el hilo de la pestana tiene algun evento (R29-5): una
  * pestana nueva de Claude Code tiene id desde el lanzamiento, pero su archivo no

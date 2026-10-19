@@ -988,7 +988,7 @@
   "theme.light": "Светлая тема",
   "theme.system": "Системная тема",
   "theme.title": "{{theme}} — нажмите, чтобы сменить",
-  "thread.continueWith": "↪ Продолжить в…",
+  "thread.continueCli": "CLI",
   "thread.copyMessage": "Копировать текст этого сообщения",
   "thread.empty.noMessages": "В сессии ещё нет сообщений.",
   "thread.empty.unavailable": "Каталог этой вкладки неизвестен, поэтому нет файла сессии, за которым можно следить.",

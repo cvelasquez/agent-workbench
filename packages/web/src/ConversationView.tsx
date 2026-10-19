@@ -48,6 +48,7 @@ import type {
   TerminalId,
 } from '@agent-workbench/shared';
 import {
+  continueButtonTitle,
   discoveringHint,
   noTranscriptText,
   serverClosedRelaunchingText,
@@ -85,7 +86,7 @@ import {
   type SubmitReceipt,
 } from './thread-status.js';
 import type { ThreadFontState } from './useThreadFont.js';
-import { ContinueButton } from './ContinueButton.js';
+import { ContinueButton, ContinueIcon } from './ContinueButton.js';
 import { pastedLineCount, splitPastedBlocks } from './composer-paste.js';
 import { noticeText } from './conversation-notice.js';
 import { formatDuration, formatTime } from './i18n/format.js';
@@ -991,13 +992,20 @@ export function ConversationView({
         {/*
           Continuar con otra CLI (hito 29), con la CLI y la sesion de esta
           pestana. Solo con otra instalada; apagado mientras la sesion todavia
-          no esta en el historial.
+          no esta en el historial. El icono de intercambio y "CLI"; lo que hace
+          lo dice el titulo, y el lector de pantalla lo lee entero.
         */}
         {onContinue !== undefined && (
           <ContinueButton
             targets={continueTargets}
             className="icon-button conversation-continue"
-            text={t('thread.continueWith')}
+            text={
+              <>
+                <ContinueIcon />
+                <span>{t('thread.continueCli')}</span>
+              </>
+            }
+            label={continueButtonTitle()}
             blockedReason={continueBlockedReason}
             onPick={onContinue}
           />

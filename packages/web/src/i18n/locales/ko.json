@@ -892,7 +892,7 @@
   "theme.light": "밝은 테마",
   "theme.system": "시스템 테마",
   "theme.title": "{{theme}} — 클릭하여 변경",
-  "thread.continueWith": "↪ …에서 계속",
+  "thread.continueCli": "CLI",
   "thread.copyMessage": "이 메시지의 텍스트 복사",
   "thread.empty.noMessages": "세션에 아직 메시지가 없습니다.",
   "thread.empty.unavailable": "이 탭의 디렉터리를 알 수 없어 모니터링할 세션 파일이 없습니다.",
