@@ -1322,6 +1322,7 @@ const scriptModule = await import('../src/agents/antigravity/statusline-script.t
 const { STATUS_LINE_SCRIPT, installStatusLineScript, statusLineCommand, statusLineFragment, statusLineScriptPath } = scriptModule;
 const statusModule = await import('../src/agents/antigravity/status.ts');
 const { AntigravityStatusStore, AntigravityStatusSource, activityOf, usageFromRecord, parseStatusRecord, createFollowerStatusLine, PERMISSION_PROMPT } = statusModule;
+const { planWindowsOfRecord } = await import('../src/agents/plan-limits.ts');
 const discoveryModule = await import('../src/agents/antigravity/discovery.ts');
 const { LogWatcher, LogLineReader, CONVERSATION_LINE, PID_LINE } = discoveryModule;
 const adapterModule = await import('../src/agents/antigravity/index.ts');
@@ -1477,7 +1478,7 @@ const statusRecord = (id, over = {}) => ({
   await installStatusLineScript(integrations);
   check('11 si alguien lo cambio, lo reescribe', (await readFile(script, 'utf8')) === STATUS_LINE_SCRIPT);
   check('11 el script es LF, sin dependencias y dice su version',
-    !STATUS_LINE_SCRIPT.includes('\r') && STATUS_LINE_SCRIPT.includes('// version: 1') && !/from '(?!node:)/.test(STATUS_LINE_SCRIPT));
+    !STATUS_LINE_SCRIPT.includes('\r') && STATUS_LINE_SCRIPT.includes('// version: 2') && !/from '(?!node:)/.test(STATUS_LINE_SCRIPT));
 
   const input = officialStatusJson();
   const run = await runProcess(process.execPath, [script], JSON.stringify(input));
@@ -1485,16 +1486,41 @@ const statusRecord = (id, over = {}) => ({
   const text = await readFile(recordFile, 'utf8').catch(() => '');
   const written = text === '' ? null : JSON.parse(text);
   check('11 el JSON de la CLI: exit 0, sin stdout ni stderr', run.code === 0 && run.stdout === '' && run.stderr === '', show(run));
-  check('11 escribe <id>.json con v 1, el permiso pendiente, el modo y la ventana',
-    written?.v === 1 && written.conversationId === U(500) && written.toolConfirmationPending === true && written.cycleMode === 'plan' &&
+  check('11 escribe <id>.json con v 2, el permiso pendiente, el modo y la ventana',
+    written?.v === 2 && written.conversationId === U(500) && written.toolConfirmationPending === true && written.cycleMode === 'plan' &&
     written.agentState === 'tool_use' && written.contextWindow?.size === 1048576 && written.model?.effort === 'medium', text);
-  for (const secret of ['developer@email.com', 'gemini-weekly', '0.9378', 'PlanInventado', '1.23', 'carpeta-secreta', 'Titulo Inventado', '.gemini', 'antigravity\\\\brain']) {
+  // El email, el plan, el costo, la carpeta y el titulo, nunca. De la cuota, solo nombre, uso y reinicio (hito 47).
+  for (const secret of ['developer@email.com', '0.9378', '560580', 'PlanInventado', '1.23', 'carpeta-secreta', 'Titulo Inventado', '.gemini', 'antigravity\\\\brain']) {
     check(`11 el archivo no guarda ${secret}`, !text.includes(secret));
   }
+  const quotaWindow = written?.planLimits?.[0];
+  check('11 (hito 47) de la cuota guarda una ventana: nombre, semana, lo usado y el reinicio de reset_time',
+    Array.isArray(written?.planLimits) && written.planLimits.length === 1 && quotaWindow?.id === 'gemini-weekly' && quotaWindow.minutes === 10080 &&
+    quotaWindow.usedPercent === 6.22 && quotaWindow.resetsAt === Date.parse('2026-07-06T07:50:32Z') && typeof quotaWindow.observedAt === 'number' &&
+    same(Object.keys(quotaWindow).sort(), ['id', 'minutes', 'observedAt', 'resetsAt', 'usedPercent']), show(written?.planLimits));
+  check('11 (hito 47) la ventana de la cuota la lee el medidor del plan', planWindowsOfRecord(written)?.[0]?.id === 'gemini-weekly');
   check('11 de las claves recibidas guarda solo los nombres',
     Array.isArray(written?.keys) && written.keys.includes('email') && written.keys.includes('cycle_mode') && same(Object.keys(written ?? {}).sort(),
-      ['agentState', 'at', 'cliVersion', 'contextWindow', 'conversationId', 'cycleMode', 'keys', 'model', 'toolConfirmationPending', 'v'].sort()), show(written && Object.keys(written)));
+      ['agentState', 'at', 'cliVersion', 'contextWindow', 'conversationId', 'cycleMode', 'keys', 'model', 'planLimits', 'toolConfirmationPending', 'v'].sort()), show(written && Object.keys(written)));
   check('11 lo que escribe el script lo lee el servidor', parseStatusRecord(written, U(500))?.cycleMode === 'plan');
+  check('11 un registro de la version 1 del script se sigue leyendo', parseStatusRecord({ ...written, v: 1, planLimits: undefined }, U(500))?.cycleMode === 'plan');
+
+  // La misma cuota otra vez conserva desde cuando se ve; otra distinta la renueva.
+  const firstSeen = quotaWindow?.observedAt;
+  await runProcess(process.execPath, [script], JSON.stringify(officialStatusJson()));
+  const again = JSON.parse(await readFile(recordFile, 'utf8'));
+  check('11 (hito 47) la misma cuota en la corrida siguiente conserva observedAt', again.planLimits?.[0]?.observedAt === firstSeen, show(again.planLimits));
+  await runProcess(process.execPath, [script], JSON.stringify(officialStatusJson({ quota: { 'gemini-weekly': { remaining_fraction: 0.5, reset_time: '2026-07-06T07:50:32Z' } } })));
+  const changed = JSON.parse(await readFile(recordFile, 'utf8'));
+  check('11 (hito 47) otra cuota cambia el uso y renueva observedAt',
+    changed.planLimits?.[0]?.usedPercent === 50 && changed.planLimits[0].observedAt > (firstSeen ?? Infinity), show(changed.planLimits));
+  await runProcess(process.execPath, [script], JSON.stringify(officialStatusJson({ quota: { '../x': { remaining_fraction: 0.5 }, raro: { remaining_fraction: 7 }, 'gemini-5h': { remaining_fraction: 1, reset_in_seconds: 60 } } })));
+  const odd = JSON.parse(await readFile(recordFile, 'utf8'));
+  check('11 (hito 47) un nombre que no es un id o una fraccion fuera de 0..1 no se guardan; 5h y reset_in_seconds si',
+    odd.planLimits?.length === 1 && odd.planLimits[0].id === 'gemini-5h' && odd.planLimits[0].minutes === 300 && odd.planLimits[0].usedPercent === 0 &&
+    typeof odd.planLimits[0].resetsAt === 'number', show(odd.planLimits));
+  // Vuelve a la cuota del JSON oficial para lo que sigue.
+  await runProcess(process.execPath, [script], JSON.stringify(input));
 
   const before11 = await listing(records);
   const traversal = await runProcess(process.execPath, [script], JSON.stringify(officialStatusJson({ conversation_id: '../../x', session_id: '../../x' })));
@@ -1573,7 +1599,7 @@ const statusRecord = (id, over = {}) => ({
   await writeFile(file, JSON.stringify({ ...statusRecord(U(601)), at: launchedAt + 50 }));
   await source.tick();
   check('12 un registro con el id de otra conversacion no se toma', store.get(id)?.conversationId === id && heard.at(-1)?.activity === 'idle');
-  await writeFile(file, JSON.stringify({ ...statusRecord(id), v: 2, agentState: 'working', at: launchedAt + 60 }));
+  await writeFile(file, JSON.stringify({ ...statusRecord(id), v: 9, agentState: 'working', at: launchedAt + 60 }));
   await source.tick();
   check('12 un registro de otra version del script no se toma', store.get(id)?.agentState === 'idle');
 

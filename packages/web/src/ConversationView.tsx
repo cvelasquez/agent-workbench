@@ -41,6 +41,7 @@ import type {
   ConversationSubagent,
   ConversationToolResultPart,
   ContextWindowSource,
+  PlanLimitWindow,
   QueuedPrompt,
   StatusLineState,
   TerminalActivity,
@@ -54,7 +55,8 @@ import {
   waitingBarText,
   type ServerClosedBarState,
 } from './agent-ui.js';
-import { ContextMeter } from './ContextMeter.js';
+import { ContextMeter, type CompactAction } from './ContextMeter.js';
+import { PlanMeter } from './PlanMeter.js';
 import { threadFontTitle } from './thread-font.js';
 import { PULSE_ANIMATION_MS } from './attention-pulse.js';
 import {
@@ -390,6 +392,14 @@ interface ConversationViewProps {
    * cola y esta abierta (hito 45, §6.35). Sin eso la cola se ve, sin boton.
    */
   forceSendAvailable?: boolean;
+  /** Los limites del plan de la cuenta de la CLI de la pestana (hito 47, §6.37); [] si nada. */
+  planWindows?: readonly PlanLimitWindow[];
+  /** Como esta la status line que publica esos limites, o null si la CLI no tiene una aparte. */
+  planSetupState?: StatusLineState | null;
+  /** Abre el dialogo de esa status line desde el medidor del plan. */
+  onConfigurePlanLimits?: () => void;
+  /** "Compactar" debajo del medidor de contexto, o null si la CLI no tiene el comando. */
+  compactAction?: CompactAction | null;
 }
 
 /**
@@ -428,6 +438,10 @@ export function ConversationView({
   clock = null,
   fileLinks = null,
   forceSendAvailable = false,
+  planWindows = [],
+  planSetupState = null,
+  onConfigurePlanLimits,
+  compactAction = null,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -1004,6 +1018,12 @@ export function ConversationView({
             </span>
           </button>
         )}
+        {/*
+          Los limites del plan de la cuenta (hito 47), antes del de contexto:
+          el de contexto queda en su lugar de siempre, al borde, con "Compactar"
+          colgando debajo.
+        */}
+        <PlanMeter windows={planWindows} setupState={planSetupState} onConfigure={onConfigurePlanLimits} />
         <ContextMeter
           usage={usage}
           source={contextWindowSource}
@@ -1012,6 +1032,7 @@ export function ConversationView({
           compact
           statusLineState={statusLineState}
           onConfigure={onConfigureStatusLine}
+          compactAction={compactAction}
         />
       </div>
 

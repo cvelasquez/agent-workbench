@@ -6,6 +6,10 @@
  * su estado. Es dueno de **un** vigilante de `~/.claude/sessions/` y de **un**
  * registro de variantes de modelo; nadie fuera de aca los construye, asi que
  * no hay dos sondeos del mismo directorio ni dos registros que se contradigan.
+ *
+ * Desde el hito 47 escribe una cosa suya, y solo con la CLI encontrada: el
+ * script de la status line que publica los limites del plan (`prepare`). La
+ * linea en `settings.json` la pega el usuario (§4.17).
  */
 
 import { homedir } from 'node:os';
@@ -16,7 +20,10 @@ import {
   MODEL_OPTIONS,
   PERMISSION_MODE_CYCLE,
   type AgentCapabilities,
+  type StatusLineSetupInfo,
+  type StatusLineState,
 } from '@agent-workbench/shared';
+import { agentStatusDir, integrationsDir } from '../../paths.js';
 import type {
   AgentAdapter,
   AgentInput,
@@ -28,6 +35,7 @@ import type {
   StatusSource,
 } from '../adapter.js';
 import { commandNotFoundMessage, locateCommand } from '../locate.js';
+import { PlanLimitsRecordDir, removeStalePlanRecords } from '../plan-limits.js';
 import { readAgentDefaults } from './agent-defaults.js';
 import { CliStatusWatcher } from './cli-status.js';
 import { CLAUDE_CODE_COMMAND, CLAUDE_CODE_INSTALL_URL } from './constants.js';
@@ -38,6 +46,20 @@ import { autoAnswerResumeDialog } from './resume-dialog.js';
 import { createClaudeCodeHandback } from './handback.js';
 import { sessionFilePath } from './paths.js';
 import { createClaudeCodeRewind } from './rewind-menu.js';
+import {
+  claudeStatusLineFragment,
+  claudeStatusLineScriptPath,
+  installClaudeStatusLineScript,
+} from './statusline-script.js';
+import { claudeSettingsStamp, claudeUserSettingsPath, readClaudeStatusLineState } from './statusline-settings.js';
+
+/** Cada cuanto se mira `settings.json` mientras alguien quiere enterarse de cambios. */
+export const CLAUDE_SETTINGS_POLL_MS = 2_000;
+
+/** Donde deja el script de la status line un registro por sesion. */
+export function claudePlanRecordsDir(): string {
+  return agentStatusDir('claude-code');
+}
 
 /**
  * Lo que la interfaz dibuja para esta CLI. Todo medido contra la CLI de verdad
@@ -117,7 +139,15 @@ function createStatusSource(watcher: CliStatusWatcher): StatusSource {
   };
 }
 
-export function createClaudeCodeAdapter(): AgentAdapter {
+export interface ClaudeCodeAdapterOptions {
+  /** Para el chequeo. Por defecto, la del proceso. */
+  platform?: string;
+  /** Cada cuanto se mira `settings.json` (`subscribeChanges`). */
+  settingsPollMs?: number;
+}
+
+export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}): AgentAdapter {
+  const platform = options.platform ?? process.platform;
   const watcher = new CliStatusWatcher();
   /*
     Que variante de modelo usa esta instalacion. Lo llena el escaneo del
@@ -129,6 +159,32 @@ export function createClaudeCodeAdapter(): AgentAdapter {
   */
   const variants = new ModelVariantRegistry();
   const status = createStatusSource(watcher);
+
+  /*
+    Los limites del plan de la cuenta (hito 47, §4.17): la CLI los publica solo
+    por su status line. Con la de la app puesta, su script deja un registro por
+    sesion y de ahi sale el medidor del plan; sin ella no hay nada que leer.
+  */
+  const planLimits = new PlanLimitsRecordDir(claudePlanRecordsDir);
+  let statusLineState: StatusLineState = 'missing';
+  /** true despues de `prepare`: recien ahi la app puede escribir en su carpeta por esta CLI. */
+  let prepared = false;
+  const pollers = new Set<ReturnType<typeof setInterval>>();
+
+  const refreshSetup = async (): Promise<boolean> => {
+    const next = await readClaudeStatusLineState();
+    if (prepared) {
+      // Si alguien edito o borro el script, se reescribe: el estado no cambia por eso.
+      try {
+        await installClaudeStatusLineScript(integrationsDir());
+      } catch (error) {
+        console.warn(`[claude-code] couldn't reinstall the status line script: ${String(error)}`);
+      }
+    }
+    const changed = next !== statusLineState;
+    statusLineState = next;
+    return changed;
+  };
 
   return {
     id: 'claude-code',
@@ -209,6 +265,62 @@ export function createClaudeCodeAdapter(): AgentAdapter {
     /** La carpeta de la CLI. No se lista ni se entra: regla 2.1. */
     protectedDirs: () => [path.join(homedir(), '.claude')],
 
-    dispose: () => status.dispose(),
+    planLimits,
+
+    /** El script de la status line y la limpieza de sus registros. Solo con la CLI encontrada. */
+    async prepare(): Promise<void> {
+      prepared = true;
+      try {
+        await installClaudeStatusLineScript(integrationsDir());
+      } catch (error) {
+        console.warn(`[claude-code] couldn't install the status line script: ${String(error)}`);
+      }
+      await removeStalePlanRecords(claudePlanRecordsDir());
+      await refreshSetup();
+    },
+
+    planLimitsSetup(): StatusLineSetupInfo {
+      const script = claudeStatusLineScriptPath(integrationsDir());
+      return {
+        state: statusLineState,
+        settingsPath: claudeUserSettingsPath(),
+        scriptPath: script,
+        fragment: claudeStatusLineFragment(script, platform),
+      };
+    },
+
+    refreshSetup,
+
+    /** Avisa cuando el usuario pega o quita la linea: un `stat` de `settings.json` cada 2 s. */
+    subscribeChanges(listener: () => void): () => void {
+      let last: string | null = null;
+      let busy = false;
+      const timer = setInterval(() => {
+        if (busy) return;
+        busy = true;
+        void (async () => {
+          const stamp = await claudeSettingsStamp();
+          if (last !== null && stamp !== last && (await refreshSetup())) listener();
+          last = stamp;
+        })()
+          .catch(() => undefined)
+          .finally(() => {
+            busy = false;
+          });
+      }, options.settingsPollMs ?? CLAUDE_SETTINGS_POLL_MS);
+      timer.unref();
+      pollers.add(timer);
+      return () => {
+        clearInterval(timer);
+        pollers.delete(timer);
+      };
+    },
+
+    dispose: () => {
+      for (const timer of pollers) clearInterval(timer);
+      pollers.clear();
+      planLimits.dispose();
+      status.dispose();
+    },
   };
 }

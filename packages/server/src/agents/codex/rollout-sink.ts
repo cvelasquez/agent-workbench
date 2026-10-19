@@ -28,11 +28,13 @@ import {
   type ConversationEvent,
   type ConversationPart,
   type ConversationRole,
+  type PlanLimitWindow,
 } from '@agent-workbench/shared';
 import type { TurnUpdate } from '../adapter.js';
 import type { EventLookup, JsonlLineSink } from '../jsonl-follower.js';
 import { cut, TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import {
+  readRateLimits,
   readSessionMeta,
   readTokenInfo,
   readToolOutput,
@@ -76,10 +78,13 @@ export class CodexRolloutSink implements JsonlLineSink {
   /**
    * `sessionId`: `''` si todavia no se sabe que sesion es. `limits`: los topes
    * de cada parte, los de transporte salvo para la copia propia (hito 28).
+   * `onPlanLimits`: a quien contarle los limites del plan de cada `token_count`
+   * (hito 47); ausente, no se leen.
    */
   constructor(
     private readonly sessionId: string,
     private readonly limits: EventLimits = TRANSPORT_LIMITS,
+    private readonly onPlanLimits?: (windows: PlanLimitWindow[]) => void,
   ) {}
 
   getUsage(): ContextUsage {
@@ -238,6 +243,11 @@ export class CodexRolloutSink implements JsonlLineSink {
 
     if (kind === 'token_count') {
       this.applyTokenCount(payload);
+      // Aparte del uso: el primero de cada archivo trae `info: null` y los limites igual.
+      if (this.onPlanLimits !== undefined) {
+        const windows = readRateLimits(payload, at);
+        if (windows.length > 0) this.onPlanLimits(windows);
+      }
       return null;
     }
 

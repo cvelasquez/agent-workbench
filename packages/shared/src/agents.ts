@@ -313,6 +313,13 @@ export interface AgentInfo {
   environmentNotice: EnvironmentNoticeId | null;
   /** Estado de la status line opcional; null para toda CLI que no la tenga. */
   statusLine: StatusLineSetupInfo | null;
+  /**
+   * Hito 47. La status line que publica los limites del plan de la cuenta, en la
+   * CLI que solo los publica por ahi y no la necesita para nada mas; null en las
+   * demas. Va aparte de `statusLine` porque no cambia ninguna capacidad: sin
+   * ella la pestana sigue igual y solo falta el medidor del plan (§6.37).
+   */
+  planLimitsSetup: StatusLineSetupInfo | null;
 }
 
 /** true si hay que ofrecer elegir CLI: mas de una disponible. */
@@ -472,5 +479,7 @@ export function parseAgentInfo(value: unknown): AgentInfo | null {
     capabilities: parseAgentCapabilities(record['capabilities']),
     environmentNotice: asLiteral(record['environmentNotice'], ENVIRONMENT_NOTICE_IDS),
     statusLine: parseStatusLineSetupInfo(record['statusLine']),
+    // Ausente en un servidor anterior al hito 47: null, sin medidor del plan que configurar.
+    planLimitsSetup: parseStatusLineSetupInfo(record['planLimitsSetup']),
   };
 }

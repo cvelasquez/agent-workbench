@@ -15,7 +15,9 @@
  *    borraria la linea propia de la CLI.
  *  - **Lista blanca.** El JSON trae el email de la cuenta, la cuota, el plan, el
  *    costo, la carpeta, el titulo y una ruta del IDE. El script toma estado,
- *    modo, modelo y tokens, y nada mas.
+ *    modo, modelo y tokens, y desde la version 2 (hito 47) de la cuota solo el
+ *    nombre de cada entrada, cuanto queda y cuando se reinicia: es el medidor
+ *    del plan (§6.37). Nada mas.
  *  - **Nunca falla hacia la CLI ni imprime nada.** Medido: con
  *    `stack_with_default: true` una salida vacia no deja linea en blanco, y un
  *    error se dibuja en el TUI como un bloque de aviso.
@@ -25,8 +27,15 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { STATUS_LINE_SCRIPT_NAME } from './constants.js';
 
-/** Sube si cambia lo que el script escribe; el lector exige la misma. */
-export const STATUS_LINE_SCRIPT_VERSION = 1;
+/**
+ * Sube si cambia lo que el script escribe. El lector acepta esta y las
+ * anteriores que siguen en `STATUS_LINE_READABLE_VERSIONS`: al actualizar la
+ * app, los registros que dejo el script viejo no se pierden.
+ */
+export const STATUS_LINE_SCRIPT_VERSION = 2;
+
+/** Las versiones de registro que el servidor sabe leer. La 2 solo suma `planLimits`. */
+export const STATUS_LINE_READABLE_VERSIONS: readonly number[] = [1, 2];
 
 /**
  * El script, tal cual se escribe. LF, sin dependencias, ESM.
@@ -37,26 +46,74 @@ export const STATUS_LINE_SCRIPT_VERSION = 1;
  * primer mensaje; `transcript_path` apunta a la carpeta del IDE. `keys` son solo
  * los **nombres** de las claves recibidas, sin valores: si una version cambia el
  * formato, dicen que llego en vez de que.
+ *
+ * Desde la version 2 (hito 47), de `quota` (un objeto por nombre, con
+ * `remaining_fraction`, `reset_time` y `reset_in_seconds`; `gemini-weekly` en la
+ * medicion de la 1.2.2) sale `planLimits`, con el formato de
+ * `PlanLimitWindow`: lo usado es lo que falta para 1, y la duracion se deduce
+ * del nombre (`week`, `day`, `month`, `5h`) o queda en null. `observedAt` se
+ * conserva si el registro anterior de la conversacion decia lo mismo.
  */
 export const STATUS_LINE_SCRIPT = `// Agent Workbench: status line de Antigravity CLI. Lo genera la app: no editar.
 // version: ${STATUS_LINE_SCRIPT_VERSION}
 //
 // La CLI lo corre en cada cambio de estado con un JSON por stdin. Guarda en la
-// carpeta de la app solo estado, modo, modelo y tokens de la conversacion. No
-// imprime nada, no guarda el email, la cuota, el plan, el costo, la carpeta ni
-// el titulo, y nunca falla hacia la CLI.
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+// carpeta de la app solo estado, modo, modelo y tokens de la conversacion, y de
+// la cuota cuanto queda y cuando se reinicia. No imprime nada, no guarda el
+// email, el plan, el costo, la carpeta ni el titulo, y nunca falla hacia la CLI.
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY = /^[a-z0-9_]{1,64}$/;
+const QUOTA_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const MAX_INPUT = 1000000;
 const MAX_TEXT = 200;
 const MAX_KEYS = 64;
+const MAX_QUOTAS = 8;
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v) => (typeof v === 'string' ? v.slice(0, MAX_TEXT) : null);
 const rec = (v) => (v !== null && typeof v === 'object' && !Array.isArray(v) ? v : null);
+
+function minutesOf(name) {
+  const lower = name.toLowerCase();
+  if (lower.includes('week')) return 10080;
+  if (lower.includes('month')) return 43200;
+  if (lower.includes('day') || lower.includes('daily')) return 1440;
+  if (/(^|[^0-9])5h/.test(lower) || lower.includes('five')) return 300;
+  return null;
+}
+
+function previousWindows(file) {
+  try {
+    const old = rec(JSON.parse(readFileSync(file, 'utf8')));
+    return old !== null && Array.isArray(old.planLimits) ? old.planLimits : [];
+  } catch {
+    return [];
+  }
+}
+
+function quotaWindows(value, file, now) {
+  const quota = rec(value);
+  if (quota === null) return [];
+  const before = previousWindows(file);
+  const windows = [];
+  for (const name of Object.keys(quota).slice(0, MAX_QUOTAS)) {
+    const entry = rec(quota[name]);
+    if (entry === null || !QUOTA_NAME.test(name)) continue;
+    const remaining = num(entry.remaining_fraction);
+    if (remaining === null || remaining < 0 || remaining > 1) continue;
+    const usedPercent = Math.round((1 - remaining) * 10000) / 100;
+    const stamp = typeof entry.reset_time === 'string' ? Date.parse(entry.reset_time) : NaN;
+    const resetIn = num(entry.reset_in_seconds);
+    const resetsAt = Number.isFinite(stamp) && stamp > 0 ? stamp : resetIn !== null && resetIn >= 0 ? now + resetIn * 1000 : null;
+    const same = before.find((old) => rec(old) !== null && old.id === name && old.usedPercent === usedPercent && old.resetsAt === resetsAt);
+    const observedAt = same !== undefined && num(same.observedAt) !== null ? same.observedAt : now;
+    windows.push({ id: name, minutes: minutesOf(name), usedPercent, resetsAt, observedAt });
+  }
+  return windows;
+}
 
 // Si la entrada no se cierra nunca, no quedarse colgado.
 setTimeout(() => process.exit(0), 5000).unref();
@@ -83,9 +140,13 @@ process.stdin.on('end', () => {
     const model = rec(input.model) || {};
     const win = rec(input.context_window) || {};
     const usage = rec(win.current_usage);
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const dir = path.join(here, '..', 'agent-status', 'antigravity');
+    const target = path.join(dir, id.toLowerCase() + '.json');
+    const now = Date.now();
     const record = {
       v: ${STATUS_LINE_SCRIPT_VERSION},
-      at: Date.now(),
+      at: now,
       conversationId: id.toLowerCase(),
       agentState: str(input.agent_state),
       toolConfirmationPending: input.tool_confirmation_pending === true,
@@ -108,11 +169,9 @@ process.stdin.on('end', () => {
       },
       cliVersion: str(input.version),
       keys: Object.keys(input).filter((key) => KEY.test(key)).slice(0, MAX_KEYS),
+      planLimits: quotaWindows(input.quota, target, now),
     };
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    const dir = path.join(here, '..', 'agent-status', 'antigravity');
     mkdirSync(dir, { recursive: true });
-    const target = path.join(dir, record.conversationId + '.json');
     const temp = target + '.' + process.pid + '.tmp';
     const body = JSON.stringify(record);
     writeFileSync(temp, body);

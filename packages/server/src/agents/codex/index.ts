@@ -28,6 +28,7 @@ import type {
   SpawnedContext,
 } from '../adapter.js';
 import { commandNotFoundMessage, locateCommand } from '../locate.js';
+import { PlanLimitsBook } from '../plan-limits.js';
 import { CodexSessionDiscovery } from './discovery.js';
 import { createCodexHistory } from './history.js';
 import { codexHome, isUuid } from './paths.js';
@@ -112,6 +113,11 @@ export const CODEX_INPUT: AgentInput = codexInput(process.platform);
 
 export function createCodexAdapter(): AgentAdapter {
   const discovery = new CodexSessionDiscovery();
+  /*
+    Los limites del plan de la cuenta (hito 47, §10.14): los escribe Codex en
+    cada `token_count`, y se juntan aca a medida que los seguidores leen.
+  */
+  const planLimits = new PlanLimitsBook();
 
   return {
     id: 'codex',
@@ -175,8 +181,9 @@ export function createCodexAdapter(): AgentAdapter {
       });
     },
 
-    history: createCodexHistory(),
+    history: createCodexHistory({ planLimits }),
     status: null,
+    planLimits,
 
     defaults: () => Promise.resolve(null),
 
@@ -195,6 +202,9 @@ export function createCodexAdapter(): AgentAdapter {
       return dirs;
     },
 
-    dispose: () => discovery.dispose(),
+    dispose: () => {
+      discovery.dispose();
+      planLimits.dispose();
+    },
   };
 }

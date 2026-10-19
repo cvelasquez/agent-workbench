@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  compactCommandFor,
   handoffSendingText,
   continueBlockedReason,
   continueTargets,
@@ -35,6 +36,7 @@ import { Composer, type ComposerInsert } from './Composer.js';
 import { ConsolePane } from './ConsolePane.js';
 import { autoOpenShell, withRequestedShell } from './console-shells.js';
 import { ConversationView } from './ConversationView.js';
+import type { CompactAction } from './ContextMeter.js';
 import { FolderPicker } from './FolderPicker.js';
 import { globalSearchVisible, searchHitAction } from './global-search-ui.js';
 import { ShortcutsDialog } from './ShortcutsDialog.js';
@@ -56,6 +58,7 @@ import { useFileLinks } from './useFileLinks.js';
 import { useGit } from './useGit.js';
 import { useMemory } from './useMemory.js';
 import { useNotes } from './useNotes.js';
+import { usePlanLimits } from './usePlanLimits.js';
 import { THEME_ICON, themeTitle, useTheme } from './useTheme.js';
 import { useTerminalTheme } from './useTerminalTheme.js';
 import { useNotificationSound } from './useNotificationSound.js';
@@ -277,6 +280,17 @@ export function App(): JSX.Element {
     [terminals, projects],
   );
   const activeStatusLine = activeAgentInfo?.statusLine ?? null;
+  /*
+    Los limites del plan de la cuenta de la CLI de la pestana activa (hito 47,
+    §6.37), y la status line que los publica en la CLI que solo los publica por
+    ahi. Llegan del servidor para todas las CLIs; se muestran los de esta.
+  */
+  const planLimits = usePlanLimits(connection);
+  const activePlanWindows = useMemo(
+    () => (activeAgent === null ? [] : (planLimits.find((limits) => limits.agent === activeAgent)?.windows ?? [])),
+    [planLimits, activeAgent],
+  );
+  const activePlanSetup = activeAgentInfo?.planLimitsSetup ?? null;
 
   /*
     Con que CLI abre el `+` de la barra de pestanas cuando hay para elegir: la
@@ -503,6 +517,11 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (activeStatusLine === null) setStatusLineDialogVisible(false);
   }, [activeStatusLine]);
+  /** El de la status line de los limites del plan (hito 47), con la misma regla. */
+  const [planLimitsDialogVisible, setPlanLimitsDialogVisible] = useState(false);
+  useEffect(() => {
+    if (activePlanSetup === null) setPlanLimitsDialogVisible(false);
+  }, [activePlanSetup]);
   /**
    * El selector de carpetas: para empezar un proyecto nuevo, o para elegir la
    * carpeta de la copia propia (hito 28). Uno solo a la vez.
@@ -912,6 +931,24 @@ export function App(): JSX.Element {
     },
     [connection, activeTerminalId],
   );
+
+  /*
+    "Compactar" debajo del medidor de contexto, con la ventana al 80 % (hito
+    47, §6.37). Es un comando de barra mas, por el mismo camino que los combos:
+    el borrador del cuadro no se toca. Apagado sin CLI abierta, y con el agente
+    trabajando o esperando: ahi el comando quedaria en la cola de la CLI, o
+    caeria sobre un menu.
+  */
+  const activeCompactCommand = compactCommandFor(activeAgent);
+  const compactAction = useMemo((): CompactAction | null => {
+    if (activeCompactCommand === null || activeTerminal === null) return null;
+    const blockedReason = !activeTerminal.alive
+      ? t('meter.compactNoCli')
+      : activeActivity === 'busy' || activeActivity === 'waiting'
+        ? t('meter.compactBusy')
+        : null;
+    return { command: activeCompactCommand, blockedReason, onCompact: () => sendCommand(activeCompactCommand) };
+  }, [activeCompactCommand, activeTerminal, activeActivity, sendCommand, locale]);
 
   const revealPath = useCallback(
     (path: string) => {
@@ -1392,6 +1429,10 @@ export function App(): JSX.Element {
           activity={activeActivity}
           receipt={activeTerminalId === null ? null : (threadSignals.receipts.get(activeTerminalId) ?? null)}
           clock={activeTerminalId === null ? null : (threadSignals.clocks.get(activeTerminalId) ?? null)}
+          planWindows={activePlanWindows}
+          planSetupState={activePlanSetup?.state ?? null}
+          onConfigurePlanLimits={activePlanSetup === null ? undefined : () => setPlanLimitsDialogVisible(true)}
+          compactAction={compactAction}
         />
       )}
     </div>
@@ -1715,6 +1756,15 @@ export function App(): JSX.Element {
           agentLabel={activeAgentInfo.label}
           onRefresh={refreshAgents}
           onClose={() => setStatusLineDialogVisible(false)}
+        />
+      )}
+      {planLimitsDialogVisible && activePlanSetup !== null && activeAgentInfo !== null && (
+        <StatusLineDialog
+          info={activePlanSetup}
+          agentLabel={activeAgentInfo.label}
+          purpose="plan-limits"
+          onRefresh={refreshAgents}
+          onClose={() => setPlanLimitsDialogVisible(false)}
         />
       )}
 

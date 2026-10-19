@@ -28,9 +28,10 @@ import { mkdirSync } from 'node:fs';
 import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentCapabilities, StatusLineSetupInfo, StatusLineState } from '@agent-workbench/shared';
-import { cliLogsTempDir, integrationsDir } from '../../paths.js';
+import { agentStatusDir, cliLogsTempDir, integrationsDir } from '../../paths.js';
 import type { AgentAdapter, AgentInput, LaunchHook, LaunchInput, LaunchPlan, SpawnedContext } from '../adapter.js';
 import { commandNotFoundMessage, locateCommand } from '../locate.js';
+import { PlanLimitsRecordDir } from '../plan-limits.js';
 import { removeStaleCatalogCopies } from './catalog.js';
 import { FileStampSignal } from './catalog-signal.js';
 import {
@@ -189,6 +190,12 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
   const watchers = new Set<LogWatcher>();
   const settingsSignal =
     options.settingsSignal ?? new FileStampSignal(() => [settingsPath()], { intervalMs: SETTINGS_POLL_INTERVAL_MS });
+  /*
+    Los limites del plan (hito 47, §6.37): desde la version 2 el script de la
+    status line guarda la cuota en el mismo registro de cada conversacion. Sin
+    la status line no hay registros, y no hay medidor del plan.
+  */
+  const planLimits = new PlanLimitsRecordDir(() => agentStatusDir('antigravity'));
 
   const scriptPath = (): string => statusLineScriptPath(integrationsDir());
 
@@ -346,6 +353,7 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
 
     history: createAntigravityHistory({ statusLine: createFollowerStatusLine(store, isActive) }),
     status,
+    planLimits,
 
     /*
       La cola no queda escrita en ningun lado que la app lea (hito 45, §12.13):
@@ -400,6 +408,7 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
       watchers.clear();
       settingsSignal.dispose();
       status.dispose();
+      planLimits.dispose();
     },
   };
 }

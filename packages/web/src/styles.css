@@ -1907,6 +1907,9 @@ kbd {
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  /* El medidor del plan se achica segun el ancho de esta fila (hito 47, §6.37). */
+  container-type: inline-size;
+  container-name: thread-toolbar;
 }
 
 /*
@@ -3026,6 +3029,86 @@ kbd {
   font-size: 10px;
   color: var(--text-dim);
   font-style: italic;
+}
+
+/*
+  "Compactar", colgado debajo del medidor de contexto con la ventana al 80 % o
+  mas (hito 47, §6.37). Flota sobre la esquina del hilo: si empujara la
+  conversacion, esta saltaria cada vez que el contexto cruza el umbral.
+*/
+.meter-anchor {
+  position: relative;
+}
+
+.meter-compact-button {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  padding: 2px 8px;
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  background: var(--chrome-alt);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.meter-compact-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.meter-compact-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/*
+  El medidor del plan (hito 47, §6.37): una o dos ventanas en la misma fila que
+  el de contexto. La barra es mas corta que la del de contexto: son dos.
+*/
+.plan-meter {
+  gap: 10px;
+  /* Que no se lea pegado a la palabra del medidor de contexto. */
+  margin-right: 8px;
+}
+
+.plan-window {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.plan-meter .plan-bar {
+  width: 36px;
+}
+
+/* Al 90 % o mas, el numero en rojo: es la ventana que esta por frenar el trabajo. */
+.plan-danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/*
+  Sin sitio para todo: primero se va la ventana que no es la prioritaria (la de
+  5 horas queda, salvo que otra este al 90 %), y despues la palabra y la barra,
+  hasta `11 % · 5d 10h`. El titulo dice siempre todas.
+*/
+@container thread-toolbar (max-width: 760px) {
+  .plan-meter .plan-window-extra {
+    display: none;
+  }
+}
+
+@container thread-toolbar (max-width: 560px) {
+  .plan-meter .plan-label,
+  .plan-meter .plan-bar {
+    display: none;
+  }
 }
 
 /* ---------- git ---------- */

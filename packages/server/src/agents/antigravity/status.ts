@@ -42,7 +42,7 @@ import { ANTIGRAVITY_EFFORT_OPTIONS, CONVERSATION_ID_PATTERN } from './constants
 import { fromCycleMode } from './mode-names.js';
 import { splitModelLabel } from './model-label.js';
 import type { FollowerStatusLine } from './session-follower.js';
-import { STATUS_LINE_SCRIPT_VERSION } from './statusline-script.js';
+import { STATUS_LINE_READABLE_VERSIONS } from './statusline-script.js';
 
 /** Cada cuanto se miran los archivos de las pestanas suscritas. Como `cli-status.ts`. */
 export const STATUS_POLL_INTERVAL_MS = 700;
@@ -89,12 +89,16 @@ const num = (value: unknown): number | null => (typeof value === 'number' && Num
 const str = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 
 /**
- * Un registro del script, o null si no es uno de esta version o no es de esa
- * conversacion. El nombre del archivo y el id de adentro tienen que coincidir.
+ * Un registro del script, o null si no es de una version que se sepa leer o no
+ * es de esa conversacion. El nombre del archivo y el id de adentro tienen que
+ * coincidir. La version 2 solo suma `planLimits`, que lee
+ * `PlanLimitsRecordDir` (hito 47): aca se leen las dos igual.
  */
 export function parseStatusRecord(value: unknown, conversationId: string): StatusRecord | null {
   const record = asRecord(value);
-  if (record === null || record['v'] !== STATUS_LINE_SCRIPT_VERSION) return null;
+  if (record === null || typeof record['v'] !== 'number' || !STATUS_LINE_READABLE_VERSIONS.includes(record['v'])) {
+    return null;
+  }
   const at = num(record['at']);
   const id = str(record['conversationId']);
   if (at === null || id === null || id.toLowerCase() !== conversationId.toLowerCase()) return null;

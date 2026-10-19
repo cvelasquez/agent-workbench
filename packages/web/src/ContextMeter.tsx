@@ -40,6 +40,21 @@ import { t } from './i18n/index.js';
 const WARN_RATIO = 0.75;
 const DANGER_RATIO = 0.9;
 
+/**
+ * Desde aca se ofrece "Compactar" debajo del medidor (hito 47, §6.37). Pedido
+ * por el usuario: antes de que la CLI compacte sola, o de que se llene.
+ */
+export const COMPACT_RATIO = 0.8;
+
+/** El boton "Compactar": que comando manda, y por que esta apagado si lo esta. */
+export interface CompactAction {
+  /** El comando de la CLI, para el titulo (`/compact`). */
+  command: string;
+  /** Por que no se puede ahora, o null si se puede. */
+  blockedReason: string | null;
+  onCompact: () => void;
+}
+
 function formatTokens(value: number): string {
   if (value < 1_000) return String(value);
   if (value < 1_000_000) {
@@ -86,6 +101,11 @@ interface ContextMeterProps {
   statusLineState?: StatusLineState | null;
   /** Abre el dialogo de configurar la status line. */
   onConfigure?: () => void;
+  /**
+   * "Compactar", con la ventana al 80 % o mas (hito 47). Solo en la version de
+   * una linea; null o ausente, la CLI no tiene el comando y no se ofrece.
+   */
+  compactAction?: CompactAction | null;
 }
 
 export function ContextMeter({
@@ -96,6 +116,7 @@ export function ContextMeter({
   compact = false,
   statusLineState = null,
   onConfigure,
+  compactAction = null,
 }: ContextMeterProps): JSX.Element {
   const { lastRequestTokens, contextWindow } = usage;
 
@@ -203,8 +224,15 @@ export function ContextMeter({
       .filter((piece): piece is string => piece !== null)
       .join(' · ');
 
+    /*
+      "Compactar" cuelga debajo del medidor, sobre la esquina del hilo: en la
+      fila no hay sitio, y si empujara la conversacion, esta saltaria cada vez
+      que el contexto cruza el 80 %.
+    */
+    const offerCompact = compactAction !== null && ratio !== null && ratio >= COMPACT_RATIO;
+
     return (
-      <div className="meter meter-compact" title={detail}>
+      <div className={`meter meter-compact${offerCompact ? ' meter-anchor' : ''}`} title={detail}>
         <span className="meter-label">{t('meter.label')}</span>
         {ratio !== null && (
           <span className="meter-bar meter-bar-inline">
@@ -218,6 +246,16 @@ export function ContextMeter({
           {formatTokens(lastRequestTokens)}
           {window.length > 0 && <span className="meter-dim">{window}</span>}
         </span>
+        {offerCompact && compactAction !== null && (
+          <button
+            className="meter-compact-button"
+            onClick={compactAction.onCompact}
+            disabled={compactAction.blockedReason !== null}
+            title={compactAction.blockedReason ?? t('meter.compactTitle', { command: compactAction.command })}
+          >
+            {t('meter.compact')}
+          </button>
+        )}
       </div>
     );
   }

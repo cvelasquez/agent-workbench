@@ -85,6 +85,30 @@ export function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString(getFormatTag(), { hour: '2-digit', minute: '2-digit' });
 }
 
+/** El dia de la semana y la hora: `sáb 08:00`, `Sat 08:00 AM`. Para lo que pasa dentro de la semana. */
+export function formatWeekdayTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(getFormatTag(), { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Cuanto falta, corto, para el medidor del plan (hito 47): `5d 10h`, `10h 23m`,
+ * `23m`, y `<1m` en el ultimo minuto. Las unidades salen del diccionario.
+ */
+export function formatTimeLeft(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000);
+  if (minutes < 1) return t('format.timeLeft.underMinute');
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor((minutes % 1_440) / 60);
+  if (days > 0) return t('format.timeLeft.daysHours', { days, hours });
+  if (hours > 0) return t('format.timeLeft.hoursMinutes', { hours, minutes: minutes % 60 });
+  return t('format.timeLeft.minutes', { minutes });
+}
+
+/** Un porcentaje entero con la forma del idioma: `11 %`, `11%`. `value` va de 0 a 100. */
+export function formatPercent(value: number): string {
+  return new Intl.NumberFormat(getFormatTag(), { style: 'percent', maximumFractionDigits: 0 }).format(value / 100);
+}
+
 /** Una lista con la conjunción del idioma: `A y B`, `A, B and C`, `A、B和C`. */
 export function formatList(items: readonly string[]): string {
   return new Intl.ListFormat(getFormatTag(), { type: 'conjunction' }).format(items);

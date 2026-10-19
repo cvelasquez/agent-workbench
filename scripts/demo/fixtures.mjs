@@ -1044,6 +1044,31 @@ export function buildFixtures(dirs) {
   */
   utimesSync(mainFile, mainWritten, mainWritten);
 
+  /*
+    Los limites del plan (hito 47, §6.37): la status line de la app puesta en la
+    configuracion de la CLI simulada, y lo que habria dejado su script. Sin esto
+    las capturas mostrarian "Configurar" donde va el medidor del plan.
+  */
+  writeFileSync(
+    path.join(home, '.claude', 'settings.json'),
+    `${JSON.stringify({ statusLine: { type: 'command', command: 'node "claude-code-statusline.mjs"' } }, null, 2)}\n`,
+  );
+  const planRecords = path.join(dirs.configDir, 'agent-status', 'claude-code');
+  mkdirSync(planRecords, { recursive: true });
+  writeFileSync(
+    path.join(planRecords, `${main.sessionId}.json`),
+    JSON.stringify({
+      v: 1,
+      at: now - 2 * MIN,
+      sessionId: main.sessionId,
+      planLimits: [
+        { id: 'five_hour', minutes: 300, usedPercent: 23, resetsAt: now + 2 * HOUR + 10 * MIN, observedAt: now - 2 * MIN },
+        { id: 'seven_day', minutes: 10080, usedPercent: 11, resetsAt: now + 5 * DAY + 10 * HOUR, observedAt: now - 2 * MIN },
+      ],
+      keys: ['session_id', 'rate_limits'],
+    }),
+  );
+
   // --- El resto de online-store -----------------------------------------------
   quick(ctx, TIENDA, 'main', 2 * DAY + 3 * HOUR, 'Add a category filter to the catalog, above the list.', 'I added the `<select>` with the three categories in `ProductList.tsx` and the `byCategory` function in `filters.ts`. The filter runs in memory over what the API already returned.');
   quick(ctx, TIENDA, 'feat/payment-gateway', 3 * DAY + 5 * HOUR, 'Move the checkout to the new payment gateway. The docs are in docs/payment-gateway.md.', 'I replaced the old client with `PaymentGateway` and kept the previous one behind an environment variable so we can roll back. It still needs a run against the sandbox with a real card.');

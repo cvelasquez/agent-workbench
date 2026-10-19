@@ -25,6 +25,7 @@ import {
   type ConversationImageSource,
   type ConversationState,
   type PermissionMode,
+  type PlanLimitWindow,
 } from '@agent-workbench/shared';
 import type { EventPage, LoadedImage, PollResult, SessionFollower } from '../adapter.js';
 import { JsonlFollower } from '../jsonl-follower.js';
@@ -45,6 +46,8 @@ export interface CodexFollowerOptions {
   limits?: EventLimits;
   /** Hito 28, `FollowOptions`. Ausente: el tope de `JsonlFollower`. */
   maxEvents?: number;
+  /** Hito 47: a quien contarle los limites del plan que traen las lineas. Ausente, no se leen. */
+  onPlanLimits?: (windows: PlanLimitWindow[]) => void;
 }
 
 /** El id de sesion del nombre de un rollout, comprimido o no. */
@@ -72,7 +75,7 @@ export class CodexSessionFollower implements SessionFollower {
     private readonly sessionId: string,
     options: CodexFollowerOptions = {},
   ) {
-    this.sink = new CodexRolloutSink(sessionId, options.limits);
+    this.sink = new CodexRolloutSink(sessionId, options.limits, options.onPlanLimits);
     this.maxEvents = options.maxEvents;
     this.jsonl = this.followerFor(null);
     this.now = options.now ?? Date.now;

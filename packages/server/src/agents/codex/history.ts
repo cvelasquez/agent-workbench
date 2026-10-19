@@ -13,6 +13,7 @@
 
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
+import type { PlanLimitWindow } from '@agent-workbench/shared';
 import type {
   FollowOptions,
   HistoryItem,
@@ -30,6 +31,7 @@ import {
   walkSessionFiles,
 } from './find-rollout.js';
 import { codexArchivedRoot, codexSessionsRoot, parseCompressedRolloutFileName, parseRolloutFileName } from './paths.js';
+import type { PlanLimitsBook } from '../plan-limits.js';
 import { scanRollout } from './rollout-scan.js';
 import { CodexSessionFollower } from './session-follower.js';
 
@@ -85,7 +87,18 @@ function withoutPlainTwin(compressed: readonly string[], plain: readonly string[
   return compressed.filter((ref) => !plainSet.has(plainRolloutPathOf(ref)));
 }
 
-export function createCodexHistory(): HistorySource {
+export interface CodexHistoryOptions {
+  /**
+   * Donde se juntan los limites del plan que traen los `token_count` (hito 47,
+   * §10.14). Todo seguidor cuenta lo que lee: entre dos sesiones gana lo visto
+   * mas tarde, asi que leer un rollout viejo no pisa nada.
+   */
+  planLimits?: PlanLimitsBook;
+}
+
+export function createCodexHistory(options: CodexHistoryOptions = {}): HistorySource {
+  const book = options.planLimits;
+  const onPlanLimits = book === undefined ? undefined : (windows: PlanLimitWindow[]) => book.observe(windows);
   return {
     /*
       Las dos raices siempre, existan o no. `sessions/` no existe hasta el
@@ -165,6 +178,7 @@ export function createCodexHistory(): HistorySource {
       return new CodexSessionFollower(target.cwd, target.sessionId, {
         limits: options?.limits,
         maxEvents: options?.maxEvents,
+        onPlanLimits,
       });
     },
 

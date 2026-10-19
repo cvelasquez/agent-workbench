@@ -173,6 +173,8 @@ export class AgentRegistry {
       // Y solo encontrada: sin ella `prepareAll` no instalo el script ni se vigila
       // su configuracion, y el dialogo ofreceria una linea que apunta a la nada.
       statusLine: location === null ? null : (adapter.statusLine?.() ?? null),
+      // La de los limites del plan (hito 47), con la misma condicion.
+      planLimitsSetup: location === null ? null : (adapter.planLimitsSetup?.() ?? null),
     }));
   }
 

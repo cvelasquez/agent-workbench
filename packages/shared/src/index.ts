@@ -19,3 +19,4 @@ export * from './pasted-text.js';
 export * from './composer-draft.js';
 export * from './support.js';
 export * from './settings.js';
+export * from './plan-limits.js';

@@ -14,10 +14,16 @@
  *    medidor con la ventana exacta. No promete "lista para recibir": con esta
  *    CLI una pestana nueva no tiene conversacion hasta el primer mensaje, y no
  *    hay a que esperar (mandar notas sigue apagado).
- *  - **Que guarda el script**: estado, modelo y tokens, en la carpeta de la app.
- *    Nunca el email, la cuota ni el costo, que la CLI tambien le pasa.
+ *  - **Que guarda el script**: estado, modelo, tokens y cuanto queda de la
+ *    cuota, en la carpeta de la app. Nunca el email, el plan ni el costo, que
+ *    la CLI tambien le pasa.
  *  - **Que corre en toda sesion de la CLI**, tambien fuera de la app, y necesita
  *    `node` en el PATH de esa sesion.
+ *
+ * Desde el hito 47 sirve tambien para la status line de Claude Code, que solo
+ * publica los limites del plan (`purpose: 'plan-limits'`): cambian lo que se
+ * gana y lo que guarda el script, y se suma que la CLI admite una sola status
+ * line y que con una propia deja de mostrar algunas ayudas de su pie.
  *
  * "Comprobar" pide que el servidor relea la configuracion; igual se entera solo
  * en un par de segundos. `Escape` cierra sin llegar a la terminal, como el
@@ -39,6 +45,12 @@ interface StatusLineDialogProps {
   info: StatusLineSetupInfo;
   /** El nombre de la CLI, para el titulo. */
   agentLabel: string;
+  /**
+   * Para que es la status line: `status`, la que publica el estado de la
+   * pestana y los tokens (hito 27); `plan-limits`, la que solo publica los
+   * limites del plan (hito 47). Ausente, `status`.
+   */
+  purpose?: 'status' | 'plan-limits';
   onRefresh: () => void;
   onClose: () => void;
 }
@@ -46,6 +58,7 @@ interface StatusLineDialogProps {
 export function StatusLineDialog({
   info,
   agentLabel,
+  purpose = 'status',
   onRefresh,
   onClose,
 }: StatusLineDialogProps): JSX.Element {
@@ -102,6 +115,7 @@ export function StatusLineDialog({
 
   const active = info.state === 'active';
   const title = t('statusLine.title', { agent: agentLabel });
+  const planLimits = purpose === 'plan-limits';
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -123,11 +137,12 @@ export function StatusLineDialog({
             {statusLineStateText(info.state)}
           </p>
 
-          <p className="modal-hint">{t('statusLine.benefit')}</p>
+          <p className="modal-hint">{planLimits ? t('statusLine.planBenefit') : t('statusLine.benefit')}</p>
+          {planLimits && <p className="modal-hint">{t('statusLine.planReplaces')}</p>}
 
           <h3 className="modal-section">{t('statusLine.lineSection')}</h3>
           {info.fragment === null ? (
-            <p className="modal-hint">{statusLineNoFragmentText()}</p>
+            <p className="modal-hint">{planLimits ? t('statusLine.planNoFragment') : statusLineNoFragmentText()}</p>
           ) : (
             <>
               <p className="modal-hint">{tRich('statusLine.mergeHint')}</p>
@@ -149,7 +164,7 @@ export function StatusLineDialog({
           <p className="modal-hint">{t('statusLine.whereHint')}</p>
 
           <h3 className="modal-section">{t('statusLine.scriptSection')}</h3>
-          <p className="modal-hint">{t('statusLine.scriptHint')}</p>
+          <p className="modal-hint">{planLimits ? t('statusLine.planScriptHint') : t('statusLine.scriptHint')}</p>
           <p className="status-line-path">{info.scriptPath}</p>
           <p className="modal-hint">{tRich('statusLine.runsEverywhere')}</p>
 

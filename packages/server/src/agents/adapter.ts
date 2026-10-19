@@ -34,6 +34,7 @@ import type {
   ImageReferenceStyle,
   PermissionMode,
   PlanContent,
+  PlanLimitWindow,
   QueuedPrompt,
   ServerText,
   SessionPlan,
@@ -677,6 +678,24 @@ export interface RewindIo {
  */
 export type RewindFailure = 'menu-not-open' | 'message-not-found' | 'option-missing' | 'not-confirmed' | 'gone';
 
+// ---- Los limites del plan -------------------------------------------------------
+
+/**
+ * Hito 47. Lo que la CLI publica de los limites del plan de la cuenta: cuanto
+ * se uso de cada ventana y cuando se reinicia (§6.37). Lo arma
+ * `agents/plan-limits.ts` a partir del historial o de una status line.
+ */
+export interface PlanLimitsSource {
+  /** Lo que se sabe ahora, sin leer el disco. Incluye las vencidas: las descarta quien mira. */
+  current(): readonly PlanLimitWindow[];
+  /**
+   * Avisa cuando cambia. Devuelve la desuscripcion. Una fuente que sondea un
+   * directorio solo lo hace mientras haya alguien suscrito.
+   */
+  subscribe(listener: () => void): () => void;
+  dispose(): void;
+}
+
 export type RewindOutcome =
   | {
       kind: 'done';
@@ -883,10 +902,18 @@ export interface AgentAdapter {
   /** Carpetas que el selector de directorios no lista ni deja entrar. */
   protectedDirs(): readonly string[];
 
+  /**
+   * Presente si la CLI publica los limites del plan de la cuenta (hito 47,
+   * §6.37): Codex en su historial, Claude Code y Antigravity CLI por su status
+   * line. Ausente: no los publica, y no hay medidor del plan.
+   */
+  readonly planLimits?: PlanLimitsSource;
+
   /*
-    Lo que sigue es opcional y existe por la CLI que publica su estado solo si
-    el usuario configura una integracion propia (hito 27, la status line de
-    Antigravity CLI). Ninguna de las otras lo declara.
+    Lo que sigue es opcional y existe por la CLI que publica algo solo si el
+    usuario configura una integracion propia: su estado (hito 27, la status line
+    de Antigravity CLI) o los limites del plan (hito 47, la de Claude Code).
+    Las demas no lo declaran.
   */
 
   /**
@@ -902,9 +929,15 @@ export interface AgentAdapter {
   /** Como esta configurada la integracion, para el dialogo. null si no hay. */
   statusLine?(): StatusLineSetupInfo | null;
   /**
+   * Como esta configurada la status line que solo publica los limites del plan
+   * (hito 47), para su dialogo. null si no hay. Va aparte de `statusLine`
+   * porque no cambia ninguna capacidad (`AgentInfo.planLimitsSetup`).
+   */
+  planLimitsSetup?(): StatusLineSetupInfo | null;
+  /**
    * Vuelve a leer la configuracion de la integracion (y reinstala su script si
-   * alguien lo cambio). true si cambio lo que se anuncia: capacidades o
-   * `statusLine`. Nunca lanza.
+   * alguien lo cambio). true si cambio lo que se anuncia: capacidades,
+   * `statusLine` o `planLimitsSetup`. Nunca lanza.
    */
   refreshSetup?(): Promise<boolean>;
   /**

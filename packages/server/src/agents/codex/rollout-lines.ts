@@ -11,7 +11,7 @@
  * de la 0.154.
  */
 
-import { asRecord } from '@agent-workbench/shared';
+import { asRecord, type PlanLimitWindow } from '@agent-workbench/shared';
 import { cut, TOOL_RESULT_MAX_CHARS } from '../transport-limits.js';
 
 /** Un numero finito, o null. */
@@ -131,6 +131,45 @@ export function readTokenInfo(payload: unknown): TokenInfo | null {
     total: readCounts(info['total_token_usage']),
     window: readWindow(info['model_context_window']),
   };
+}
+
+/** Las dos ventanas que escribe Codex, en el orden en que las escribe. */
+const RATE_LIMIT_SLOTS: readonly string[] = ['primary', 'secondary'];
+
+/**
+ * `event_msg/token_count.payload.rate_limits`: los limites del plan de la cuenta
+ * (hito 47, §10.14). Una ventana por cada `primary` y `secondary` que traiga
+ * `used_percent`; [] si no trae ninguna. `at` es la hora de la linea (epoch ms):
+ * es cuando se vio, y sin ella no hay como ordenar lo de dos sesiones.
+ *
+ * Medido el 19-10-2026 sobre los 12 de esta maquina (0.162, plan `free`): solo
+ * `primary`, de 43 200 minutos (30 dias), con `resets_at` en segundos. Segun el
+ * binario, una cuenta paga escribe tambien `secondary`, y una version anterior
+ * escribia `resets_in_seconds` en vez de `resets_at`: se leen los dos. El id es
+ * la duracion, que es lo que no cambia entre sesiones: `300m`, `10080m`.
+ */
+export function readRateLimits(payload: unknown, at: number): PlanLimitWindow[] {
+  const limits = asRecord(asRecord(payload)?.['rate_limits']);
+  if (limits === null || at <= 0) return [];
+  const windows: PlanLimitWindow[] = [];
+  for (const slot of RATE_LIMIT_SLOTS) {
+    const window = asRecord(limits[slot]);
+    if (window === null) continue;
+    const usedPercent = finite(window['used_percent']);
+    if (usedPercent === null || usedPercent < 0) continue;
+    const rawMinutes = finite(window['window_minutes']);
+    const minutes = rawMinutes !== null && rawMinutes > 0 ? Math.round(rawMinutes) : null;
+    const resetsAtSeconds = finite(window['resets_at']);
+    const resetsIn = finite(window['resets_in_seconds']);
+    const resetsAt =
+      resetsAtSeconds !== null && resetsAtSeconds > 0
+        ? resetsAtSeconds * 1000
+        : resetsIn !== null && resetsIn >= 0
+          ? at + resetsIn * 1000
+          : null;
+    windows.push({ id: minutes !== null ? `${minutes}m` : slot, minutes, usedPercent, resetsAt, observedAt: at });
+  }
+  return windows;
 }
 
 export interface UserMessage {

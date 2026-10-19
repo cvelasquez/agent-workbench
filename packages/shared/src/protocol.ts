@@ -73,6 +73,10 @@
  * `force-send-failed`. Un servidor anterior no manda cola ni contesta el pedido,
  * y la web no ofrece el boton sin la capacidad `forceSend`.
  *
+ * Y el hito 47, sin subir la version (§6.37): `plan.limits`, los limites del
+ * plan de cada CLI, y `planLimitsSetup` en `AgentInfo`. Un servidor anterior no
+ * los manda, y la web no dibuja el medidor del plan.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -136,6 +140,7 @@ import {
   type MemoryStatus,
 } from './memory.js';
 import { parseNote, type Note } from './notes.js';
+import { parsePlanLimits, type PlanLimits } from './plan-limits.js';
 import {
   parseIndexStatus,
   parseProjectSummary,
@@ -1747,6 +1752,16 @@ export interface ServerSettingsStatusMessage {
 }
 
 /**
+ * Los limites del plan de cada CLI que los publica (hito 47, §6.37). Al
+ * conectar, si hay algo, y a todas las ventanas en cada cambio. Siempre la
+ * lista entera: son unas pocas ventanas por CLI.
+ */
+export interface ServerPlanLimitsMessage {
+  type: 'plan.limits';
+  limits: PlanLimits[];
+}
+
+/**
  * Estado del acceso remoto (hito 37). Al conectar y a todos en cada cambio, pero
  * **solo a las ventanas del anfitrion**: a un equipo remoto no se le cuenta que
  * otros equipos hay ni con que usuario se entra.
@@ -2017,6 +2032,7 @@ export type ServerMessage =
   | ServerGlobalSearchMessage
   | ServerRemoteStatusMessage
   | ServerSettingsStatusMessage
+  | ServerPlanLimitsMessage
   | ServerRemotePairingCodeMessage
   | ServerRemotePhonePairingMessage
   | ServerErrorMessage;
@@ -3089,6 +3105,11 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     case 'settings.status': {
       const settings = parseAppSettingsStatus(record['settings']);
       return settings === null ? null : { type: 'settings.status', settings };
+    }
+    case 'plan.limits': {
+      // Filtrada: una CLI que este lado no conoce no se lleva la de las demas.
+      const limits = asArrayFiltered(record['limits'], parsePlanLimits);
+      return limits === null ? null : { type: 'plan.limits', limits };
     }
     case 'remote.pairing.code': {
       const pairing = parseRemotePairingCode(record['pairing']);

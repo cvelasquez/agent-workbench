@@ -47,6 +47,7 @@ import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
 import { MemoryBridgeError } from './memory-bridge.js';
 import { UnknownTerminalError, type MemoryHub } from './memory-hub.js';
 import { NotesError, type NotesStore } from './notes-store.js';
+import { PlanLimitsBoard } from './plan-limits-board.js';
 import { DraftTabs, draftEntriesOf, draftOwnerOf, submitClearsDraft, type DraftStore } from './draft-store.js';
 import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
@@ -692,11 +693,26 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
   /*
     El usuario configuro —o quito— la status line de una CLI con la app abierta:
-    cambian sus capacidades, y todas las ventanas tienen que dibujar lo nuevo sin
-    recargar. Solo sondea la configuracion de las CLIs encontradas; con Claude
-    Code sola no corre nada (hito 27, M6).
+    cambian sus capacidades, o el medidor del plan (hito 47), y todas las
+    ventanas tienen que dibujar lo nuevo sin recargar. Solo sondea la
+    configuracion de las CLIs encontradas. Con Claude Code sola, desde el hito
+    47, es un `stat` de su `settings.json` cada 2 s (§3.2.6).
   */
   const stopAgentChanges = agents.subscribeChanges(() => broadcast(agentsMessage()));
+
+  /*
+    Los limites del plan de cada CLI encontrada que los publica (hito 47,
+    §6.37). Son de la cuenta, no de una pestana: van a todas las ventanas. Las
+    fuentes que sondean una carpeta solo lo hacen con alguna ventana conectada.
+  */
+  const planLimits = new PlanLimitsBoard(() =>
+    agents
+      .all()
+      .flatMap(({ adapter, location }) =>
+        location !== null && adapter.planLimits !== undefined ? [{ agent: adapter.id, source: adapter.planLimits }] : [],
+      ),
+  );
+  const stopPlanLimits = planLimits.onChange(() => broadcast({ type: 'plan.limits', limits: planLimits.snapshot() }));
 
   // La copia propia avisa a todas las ventanas, y el servicio ya espacia los avisos.
   const stopVaultStatus = vault.onStatus((status) => broadcast({ type: 'vault.status', status }));
@@ -907,6 +923,10 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     send(socket, { type: 'vault.status', status: vault.status() });
     if (deviceId === null) send(socket, { type: 'remote.status', status: remote.status() });
     send(socket, { type: 'settings.status', settings: appSettings.status() });
+    // Lo que ya se sabe del plan de cada CLI; lo que llegue despues va por `onChange`.
+    planLimits.retain();
+    const knownLimits = planLimits.snapshot();
+    if (knownLimits.length > 0) send(socket, { type: 'plan.limits', limits: knownLimits });
 
     socket.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
       const text = Array.isArray(raw)
@@ -2612,8 +2632,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       }
     });
 
+    let tornDown = false;
     const teardown = (): void => {
       // Se quitan los oyentes de este socket. Las terminales siguen vivas.
+      // `close` y `error` pueden llegar los dos: la ventana se suelta del plan una sola vez.
+      if (!tornDown) {
+        tornDown = true;
+        planLimits.release();
+      }
       if (phonePairingOwner === socket) {
         phonePairingOwner = null;
         remote.cancelPhonePairing();
@@ -2657,6 +2683,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);
     stopAgentChanges();
+    stopPlanLimits();
+    planLimits.dispose();
     stopVaultStatus();
     appSettings.off('status', onAppSettingsStatus);
     stopRemoteStatus();

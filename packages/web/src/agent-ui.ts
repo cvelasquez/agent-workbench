@@ -84,6 +84,12 @@ export interface AgentUi {
    * Es lo que manda el combo, y lo que nombra su titulo.
    */
   effortCommand?: string;
+  /**
+   * El comando que compacta la conversacion, o null si la CLI no tiene uno. Es
+   * lo que manda el boton "Compactar" con el contexto al 80 % (hito 47, §6.37).
+   * Obligatorio a proposito: una CLI nueva no compila sin decirlo.
+   */
+  compactCommand: string | null;
 }
 
 /**
@@ -206,6 +212,7 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     shortcutsNote: null,
     instructionsFile: 'CLAUDE.md',
     savesModelChoice: false,
+    compactCommand: '/compact',
   },
   codex: {
     shortLabel: 'CX',
@@ -217,6 +224,8 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     },
     instructionsFile: 'AGENTS.md',
     savesModelChoice: false,
+    // En su lista de comandos: "summarize conversation to prevent hitting the context limit" (0.162).
+    compactCommand: '/compact',
   },
   opencode: {
     shortLabel: 'OC',
@@ -228,6 +237,8 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     },
     instructionsFile: 'AGENTS.md',
     savesModelChoice: false,
+    // Su TUI lo sugiere: "Run /compact to summarize long sessions near context limits" (1.19).
+    compactCommand: '/compact',
   },
   antigravity: {
     shortLabel: 'AG',
@@ -238,6 +249,8 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     instructionsFile: 'AGENTS.md',
     // Medido con la 1.2.2: los dos quedan escritos en su settings.json.
     savesModelChoice: true,
+    // Llego en la 1.3: "`/compact` on its own summarizes the conversation and ends the turn".
+    compactCommand: '/compact',
   },
   pi: {
     shortLabel: 'PI',
@@ -250,12 +263,19 @@ export const AGENT_UI: Record<AgentId, AgentUi> = {
     // Medido con la 1.1.0: `/model` y `/thinking` valen para la sesion y no tocan su settings.json.
     savesModelChoice: false,
     effortCommand: '/thinking',
+    // "Manually compact the session context", en su lista de comandos (1.3.0).
+    compactCommand: '/compact',
   },
 };
 
 /** Como llama la CLI de la pestana al comando de esfuerzo: es lo que manda su combo. */
 export function effortCommandFor(agent: AgentId | null): string {
   return (agent === null ? undefined : AGENT_UI[agent].effortCommand) ?? DEFAULT_EFFORT_COMMAND;
+}
+
+/** El comando que manda "Compactar" en la pestana de esa CLI, o null si no tiene (hito 47). */
+export function compactCommandFor(agent: AgentId | null): string | null {
+  return agent === null ? null : AGENT_UI[agent].compactCommand;
 }
 
 /**
