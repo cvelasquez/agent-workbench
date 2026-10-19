@@ -1021,19 +1021,23 @@ export function ConversationView({
         {/*
           Los limites del plan de la cuenta (hito 47), antes del de contexto:
           el de contexto queda en su lugar de siempre, al borde, con "Compactar"
-          colgando debajo.
+          colgando debajo. En el escritorio el envoltorio no existe para el
+          layout; en la vista angosta es la linea propia de los medidores, y el
+          del plan se achica segun lo que mide ella (§6.37).
         */}
-        <PlanMeter windows={planWindows} setupState={planSetupState} onConfigure={onConfigurePlanLimits} />
-        <ContextMeter
-          usage={usage}
-          source={contextWindowSource}
-          instructionsFile={instructionsFile}
-          fallbackWindow={defaults.contextWindow}
-          compact
-          statusLineState={statusLineState}
-          onConfigure={onConfigureStatusLine}
-          compactAction={compactAction}
-        />
+        <div className="thread-meters">
+          <PlanMeter windows={planWindows} setupState={planSetupState} onConfigure={onConfigurePlanLimits} />
+          <ContextMeter
+            usage={usage}
+            source={contextWindowSource}
+            instructionsFile={instructionsFile}
+            fallbackWindow={defaults.contextWindow}
+            compact
+            statusLineState={statusLineState}
+            onConfigure={onConfigureStatusLine}
+            compactAction={compactAction}
+          />
+        </div>
       </div>
 
       <div className="conversation-scroll-frame">

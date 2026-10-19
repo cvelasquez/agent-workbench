@@ -3111,6 +3111,11 @@ kbd {
   }
 }
 
+/* Los dos medidores juntos: en el escritorio no es una caja, la vista angosta la usa. */
+.thread-meters {
+  display: contents;
+}
+
 /* ---------- git ---------- */
 
 .git-headline {
@@ -6273,6 +6278,40 @@ kbd {
   .app-narrow .conversation-search {
     flex-wrap: wrap;
     row-gap: 4px;
+    /* El medidor del plan no se mide contra la fila entera: abajo, contra su linea. */
+    container-type: normal;
+  }
+
+  /*
+    Los medidores, en una linea propia: en un telefono ya bajaban solos, y la
+    fila entera (menos de 560 px) dejaba el del plan en `11 % · 5d 10h` con la
+    linea casi vacia. Los cortes salen de medir los nueve idiomas (19-10-2026):
+    las dos ventanas y el de contexto piden hasta 566 px de linea; la
+    prioritaria con palabra y barra y el de contexto, de 334 (ingles) a 390
+    (frances, con la semana), y 341 en espanol. Si un idioma largo no cabe, el
+    de contexto baja otra linea en vez de salirse de la pantalla.
+  */
+  .app-narrow .thread-meters {
+    display: flex;
+    flex: 0 0 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    container-type: inline-size;
+    container-name: thread-meters;
+  }
+
+  @container thread-meters (max-width: 570px) {
+    .app-narrow .plan-meter .plan-window-extra {
+      display: none;
+    }
+  }
+
+  @container thread-meters (max-width: 345px) {
+    .app-narrow .plan-meter .plan-label,
+    .app-narrow .plan-meter .plan-bar {
+      display: none;
+    }
   }
 
   .app-narrow .conversation-waiting {

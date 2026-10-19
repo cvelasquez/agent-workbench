@@ -196,12 +196,19 @@ const json = (value) => JSON.stringify(value);
     }
     return { count: 1, body: '' };
   };
-  /** Los selectores de un bloque, uno por regla y por coma, sin comentarios. */
+  /**
+   * Los selectores de un bloque, uno por regla y por coma, sin comentarios. Un
+   * `@container` adentro (el medidor del plan, §6.37) no es un selector: cuenta
+   * lo que va dentro de el.
+   */
   const selectors = (body) =>
     body
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('}')
-      .map((rule) => rule.split('{')[0]?.trim() ?? '')
+      .map((rule) => {
+        const parts = rule.split('{');
+        return parts.length < 2 ? '' : parts[parts.length - 2].replace(/^\s*@container[^{]*$/, '').trim();
+      })
       .filter((selector) => selector.length > 0)
       .flatMap((selector) => selector.split(',').map((part) => part.trim()));
 

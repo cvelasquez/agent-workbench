@@ -561,6 +561,22 @@ const limits = (fiveHour, sevenDay) => ({
   check('6.13 sin sitio se va primero la ventana que no es la prioritaria, y despues la palabra y la barra',
     /@container thread-toolbar \(max-width: (\d+)px\) \{\s*\.plan-meter \.plan-window-extra \{\s*display: none;/.test(css) &&
     /@container thread-toolbar \(max-width: (\d+)px\) \{\s*\.plan-meter \.plan-label,\s*\.plan-meter \.plan-bar \{\s*display: none;/.test(css));
+  // En el telefono los medidores bajan a su linea: contra la fila entera, el del
+  // plan quedaba en su forma corta con la linea casi vacia (19-10-2026).
+  const conversationSource = await readFile(path.join(WEB_SRC, 'ConversationView.tsx'), 'utf8');
+  check('6.14 los dos medidores van juntos en un envoltorio que en el escritorio no es una caja',
+    /<div className="thread-meters">\s*<PlanMeter[\s\S]*?<ContextMeter[\s\S]*?\/>\s*<\/div>/.test(conversationSource) &&
+    /\.thread-meters \{\s*display: contents;\s*\}/.test(css));
+  check('6.14 en la vista angosta la fila deja de ser el contenedor y lo es la linea de los medidores, entera',
+    /\.app-narrow \.conversation-search \{[^}]*container-type: normal;/.test(css) &&
+    /\.app-narrow \.thread-meters \{[^}]*flex: 0 0 100%;[^}]*flex-wrap: wrap;[^}]*container-type: inline-size;[^}]*container-name: thread-meters;/.test(css));
+  const narrowCut = (what) => Number(css.match(new RegExp(`@container thread-meters \\(max-width: (\\d+)px\\) \\{\\s*${what}`))?.[1] ?? NaN);
+  const extraCut = narrowCut('\\.app-narrow \\.plan-meter \\.plan-window-extra \\{\\s*display: none;');
+  const labelCut = narrowCut('\\.app-narrow \\.plan-meter \\.plan-label,\\s*\\.app-narrow \\.plan-meter \\.plan-bar \\{\\s*display: none;');
+  // La linea mide la pantalla menos 20 px. 393 es el telefono de la captura; 342,
+  // lo que pide en espanol la prioritaria entera, y 566, las dos en el idioma mas largo.
+  check('6.14 los cortes de la linea: a 393 px la prioritaria con palabra y barra, a 360 la forma corta, a 600 las dos',
+    labelCut >= 342 && labelCut < 393 - 20 && extraCut >= 566 && extraCut < 600 - 20, JSON.stringify({ extraCut, labelCut }));
   check('6.13 el numero en rojo y "Compactar" flotando debajo del medidor',
     /\.plan-danger \{[^}]*color: var\(--danger\);/.test(css) && /\.meter-anchor \{\s*position: relative;/.test(css) && /\.meter-compact-button \{[^}]*position: absolute;/.test(css));
 }
