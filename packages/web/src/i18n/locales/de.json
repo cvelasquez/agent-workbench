@@ -1221,6 +1221,7 @@
   "worktree.remove.commands": "Befehle",
   "worktree.remove.conflicts": "Diese haben sich im Branch und im Hauptordner geändert: {{list}}. Nichts wird angefasst, bis Sie entscheiden.",
   "worktree.remove.deletesBranch": "Der Branch {{branch}} wird ebenfalls gelöscht: Er ist schon integriert.",
+  "worktree.remove.deletesUnusedBranch": "Der Branch {{branch}} wird ebenfalls gelöscht: Er hat keine eigenen Commits.",
   "worktree.remove.discard": "Trotzdem entfernen",
   "worktree.remove.discardTitle": "Die Fassung dieser Notizen aus dem Branch geht verloren",
   "worktree.remove.done": "Der eigene Branch wurde entfernt.",

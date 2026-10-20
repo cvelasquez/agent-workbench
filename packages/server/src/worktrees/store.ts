@@ -22,6 +22,7 @@ import {
   AGENT_IDS,
   asArrayFiltered,
   asBoolean,
+  asCommitId,
   asFiniteNumber,
   asLiteral,
   asNonEmptyString,
@@ -68,6 +69,13 @@ export interface WorktreeRecord {
   base: string;
   /** true si la creó la app (`worktree add -b`): sólo esa se borra, y sólo integrada. */
   createdBranch: boolean;
+  /**
+   * El commit del que salió una rama nueva. Mientras la rama siga ahí no tiene
+   * commits propios, y Cambios no la llama "integrada" (arreglo del 20-10-2026:
+   * una rama recién creada decía "integrada"). null en una rama que ya existía
+   * y en un registro de antes del arreglo.
+   */
+  startCommit: string | null;
   /** Si se copiaron las instrucciones y la memoria ignoradas. */
   copyNotes: boolean;
   copied: CopiedFile[];
@@ -149,6 +157,8 @@ export function parseWorktreeRecord(value: unknown): WorktreeRecord | null {
     branch,
     base,
     createdBranch,
+    // Ausente en un registro de antes del 20-10-2026: no se sabe de dónde salió.
+    startCommit: asCommitId(record['startCommit']),
     copyNotes,
     copied,
     copiedDirs,

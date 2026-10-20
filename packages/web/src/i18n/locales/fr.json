@@ -1221,6 +1221,7 @@
   "worktree.remove.commands": "Commandes",
   "worktree.remove.conflicts": "Celles-ci ont changé dans la branche et aussi dans le dossier principal : {{list}}. Rien n'est touché tant que vous n'avez pas choisi.",
   "worktree.remove.deletesBranch": "La branche {{branch}} est aussi supprimée : elle est déjà intégrée.",
+  "worktree.remove.deletesUnusedBranch": "La branche {{branch}} est aussi supprimée : elle n'a aucun commit propre.",
   "worktree.remove.discard": "Retirer quand même",
   "worktree.remove.discardTitle": "La version de la branche de ces notes est perdue",
   "worktree.remove.done": "La branche à part a été retirée.",

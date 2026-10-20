@@ -1156,6 +1156,7 @@
   "worktree.remove.commands": "コマンド",
   "worktree.remove.conflicts": "次のメモはブランチとメインのフォルダーの両方で変更されています: {{list}}。選ぶまで何も変更しません。",
   "worktree.remove.deletesBranch": "ブランチ {{branch}} も削除します。すでに統合されています。",
+  "worktree.remove.deletesUnusedBranch": "ブランチ {{branch}} も削除します。独自のコミットはありません。",
   "worktree.remove.discard": "それでも削除する",
   "worktree.remove.discardTitle": "これらのメモのブランチ側の内容は失われます",
   "worktree.remove.done": "別ブランチを削除しました。",

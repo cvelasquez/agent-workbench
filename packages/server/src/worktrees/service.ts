@@ -249,6 +249,17 @@ function toMerge(merge: { clean: boolean; files: string[] }): WorktreeMerge {
   };
 }
 
+/**
+ * true si una rama que creó la app sigue en el commit del que salió: no tiene
+ * commits propios. Para git está integrada (`branch -d` la borra), pero no
+ * trajo nada a su base, y llamarla "integrada" se lee como que lo hecho ya
+ * entró. Sin el commit de salida (una rama que ya existía, un registro
+ * anterior) no se sabe, y queda como antes.
+ */
+function stillAtStart(record: WorktreeRecord | null, tip: string | undefined): boolean {
+  return record !== null && record.startCommit !== null && tip !== undefined && tip === record.startCommit;
+}
+
 export class WorktreeService extends EventEmitter {
   private readonly rowsCache = new Map<string, { at: number; tips: string; rows: Omit<WorktreeRow, 'isCurrent'>[] }>();
   /** Sube cada vez que se borra lo guardado (`forgetRows`). */
@@ -329,6 +340,7 @@ export class WorktreeService extends EventEmitter {
       branch,
       base,
       createdBranch: mode === 'new',
+      startCommit: mode === 'new' ? await branchCommit(mainRoot, branch) : null,
       copyNotes: request.copyNotes,
       copied,
       copiedDirs,
@@ -404,7 +416,7 @@ export class WorktreeService extends EventEmitter {
         isMain: entry.isMain,
         changes: changes === null ? null : changes.length,
         ahead: pair?.ahead ?? null,
-        integrated: pair === null ? null : pair.ahead === 0,
+        integrated: pair === null ? null : pair.ahead === 0 && !stillAtStart(record, entry.branch === null ? undefined : tips.get(entry.branch)),
         behind: pair?.behind ?? null,
         merge: pair?.merge ? toMerge(pair.merge) : null,
         overlaps: entry.branch !== null && !entry.isMain ? overlapsFor(entry.branch, touched, WORKTREE_ROW_FILES_MAX) : [],
@@ -511,6 +523,8 @@ export class WorktreeService extends EventEmitter {
     if (uncommitted === null) throw new WorktreeError(serverText('worktreeGitFailed', { detail: 'git status' }));
     const tabs = this.tabsIn(record.path);
     const deletesBranch = integrated === true;
+    // Se borra igual (no tiene nada que perder), pero el diálogo no la llama integrada.
+    const branchUnused = deletesBranch && stillAtStart(record, (await branchCommit(record.mainRoot, record.branch)) ?? undefined);
     return {
       id: record.id,
       branch: record.branch,
@@ -527,6 +541,7 @@ export class WorktreeService extends EventEmitter {
       // Con pestañas de la app adentro, la prueba daría "en uso" por ellas mismas: se mira al confirmar.
       inUse: !present ? false : tabs.length > 0 ? null : await folderInUse(record.path),
       deletesBranch,
+      branchUnused,
     };
   }
 

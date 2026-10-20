@@ -1221,6 +1221,7 @@
   "worktree.remove.commands": "Comandos",
   "worktree.remove.conflicts": "Estas cambiaron en la rama y también en la carpeta principal: {{list}}. No se toca nada hasta que elijas.",
   "worktree.remove.deletesBranch": "También se borra la rama {{branch}}: ya está integrada.",
+  "worktree.remove.deletesUnusedBranch": "También se borra la rama {{branch}}: no tiene commits propios.",
   "worktree.remove.discard": "Quitar igual",
   "worktree.remove.discardTitle": "Se pierde la versión de la rama de esas notas",
   "worktree.remove.done": "La rama aparte se quitó.",

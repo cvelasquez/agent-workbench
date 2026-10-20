@@ -195,7 +195,11 @@ export interface WorktreeRow {
   changes: number | null;
   /** Commits que la base no tiene; null si no se pudo leer. */
   ahead: number | null;
-  /** true si la base ya tiene todos sus commits; null si no se pudo leer. */
+  /**
+   * true si la base ya tiene todos sus commits; null si no se pudo leer. Desde
+   * el 20-10-2026, false en una rama que creó la app y todavía no tiene commits
+   * propios: no trajo nada (para git sí está integrada, y quitarla la borra).
+   */
   integrated: boolean | null;
   /** Hito 49. Commits que la base ganó desde que salió la rama ("main avanzó 2"); null si no se compara. */
   behind: number | null;
@@ -237,6 +241,12 @@ export interface WorktreeRemovePlan {
   inUse: boolean | null;
   /** true si la rama ya está integrada en su base: también se borra, con `branch -d`. */
   deletesBranch: boolean;
+  /**
+   * true si se borra porque no tiene commits propios (sigue en el commit del que
+   * salió), y no porque lo suyo ya esté en la base: el diálogo no la llama
+   * integrada. Del 20-10-2026; un servidor anterior no lo manda: false.
+   */
+  branchUnused: boolean;
 }
 
 export interface WorktreeRemoveOutcome {
@@ -749,6 +759,7 @@ export function parseWorktreeRemovePlan(value: unknown): WorktreeRemovePlan | nu
     conflicts,
     inUse: typeof inUse === 'boolean' ? inUse : null,
     deletesBranch,
+    branchUnused: deletesBranch && record['branchUnused'] === true,
   };
 }
 

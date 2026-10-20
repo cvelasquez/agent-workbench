@@ -1351,6 +1351,7 @@
   "worktree.remove.commands": "Команды",
   "worktree.remove.conflicts": "Эти изменились и в ветке, и в основной папке: {{list}}. Пока вы не решите, ничего не трогаем.",
   "worktree.remove.deletesBranch": "Ветка {{branch}} тоже удаляется: она уже влита.",
+  "worktree.remove.deletesUnusedBranch": "Ветка {{branch}} тоже удаляется: в ней нет своих коммитов.",
   "worktree.remove.discard": "Всё равно убрать",
   "worktree.remove.discardTitle": "Версия этих заметок из ветки будет потеряна",
   "worktree.remove.done": "Отдельная ветка убрана.",

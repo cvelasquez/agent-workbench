@@ -441,12 +441,33 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
     existsSync(path.join(folder, 'nuevo.ts')) && existsSync(path.join(folder, 'CLAUDE.md')) && tab.cwd === folder && registry.opened.at(-1)?.resumeSessionId === 'sesion-1');
   check('V3 el registro la vuelve a dar por viva', store.get(record.id)?.removedAt === null);
 
-  // Una rama sin commits propios está integrada: al quitarla se borra con -d.
+  // Una rama sin commits propios está integrada para git: al quitarla se borra con -d.
   const plain = await service.create({ source: { kind: 'project', projectKey: 'proyecto' }, branch: 'limpia', base: 'main', mode: 'new', copyNotes: false });
   const plainRecord = store.byPath(plain.cwd);
   check('V4 sin copiar las notas, no llegan', !existsSync(path.join(plain.cwd, 'CLAUDE.md')) && existsSync(path.join(plain.cwd, 'CHECKLIST.md')));
+  const savedRecord = parseWorktreesState(await readFile(path.join(root, 'appdata', 'worktrees.json'), 'utf8')).find((candidate) => candidate.id === plainRecord.id);
+  check('V4b el registro anota el commit del que salió la rama, también en disco',
+    plainRecord.startCommit === git(repo, 'rev-parse', 'main').trim() && savedRecord?.startCommit === plainRecord.startCommit, String(plainRecord.startCommit));
+  // Pero en Cambios no se llama "integrada": no trajo nada (decía "1 sin commit · integrada" en una rama recién creada).
+  await writeFile(path.join(plain.cwd, 'a-medias.txt'), 'sin commit\n');
+  const plainRows = await service.rows(plain.terminalId);
+  const plainRow = plainRows.find((candidate) => candidate.branch === 'limpia');
+  check('V4c una rama recién creada no se da por integrada, tampoco con algo sin commit',
+    plainRow?.integrated === false && plainRow.ahead === 0 && plainRow.changes === 1 &&
+      ui.rowStatusParts(plainRow).join(' · ') === '1 sin commit',
+    JSON.stringify(plainRow));
+  await rm(path.join(plain.cwd, 'a-medias.txt'));
   const plainPlan = await service.planRemove(plainRecord.id);
   check('V5 una rama integrada se borra, y el plan lo muestra', plainPlan.deletesBranch === true && plainPlan.commands.some((command) => command.includes('branch -d')));
+  check('V5b el plan dice que no tiene commits propios, no que está integrada',
+    plainPlan.branchUnused === true && shared.parseWorktreeRemovePlan(JSON.parse(JSON.stringify(plainPlan)))?.branchUnused === true);
+  // Un registro de antes del arreglo no sabe de dónde salió la rama: queda como antes.
+  await store.update(plainRecord.id, { startCommit: null });
+  service.changed();
+  const legacyRow = (await service.rows(plain.terminalId)).find((candidate) => candidate.branch === 'limpia');
+  const legacyPlan = await service.planRemove(plainRecord.id);
+  check('V5c sin el commit de salida, como antes: integrada, y se borra al quitarla',
+    legacyRow?.integrated === true && legacyPlan.deletesBranch === true && legacyPlan.branchUnused === false, JSON.stringify(legacyRow));
   for (const opened of registry.tabs.filter((candidate) => candidate.cwd === plain.cwd)) registry.tabs.splice(registry.tabs.indexOf(opened), 1);
   const plainOutcome = await service.remove(plainRecord.id, false, () => {});
   check('V6 y se borró con -d', plainOutcome.branchDeleted === true && git(repo, 'branch', '--list', 'limpia').trim() === '');

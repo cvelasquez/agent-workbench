@@ -1221,6 +1221,7 @@
   "worktree.remove.commands": "Commands",
   "worktree.remove.conflicts": "These changed both in the branch and in the main folder: {{list}}. Nothing is touched until you choose.",
   "worktree.remove.deletesBranch": "The branch {{branch}} is deleted too: it's already merged.",
+  "worktree.remove.deletesUnusedBranch": "The branch {{branch}} is deleted too: it has no commits of its own.",
   "worktree.remove.discard": "Remove anyway",
   "worktree.remove.discardTitle": "The branch's version of those notes is lost",
   "worktree.remove.done": "The separate branch was removed.",

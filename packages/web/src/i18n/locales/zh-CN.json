@@ -1156,6 +1156,7 @@
   "worktree.remove.commands": "命令",
   "worktree.remove.conflicts": "这些在分支和主文件夹中都有改动：{{list}}。在你做出选择前不会动任何东西。",
   "worktree.remove.deletesBranch": "分支 {{branch}} 也会被删除：它已经合并。",
+  "worktree.remove.deletesUnusedBranch": "分支 {{branch}} 也会被删除：它没有自己的提交。",
   "worktree.remove.discard": "仍然移除",
   "worktree.remove.discardTitle": "这些笔记在分支中的版本会丢失",
   "worktree.remove.done": "独立分支已移除。",

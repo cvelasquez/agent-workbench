@@ -1221,6 +1221,7 @@
   "worktree.remove.commands": "Comandos",
   "worktree.remove.conflicts": "Estas mudaram no branch e também na pasta principal: {{list}}. Nada é tocado até você escolher.",
   "worktree.remove.deletesBranch": "O branch {{branch}} também é apagado: ele já está integrado.",
+  "worktree.remove.deletesUnusedBranch": "O branch {{branch}} também é apagado: ele não tem commits próprios.",
   "worktree.remove.discard": "Remover mesmo assim",
   "worktree.remove.discardTitle": "A versão do branch dessas notas se perde",
   "worktree.remove.done": "O branch separado foi removido.",

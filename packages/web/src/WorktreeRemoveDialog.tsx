@@ -118,7 +118,9 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onClose }:
 
               <p className="modal-hint">
                 {plan.deletesBranch
-                  ? t('worktree.remove.deletesBranch', { branch: plan.branch })
+                  ? plan.branchUnused
+                    ? t('worktree.remove.deletesUnusedBranch', { branch: plan.branch })
+                    : t('worktree.remove.deletesBranch', { branch: plan.branch })
                   : t('worktree.remove.keepsBranch', { branch: plan.branch })}
               </p>
 
