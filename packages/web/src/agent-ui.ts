@@ -27,6 +27,7 @@ import {
   blindToApprovals,
   insertionIndex,
   isAgentId,
+  launchModeFor,
   modelOptionFor,
   normalizeCwdKey,
   shouldOfferAgentChoice,
@@ -436,9 +437,15 @@ export interface AgentControlsView {
   forceSend: boolean;
 }
 
-export function controlsFor(capabilities: AgentCapabilities): AgentControlsView {
+export function controlsFor(capabilities: AgentCapabilities, review = false): AgentControlsView {
+  /*
+    Una pestana de revision (hito 49) arranco en el modo de solo lectura de su
+    CLI: es el punto de partida del combo mientras el archivo no diga otro.
+  */
+  const cycle = capabilities.permissionCycle;
+  const launchMode = launchModeFor(capabilities, review);
   return {
-    modeCycle: capabilities.permissionCycle,
+    modeCycle: cycle === null || launchMode === null || launchMode === cycle.launchMode ? cycle : { ...cycle, launchMode },
     models: capabilities.models,
     efforts: capabilities.efforts,
     imagesAllowed: capabilities.imagesByPath !== null,

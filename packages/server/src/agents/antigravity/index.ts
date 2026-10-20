@@ -117,6 +117,12 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: false,
   // Su tecla de "send immediately", Alt+M (hito 45, §12.13). Sin status line no hay cola que forzar.
   forceSend: true,
+  /*
+    Hito 49: `--mode plan`. Medido con la 1.4.0 al lanzar: arranca en "Plan
+    mode: research & plan only" y el ciclo sigue desde ahi. Que hace con
+    `git diff` no se midio: la cuenta no tenia creditos (§12.14).
+  */
+  readOnlyLaunch: { mode: 'plan', guard: 'cli' },
 };
 
 /** Las mismas con la status line configurada: estado, "esperando" y medidor. */
@@ -261,7 +267,9 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
           logPath = null;
         }
       }
-      const mode = toCliMode(ANTIGRAVITY_LAUNCH_MODE);
+      // Una pestana de revision (hito 49) arranca en el modo que declara la capacidad, y despierta igual.
+      const readOnlyMode = input.readOnly === true ? ANTIGRAVITY_BASE_CAPABILITIES.readOnlyLaunch?.mode : null;
+      const mode = toCliMode(readOnlyMode ?? ANTIGRAVITY_LAUNCH_MODE);
       return {
         file: input.location.file,
         args: [

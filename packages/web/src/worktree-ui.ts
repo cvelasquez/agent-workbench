@@ -1,7 +1,9 @@
 /**
  * Las reglas de las ramas aparte en la web (hito 48, §6.38), sin JSX: cuándo
  * se ve la etiqueta de la rama, qué dice cada fila, qué carpeta y qué comando
- * muestra el diálogo, y qué impide crear o quitar.
+ * muestra el diálogo, y qué impide crear o quitar. Desde el hito 49, también
+ * lo que dice cada fila de su base, de las otras ramas y de su revisión, cómo
+ * arranca cada CLI para revisar y qué impide integrar.
  *
  * Todo es opcional para quien no las usa: sin ninguna rama aparte, ninguna
  * pestaña lleva etiqueta y ninguna fila cambia.
@@ -12,15 +14,22 @@ import {
   normalizeCwdKey,
   projectCwdOf,
   worktreeFolderName,
+  type AgentCapabilities,
+  type AgentId,
+  type AgentInfo,
   type BranchNameProblem,
+  type ReadOnlyGuard,
   type TerminalDescriptor,
   type WorktreeCopySummary,
   type WorktreeCreateMode,
   type WorktreeInspection,
+  type WorktreeIntegratePlan,
   type WorktreeRemovePlan,
+  type WorktreeReviewSummary,
   type WorktreeRow,
+  type WorktreeVerdict,
 } from '@agent-workbench/shared';
-import { formatBytes } from './i18n/format.js';
+import { formatBytes, formatList } from './i18n/format.js';
 import { t, type MessageKey } from './i18n/index.js';
 
 /**
@@ -140,6 +149,133 @@ export function sortedRows(rows: readonly WorktreeRow[]): WorktreeRow[] {
     if (a.isMain !== b.isMain) return a.isMain ? -1 : 1;
     return (a.branch ?? a.path).localeCompare(b.branch ?? b.path);
   });
+}
+
+/** Unos archivos para una línea, con "…" si había más. */
+export function fileListText(files: readonly string[], count: number): string {
+  const list = formatList(files.map((file) => file.split('/').pop() ?? file));
+  return count > files.length ? `${list}…` : list;
+}
+
+/**
+ * Hito 49. Lo que una fila dice de su rama contra la base y contra las otras:
+ * cuánto avanzó la base, si choca y qué otra rama toca lo mismo. Cada parte en
+ * su línea; vacío sin nada que decir.
+ */
+export function rowTeamLines(row: WorktreeRow): string[] {
+  const lines: string[] = [];
+  if (row.behind !== null && row.behind > 0 && row.base !== null) {
+    const parts = [t('worktree.rows.behind', { base: row.base, count: row.behind })];
+    if (row.merge?.state === 'clean') parts.push(t('worktree.rows.mergeClean'));
+    if (row.merge?.state === 'conflicts') {
+      parts.push(t('worktree.rows.mergeConflicts', { count: row.merge.fileCount, list: fileListText(row.merge.files, row.merge.fileCount) }));
+    }
+    lines.push(parts.join(' · '));
+  }
+  for (const overlap of row.overlaps) {
+    lines.push(t('worktree.rows.overlap', { branch: overlap.branch, list: fileListText(overlap.files, overlap.fileCount) }));
+  }
+  return lines;
+}
+
+const REVIEW_KEYS: Readonly<Record<'working' | 'pending' | WorktreeVerdict, MessageKey>> = {
+  working: 'worktree.review.stateWorking',
+  pending: 'worktree.review.statePending',
+  ready: 'worktree.review.stateReady',
+  changes: 'worktree.review.stateChanges',
+  none: 'worktree.review.stateNone',
+};
+
+/** "Revisión de Codex: pide cambios (de un commit anterior)". `label` es el nombre de la CLI. */
+export function reviewText(review: WorktreeReviewSummary, label: string): string {
+  const key = review.state === 'done' ? REVIEW_KEYS[review.verdict ?? 'none'] : REVIEW_KEYS[review.state];
+  const text = t(key, { agent: label });
+  return review.stale ? t('worktree.review.stale', { text }) : text;
+}
+
+/** true si la revisión contestó algo que se le puede pasar a la rama. */
+export function reviewHasReply(review: WorktreeReviewSummary | null): boolean {
+  return review !== null && review.state === 'done';
+}
+
+/** Las acciones del hito 49 que muestra una fila (la de quitar y la de abrir son del 48). */
+export interface RowActions {
+  viewChanges: boolean;
+  review: boolean;
+  sendReview: boolean;
+  catchUp: boolean;
+  integrate: boolean;
+}
+
+/**
+ * Qué acciones del hito 49 ofrece una fila. Sólo las ramas que creó la app
+ * (`id`), y sólo con un servidor que las conoce: el del 48 no manda `behind`, y
+ * contestaría "mensaje inválido" sin `requestId`, con el diálogo en "cargando".
+ * Integrar se muestra apagado cuando la fila ya sabe por qué no
+ * (`rowIntegrateBlocker`).
+ */
+export function rowActions(row: WorktreeRow): RowActions {
+  const team = row.id !== null && !row.isMain && row.behind !== null;
+  const ahead = (row.ahead ?? 0) > 0;
+  return {
+    viewChanges: team && ahead,
+    review: team && (ahead || (row.changes ?? 0) > 0),
+    sendReview: team && reviewHasReply(row.review),
+    catchUp: team && row.base !== null && (row.behind ?? 0) > 0,
+    integrate: team && row.base !== null && ahead,
+  };
+}
+
+/**
+ * Por qué "Integrar" queda apagado en una fila, con lo que la fila ya sabe; el
+ * resto lo dice el plan. null si se puede pedir el plan.
+ */
+export function rowIntegrateBlocker(row: WorktreeRow): string | null {
+  if (row.base === null) return null;
+  if (row.ahead === 0) return t('worktree.integrate.blockerNothing', { base: row.base });
+  if (row.behind !== null && row.behind > 0) return t('worktree.integrate.blockerBehind', { base: row.base });
+  return null;
+}
+
+/** Por qué no se puede integrar todavía, según el plan del servidor, o null. */
+export function integrateBlockerText(plan: WorktreeIntegratePlan): string | null {
+  switch (plan.blocker) {
+    case 'nothing':
+      return t('worktree.integrate.blockerNothing', { base: plan.base });
+    case 'behind':
+      return t('worktree.integrate.blockerBehind', { base: plan.base });
+    case 'no-base-folder':
+      return t('worktree.integrate.blockerNoBase', { base: plan.base });
+    case 'local-changes':
+      return t('worktree.integrate.blockerLocal', {
+        base: plan.base,
+        count: plan.localConflicts.length,
+        list: formatList(plan.localConflicts),
+      });
+    case null:
+      return null;
+  }
+}
+
+/**
+ * Cómo arranca una CLI para revisar, para el diálogo: en sólo lectura, sin sus
+ * herramientas de editar, o como siempre (y el pedido le dice que no edite).
+ */
+export function reviewGuardText(capabilities: Pick<AgentCapabilities, 'readOnlyLaunch'>, label: string): string {
+  const guard = capabilities.readOnlyLaunch?.guard ?? null;
+  if (guard === 'cli') return t('worktree.review.guardCli', { agent: label });
+  if (guard === 'tools') return t('worktree.review.guardTools', { agent: label });
+  return t('worktree.review.guardNone', { agent: label });
+}
+
+/**
+ * Las CLIs que se pueden elegir para revisar, en el orden de la lista: las
+ * instaladas. Con `defaultReviewer` sale la que viene elegida.
+ */
+export function reviewCandidates(agents: readonly AgentInfo[]): { id: AgentId; guard: ReadOnlyGuard | null }[] {
+  return agents
+    .filter((info) => info.available)
+    .map((info) => ({ id: info.id, guard: info.capabilities.readOnlyLaunch?.guard ?? null }));
 }
 
 export type RemoveBlocker = 'uncommitted' | 'in-use' | 'conflicts';

@@ -16,6 +16,7 @@ import {
   WS_PATH,
   encodeServerMessage,
   isEmptyComposerDraft,
+  launchModeFor,
   parseClientMessage,
   serverText,
   type AgentDefaults,
@@ -372,6 +373,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         ? { type: 'terminal.activity', terminalId, activity }
         : { type: 'terminal.activity', terminalId, activity, offlineReason },
     );
+    // Hito 49: el revisor empezo o termino. La fila de su rama vuelve a preguntar.
+    if (registry.get(terminalId)?.review === true) worktrees.reviewActivity();
   };
 
   const onIndexStatus = (status: IndexStatus): void =>
@@ -398,6 +401,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     // Si el agente escribio en el JSONL, es probable que acabe de tocar
     // archivos. Es el refresco del panel de cambios "al terminar un turno".
     repos.onConversationActivity(terminalId);
+    // Hito 49: el revisor escribio algo, quizas su veredicto (sin estado publicado, Codex, es lo unico que avisa).
+    if (registry.get(terminalId)?.review === true) worktrees.reviewActivity();
   };
 
   const onGitStatus = (terminalId: TerminalId, status: GitStatus): void => {
@@ -409,7 +414,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     }
   };
 
-  /** Se creo, se quito o se volvio a abrir una rama aparte: el panel de Cambios de cada ventana vuelve a preguntar. */
+  /** Se creo, se quito, se volvio a abrir o se integro una rama aparte, o cambio una revision: el panel de Cambios de cada ventana vuelve a preguntar. */
   const onWorktreesChanged = (): void => broadcast({ type: 'worktree.changed' });
 
   /** Un pedido `worktree.*` que fallo: lo dice el dialogo que lo pidio (§6.38). */
@@ -720,6 +725,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   repos.on('status', onGitStatus);
   memory.on('status', onMemoryStatus);
   worktrees.on('changed', onWorktreesChanged);
+  // Hito 49: un revisor empezo o termino. Las filas vuelven a preguntar, igual que con un cambio.
+  worktrees.on('rows', onWorktreesChanged);
 
   /*
     El usuario configuro —o quito— la status line de una CLI con la app abierta:
@@ -1406,9 +1413,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           }
           /*
             Sin suscripcion el hub no sabe nada de la pestana, y ahi esta donde
-            la lanzo la aplicacion: el modo de arranque de su CLI.
+            la lanzo la aplicacion: el modo de arranque de su CLI, o el de solo
+            lectura en una pestana de revision (hito 49).
           */
-          const current = conversations.getPermissionMode(message.terminalId) ?? cycle.launchMode;
+          const capabilities = adapterOf(message.terminalId)?.capabilities ?? null;
+          const current =
+            conversations.getPermissionMode(message.terminalId) ??
+            (capabilities === null
+              ? cycle.launchMode
+              : (launchModeFor(capabilities, registry.get(message.terminalId)?.review === true) ?? cycle.launchMode));
           /*
             Las pulsaciones se cuentan sobre el ciclo de la CLI de la pestana,
             y con una CLI cuya tecla aprueba lo pendiente no se escribe nada
@@ -2646,8 +2659,124 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           void worktrees.notesRequest(worktreeId).then(
             ({ terminal, opened, text }) => {
               if (opened) send(socket, { type: 'terminal.opened', requestId, terminal });
-              send(socket, { type: 'composer.prefill', terminalId: terminal.terminalId, text, reason: 'requested' });
+              send(socket, { type: 'composer.prefill', terminalId: terminal.terminalId, text, reason: 'requested', requestId });
             },
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        /*
+          Hito 49: trabajar como un equipo. Ver lo que trae una rama, pedirle la
+          revision a otra CLI, pasarle la respuesta al autor, ponerse al dia e
+          integrar. Ninguno trae una ruta salvo `changesDiff`, que nombra un
+          archivo de los que listo el servidor y el servicio lo comprueba.
+        */
+        case 'worktree.changes': {
+          const { requestId, worktreeId } = message;
+          void worktrees.changes(worktreeId).then(
+            (changes) => send(socket, { type: 'worktree.branchChanges', requestId, changes }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.changesDiff': {
+          const { requestId, worktreeId } = message;
+          void worktrees.changesDiff(worktreeId, message.path).then(
+            (diff) => send(socket, { type: 'worktree.branchDiff', requestId, worktreeId, diff }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.planReview': {
+          const { requestId, worktreeId } = message;
+          void worktrees.planReview(worktreeId).then(
+            (plan) => send(socket, { type: 'worktree.reviewPlan', requestId, plan }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        /*
+          La pestana del revisor llega con `terminal.opened` y este `requestId`,
+          y despues el pedido, como una continuacion (§6.18): se manda solo si
+          la CLI avisa cuando esta lista (decision 5: solo lee); si no, queda en
+          su cuadro y lo manda el usuario. Nunca las dos cosas.
+        */
+        case 'worktree.requestReview': {
+          const { requestId, worktreeId } = message;
+          if (message.unsupportedAgent !== undefined) {
+            sendError(socket, 'agent-unsupported', serverText('agentUnknown'), message.unsupportedAgent, requestId);
+            break;
+          }
+          void (async () => {
+            let opened;
+            try {
+              opened = await worktrees.requestReview(worktreeId, message.agent);
+            } catch (error) {
+              sendWorktreeError(socket, error, requestId);
+              return;
+            }
+            const { terminal, prompt } = opened;
+            const { terminalId } = terminal;
+            send(socket, { type: 'terminal.opened', requestId, terminal });
+            if (adapterOf(terminalId)?.capabilities.readySignal !== true) {
+              send(socket, { type: 'composer.prefill', terminalId, text: prompt, reason: 'requested', requestId });
+              return;
+            }
+            const delivered = await deliverWhenReady(deliverDeps, {
+              terminalId,
+              text: prompt,
+              images: [],
+              timeoutMs: HANDOFF_DELIVERY_TIMEOUT_MS,
+              write: (piece) => registry.write(terminalId, piece),
+            });
+            const reason = prefillReasonFor(delivered);
+            if (reason !== null) {
+              debugLog('worktrees', `review not sent on its own to ${terminalId.slice(0, 8)}: ${delivered.kind}`);
+              send(socket, { type: 'composer.prefill', terminalId, text: prompt, reason });
+            }
+          })();
+          break;
+        }
+
+        // Lo que se le deja al autor de la rama: queda en su cuadro, sin mandar, y lo manda el usuario.
+        case 'worktree.sendReview':
+        case 'worktree.catchUp': {
+          const { requestId, worktreeId } = message;
+          const asked = message.type === 'worktree.sendReview' ? worktrees.sendReview(worktreeId) : worktrees.catchUp(worktreeId);
+          void asked.then(
+            ({ terminal, opened, text, pasted }) => {
+              if (opened) send(socket, { type: 'terminal.opened', requestId, terminal });
+              send(socket, {
+                type: 'composer.prefill',
+                terminalId: terminal.terminalId,
+                text,
+                reason: 'requested',
+                requestId,
+                ...(pasted.length > 0 ? { pasted } : {}),
+              });
+            },
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.planIntegrate': {
+          const { requestId, worktreeId } = message;
+          void worktrees.planIntegrate(worktreeId).then(
+            (plan) => send(socket, { type: 'worktree.integratePlan', requestId, plan }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.integrate': {
+          const { requestId, worktreeId } = message;
+          void worktrees.integrate(worktreeId, message.branchCommit).then(
+            (outcome) => send(socket, { type: 'worktree.integrated', requestId, worktreeId, outcome }),
             (error: unknown) => sendWorktreeError(socket, error, requestId),
           );
           break;
@@ -2799,6 +2928,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);
     worktrees.off('changed', onWorktreesChanged);
+    worktrees.off('rows', onWorktreesChanged);
     stopAgentChanges();
     stopPlanLimits();
     planLimits.dispose();

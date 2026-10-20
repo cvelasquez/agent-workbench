@@ -935,6 +935,23 @@ kbd {
   vertical-align: 1px;
 }
 
+/*
+  La pestana de revision (hito 49): la misma forma que la de la rama, pero
+  con borde y sin relleno, para que no se confunda con ella.
+*/
+.tab-review {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 3px;
+  border: 1px dashed currentColor;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 12px;
+  white-space: nowrap;
+  vertical-align: 1px;
+  opacity: 0.85;
+}
+
 /* ---------- centro: la conversacion ---------- */
 
 .chat-stack {
@@ -3313,8 +3330,57 @@ kbd {
 
 .git-worktree-actions {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 2px 10px;
   margin-top: 2px;
+}
+
+/* Hito 49: la base contra la rama, las otras ramas que tocan lo mismo y la revision. */
+.git-worktree-team,
+.git-worktree-review {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.git-worktree-review .link-button {
+  margin-left: 6px;
+}
+
+.git-worktree-review-ready {
+  color: var(--diff-added);
+}
+
+.git-worktree-review-changes {
+  color: var(--warning);
+}
+
+/* "Ver cambios": un commit por fila, con su hash y hace cuanto. */
+.worktree-commit {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 5px;
+  font-size: 12px;
+}
+
+.worktree-commit-sha {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.worktree-commit-subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-commit-when {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .git-worktree-actions:empty {
@@ -4769,6 +4835,12 @@ kbd {
   margin: 4px 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Hito 49: el pedido de revision es largo; se lee entero con su propio scroll. */
+.worktree-prompt {
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .worktree-actions {

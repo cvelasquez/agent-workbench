@@ -48,13 +48,18 @@ Only the latest published version is supported.
   and a file you edit and save yourself in the Files tab: only the contents of a
   file that already exists, and never if it changed on disk since you opened
   it.
-- Git: the app never commits, pushes or rewrites history. It runs three git
+- Git: the app never commits, pushes or rewrites history. It runs four git
   commands that write, each after a dialog that shows it: `git worktree add` to
   open a separate branch in its own folder next to the project,
-  `git worktree remove` (never with `--force`) and `git branch -d` (only for a
-  branch the app created and that is already merged). When a separate branch
-  is removed, the ignored notes that changed only there go back to the main
-  folder; a CLI's configuration is never copied into a branch.
+  `git worktree remove` (never with `--force`), `git branch -d` (only for a
+  branch the app created and that is already merged) and `git merge --ff-only`
+  to merge a branch into its base, which creates no commit and refuses if the
+  base moved on. Catching up with the base is a rebase that the branch's agent
+  runs in its own terminal. When a separate branch is removed, the ignored
+  notes that changed only there go back to the main folder; a CLI's
+  configuration is never copied into a branch. The conflict check
+  (`git merge-tree`) writes its objects in a temporary folder, not in the
+  repository.
 
 The full list of what is read and what is never opened, per CLI, is in
 [`ARCHITECTURE.md`](ARCHITECTURE.md#4-what-is-read-from-each-cli).

@@ -38,7 +38,7 @@ import {
   referencedPasteNumbers,
   removePasteReferences,
 } from './composer-paste.js';
-import { draftTooLong, viewToRestore, type ComposerDrafts, type DraftView } from './composer-drafts.js';
+import { draftTooLong, mergePrefillDraft, viewToRestore, type ComposerDrafts, type DraftView } from './composer-drafts.js';
 import { formatBytes } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
@@ -410,18 +410,20 @@ export function Composer({
     for (const prefill of prefills) {
       if (appliedPrefills.current.has(prefill.id)) continue;
       appliedPrefills.current.add(prefill.id);
-      if (prefill.terminalId === shown.current) {
+      if (prefill.terminalId === shown.current && prefill.pasted.length === 0) {
         setText((current) => mergePrefill(current, prefill.text));
+      } else if (prefill.terminalId === shown.current) {
+        // Con fichas (hito 49): el texto y las fichas juntos, como un borrador entero.
+        const merged = mergePrefillDraft({ text: textRef.current, items: itemsRef.current }, prefill, () => crypto.randomUUID());
+        setText(merged.text);
+        replaceAttachments(merged.items);
       } else {
         const draft = drafts.get(prefill.terminalId);
-        drafts.put(prefill.terminalId, {
-          text: mergePrefill(draft?.text ?? '', prefill.text),
-          items: draft?.items ?? [],
-        });
+        drafts.put(prefill.terminalId, mergePrefillDraft({ text: draft?.text ?? '', items: draft?.items ?? [] }, prefill, () => crypto.randomUUID()));
       }
       onPrefillApplied?.(prefill.id);
     }
-  }, [prefills, onPrefillApplied, drafts]);
+  }, [prefills, onPrefillApplied, drafts, replaceAttachments]);
 
   const submit = useCallback(() => {
     if (terminalId === null || blockedReason !== null) return;

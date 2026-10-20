@@ -40,7 +40,7 @@ La terminal sigue siendo la terminal: todo lo que escribes va directo a la CLI.
 | **Conversación** | Los mensajes como tarjetas, en vivo, con las llamadas a herramientas plegadas. Los mensajes anteriores se cargan a medida que subes. Busca, copia cualquier mensaje o bloque de código, y salta a tu mensaje anterior (↑) o al final (↓). Una fila al pie dice cuándo llegó tu mensaje a la CLI y si el agente sigue trabajando. Según la CLI, puedes contestar ahí mismo las preguntas del agente. Un archivo del proyecto que el agente nombra se abre en la solapa Archivos con un clic. Con Claude Code, un mensaje que detienes antes de que el agente empiece vuelve al cuadro para corregirlo, y **↩** en un mensaje vuelve a antes de él: la conversación y, si quieres, el código. Un mensaje que mandas con el agente trabajando espera al final, marcado en cola; según la CLI, **Forzar envío ahora** hace que el agente lo lea ya. |
 | **Cuadro de escritura** | Espacio para escribir, pegar imágenes y adjuntar archivos, y el texto largo que pegas queda como una ficha compacta. Lo que estás escribiendo no se pierde si cierras la app, y aparece en vivo en todas las ventanas abiertas. Shift+Enter sigue una lista numerada o con viñetas. |
 | **Medidor de contexto** | Cuánto de la ventana de contexto del modelo usa la conversación. Tokens, nunca dinero. |
-| **Cambios** | La rama, los archivos cambiados y su diff. **Orquesta agentes en paralelo**: abre el proyecto en una rama nueva, en su propia carpeta, y varios agentes trabajan a la vez sin pisarse los cambios. Cambios muestra cada rama: lo que falta commitear, cuántos commits lleva y si ya está integrada. |
+| **Cambios** | La rama, los archivos cambiados y su diff. **Orquesta agentes en paralelo**: abre el proyecto en una rama nueva, en su propia carpeta, y varios agentes trabajan a la vez sin pisarse los cambios. Cambios muestra cada rama: lo que falta commitear, cuántos commits lleva y si ya está integrada. Otra CLI revisa una rama sin tocarla, y la integras en main con un clic. |
 | **Archivos** | El árbol de archivos del proyecto, con búsqueda y vista previa con resaltado de sintaxis. Abre varios archivos a la vez, cada uno en su solapa; los archivos Markdown se abren con formato. Un clic pone la ruta de un archivo en tu mensaje. Edita un archivo de texto, un `.env` por ejemplo, y guárdalo ahí mismo: si el agente lo cambió mientras lo editabas, no se pisa nada, y pasas tus cambios a la versión nueva. |
 | **Planes** | Los planes y los documentos `.md` que escribió la conversación, con formato. Un clic pone la ruta de un documento en tu mensaje. |
 | **Notas** | Un bloc de notas junto a la conversación, con imágenes incluidas. Con Claude Code, un clic manda una nota a una conversación nueva. |
@@ -425,10 +425,11 @@ Lo que la app guarda en el teléfono y los permisos que pide están en
   ser fijo, siempre en `127.0.0.1`, y SSH —que tú enciendes y controlas— hace el
   resto.
 - **Git: la app nunca hace commit ni push, ni reescribe la historia.** Corre
-  tres comandos de git que escriben, cada uno después de una confirmación que lo
-  muestra: `git worktree add` para abrir una rama en su propia carpeta,
-  `git worktree remove` (nunca con `--force`) y `git branch -d` (solo con una
-  rama que creó la app y que ya está integrada). Los commits los hacen los
+  cuatro comandos de git que escriben, cada uno después de una confirmación que
+  lo muestra: `git worktree add` para abrir una rama en su propia carpeta,
+  `git worktree remove` (nunca con `--force`), `git branch -d` (solo con una
+  rama que creó la app y que ya está integrada) y `git merge --ff-only` para
+  integrar una rama en main sin crear ningún commit. Los commits los hacen los
   agentes, en su terminal.
 
 | CLI | Qué lee | Qué nunca abre |

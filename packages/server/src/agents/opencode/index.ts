@@ -119,6 +119,12 @@ export const OPENCODE_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: true,
   // Detenerla con algo en cola lo deja sin contestar: no hay forma de forzarlo (hito 45, §11.13).
   forceSend: false,
+  /*
+    Hito 49: ninguno. Su agente `plan` pide permiso antes de editar, pero la app
+    abre el TUI con `opencode attach`, que segun su documentacion no acepta
+    `--agent` (§11.14). La pestana de revision arranca como cualquier otra.
+  */
+  readOnlyLaunch: null,
 };
 
 /**

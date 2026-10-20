@@ -53,6 +53,9 @@ const include = await import('../src/worktrees/include.ts');
 const { WorktreeStore, parseWorktreesState } = await import('../src/worktrees/store.ts');
 const { WorktreeLinks } = await import('../src/worktrees/links.ts');
 const { WorktreeService, WorktreeError, folderInUse, notesConflictPrompt } = await import('../src/worktrees/service.ts');
+const overlap = await import('../src/worktrees/overlap.ts');
+const review = await import('../src/worktrees/review.ts');
+const { reviewPrompt, catchUpPrompt, sendBackPrompt } = review;
 const { buildProjects } = await import('../src/session-index.ts');
 const { setLocale } = await import('../../web/src/i18n/index.ts');
 const ui = await import('../../web/src/worktree-ui.ts');
@@ -385,15 +388,19 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
 
   // Otro programa parado en la carpeta (Windows no deja quitarla y git queda a medias).
   if (windows) {
-    const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: path.join(folder, 'docs'), stdio: 'ignore' });
+    const holder = spawn(process.execPath, ['-e', "process.stdout.write('ready\\n'); setInterval(() => {}, 1000)"], {
+      cwd: path.join(folder, 'docs'),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     children.push(holder);
-    await new Promise((resolve) => holder.once('spawn', resolve));
-    // El proceso toma su carpeta al arrancar, un poco después del `spawn`: se espera la condición, con tope.
-    let taken = false;
-    for (const deadline = Date.now() + 5_000; !taken && Date.now() < deadline; ) {
-      taken = await folderInUse(folder);
-      if (!taken) await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    // Windows le abre su carpeta al proceso mientras arranca, después del `spawn`. Sondear en ese
+    // momento la renombra y el proceso queda vivo sin tomarla (18 de 20 veces en D:, medido el
+    // 20-10-2026): se espera a que el proceso diga que corre, con tope, y se mira una vez.
+    await Promise.race([
+      new Promise((resolve) => holder.stdout.once('data', resolve)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('el proceso de prueba no arrancó')), 30_000).unref()),
+    ]);
+    const taken = await folderInUse(folder);
     check('Q11 una carpeta tomada se detecta sin cambiar nada', taken && existsSync(folder));
     registry.tabs.splice(registry.tabs.findIndex((candidate) => candidate.cwd === folder), 1);
     plan = await service.planRemove(record.id);
@@ -454,6 +461,539 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
 }
 
 // ---------------------------------------------------------------------------
+// Hito 49: un repo con dos ramas que tocan el mismo archivo, y una base que avanza
+// ---------------------------------------------------------------------------
+
+/** Las pestañas del hito 49: cada una con su sesión (Codex nace sin), su actividad y si es de revisión. */
+function fakeTeamRegistry() {
+  const tabs = [];
+  const activity = new Map();
+  let count = 0;
+  return {
+    tabs,
+    activity,
+    opened: [],
+    async open(options) {
+      count += 1;
+      const agent = options.agent ?? 'claude-code';
+      const descriptor = {
+        terminalId: `e${count}`,
+        kind: options.kind ?? 'agent',
+        agent,
+        cwd: options.cwd,
+        // Codex pone el id él mismo: su pestaña nace sin sesión y la descubre después.
+        sessionId: options.resumeSessionId ?? (agent === 'codex' ? '' : `sesion-${count}`),
+        label: options.label ?? '',
+        resumed: options.resumeSessionId !== undefined,
+        createdAt: count,
+        alive: true,
+        exitCode: null,
+        sleeping: false,
+        launchedAt: count,
+        worktree: null,
+        review: options.review === true,
+      };
+      tabs.push(descriptor);
+      this.opened.push(options);
+      return descriptor;
+    },
+    list() {
+      return [...tabs];
+    },
+    get(terminalId) {
+      return tabs.find((tab) => tab.terminalId === terminalId) ?? null;
+    },
+    activityOf(terminalId) {
+      return activity.get(terminalId) ?? null;
+    },
+  };
+}
+
+/** Un seguidor de mentira: la conversación del revisor, ya leída. null: no está. */
+function fakeFollower(events) {
+  return {
+    label: 'falso',
+    async start() {},
+    async poll() {
+      return { reset: false, added: [] };
+    },
+    getState: () => (events === null ? 'not-found' : 'live'),
+    getTail: () => ({ events: events ?? [], hasMore: false }),
+  };
+}
+
+let eventCount = 0;
+const say = (role, ...parts) => ({ eventId: `ev${++eventCount}`, role, at: 0, parts, model: null, usage: null, effort: null, durationMs: null });
+const said = (value) => ({ kind: 'text', text: value, truncated: false });
+const toolCall = { kind: 'tool-call', toolUseId: 'u1', name: 'Bash', input: 'git diff', truncated: false };
+const toolResult = { kind: 'tool-result', toolUseId: 'u1', text: 'diff', isError: false, truncated: false };
+const looseObjects = (cwd) => Number(/count: (\d+)/.exec(git(cwd, 'count-objects', '-v'))?.[1] ?? '-1');
+const tip = (cwd, ref) => git(cwd, 'rev-parse', ref).trim();
+const errorKey = async (run) => {
+  try {
+    await run();
+    return 'no falló';
+  } catch (error) {
+    return error instanceof WorktreeError ? error.text.key : String(error);
+  }
+};
+
+const team = await makeRepo('equipo');
+await writeFile(path.join(team, 'notes.txt'), `${Array.from({ length: 10 }, (_, index) => `linea ${index + 1}`).join('\n')}\n`);
+await writeFile(path.join(team, 'viejo.txt'), 'renombrar\n');
+git(team, 'add', 'notes.txt', 'viejo.txt');
+git(team, 'commit', '-q', '-m', 'notas');
+const teamStore = new WorktreeStore(path.join(root, 'appdata', 'worktrees-equipo.json'));
+await teamStore.load();
+const teamRegistry = fakeTeamRegistry();
+const teamSessions = [];
+const replies = new Map();
+let clock = 1_000_000;
+/** Pasado el tiempo de las filas guardadas: la próxima lectura es nueva. */
+const tick = () => {
+  clock += 10_000;
+};
+const teamService = new WorktreeService({
+  store: teamStore,
+  registry: teamRegistry,
+  projectCwd: (key) => (key === 'equipo' ? team : null),
+  findSession: (agent, sessionId) => teamSessions.find((session) => session.agent === agent && session.sessionId === sessionId) ?? null,
+  sessionsUnder: (folder) =>
+    teamSessions.filter((session) => {
+      const relative = path.relative(path.resolve(folder), path.resolve(session.cwd));
+      return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    }),
+  history: () => ({ wholeRead: true, follow: (target) => fakeFollower(replies.get(target.sessionId) ?? null) }),
+  now: () => clock,
+});
+const teamTab = await teamRegistry.open({ cwd: team });
+const created = {};
+for (const [branch, agent] of [['feat/a', 'codex'], ['feat/b', 'claude-code']]) {
+  const tab = await teamService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch, base: 'main', mode: 'new', copyNotes: false, agent });
+  created[branch] = { tab, id: teamStore.byPath(tab.cwd).id, folder: tab.cwd };
+}
+const A = created['feat/a'];
+const B = created['feat/b'];
+const editLine = async (cwd, line, value) => {
+  const lines = (await readFile(path.join(cwd, 'notes.txt'), 'utf8')).split('\n');
+  lines[line - 1] = value;
+  await writeFile(path.join(cwd, 'notes.txt'), lines.join('\n'));
+};
+await editLine(A.folder, 2, 'linea 2 de a');
+await writeFile(path.join(A.folder, 'a.ts'), 'export const a = 1;\n');
+git(A.folder, 'add', '.');
+git(A.folder, 'commit', '-q', '-m', 'a: notas y a.ts');
+await editLine(B.folder, 9, 'linea 9 de b');
+git(B.folder, 'mv', 'viejo.txt', 'nuevo.txt');
+git(B.folder, 'add', '.');
+git(B.folder, 'commit', '-q', '-m', 'b: notas y renombre');
+await editLine(team, 2, 'linea 2 de main');
+git(team, 'add', 'notes.txt');
+git(team, 'commit', '-q', '-m', 'main avanza');
+
+// ---------------------------------------------------------------------------
+// T. La rama contra su base, y contra las otras (hito 49)
+// ---------------------------------------------------------------------------
+
+{
+  const scratchBefore = (await readdir(os.tmpdir())).filter((name) => name.startsWith('aw-merge-tree-')).sort();
+  const objectsBefore = looseObjects(team);
+  tick();
+  const rows = await teamService.rows(teamTab.terminalId);
+  const objectsAfter = looseObjects(team);
+  const scratchAfter = (await readdir(os.tmpdir())).filter((name) => name.startsWith('aw-merge-tree-')).sort();
+  const rowA = rows.find((row) => row.branch === 'feat/a');
+  const rowB = rows.find((row) => row.branch === 'feat/b');
+  const main = rows.find((row) => row.isMain);
+  check('T1 cuánto avanzó la base y cuánto la rama', rowA?.behind === 1 && rowA.ahead === 1 && rowB?.behind === 1 && rowB.ahead === 1, JSON.stringify({ a: rowA, b: rowB }));
+  check('T2 la que choca con la base dice en qué archivo',
+    rowA?.merge?.state === 'conflicts' && JSON.stringify(rowA.merge.files) === JSON.stringify(['notes.txt']) && rowA.merge.fileCount === 1, JSON.stringify(rowA?.merge));
+  check('T3 la que no choca lo dice', rowB?.merge?.state === 'clean' && rowB.merge.files.length === 0, JSON.stringify(rowB?.merge));
+  check('T4 calcular el choque no deja objetos en el repo ni carpetas en la temporal',
+    objectsBefore === objectsAfter && objectsBefore >= 0 && JSON.stringify(scratchBefore) === JSON.stringify(scratchAfter),
+    `${objectsBefore} -> ${objectsAfter}`);
+  check('T5 las dos ramas que tocan el mismo archivo se avisan una a la otra',
+    JSON.stringify(rowA?.overlaps) === JSON.stringify([{ branch: 'feat/b', files: ['notes.txt'], fileCount: 1 }]) &&
+      JSON.stringify(rowB?.overlaps) === JSON.stringify([{ branch: 'feat/a', files: ['notes.txt'], fileCount: 1 }]),
+    JSON.stringify([rowA?.overlaps, rowB?.overlaps]));
+  check('T6 la principal no se compara con nada', main?.behind === null && main.merge === null && main.overlaps.length === 0 && main.review === null);
+  check('T7 sin revisión pedida, ninguna', rowA?.review === null && rowB?.review === null);
+
+  // Sin `tick()`: lo guardado no venció, pero una punta se movió.
+  await writeFile(path.join(A.folder, 'extra.ts'), 'export const extra = 1;\n');
+  git(A.folder, 'add', 'extra.ts');
+  git(A.folder, 'commit', '-q', '-m', 'a: extra');
+  const afterCommit = (await teamService.rows(teamTab.terminalId)).find((row) => row.branch === 'feat/a');
+  check('T8 un commit en una rama se ve en la lectura siguiente, sin esperar', afterCommit?.ahead === 2, JSON.stringify(afterCommit?.ahead));
+  git(A.folder, 'reset', '-q', '--hard', 'HEAD~1');
+}
+
+// ---------------------------------------------------------------------------
+// W. Ver cambios
+// ---------------------------------------------------------------------------
+
+{
+  const changesA = await teamService.changes(A.id);
+  check('W1 los commits de la rama, con su asunto, y los archivos que trae',
+    changesA.commitCount === 1 && changesA.commits[0]?.subject === 'a: notas y a.ts' && changesA.commits[0].at > 0 &&
+      JSON.stringify(changesA.files.map((file) => `${file.kind}:${file.path}`).sort()) === JSON.stringify(['added:a.ts', 'modified:notes.txt']) &&
+      changesA.uncommitted === 0,
+    JSON.stringify(changesA));
+  const changesB = await teamService.changes(B.id);
+  const renamed = changesB.files.find((file) => file.kind === 'renamed');
+  check('W2 un renombre trae la ruta de antes', renamed?.path === 'nuevo.txt' && renamed.oldPath === 'viejo.txt', JSON.stringify(changesB.files));
+  const diff = await teamService.changesDiff(A.id, 'notes.txt');
+  check('W3 el diff de un archivo contra la base: lo que la rama quitó y puso',
+    diff.lines.some((line) => line.kind === 'removed' && line.text === 'linea 2') && diff.lines.some((line) => line.kind === 'added' && line.text === 'linea 2 de a') &&
+      !diff.lines.some((line) => line.text.includes('de main')),
+    JSON.stringify(diff.lines.filter((line) => line.kind !== 'context')));
+  const renameDiff = await teamService.changesDiff(B.id, 'nuevo.txt');
+  check('W4 el de un renombre lo muestra como tal', renameDiff.lines.some((line) => line.text === 'rename from viejo.txt'), JSON.stringify(renameDiff.lines));
+  const refused = [await errorKey(() => teamService.changesDiff(A.id, 'README.md')), await errorKey(() => teamService.changesDiff(A.id, '../equipo/notes.txt'))];
+  check('W5 un archivo que la rama no cambió no se pide', refused.every((key) => key === 'worktreeFileNotInBranch'), refused.join(' '));
+}
+
+// ---------------------------------------------------------------------------
+// Y. La revisión de otro agente
+// ---------------------------------------------------------------------------
+
+let reviewSession = '';
+{
+  const plan = await teamService.planReview(A.id);
+  check('Y1 el plan: quién trabajó en la rama, el pedido en inglés y cuánto hay que revisar',
+    plan.author === 'codex' && plan.prompt === reviewPrompt('feat/a', 'main') && plan.ahead === 1 && plan.uncommitted === 0 && plan.branchBusy === false,
+    JSON.stringify(plan));
+  teamRegistry.activity.set(A.tab.terminalId, 'busy');
+  check('Y2 con la pestaña de la rama trabajando, se avisa', (await teamService.planReview(A.id)).branchBusy === true);
+  teamRegistry.activity.set(A.tab.terminalId, 'idle');
+
+  const before = { base: tip(team, 'main'), branch: tip(team, 'feat/a') };
+  const { terminal, prompt } = await teamService.requestReview(A.id, 'claude-code');
+  reviewSession = terminal.sessionId;
+  const record = teamStore.get(A.id);
+  check('Y3 la pestaña del revisor: en la carpeta de la rama, de revisión, con su CLI y sin nombre propio',
+    terminal.review === true && terminal.cwd === A.folder && terminal.agent === 'claude-code' && terminal.label === '' &&
+      teamRegistry.opened.at(-1)?.review === true && prompt === reviewPrompt('feat/a', 'main'));
+  check('Y4 queda anotada: qué CLI, qué conversación y en qué commits estaban la base y la rama',
+    record.review?.agent === 'claude-code' && record.review.sessionId === reviewSession && record.review.baseCommit === before.base &&
+      record.review.branchCommit === before.branch && record.reviewSessions.includes(reviewSession),
+    JSON.stringify(record.review));
+
+  teamRegistry.activity.set(terminal.terminalId, 'busy');
+  tick();
+  let row = (await teamService.rows(teamTab.terminalId)).find((candidate) => candidate.branch === 'feat/a');
+  check('Y5 con el revisor trabajando, en curso', row?.review?.state === 'working' && row.review.verdict === null, JSON.stringify(row?.review));
+  teamRegistry.activity.set(terminal.terminalId, 'idle');
+  tick();
+  row = (await teamService.rows(teamTab.terminalId)).find((candidate) => candidate.branch === 'feat/a');
+  check('Y6 libre y sin respuesta, todavía nada', row?.review?.state === 'pending', JSON.stringify(row?.review));
+
+  replies.set(reviewSession, [
+    say('user', said(prompt)),
+    say('assistant', said('Voy a revisar la rama.'), toolCall),
+    say('user', toolResult),
+    say('assistant', said('1. notes.txt:2 cambia una línea sin test.')),
+    say('assistant', said('**Verdict: needs changes**')),
+  ]);
+  tick();
+  row = (await teamService.rows(teamTab.terminalId)).find((candidate) => candidate.branch === 'feat/a');
+  check('Y7 contestó: pide cambios, del commit de ahora',
+    row?.review?.state === 'done' && row.review.verdict === 'changes' && row.review.stale === false && row.review.terminalId === terminal.terminalId,
+    JSON.stringify(row?.review));
+
+  // El autor sigue trabajando: la revisión pasa a ser de un commit anterior.
+  await writeFile(path.join(A.folder, 'a.ts'), 'export const a = 2;\n');
+  git(A.folder, 'commit', '-q', '-am', 'a: arreglo');
+  tick();
+  row = (await teamService.rows(teamTab.terminalId)).find((candidate) => candidate.branch === 'feat/a');
+  check('Y8 la rama avanzó después del pedido: de un commit anterior', row?.review?.stale === true, JSON.stringify(row?.review));
+
+  // "Mandar a la rama": la respuesta entera, como ficha, en la pestaña del autor (no la del revisor).
+  const sent = await teamService.sendReview(A.id);
+  check('Y9 mandar a la rama: a la pestaña del autor, sin abrir otra, con la respuesta entera aparte',
+    sent.terminal.terminalId === A.tab.terminalId && sent.opened === false && sent.text === sendBackPrompt() &&
+      JSON.stringify(sent.pasted) === JSON.stringify(['1. notes.txt:2 cambia una línea sin test.\n\n**Verdict: needs changes**']),
+    JSON.stringify(sent));
+
+  // Sin la pestaña del autor: su conversación más reciente, que no sea la del revisor.
+  teamRegistry.tabs.splice(teamRegistry.tabs.indexOf(A.tab), 1);
+  teamSessions.push(
+    { agent: 'codex', sessionId: 'autor-1', cwd: A.folder, updatedAt: 5, sizeBytes: 1, archived: false },
+    { agent: 'claude-code', sessionId: reviewSession, cwd: A.folder, updatedAt: 10, sizeBytes: 1, archived: false },
+  );
+  const reopened = await teamService.sendReview(A.id);
+  check('Y10 sin su pestaña, se reanuda la última conversación del autor, nunca la del revisor',
+    reopened.opened === true && teamRegistry.opened.at(-1)?.resumeSessionId === 'autor-1' && teamRegistry.opened.at(-1)?.agent === 'codex',
+    JSON.stringify(teamRegistry.opened.at(-1)));
+  A.tab = reopened.terminal;
+
+  // Un revisor que pone el id él mismo (Codex): la conversación se encuentra en su pestaña.
+  const codexReview = await teamService.requestReview(A.id, 'codex');
+  check('Y11 un revisor sin sesión todavía queda anotado sin ella', teamStore.get(A.id).review?.sessionId === '' && codexReview.terminal.sessionId === '');
+  codexReview.terminal.sessionId = 'cx-1';
+  replies.set('cx-1', [say('user', said('review')), say('assistant', said('Mirando el diff...'))]);
+  teamRegistry.activity.set(codexReview.terminal.terminalId, 'unknown');
+  tick();
+  row = (await teamService.rows(teamTab.terminalId)).find((candidate) => candidate.branch === 'feat/a');
+  check('Y12 la descubre en su pestaña y la anota', teamStore.get(A.id).review?.sessionId === 'cx-1' && teamStore.get(A.id).reviewSessions.includes('cx-1'));
+  check('Y13 una CLI que no dice si trabaja, sin veredicto y con la pestaña viva: todavía nada',
+    row?.review?.state === 'pending' && row.review.agent === 'codex', JSON.stringify(row?.review));
+  replies.set('cx-1', [say('user', said('review')), say('assistant', said('Todo bien.\n\nVerdict: ready to integrate.'))]);
+  tick();
+  row = (await teamService.rows(teamTab.terminalId)).find((candidate) => candidate.branch === 'feat/a');
+  check('Y14 con su veredicto: lista para integrar', row?.review?.state === 'done' && row.review.verdict === 'ready', JSON.stringify(row?.review));
+
+  // Una rama sin nada propio no se revisa, y una sin revisión no tiene qué mandar.
+  const fresh = await teamService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/c', base: 'main', mode: 'new', copyNotes: false });
+  created['feat/c'] = { tab: fresh, id: teamStore.byPath(fresh.cwd).id, folder: fresh.cwd };
+  const nothing = [await errorKey(() => teamService.requestReview(created['feat/c'].id, 'codex')), await errorKey(() => teamService.sendReview(created['feat/c'].id))];
+  check('Y15 sin nada que revisar, no se abre nada; sin revisión, nada que mandar',
+    nothing[0] === 'worktreeNothingToReview' && nothing[1] === 'worktreeNoReview' && !teamRegistry.opened.some((options) => options.review && options.cwd === fresh.cwd),
+    nothing.join(' '));
+
+  // Otro revisor que descubre su conversación, y se cierra antes de que nadie mire Cambios.
+  const lateReview = await teamService.requestReview(A.id, 'codex');
+  lateReview.terminal.sessionId = 'cx-2';
+  await teamService.noteReviewSession(lateReview.terminal.terminalId);
+  teamRegistry.tabs.splice(teamRegistry.tabs.indexOf(lateReview.terminal), 1);
+  replies.set('cx-2', [say('user', said('review')), say('assistant', said('Nada que agregar.\n\nVerdict: ready to integrate'))]);
+  tick();
+  row = (await teamService.rows(teamTab.terminalId)).find((candidate) => candidate.branch === 'feat/a');
+  check('Y16 la conversación se anota al descubrirla: con la pestaña ya cerrada, la revisión sigue',
+    teamStore.get(A.id).review?.sessionId === 'cx-2' && teamStore.get(A.id).reviewSessions.includes('cx-2') &&
+      row?.review?.state === 'done' && row.review.verdict === 'ready',
+    JSON.stringify(row?.review));
+}
+
+// ---------------------------------------------------------------------------
+// U. Ponerse al día
+// ---------------------------------------------------------------------------
+
+{
+  const asked = await teamService.catchUp(A.id);
+  check('U1 el pedido de traer la base, con los archivos que van a chocar, a la pestaña del autor',
+    asked.text === catchUpPrompt('main', ['notes.txt'], 0) && asked.text.includes('git rebase main') && asked.terminal.terminalId === A.tab.terminalId &&
+      asked.opened === false && asked.pasted.length === 0,
+    asked.text);
+  await writeFile(path.join(A.folder, 'sin-commit.txt'), 'x\n');
+  const dirty = await teamService.catchUp(A.id);
+  check('U2 con trabajo sin commit, pide primero commitearlo o guardarlo', dirty.text.includes('commit or stash what is not committed yet'));
+  await rm(path.join(A.folder, 'sin-commit.txt'));
+  check('U3 una rama al día no tiene nada que traer', (await errorKey(() => teamService.catchUp(created['feat/c'].id))) === 'worktreeUpToDate');
+}
+
+// ---------------------------------------------------------------------------
+// F. Integrar: sólo `merge --ff-only`, en la carpeta de la base
+// ---------------------------------------------------------------------------
+
+{
+  let plan = await teamService.planIntegrate(B.id);
+  check('F1 con la base adelante no se puede: hay que ponerse al día',
+    plan.blocker === 'behind' && plan.command === null && plan.behind === 1 && plan.baseFolder === path.resolve(team), JSON.stringify(plan));
+  const mainBefore = tip(team, 'main');
+  check('F2 integrar se niega y la base no se mueve',
+    (await errorKey(() => teamService.integrate(B.id))) === 'worktreeBaseAdvanced' && tip(team, 'main') === mainBefore);
+
+  // Lo que haría el agente de la rama: el rebase, en su terminal.
+  git(B.folder, 'rebase', '-q', 'main');
+  plan = await teamService.planIntegrate(B.id);
+  check('F3 al día: el comando exacto, en la carpeta de la base, con lo que entra',
+    plan.blocker === null && plan.command === 'git merge --ff-only feat/b' && plan.ahead === 1 && plan.behind === 0 &&
+      plan.baseFolder === path.resolve(team) && plan.files.includes('notes.txt') && plan.files.includes('nuevo.txt') &&
+      plan.tabs.some((tab) => tab.terminalId === teamTab.terminalId),
+    JSON.stringify(plan));
+
+  // La rama avanza con el diálogo abierto: lo que se integraría ya no es lo que el plan mostró.
+  const seenTip = plan.branchCommit;
+  await writeFile(path.join(B.folder, 'tarde.txt'), 'tarde\n');
+  git(B.folder, 'add', 'tarde.txt');
+  git(B.folder, 'commit', '-q', '-m', 'b: tarde');
+  check('F14 la rama avanzó después del plan: integrar se niega y la base no se mueve',
+    seenTip === tip(team, 'refs/heads/feat/b~1') && (await errorKey(() => teamService.integrate(B.id, seenTip))) === 'worktreeBranchMoved' &&
+      tip(team, 'main') === mainBefore,
+    String(seenTip));
+  git(B.folder, 'reset', '-q', '--hard', 'HEAD~1');
+
+  // Un cambio sin commit en la base, en un archivo que la rama toca: git se negaría.
+  await writeFile(path.join(team, 'notes.txt'), 'cambio local\n');
+  plan = await teamService.planIntegrate(B.id);
+  check('F4 con un cambio local en un archivo que la rama toca, no se ofrece',
+    plan.blocker === 'local-changes' && JSON.stringify(plan.localConflicts) === JSON.stringify(['notes.txt']), JSON.stringify(plan.localConflicts));
+  check('F5 e integrar se niega sin tocar el cambio local',
+    (await errorKey(() => teamService.integrate(B.id))) === 'worktreeLocalChanges' &&
+      (await readFile(path.join(team, 'notes.txt'), 'utf8')) === 'cambio local\n' && tip(team, 'main') === mainBefore);
+  git(team, 'checkout', '--', 'notes.txt');
+
+  // Un cambio local en otro archivo no estorba, y queda como estaba.
+  await writeFile(path.join(team, 'otro.txt'), 'mío\n');
+  const outcome = await teamService.integrate(B.id);
+  check('F6 integra: la base queda en la punta de la rama, sin commit nuevo',
+    outcome.commits === 1 && outcome.base === 'main' && tip(team, 'main') === tip(team, 'feat/b') && tip(team, 'HEAD') === tip(team, 'feat/b') &&
+      git(team, 'log', '--format=%P', '-1').trim().split(' ').length === 1,
+    JSON.stringify(outcome));
+  check('F7 el cambio local en otro archivo sigue ahí, y la principal tiene lo de la rama',
+    (await readFile(path.join(team, 'otro.txt'), 'utf8')) === 'mío\n' && existsSync(path.join(team, 'nuevo.txt')) &&
+      (await readFile(path.join(team, 'notes.txt'), 'utf8')).includes('linea 9 de b'));
+  await rm(path.join(team, 'otro.txt'));
+  tick();
+  const rowB = (await teamService.rows(teamTab.terminalId)).find((row) => row.branch === 'feat/b');
+  check('F8 integrada: sin nada adelante, y quitarla también borra la rama',
+    rowB?.integrated === true && rowB.ahead === 0 && (await teamService.planRemove(B.id)).deletesBranch === true, JSON.stringify(rowB));
+  check('F9 una rama integrada ya no tiene nada que integrar', (await teamService.planIntegrate(B.id)).blocker === 'nothing');
+
+  // Una etiqueta con el nombre de la rama: el nombre solo nombraría la etiqueta.
+  const tagged = await teamService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/d', base: 'main', mode: 'new', copyNotes: false });
+  await writeFile(path.join(tagged.cwd, 'd.txt'), 'd\n');
+  git(tagged.cwd, 'add', 'd.txt');
+  git(tagged.cwd, 'commit', '-q', '-m', 'd');
+  git(team, 'tag', 'feat/d', 'main~1');
+  const taggedId = teamStore.byPath(tagged.cwd).id;
+  // Si el estado de la rama no se lee (la rama leída como `heads/feat/d`), el plan falla: se reporta y se sigue.
+  const taggedPlan = await teamService.planIntegrate(taggedId).catch((error) => ({ command: null, failed: error?.text?.key ?? String(error) }));
+  check('F10 con una etiqueta del mismo nombre, el comando nombra la rama entera',
+    taggedPlan.command === 'git merge --ff-only refs/heads/feat/d', String(taggedPlan.command ?? taggedPlan.failed));
+  await teamService.integrate(taggedId).catch(() => undefined);
+  check('F11 e integra la rama, no la etiqueta',
+    tip(team, 'main') === tip(team, 'refs/heads/feat/d') && tip(team, 'main') !== tip(team, 'refs/tags/feat/d'));
+
+  // Una base que no está sacada en ninguna carpeta: no hay dónde integrar.
+  git(team, 'branch', 'otra-base');
+  const orphan = await teamService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/e', base: 'otra-base', mode: 'new', copyNotes: false });
+  await writeFile(path.join(orphan.cwd, 'e.txt'), 'e\n');
+  git(orphan.cwd, 'add', 'e.txt');
+  git(orphan.cwd, 'commit', '-q', '-m', 'e');
+  const orphanId = teamStore.byPath(orphan.cwd).id;
+  plan = await teamService.planIntegrate(orphanId);
+  check('F12 una base que no está en ninguna carpeta lo dice', plan.blocker === 'no-base-folder' && plan.baseFolder === null && plan.command === null, JSON.stringify(plan));
+  check('F13 e integrar se niega', (await errorKey(() => teamService.integrate(orphanId))) === 'worktreeBaseNotOpen');
+
+  // Una rama que se llama como otra referencia de git, con un stash guardado: `stash` solo nombraría el stash.
+  const stashed = await teamService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'stash', base: 'main', mode: 'new', copyNotes: false });
+  await writeFile(path.join(stashed.cwd, 's.txt'), 's\n');
+  git(stashed.cwd, 'add', 's.txt');
+  git(stashed.cwd, 'commit', '-q', '-m', 's');
+  await writeFile(path.join(team, 'guardado.txt'), 'g\n');
+  git(team, 'add', 'guardado.txt');
+  git(team, 'stash', 'push', '-q', '-m', 'guardado');
+  const stashedId = teamStore.byPath(stashed.cwd).id;
+  const stashedPlan = await teamService.planIntegrate(stashedId);
+  check('F15 una rama llamada como otra referencia (stash): el comando nombra la rama entera',
+    stashedPlan.command === 'git merge --ff-only refs/heads/stash', String(stashedPlan.command));
+  await teamService.integrate(stashedId, stashedPlan.branchCommit ?? undefined).catch(() => undefined);
+  check('F16 e integra la rama, no el stash',
+    tip(team, 'main') === tip(team, 'refs/heads/stash') && tip(team, 'main') !== tip(team, 'refs/stash') && !existsSync(path.join(team, 'guardado.txt')));
+  git(team, 'stash', 'drop', '-q');
+}
+
+// ---------------------------------------------------------------------------
+// M. Las piezas puras del hito 49
+// ---------------------------------------------------------------------------
+
+{
+  const tree = 'a'.repeat(40);
+  check('M1 merge-tree: limpio, choca, y lo demás no se sabe',
+    JSON.stringify(wtGit.parseMergeTree({ code: 0, stdout: `${tree}\0`, stderr: '' })) === JSON.stringify({ clean: true, files: [] }) &&
+      JSON.stringify(wtGit.parseMergeTree({ code: 1, stdout: `${tree}\0a.txt\0b.bin\0a.txt\0`, stderr: '' })) === JSON.stringify({ clean: false, files: ['a.txt', 'b.bin'] }) &&
+      wtGit.parseMergeTree({ code: 1, stdout: '', stderr: 'merge-tree: nope - not something we can merge' }) === null &&
+      wtGit.parseMergeTree({ code: 128, stdout: '', stderr: 'fatal: refusing to merge unrelated histories' }) === null);
+  check('M2 la carpeta de objetos va entre comillas sólo si trae el separador',
+    wtGit.alternatesValue('D:\\Agent Explorer\\.git\\objects', 'win32') === 'D:\\Agent Explorer\\.git\\objects' &&
+      wtGit.alternatesValue('D:\\a;b\\.git\\objects', 'win32') === '"D:\\\\a;b\\\\.git\\\\objects"' &&
+      wtGit.alternatesValue('/x:y/.git/objects', 'linux') === '"/x:y/.git/objects"');
+  check('M3 name-status -z, con un renombre que trae dos rutas',
+    JSON.stringify(wtGit.parseNameStatusZ('M\0a.txt\0R087\0viejo.txt\0nuevo.txt\0A\0b.txt\0D\0c.txt\0')) ===
+      JSON.stringify([
+        { path: 'a.txt', oldPath: null, kind: 'modified' },
+        { path: 'nuevo.txt', oldPath: 'viejo.txt', kind: 'renamed' },
+        { path: 'b.txt', oldPath: null, kind: 'added' },
+        { path: 'c.txt', oldPath: null, kind: 'deleted' },
+      ]));
+  const files = [{ path: 'docs/a.md', oldPath: null, kind: 'added' }, { path: 'nuevo.txt', oldPath: 'viejo.txt', kind: 'renamed' }];
+  check('M4 lo local que toca la rama: una carpeta nueva entera y la ruta de antes de un renombre',
+    JSON.stringify(overlap.pathsTouching(['docs/', 'viejo.txt', 'otro.txt'], files)) === JSON.stringify(['docs/', 'viejo.txt']));
+  check('M5 las ramas que comparten archivos, con tope',
+    JSON.stringify(overlap.overlapsFor('a', [{ branch: 'a', files }, { branch: 'b', files: [{ path: 'viejo.txt', oldPath: null, kind: 'modified' }] }, { branch: 'c', files: [] }], 8)) ===
+      JSON.stringify([{ branch: 'b', files: ['viejo.txt'], fileCount: 1 }]));
+  check('M6 el veredicto: sólo la última línea, con o sin marcado',
+    review.readVerdict('bien\nVerdict: ready to integrate') === 'ready' &&
+      review.readVerdict('- **`Verdict: needs changes`.**') === 'changes' &&
+      review.readVerdict('Verdict: ready to integrate\nPero mirá esto.') === 'none' &&
+      review.readVerdict('verdict:   READY TO INTEGRATE') === 'ready' &&
+      review.readVerdict('Veredicto: listo') === 'none' && review.readVerdict(null) === 'none');
+  check('M6b el veredicto como título o dentro de un bloque de código',
+    review.readVerdict('Hallazgos.\n\n## Verdict: needs changes') === 'changes' &&
+      review.readVerdict('Hallazgos.\n\n```\nVerdict: ready to integrate\n```\n') === 'ready' &&
+      review.readVerdict('```\n```') === 'none');
+  check('M7 la última respuesta: lo que dijo después de la última herramienta, entero',
+    review.lastReplyText([say('user', said('x')), say('assistant', said('antes'), toolCall), say('user', toolResult), say('assistant', said('uno')), say('assistant', said('dos'))]) === 'uno\n\ndos' &&
+      review.lastReplyText([say('user', said('x'))]) === null);
+  check('M7b si lo último que dijo vino con una herramienta, eso es la respuesta, no un texto vacío',
+    review.lastReplyText([say('user', said('x')), say('assistant', said('Verdict: ready to integrate'), toolCall)]) === 'Verdict: ready to integrate');
+  check('M8 los pedidos van en inglés y nombran la rama y la base',
+    reviewPrompt('fix-login', 'main').startsWith('Review the work on this branch, `fix-login`, against `main`.') &&
+      reviewPrompt('fix-login', 'main').endsWith('`Verdict: ready to integrate` or `Verdict: needs changes`.') &&
+      catchUpPrompt('main', [], 0) === "Bring this branch up to date with `main`: run `git rebase main`, resolve any conflicts, run the checks again, and tell me when it's done." &&
+      /^A reviewer went over this branch/.test(sendBackPrompt()));
+  const candidates = (pairs) => pairs.map(([id, guard]) => ({ id, guard }));
+  check('M9 quién revisa por defecto: otra CLI, la que mejor se protege; con una sola, esa',
+    shared.defaultReviewer('claude-code', candidates([['claude-code', 'cli'], ['codex', 'cli'], ['opencode', null]])) === 'codex' &&
+      shared.defaultReviewer('codex', candidates([['claude-code', 'cli'], ['codex', 'cli']])) === 'claude-code' &&
+      shared.defaultReviewer('claude-code', candidates([['claude-code', 'cli'], ['opencode', null], ['pi', 'tools']])) === 'pi' &&
+      shared.defaultReviewer('claude-code', candidates([['claude-code', 'cli']])) === 'claude-code' &&
+      shared.defaultReviewer(null, candidates([['opencode', null], ['codex', 'cli']])) === 'codex' &&
+      shared.defaultReviewer(null, []) === null);
+
+  // La web: lo que dice cada fila, en español.
+  const row = {
+    id: 'x', path: 'D:\\x', branch: 'feat/a', base: 'main', isCurrent: false, isMain: false, changes: 0, ahead: 1, integrated: false,
+    behind: 2, merge: { state: 'conflicts', files: ['App.tsx', 'styles.css'], fileCount: 3 },
+    overlaps: [{ branch: 'fix-login', files: ['src/App.tsx'], fileCount: 1 }], review: null,
+  };
+  check('M10 la fila: la base avanzó, choca, y otra rama toca lo mismo',
+    JSON.stringify(ui.rowTeamLines(row)) === JSON.stringify(['main avanzó 2 commits · choca en 3 archivos: App.tsx y styles.css…', 'también lo toca fix-login: App.tsx']),
+    JSON.stringify(ui.rowTeamLines(row)));
+  check('M11 integrar se apaga con la base adelante o sin nada, con el porqué',
+    ui.rowIntegrateBlocker(row) === 'main avanzó: primero ponte al día.' && ui.rowIntegrateBlocker({ ...row, behind: 0, ahead: 0 }) !== null &&
+      ui.rowIntegrateBlocker({ ...row, behind: 0 }) === null);
+  const summary = { agent: 'codex', state: 'done', verdict: 'changes', stale: true, requestedAt: 0, terminalId: null };
+  check('M12 la revisión, en palabras', ui.reviewText(summary, 'Codex') === 'Revisión de Codex: pide cambios (de un commit anterior)' &&
+    ui.reviewText({ ...summary, state: 'working', verdict: null, stale: false }, 'Codex') === 'Revisión de Codex: en curso', ui.reviewText(summary, 'Codex'));
+  check('M13 cómo arranca cada CLI para revisar',
+    ui.reviewGuardText({ readOnlyLaunch: { mode: null, guard: 'cli' } }, 'Codex').includes('solo lectura') &&
+      ui.reviewGuardText({ readOnlyLaunch: { mode: null, guard: 'tools' } }, 'Pi').includes('consola') &&
+      ui.reviewGuardText({ readOnlyLaunch: null }, 'OpenCode').startsWith('OpenCode puede editar'));
+  const actionsOf = (candidate) => Object.entries(ui.rowActions(candidate)).filter(([, on]) => on).map(([name]) => name).sort().join(' ');
+  const oldServerRow = { ...row, behind: null, merge: null, overlaps: [], review: null };
+  check('M16 las acciones del hito 49 sólo con un servidor que las conoce (el del 48 no manda `behind`)',
+    actionsOf(oldServerRow) === '' && actionsOf(row) === 'catchUp integrate review viewChanges' &&
+      actionsOf({ ...row, review: { ...summary, stale: false } }) === 'catchUp integrate review sendReview viewChanges' &&
+      actionsOf({ ...row, id: null }) === '',
+    `${actionsOf(oldServerRow)} | ${actionsOf(row)}`);
+
+  // Sin carpeta temporal donde poner los objetos, el choque no se sabe: no tumba las filas.
+  const savedTemp = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+  const missing = path.join(root, 'no-existe', 'temporal');
+  Object.assign(process.env, { TEMP: missing, TMP: missing, TMPDIR: missing });
+  let noTemp;
+  try {
+    noTemp = await wtGit.mergeTreeCheck(team, 'main', 'feat/a').then((value) => ({ value }), (error) => ({ error: String(error) }));
+  } finally {
+    for (const [key, value] of Object.entries(savedTemp)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  check('M14 sin carpeta temporal, el choque queda sin saber y no falla', os.tmpdir() !== missing && noTemp?.value === null, JSON.stringify(noTemp));
+
+  // Una etiqueta con el nombre de la rama sacada: el nombre de la rama sigue siendo el suyo.
+  const tagRepo = await mkdtemp(path.join(root, 'etiqueta-'));
+  git(tagRepo, 'init', '-q', '-b', 'main');
+  git(tagRepo, 'commit', '-q', '--allow-empty', '-m', 'base');
+  git(tagRepo, 'tag', 'main');
+  check('M15 la rama sacada, con una etiqueta del mismo nombre', (await wtGit.currentBranch(tagRepo)) === 'main', String(await wtGit.currentBranch(tagRepo)));
+}
+
+// ---------------------------------------------------------------------------
 // P. Las piezas puras
 // ---------------------------------------------------------------------------
 
@@ -498,6 +1038,38 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
   check('E3 una fila que no se entiende se descarta sola', rows?.type === 'worktree.rows' && rows.rows.length === 1 && rows.rows[0].ahead === 2);
   const descriptor = shared.parseTerminalDescriptor({ terminalId: 't', kind: 'agent', agent: 'claude-code', cwd: 'D:\\x', sessionId: 's', label: '', resumed: false, createdAt: 0, alive: true });
   check('E4 un servidor anterior no manda la rama: null', descriptor?.worktree === null);
+
+  // Hito 49: los pedidos nombran la rama por su id, y sólo `changesDiff` una ruta, que el servidor valida.
+  const review = shared.parseClientMessage(JSON.stringify({ type: 'worktree.requestReview', requestId: 'r', worktreeId: 'w', agent: 'no-existe', label: 'x', path: 'C:\\x' }));
+  check('E5 pedir revisión con una CLI desconocida se conserva para rechazarla, y nada más viaja',
+    review?.type === 'worktree.requestReview' && review.unsupportedAgent === 'no-existe' &&
+      JSON.stringify(Object.keys(review).sort()) === JSON.stringify(['agent', 'requestId', 'type', 'unsupportedAgent', 'worktreeId']));
+  const simple = ['worktree.changes', 'worktree.planReview', 'worktree.sendReview', 'worktree.catchUp', 'worktree.planIntegrate', 'worktree.integrate'];
+  check('E6 los pedidos del hito 49 con id y sin él',
+    simple.every((type) => shared.parseClientMessage(JSON.stringify({ type, requestId: 'r', worktreeId: 'w' }))?.type === type &&
+      shared.parseClientMessage(JSON.stringify({ type, requestId: 'r' })) === null) &&
+      shared.parseClientMessage(JSON.stringify({ type: 'worktree.changesDiff', requestId: 'r', worktreeId: 'w' })) === null);
+  const oldRow = shared.parseWorktreeRow({ path: 'D:\\x', branch: 'b', id: 'w', base: 'main', isCurrent: false, isMain: false, changes: 0, ahead: 1, integrated: false });
+  check('E7 una fila de un servidor del hito 48: sin base, choque, avisos ni revisión',
+    oldRow?.behind === null && oldRow.merge === null && oldRow.overlaps.length === 0 && oldRow.review === null);
+  const badReview = shared.parseWorktreeRow({ ...oldRow, review: { agent: 'codex', state: 'otro', requestedAt: 0 } });
+  check('E8 una revisión con un estado que no se conoce se descarta, la fila no', badReview !== null && badReview.review === null);
+  const prefill = shared.parseServerMessage(JSON.stringify({ type: 'composer.prefill', terminalId: 't', text: 'x', reason: 'requested', pasted: ['notas'] }));
+  const badPrefill = shared.parseServerMessage(JSON.stringify({ type: 'composer.prefill', terminalId: 't', text: 'x', reason: 'requested', pasted: [1] }));
+  check('E9 las fichas de un prellenado viajan, y una que no es texto lo invalida', JSON.stringify(prefill?.pasted) === JSON.stringify(['notas']) && badPrefill === null);
+  check('E10 un descriptor sin la marca de revisión no es de revisión', descriptor?.review === false);
+  const commit = 'c'.repeat(40);
+  const integrate = shared.parseClientMessage(JSON.stringify({ type: 'worktree.integrate', requestId: 'r', worktreeId: 'w', branchCommit: commit }));
+  check('E11 integrar lleva la punta que vio el plan, y una que no es un commit lo invalida',
+    integrate?.type === 'worktree.integrate' && integrate.branchCommit === commit &&
+      shared.parseClientMessage(JSON.stringify({ type: 'worktree.integrate', requestId: 'r', worktreeId: 'w', branchCommit: 'main' })) === null);
+  const answered = shared.parseServerMessage(JSON.stringify({ type: 'composer.prefill', terminalId: 't', text: 'x', reason: 'requested', requestId: 'r' }));
+  const oldPlan = shared.parseWorktreeIntegratePlan({
+    id: 'w', branch: 'b', base: 'main', baseFolder: 'D:\\x', command: 'git merge --ff-only b', ahead: 1, behind: 0, files: ['a'], fileCount: 1,
+    review: null, tabs: [], localConflicts: [], branchUncommitted: 0, blocker: null,
+  });
+  check('E12 el prellenado dice a qué pedido contesta, y el plan de un servidor anterior no trae la punta',
+    answered?.type === 'composer.prefill' && answered.requestId === 'r' && oldPlan !== null && oldPlan.branchCommit === null);
 }
 
 // ---------------------------------------------------------------------------
@@ -530,12 +1102,17 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
 
   const own = sources.get('worktrees/git.ts');
   const ownWrites = [...own.matchAll(WRITES)].map((match) => match[1]).sort();
-  check('G3 worktrees/git.ts escribe sólo worktree add, worktree remove y branch -d',
-    JSON.stringify(ownWrites) === JSON.stringify(['add', 'add', 'remove']) && /\['branch', '-d', branch\]/.test(own), ownWrites.join(' '));
-  check('G4 nunca --force, -D ni -f', !/'--force'|'-D'|'-f'/.test(own));
-  check('G5 los tres corren por el camino que escribe, y nada más', (own.match(/write: true/g) ?? []).length === 3);
-  const callers = [...sources].filter(([name, text]) => name !== 'worktrees/git.ts' && /\b(addWorktree|removeWorktree|deleteBranch)\(/.test(text)).map(([name]) => name);
+  check('G3 worktrees/git.ts escribe sólo worktree add, worktree remove, branch -d y merge --ff-only',
+    JSON.stringify(ownWrites) === JSON.stringify(['add', 'add', 'merge', 'remove']) && /\['branch', '-d', branch\]/.test(own) &&
+      /\['merge', '--ff-only', target\]/.test(own),
+    ownWrites.join(' '));
+  check('G4 nunca --force, -D, -f, --no-ff ni --squash', !/'--force'|'-D'|'-f'|'--no-ff'|'--squash'/.test(own));
+  check('G5 los cuatro corren por el camino que escribe, y nada más', (own.match(/write: true/g) ?? []).length === 4);
+  const callers = [...sources].filter(([name, text]) => name !== 'worktrees/git.ts' && /\b(addWorktree|removeWorktree|deleteBranch|fastForward)\(/.test(text)).map(([name]) => name);
   check('G6 sólo el servicio los llama', JSON.stringify(callers) === JSON.stringify(['worktrees/service.ts']), callers.join(' '));
+  // El rebase de ponerse al día lo hace el agente en su terminal, nunca la app (decisión 2 del hito 49).
+  const rebasing = [...sources].filter(([, text]) => /'rebase'|"rebase"/.test(text)).map(([name]) => name);
+  check('G7 ningún archivo del servidor arma un rebase', rebasing.length === 0, rebasing.join(' '));
 }
 
 for (const child of children) child.kill();

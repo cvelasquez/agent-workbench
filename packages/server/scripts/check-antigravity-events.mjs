@@ -1925,6 +1925,8 @@ const statusRecord = (id, over = {}) => ({
     plans: false,
     waitingBlocksSubmit: false,
     forceSend: true,
+    // Hito 49: `--mode plan`, medido al lanzar con la 1.4.0 (§12.14).
+    readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };
   check('9 sin status line: capacidades iguales al literal', same(adapter.capabilities, expectedBase) && adapter.capabilities === ANTIGRAVITY_BASE_CAPABILITIES, show(adapter.capabilities));
   check('9 con status line: estado y medidor, y lista para recibir sigue apagada (P0-4)',

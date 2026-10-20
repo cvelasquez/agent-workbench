@@ -148,6 +148,11 @@ export interface OpenTerminalOptions {
   label?: string;
   cols?: number;
   rows?: number;
+  /**
+   * Hito 49. Una pestana de revision: su CLI arranca en su modo de solo lectura,
+   * si lo tiene, y despierta igual. Solo para `agent`.
+   */
+  review?: boolean;
 }
 
 // Vive en su propio modulo para que se pueda reconocer sin cargar node-pty.
@@ -382,6 +387,7 @@ export class TerminalRegistry extends EventEmitter {
       sleeping: true,
       launchedAt: null,
       worktree,
+      review: kind === 'agent' && options.review === true,
     };
 
     const entry: TerminalEntry = {
@@ -534,7 +540,7 @@ export class TerminalRegistry extends EventEmitter {
    * como detalle (M1a); antes llegaba al cliente como un error interno.
    */
   private async spawn(entry: TerminalEntry, options: { resume: boolean }): Promise<boolean> {
-    const { terminalId, kind, cwd, sessionId, agent } = entry.descriptor;
+    const { terminalId, kind, cwd, sessionId, agent, review } = entry.descriptor;
     const launcher = this.launcherFor(kind, agent);
     const { buffer } = entry;
 
@@ -562,6 +568,8 @@ export class TerminalRegistry extends EventEmitter {
           resumeSessionId: options.resume ? sessionId : null,
           proposedSessionId: sessionId,
           launchToken,
+          // Hito 49: la de revision, en su modo de solo lectura. Solo va si es de revision: el resto lanza igual que antes.
+          ...(review ? { readOnly: true } : {}),
         }),
       );
       // Cerrada, o el servidor se apago, mientras se preparaba: no se lanza nada.
@@ -875,6 +883,8 @@ export class TerminalRegistry extends EventEmitter {
         sleeping: true,
         launchedAt: null,
         worktree,
+        // Hito 49: la de revision vuelve como de revision, y despierta en su modo.
+        review: tab.review === true,
       };
 
       this.terminals.set(terminalId, {

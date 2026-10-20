@@ -10,11 +10,26 @@
  *
  * Las quitadas se conservan, para "Volver a abrir la rama". Cambia poco (crear y
  * quitar), así que cada cambio se escribe enseguida, de forma atómica.
+ *
+ * Desde el hito 49 guarda además la última revisión de cada rama: qué CLI, qué
+ * conversación y en qué commits estaban la base y la rama. Nunca su texto. Una
+ * build del hito 48 la descarta al guardar: sólo se pierde ese estado.
  */
 
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { asArrayFiltered, asBoolean, asFiniteNumber, asNonEmptyString, asRecord, asStringArray } from '@agent-workbench/shared';
+import {
+  AGENT_IDS,
+  asArrayFiltered,
+  asBoolean,
+  asFiniteNumber,
+  asLiteral,
+  asNonEmptyString,
+  asRecord,
+  asString,
+  asStringArray,
+  type AgentId,
+} from '@agent-workbench/shared';
 import { writeAtomically } from '../atomic-write.js';
 import { worktreesStatePath } from '../paths.js';
 import { samePathShape } from './checkout.js';
@@ -23,6 +38,24 @@ import type { CopiedFile } from './include.js';
 const STATE_VERSION = 1;
 /** Tope de quitadas que se conservan: las más viejas se olvidan. */
 const MAX_REMOVED = 300;
+/** Cuántas conversaciones de revisión se recuerdan por rama. */
+const MAX_REVIEW_SESSIONS = 20;
+
+/**
+ * La última revisión pedida para una rama (hito 49). El texto no se guarda:
+ * vive en el historial de la CLI que revisó.
+ */
+export interface WorktreeReviewRecord {
+  agent: AgentId;
+  /** La conversación del revisor; `''` mientras la CLI no la descubre (Codex, Antigravity). */
+  sessionId: string;
+  /** La pestaña que la pidió: con ella se encuentra la conversación todavía sin id. */
+  terminalId: string;
+  /** En qué commit estaban la base y la rama al pedirla: si se movieron, es "de un commit anterior". */
+  baseCommit: string;
+  branchCommit: string;
+  requestedAt: number;
+}
 
 export interface WorktreeRecord {
   id: string;
@@ -43,6 +76,13 @@ export interface WorktreeRecord {
   createdAt: number;
   /** null mientras la carpeta existe. */
   removedAt: number | null;
+  /** Hito 49. La última revisión pedida, o null. Ausente en un registro del hito 48. */
+  review: WorktreeReviewRecord | null;
+  /**
+   * Hito 49. Las conversaciones de revisión de esta rama, para no tomarlas por
+   * las de su autor al buscar dónde dejarle un pedido. Las más nuevas al final.
+   */
+  reviewSessions: string[];
 }
 
 function parseCopied(value: unknown): CopiedFile | null {
@@ -50,6 +90,27 @@ function parseCopied(value: unknown): CopiedFile | null {
   const file = asNonEmptyString(record?.['path']);
   const hash = asNonEmptyString(record?.['hash']);
   return file === null || hash === null ? null : { path: file, hash };
+}
+
+function parseReview(value: unknown): WorktreeReviewRecord | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const agent = asLiteral(record['agent'], AGENT_IDS);
+  const sessionId = asString(record['sessionId']);
+  const terminalId = asString(record['terminalId']);
+  const baseCommit = asNonEmptyString(record['baseCommit']);
+  const branchCommit = asNonEmptyString(record['branchCommit']);
+  const requestedAt = asFiniteNumber(record['requestedAt']);
+  if (agent === null || sessionId === null || terminalId === null || baseCommit === null || branchCommit === null || requestedAt === null) {
+    return null;
+  }
+  return { agent, sessionId, terminalId, baseCommit, branchCommit, requestedAt };
+}
+
+/** Una conversación más en la lista de las de revisión, sin repetir y con tope. */
+export function withReviewSession(sessions: readonly string[], sessionId: string): string[] {
+  if (sessionId.length === 0) return [...sessions];
+  return [...sessions.filter((existing) => existing !== sessionId), sessionId].slice(-MAX_REVIEW_SESSIONS);
 }
 
 export function parseWorktreeRecord(value: unknown): WorktreeRecord | null {
@@ -81,7 +142,22 @@ export function parseWorktreeRecord(value: unknown): WorktreeRecord | null {
   ) {
     return null;
   }
-  return { id, mainRoot, path: folder, branch, base, createdBranch, copyNotes, copied, copiedDirs, createdAt, removedAt };
+  return {
+    id,
+    mainRoot,
+    path: folder,
+    branch,
+    base,
+    createdBranch,
+    copyNotes,
+    copied,
+    copiedDirs,
+    createdAt,
+    removedAt,
+    // Ausentes en un registro del hito 48: sin revisión.
+    review: parseReview(record['review']),
+    reviewSessions: asStringArray(record['reviewSessions'])?.filter((id) => id.length > 0) ?? [],
+  };
 }
 
 /** Una versión que no se conoce se ignora entera, como en las demás tiendas de la app. */

@@ -1,21 +1,34 @@
 /**
  * git para las ramas aparte (hito 48, §6.38).
  *
- * **Es el único lugar de la app con comandos de git que escriben**, y son tres:
- * `worktree add`, `worktree remove` (nunca con `--force`) y `branch -d` (nunca
- * `-D`). Cada uno corre después de una confirmación que lo muestra (§6.1). La
- * app sigue sin crear commits, sin reescribir historia y sin tocar la
+ * **Es el único lugar de la app con comandos de git que escriben**, y son
+ * cuatro: `worktree add`, `worktree remove` (nunca con `--force`), `branch -d`
+ * (nunca `-D`) y, desde el hito 49, `merge --ff-only`, que no crea commits:
+ * adelanta la base hasta la punta de la rama. Cada uno corre después de una
+ * confirmación que lo muestra (§6.1). La app sigue sin crear commits, sin
+ * reescribir historia (ni rebase ni merge con commit) y sin tocar la
  * configuración de git: con `extensions.worktreeConfig` el agente de
  * Antigravity se cuelga, y no hay nada que configurar para lo que se hace acá.
  * `check-worktrees.mjs` busca comandos que escriben en el resto del servidor.
  *
  * El resto son lecturas, con `--no-optional-locks` como en `git-repo.ts`: corren
- * solas mientras el usuario trabaja, y no pueden tomar el `index.lock`.
+ * solas mientras el usuario trabaja, y no pueden tomar el `index.lock`. Una
+ * lectura escribe algo de todos modos, `merge-tree` (sus objetos), y por eso
+ * corre con un directorio de objetos temporal (`mergeTreeCheck`).
  */
 
 import { execFile } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { GitMissingError, parsePorcelainV2, parseWorktreeListZ, type WorktreeEntry } from '../git-repo.js';
+import {
+  serverText,
+  type GitChangeKind,
+  type GitDiff,
+  type WorktreeChangedFile,
+  type WorktreeCommit,
+} from '@agent-workbench/shared';
+import { GitMissingError, diffFromOutput, parsePorcelainV2, parseWorktreeListZ, type WorktreeEntry } from '../git-repo.js';
 
 export type { WorktreeEntry };
 
@@ -70,8 +83,8 @@ function run(
   });
 }
 
-const read = (cwd: string, args: readonly string[], input?: string): Promise<GitRun> =>
-  run(cwd, args, { write: false, ...(input !== undefined ? { input } : {}) });
+const read = (cwd: string, args: readonly string[], input?: string, env?: NodeJS.ProcessEnv): Promise<GitRun> =>
+  run(cwd, args, { write: false, ...(input !== undefined ? { input } : {}), ...(env !== undefined ? { env } : {}) });
 
 /** El texto de un fallo de git, recortado, para el usuario. */
 export function gitFailureText(result: GitRun): string {
@@ -104,18 +117,32 @@ export async function repoLayout(cwd: string): Promise<RepoLayout | null> {
   return { toplevel: path.resolve(toplevel), mainRoot, linked };
 }
 
-/** La rama sacada en `cwd`, o null con HEAD desprendido. */
+/**
+ * La rama sacada en `cwd`, o null con HEAD desprendido. Sin `--short`, por lo
+ * mismo que `branchOfRef`: con una etiqueta del mismo nombre da `heads/<rama>`.
+ */
 export async function currentBranch(cwd: string): Promise<string | null> {
-  const result = await read(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
-  const branch = result.stdout.trim();
-  return result.code === 0 && branch.length > 0 ? branch : null;
+  const result = await read(cwd, ['symbolic-ref', '--quiet', 'HEAD']);
+  return result.code === 0 ? branchOfRef(result.stdout.trim()) : null;
+}
+
+/**
+ * El nombre de una rama a partir de su ref completa. No `refname:short`: con
+ * una etiqueta del mismo nombre, git la abrevia `heads/<rama>` (lo encontró
+ * `check-worktrees`, caso F10).
+ */
+function branchOfRef(ref: string): string | null {
+  return ref.startsWith('refs/heads/') && ref.length > 'refs/heads/'.length ? ref.slice('refs/heads/'.length) : null;
 }
 
 /** Las ramas locales, por nombre. */
 export async function localBranches(cwd: string): Promise<string[]> {
-  const result = await read(cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']);
+  const result = await read(cwd, ['for-each-ref', '--format=%(refname)', 'refs/heads']);
   if (result.code !== 0) return [];
-  return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => branchOfRef(line.trim()))
+    .filter((branch): branch is string => branch !== null);
 }
 
 export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
@@ -200,7 +227,220 @@ export async function ignoredSelection(
 }
 
 // ---------------------------------------------------------------------------
-// Los tres comandos que escriben
+// Lecturas del hito 49: la rama contra su base
+// ---------------------------------------------------------------------------
+
+/** La punta de cada rama local, en un solo proceso. Vacio si git no pudo. */
+export async function branchTips(cwd: string): Promise<Map<string, string>> {
+  const result = await read(cwd, ['for-each-ref', '--format=%(refname)%00%(objectname)', 'refs/heads']);
+  const tips = new Map<string, string>();
+  if (result.code !== 0) return tips;
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const [ref, sha] = line.split('\0');
+    const name = ref === undefined ? null : branchOfRef(ref);
+    if (name !== null && sha !== undefined && /^[0-9a-f]{40,64}$/.test(sha)) tips.set(name, sha);
+  }
+  return tips;
+}
+
+/**
+ * Cuanto avanzo cada lado desde que la rama salio: `behind`, los commits de la
+ * base que la rama no tiene ("main avanzo 2"), y `ahead`, los de la rama que la
+ * base no tiene. Medido: `rev-list --left-right --count main...feat` da "1 1".
+ */
+export async function aheadBehind(cwd: string, base: string, branch: string): Promise<{ ahead: number; behind: number } | null> {
+  const result = await read(cwd, ['rev-list', '--left-right', '--count', `refs/heads/${base}...refs/heads/${branch}`, '--']);
+  if (result.code !== 0) return null;
+  const [left, right] = result.stdout.trim().split(/\s+/).map(Number);
+  return Number.isInteger(left) && Number.isInteger(right) ? { ahead: right as number, behind: left as number } : null;
+}
+
+const NAME_STATUS_KINDS: Readonly<Record<string, GitChangeKind>> = {
+  A: 'added',
+  M: 'modified',
+  D: 'deleted',
+  R: 'renamed',
+  C: 'copied',
+  T: 'type-changed',
+};
+
+/**
+ * La salida de `diff --name-status -z`: la letra (con su porcentaje en un
+ * renombre o una copia) y la ruta, o la de antes y la de ahora. Pura: la prueba
+ * el chequeo. Una letra que no se conoce se toma como modificado.
+ */
+export function parseNameStatusZ(stdout: string): WorktreeChangedFile[] {
+  const fields = stdout.split('\0');
+  const files: WorktreeChangedFile[] = [];
+  let index = 0;
+  while (index < fields.length) {
+    const status = fields[index] ?? '';
+    index += 1;
+    if (status.length === 0) continue;
+    const kind = NAME_STATUS_KINDS[status[0] ?? ''] ?? 'modified';
+    if (kind === 'renamed' || kind === 'copied') {
+      const oldPath = fields[index] ?? '';
+      const newPath = fields[index + 1] ?? '';
+      index += 2;
+      if (newPath.length > 0) files.push({ path: newPath, oldPath: oldPath.length > 0 ? oldPath : null, kind });
+      continue;
+    }
+    const filePath = fields[index] ?? '';
+    index += 1;
+    if (filePath.length > 0) files.push({ path: filePath, oldPath: null, kind });
+  }
+  return files;
+}
+
+/**
+ * Los archivos que la rama cambio desde que salio de la base (`base...rama`:
+ * contra el punto donde se separaron, no contra la punta de la base). null si
+ * git no pudo.
+ */
+export async function branchChangedFiles(cwd: string, base: string, branch: string): Promise<WorktreeChangedFile[] | null> {
+  const result = await read(cwd, [
+    'diff',
+    '--name-status',
+    '-z',
+    '-M',
+    '--no-color',
+    '--no-ext-diff',
+    `refs/heads/${base}...refs/heads/${branch}`,
+    '--',
+  ]);
+  return result.code === 0 ? parseNameStatusZ(result.stdout) : null;
+}
+
+/** Los commits de la rama que la base no tiene, los mas nuevos primero, con tope. null si git no pudo. */
+export async function branchCommits(cwd: string, base: string, branch: string, max: number): Promise<WorktreeCommit[] | null> {
+  const result = await read(cwd, [
+    'log',
+    '--no-color',
+    `--max-count=${Math.max(1, Math.floor(max))}`,
+    '--format=%h%x1f%ct%x1f%s%x1e',
+    `refs/heads/${branch}`,
+    '--not',
+    `refs/heads/${base}`,
+    '--',
+  ]);
+  if (result.code !== 0) return null;
+  const commits: WorktreeCommit[] = [];
+  for (const record of result.stdout.split('\x1e')) {
+    const [sha, seconds, subject] = record.replace(/^\r?\n/, '').split('\x1f');
+    if (sha === undefined || sha.length === 0 || seconds === undefined) continue;
+    commits.push({ sha, subject: subject ?? '', at: Number(seconds) * 1000 });
+  }
+  return commits;
+}
+
+/**
+ * El diff de un archivo de la rama contra su base, con los topes del de Cambios
+ * (`diffFromOutput`). En un renombre se pasan las dos rutas, para que git lo
+ * muestre como tal.
+ */
+export async function branchFileDiff(
+  cwd: string,
+  base: string,
+  branch: string,
+  file: string,
+  oldPath: string | null,
+): Promise<GitDiff> {
+  const result = await read(cwd, [
+    'diff',
+    '--no-color',
+    '--no-ext-diff',
+    '--unified=3',
+    '-M',
+    `refs/heads/${base}...refs/heads/${branch}`,
+    '--',
+    ...(oldPath !== null && oldPath !== file ? [oldPath] : []),
+    file,
+  ]);
+  return diffFromOutput(file, false, result, serverText('worktreeDiffEmpty'));
+}
+
+/**
+ * El directorio de objetos del repo, para leer de el sin escribirle
+ * (`mergeTreeCheck`). null si git no contesta.
+ */
+async function objectsDir(mainRoot: string): Promise<string | null> {
+  const result = await read(mainRoot, ['rev-parse', '--git-path', 'objects']);
+  const answer = result.stdout.trim();
+  return result.code === 0 && answer.length > 0 ? path.resolve(mainRoot, answer) : null;
+}
+
+/**
+ * Una carpeta para `GIT_ALTERNATE_OBJECT_DIRECTORIES`, que es una lista con el
+ * separador de rutas del sistema (`;` en Windows): una ruta que lo trae, o que
+ * empieza con comillas, va entre comillas al estilo de C, como pide git.
+ */
+export function alternatesValue(folder: string, platform: string = process.platform): string {
+  const separator = platform === 'win32' ? ';' : ':';
+  if (!folder.includes(separator) && !folder.startsWith('"')) return folder;
+  return `"${folder.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Si la rama se integraria limpio con la base, y que archivos chocarian, **sin
+ * escribir nada en el repo**.
+ *
+ * `merge-tree --write-tree` no toca el indice ni ninguna carpeta, pero escribe
+ * los objetos del resultado (medido en el paso 0: de 15 a 17). Por eso corre con
+ * `GIT_OBJECT_DIRECTORY` en una carpeta temporal y los objetos del repo como
+ * alternativos: da lo mismo y el repo queda igual (medido: 23 y 23, la
+ * temporal con 1). La temporal se borra al terminar.
+ *
+ * Sale con 0 si integra limpio y con 1 si choca; con 1 tambien sale una rama
+ * que no existe, asi que choque es 1 **y** el arbol en la primera linea. Lo
+ * demas (historias sin relacion: 128) es null. Unos 180 ms en este repo.
+ */
+export async function mergeTreeCheck(
+  mainRoot: string,
+  base: string,
+  branch: string,
+): Promise<{ clean: boolean; files: string[] } | null> {
+  const objects = await objectsDir(mainRoot);
+  if (objects === null) return null;
+  // Sin dónde poner los objetos (la temporal llena o sin permiso), el choque no se sabe: no tumba las filas.
+  const scratch = await mkdtemp(path.join(tmpdir(), 'aw-merge-tree-')).catch(() => null);
+  if (scratch === null) return null;
+  try {
+    const result = await read(
+      mainRoot,
+      ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', `refs/heads/${base}`, `refs/heads/${branch}`],
+      undefined,
+      { ...process.env, GIT_OBJECT_DIRECTORY: scratch, GIT_ALTERNATE_OBJECT_DIRECTORIES: alternatesValue(objects) },
+    );
+    return parseMergeTree(result);
+  } finally {
+    await rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+  }
+}
+
+/** La salida de `merge-tree --name-only -z`: el arbol y, si choca, los archivos. Pura. */
+export function parseMergeTree(result: GitRun): { clean: boolean; files: string[] } | null {
+  const [tree, ...rest] = result.stdout.split('\0');
+  if (tree === undefined || !/^[0-9a-f]{40,64}$/.test(tree.trim())) return null;
+  if (result.code === 0) return { clean: true, files: [] };
+  if (result.code !== 1) return null;
+  return { clean: false, files: [...new Set(rest.filter((entry) => entry.length > 0))] };
+}
+
+/**
+ * Cómo se nombra la rama en `merge --ff-only`, en la carpeta donde corre: su
+ * nombre si git lo resuelve a esa rama, y si no `refs/heads/<rama>`. Antes que
+ * `refs/heads/` git prueba `$GIT_DIR/<nombre>`, `refs/<nombre>` y
+ * `refs/tags/<nombre>`: con una etiqueta del mismo nombre, o con una rama
+ * `stash` y un stash guardado, el nombre solo integraría otra cosa (medido el
+ * 20-10-2026: `main` quedó en el commit del stash).
+ */
+export async function mergeTarget(cwd: string, branch: string): Promise<string> {
+  const result = await read(cwd, ['rev-parse', '--symbolic-full-name', branch]);
+  return result.code === 0 && result.stdout.trim() === `refs/heads/${branch}` ? branch : `refs/heads/${branch}`;
+}
+
+// ---------------------------------------------------------------------------
+// Los cuatro comandos que escriben
 // ---------------------------------------------------------------------------
 
 /** El comando de crear, tal como se muestra en el diálogo y como se corre. */
@@ -236,4 +476,23 @@ export function removeWorktree(mainRoot: string, folder: string): Promise<GitRun
 /** Borra una rama ya integrada. **`-d`, nunca `-D`**: si git dice que no está integrada, se queda. */
 export function deleteBranch(mainRoot: string, branch: string): Promise<GitRun> {
   return run(mainRoot, deleteBranchArgs(branch), { write: true });
+}
+
+/**
+ * Integrar (hito 49): adelantar la base hasta la punta de la rama. **Sólo
+ * `--ff-only`**: no crea commits, y si la base avanzó git se niega sin cambiar
+ * nada (medido: "Not possible to fast-forward, aborting."). `target` es el
+ * nombre de la rama, o `refs/heads/<rama>` si una etiqueta se llama igual.
+ */
+export function fastForwardArgs(target: string): string[] {
+  return ['merge', '--ff-only', target];
+}
+
+/**
+ * Corre en la carpeta donde está sacada la base. Con cambios sin commit en un
+ * archivo que la rama toca, git se niega y el cambio queda intacto; en otros
+ * archivos, integra y los deja como estaban (medido en el plan).
+ */
+export function fastForward(baseFolder: string, target: string): Promise<GitRun> {
+  return run(baseFolder, fastForwardArgs(target), { write: true });
 }

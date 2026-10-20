@@ -1,6 +1,8 @@
 /**
  * Las ramas aparte del lado de la web (hito 48, §6.38): las filas de "Ramas
- * aparte" en Cambios y los dos diálogos, crear y quitar.
+ * aparte" en Cambios y los dos diálogos, crear y quitar. Desde el hito 49,
+ * `useWorktreeTeam`: "Ver cambios", pedir revisión, integrar y los dos pedidos
+ * que quedan en el cuadro del autor (mandarle la revisión, ponerse al día).
  *
  * Ningún pedido lleva una ruta (§2.4): una rama nueva sale de un proyecto o de
  * una pestaña, y una que ya existe se nombra por el id del registro del
@@ -11,11 +13,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AgentId,
+  GitDiff,
+  ServerComposerPrefillMessage,
   TerminalId,
+  WorktreeChanges,
   WorktreeCreateMode,
   WorktreeInspection,
+  WorktreeIntegrateOutcome,
+  WorktreeIntegratePlan,
   WorktreeRemoveOutcome,
   WorktreeRemovePlan,
+  WorktreeReviewPlan,
   WorktreeRow,
   WorktreeSource,
 } from '@agent-workbench/shared';
@@ -33,6 +41,15 @@ function claim(): string {
   const requestId = crypto.randomUUID();
   dialogRequests.add(requestId);
   return requestId;
+}
+
+/**
+ * Si un prellenado contesta el pedido en curso: el del hito 49 dice a cuál, y
+ * así un pedido que llega al mismo tiempo (la revisión de otra rama) no pasa a
+ * la vista su pestaña. Un servidor del 48 no lo dice: el que esté en curso.
+ */
+function answersRequest(message: Pick<ServerComposerPrefillMessage, 'reason' | 'requestId'>, pending: string | null): boolean {
+  return message.reason === 'requested' && pending !== null && (message.requestId === undefined || message.requestId === pending);
 }
 
 /** Las filas de "Ramas aparte" de la pestaña que se mira. Se vuelven a pedir con cada estado de git. */
@@ -159,7 +176,7 @@ export function useWorktreeDialogs(
             break;
           case 'composer.prefill':
             // El pedido de las notas quedó en el cuadro de esa pestaña: se la muestra.
-            if (message.reason === 'requested' && notesRequest.current !== null) {
+            if (answersRequest(message, notesRequest.current)) {
               notesRequest.current = null;
               activate(message.terminalId);
             }
@@ -285,4 +302,297 @@ export function useWorktreeDialogs(
   );
 
   return { create, openCreate, submitCreate, closeCreate, remove, openRemove, confirmRemove, askNotes, closeRemove, reopen };
+}
+
+// ---------------------------------------------------------------------------
+// Hito 49: ver cambios, revisar, ponerse al dia e integrar
+// ---------------------------------------------------------------------------
+
+/** "Ver cambios" de una rama: lo que trae, y el diff de un archivo cuando se abre uno. */
+export interface ChangesView {
+  worktreeId: string;
+  branch: string;
+  state: { phase: 'loading' } | { phase: 'ready'; changes: WorktreeChanges } | { phase: 'failed'; message: string };
+  /** El archivo abierto, o null: la lista. */
+  diff: { path: string; diff: GitDiff | null; message: string | null } | null;
+}
+
+export type ReviewDialogState =
+  | { phase: 'loading' }
+  | { phase: 'ready'; plan: WorktreeReviewPlan }
+  | { phase: 'requesting'; plan: WorktreeReviewPlan }
+  | { phase: 'failed'; plan: WorktreeReviewPlan | null; message: string };
+
+export interface ReviewDialog {
+  worktreeId: string;
+  branch: string;
+  /** La carpeta del proyecto, para el lugar y el color de la pestana en camino. */
+  projectCwd: string;
+  state: ReviewDialogState;
+}
+
+export type IntegrateDialogState =
+  | { phase: 'loading' }
+  | { phase: 'ready'; plan: WorktreeIntegratePlan }
+  | { phase: 'integrating'; plan: WorktreeIntegratePlan }
+  | { phase: 'done'; plan: WorktreeIntegratePlan; outcome: WorktreeIntegrateOutcome }
+  | { phase: 'failed'; plan: WorktreeIntegratePlan | null; message: string };
+
+export interface IntegrateDialog {
+  worktreeId: string;
+  branch: string;
+  state: IntegrateDialogState;
+}
+
+export interface WorktreeTeam {
+  changes: ChangesView | null;
+  openChanges: (worktreeId: string, branch: string) => void;
+  openChangeDiff: (path: string) => void;
+  closeChangeDiff: () => void;
+  closeChanges: () => void;
+  review: ReviewDialog | null;
+  openReview: (worktreeId: string, branch: string, projectCwd: string) => void;
+  submitReview: (agent: AgentId) => void;
+  closeReview: () => void;
+  integrate: IntegrateDialog | null;
+  openIntegrate: (worktreeId: string, branch: string) => void;
+  confirmIntegrate: () => void;
+  closeIntegrate: () => void;
+  /** Deja la respuesta del revisor en el cuadro de la rama. Su error va al aviso de arriba. */
+  sendReview: (worktreeId: string) => void;
+  /** Deja el pedido de ponerse al dia en el cuadro de la rama. Su error va al aviso de arriba. */
+  catchUp: (worktreeId: string) => void;
+}
+
+export function useWorktreeTeam(
+  connection: AgentConnection,
+  expectTab: ExpectTab,
+  activate: (terminalId: TerminalId) => void,
+): WorktreeTeam {
+  const [changes, setChanges] = useState<ChangesView | null>(null);
+  const [review, setReview] = useState<ReviewDialog | null>(null);
+  const [integrate, setIntegrate] = useState<IntegrateDialog | null>(null);
+  const changesRequest = useRef<string | null>(null);
+  const diffRequest = useRef<string | null>(null);
+  const reviewRequest = useRef<string | null>(null);
+  const integrateRequest = useRef<string | null>(null);
+  /** El pedido para el autor en curso: cuando su texto llega a un cuadro, esa pestana pasa a la vista. */
+  const authorRequest = useRef<string | null>(null);
+
+  useEffect(
+    () =>
+      connection.onMessage((message) => {
+        switch (message.type) {
+          case 'worktree.branchChanges':
+            if (message.requestId !== changesRequest.current) break;
+            changesRequest.current = null;
+            setChanges((current) => (current === null ? null : { ...current, state: { phase: 'ready', changes: message.changes } }));
+            break;
+          case 'worktree.branchDiff':
+            if (message.requestId !== diffRequest.current) break;
+            diffRequest.current = null;
+            setChanges((current) =>
+              current === null || current.diff === null ? current : { ...current, diff: { ...current.diff, diff: message.diff } },
+            );
+            break;
+          case 'worktree.reviewPlan':
+            if (message.requestId !== reviewRequest.current) break;
+            reviewRequest.current = null;
+            setReview((current) => (current === null ? null : { ...current, state: { phase: 'ready', plan: message.plan } }));
+            break;
+          case 'terminal.opened':
+            // La pestana del revisor llego: el dialogo ya cumplio.
+            if (message.requestId !== undefined && message.requestId === reviewRequest.current) {
+              reviewRequest.current = null;
+              setReview(null);
+            }
+            break;
+          case 'worktree.integratePlan':
+            if (message.requestId !== integrateRequest.current) break;
+            integrateRequest.current = null;
+            setIntegrate((current) => (current === null ? null : { ...current, state: { phase: 'ready', plan: message.plan } }));
+            break;
+          case 'worktree.integrated':
+            if (message.requestId !== integrateRequest.current) break;
+            integrateRequest.current = null;
+            setIntegrate((current) => {
+              if (current === null) return null;
+              const plan = current.state.phase === 'integrating' ? current.state.plan : null;
+              return plan === null ? current : { ...current, state: { phase: 'done', plan, outcome: message.outcome } };
+            });
+            break;
+          case 'composer.prefill':
+            // El pedido para el autor quedo en el cuadro de esa pestana: se la muestra.
+            if (answersRequest(message, authorRequest.current)) {
+              authorRequest.current = null;
+              activate(message.terminalId);
+            }
+            break;
+          case 'error': {
+            const { requestId } = message;
+            if (requestId === undefined) break;
+            const text = serverTextMessage(message.text);
+            if (requestId === changesRequest.current) {
+              changesRequest.current = null;
+              setChanges((current) => (current === null ? null : { ...current, state: { phase: 'failed', message: text } }));
+            }
+            if (requestId === diffRequest.current) {
+              diffRequest.current = null;
+              setChanges((current) =>
+                current === null || current.diff === null ? current : { ...current, diff: { ...current.diff, message: text } },
+              );
+            }
+            if (requestId === reviewRequest.current) {
+              reviewRequest.current = null;
+              setReview((current) => {
+                if (current === null) return null;
+                const plan = current.state.phase === 'loading' || current.state.phase === 'failed' ? null : current.state.plan;
+                return { ...current, state: { phase: 'failed', plan, message: text } };
+              });
+            }
+            if (requestId === integrateRequest.current) {
+              integrateRequest.current = null;
+              setIntegrate((current) => {
+                if (current === null) return null;
+                const plan = current.state.phase === 'ready' || current.state.phase === 'integrating' ? current.state.plan : null;
+                return { ...current, state: { phase: 'failed', plan, message: text } };
+              });
+            }
+            // El de un pedido para el autor va al aviso de arriba: no tiene dialogo.
+            if (requestId === authorRequest.current) authorRequest.current = null;
+            break;
+          }
+          default:
+            break;
+        }
+      }),
+    [connection, activate],
+  );
+
+  const openChanges = useCallback(
+    (worktreeId: string, branch: string) => {
+      const requestId = claim();
+      changesRequest.current = requestId;
+      diffRequest.current = null;
+      setChanges({ worktreeId, branch, state: { phase: 'loading' }, diff: null });
+      connection.send({ type: 'worktree.changes', requestId, worktreeId });
+    },
+    [connection],
+  );
+
+  const openChangeDiff = useCallback(
+    (path: string) => {
+      if (changes === null) return;
+      const requestId = claim();
+      diffRequest.current = requestId;
+      setChanges({ ...changes, diff: { path, diff: null, message: null } });
+      connection.send({ type: 'worktree.changesDiff', requestId, worktreeId: changes.worktreeId, path });
+    },
+    [connection, changes],
+  );
+
+  const closeChangeDiff = useCallback(() => {
+    diffRequest.current = null;
+    setChanges((current) => (current === null ? null : { ...current, diff: null }));
+  }, []);
+
+  const closeChanges = useCallback(() => {
+    changesRequest.current = null;
+    diffRequest.current = null;
+    setChanges(null);
+  }, []);
+
+  const openReview = useCallback(
+    (worktreeId: string, branch: string, projectCwd: string) => {
+      const requestId = claim();
+      reviewRequest.current = requestId;
+      setReview({ worktreeId, branch, projectCwd, state: { phase: 'loading' } });
+      connection.send({ type: 'worktree.planReview', requestId, worktreeId });
+    },
+    [connection],
+  );
+
+  const submitReview = useCallback(
+    (agent: AgentId) => {
+      if (review === null || (review.state.phase !== 'ready' && review.state.phase !== 'failed')) return;
+      const { plan } = review.state;
+      if (plan === null) return;
+      const requestId = claim();
+      reviewRequest.current = requestId;
+      setReview({ ...review, state: { phase: 'requesting', plan } });
+      // La provisional se llama como se va a llamar la de verdad: como su proyecto.
+      const label = review.projectCwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? review.projectCwd;
+      expectTab(requestId, { cwd: review.projectCwd, label, agent });
+      connection.send({ type: 'worktree.requestReview', requestId, worktreeId: review.worktreeId, agent });
+    },
+    [connection, expectTab, review],
+  );
+
+  const closeReview = useCallback(() => {
+    // Lo que esta en camino sigue: si llega la pestana, se abre igual.
+    if (review?.state.phase !== 'requesting') reviewRequest.current = null;
+    setReview(null);
+  }, [review]);
+
+  const openIntegrate = useCallback(
+    (worktreeId: string, branch: string) => {
+      const requestId = claim();
+      integrateRequest.current = requestId;
+      setIntegrate({ worktreeId, branch, state: { phase: 'loading' } });
+      connection.send({ type: 'worktree.planIntegrate', requestId, worktreeId });
+    },
+    [connection],
+  );
+
+  const confirmIntegrate = useCallback(() => {
+    if (integrate === null || integrate.state.phase !== 'ready') return;
+    const requestId = claim();
+    integrateRequest.current = requestId;
+    const { plan } = integrate.state;
+    setIntegrate({ ...integrate, state: { phase: 'integrating', plan } });
+    // La punta que mostró el plan: si la rama avanzó desde entonces, el servidor no integra nada.
+    connection.send({
+      type: 'worktree.integrate',
+      requestId,
+      worktreeId: integrate.worktreeId,
+      ...(plan.branchCommit !== null ? { branchCommit: plan.branchCommit } : {}),
+    });
+  }, [connection, integrate]);
+
+  const closeIntegrate = useCallback(() => {
+    integrateRequest.current = null;
+    setIntegrate(null);
+  }, []);
+
+  const askAuthor = useCallback(
+    (type: 'worktree.sendReview' | 'worktree.catchUp', worktreeId: string) => {
+      // Sin reclamar: su error va al aviso de arriba. Si la rama no tiene pestana, la que se abre pasa a la vista.
+      const requestId = crypto.randomUUID();
+      authorRequest.current = requestId;
+      expectTab(requestId, null);
+      connection.send({ type, requestId, worktreeId });
+    },
+    [connection, expectTab],
+  );
+
+  const sendReview = useCallback((worktreeId: string) => askAuthor('worktree.sendReview', worktreeId), [askAuthor]);
+  const catchUp = useCallback((worktreeId: string) => askAuthor('worktree.catchUp', worktreeId), [askAuthor]);
+
+  return {
+    changes,
+    openChanges,
+    openChangeDiff,
+    closeChangeDiff,
+    closeChanges,
+    review,
+    openReview,
+    submitReview,
+    closeReview,
+    integrate,
+    openIntegrate,
+    confirmIntegrate,
+    closeIntegrate,
+    sendReview,
+    catchUp,
+  };
 }

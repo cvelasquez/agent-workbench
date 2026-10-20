@@ -41,7 +41,7 @@ Le terminal reste le terminal : tout ce que vous tapez va directement à la CLI.
 | **Conversation** | Les messages sous forme de cartes, en direct, avec les appels d'outils repliés. Les messages plus anciens se chargent quand vous remontez. Recherchez, copiez n'importe quel message ou bloc de code, et revenez à votre message précédent (↑) ou allez à la fin (↓). Une ligne en bas indique quand votre message a été remis à la CLI et si l'agent travaille encore. Selon la CLI, vous pouvez répondre aux questions de l'agent directement dans la conversation. Un fichier du projet que l'agent mentionne s'ouvre dans l'onglet Fichiers en un clic. Avec Claude Code, un message que vous arrêtez avant que l'agent commence revient dans la zone de saisie pour le corriger, et **↩** sur un message revient avant lui : la conversation et, si vous le voulez, le code. Un message envoyé pendant que l'agent travaille attend à la fin, marqué en file d'attente ; selon la CLI, **Forcer l'envoi maintenant** le fait lire tout de suite à l'agent. |
 | **Zone de saisie** | De la place pour écrire, coller des images, joindre des fichiers, et les longs textes collés rangés dans une pastille compacte. Ce que vous êtes en train d'écrire survit à la fermeture de l'application et s'affiche en direct dans toutes les fenêtres ouvertes. Maj+Entrée continue une liste numérotée ou à puces. |
 | **Jauge de contexte** | La part de la fenêtre de contexte du modèle qu'occupe la conversation. En tokens, jamais en argent. |
-| **Modifications** | La branche, les fichiers modifiés et leur diff. **Orchestre des agents en parallèle** : ouvrez le projet sur une nouvelle branche, dans son propre dossier, et plusieurs agents travaillent en même temps sans se marcher sur leurs modifications. Modifications montre chaque branche : ce qui n'est pas encore commité, combien de commits elle a et si elle est déjà intégrée. |
+| **Modifications** | La branche, les fichiers modifiés et leur diff. **Orchestre des agents en parallèle** : ouvrez le projet sur une nouvelle branche, dans son propre dossier, et plusieurs agents travaillent en même temps sans se marcher sur leurs modifications. Modifications montre chaque branche : ce qui n'est pas encore commité, combien de commits elle a et si elle est déjà intégrée. Une autre CLI relit une branche sans la toucher, et vous l'intégrez dans main en un clic. |
 | **Fichiers** | L'arborescence du projet, avec une recherche et un aperçu avec coloration syntaxique. Ouvrez plusieurs fichiers à la fois, chacun dans son onglet ; les fichiers Markdown s'ouvrent mis en forme. Un clic place le chemin d'un fichier dans votre message. Modifiez un fichier texte, un `.env` par exemple, et enregistrez-le sur place : si l'agent l'a changé pendant que vous le modifiiez, rien n'est écrasé, et vous reportez vos modifications dans la nouvelle version. |
 | **Plans** | Les plans et les documents `.md` que la conversation a écrits, mis en forme. Un clic place le chemin d'un document dans votre message. |
 | **Notes** | Un bloc-notes à côté de la conversation, images comprises. Avec Claude Code, un clic envoie une note dans une nouvelle conversation. |
@@ -447,11 +447,13 @@ décrits dans [`PRIVACY.md`](PRIVACY.md).
   le port devient fixe, toujours sur `127.0.0.1`, et SSH — que vous activez et
   contrôlez — fait le reste.
 - **Git : l'application ne fait jamais de commit ni de push, et ne réécrit pas
-  l'historique.** Elle exécute trois commandes git qui écrivent, chacune après
+  l'historique.** Elle exécute quatre commandes git qui écrivent, chacune après
   une confirmation qui l'affiche : `git worktree add` pour ouvrir une branche
-  dans son propre dossier, `git worktree remove` (jamais avec `--force`) et
+  dans son propre dossier, `git worktree remove` (jamais avec `--force`),
   `git branch -d` (seulement pour une branche créée par l'application et déjà
-  intégrée). Les commits, ce sont les agents qui les font, dans leur terminal.
+  intégrée) et `git merge --ff-only` pour intégrer une branche dans main sans
+  créer de commit. Les commits, ce sont les agents qui les font, dans leur
+  terminal.
 
 | CLI | Ce qui est lu | Ce qui n'est jamais ouvert |
 |---|---|---|

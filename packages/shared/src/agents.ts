@@ -196,6 +196,31 @@ export interface StatusLineSetupInfo {
   fragment: string | null;
 }
 
+/**
+ * Como se protege la carpeta una CLI lanzada para revisar (hito 49, §6.38).
+ *
+ *  - `cli`: la propia CLI se niega a editar: su modo plan o su sandbox de solo
+ *    lectura.
+ *  - `tools`: se la lanza sin sus herramientas de editar y escribir, pero su
+ *    consola todavia puede escribir. Solo lectura a medias: lo dice el dialogo.
+ */
+export type ReadOnlyGuard = 'cli' | 'tools';
+export const READ_ONLY_GUARDS: readonly ReadOnlyGuard[] = ['cli', 'tools'];
+
+/**
+ * El arranque sin editar de una CLI, medido contra ella (hito 49). Sin esto,
+ * la interfaz no ofrece la CLI "en solo lectura" y el servidor no la lanza asi.
+ */
+export interface ReadOnlyLaunchCapability {
+  /**
+   * El modo de permiso en el que arranca, si la CLI tiene ciclo de modos: es el
+   * punto de partida del combo en esa pestana (`launchModeFor`). null si no
+   * tiene ciclo.
+   */
+  mode: PermissionMode | null;
+  guard: ReadOnlyGuard;
+}
+
 /** Un nivel de esfuerzo ofrecido: lo que se le pasa al comando y como se lee. */
 export interface EffortOption {
   value: string;
@@ -255,6 +280,12 @@ export interface AgentCapabilities {
    * servidor (`AgentAdapter.promptQueue`).
    */
   forceSend: boolean;
+  /**
+   * Hito 49. Como arranca la CLI que revisa una rama aparte sin tocarla, o null
+   * si no tiene un modo medido para eso: ahi la pestana de revision arranca
+   * como cualquier otra, y el dialogo lo dice antes de pedir nada.
+   */
+  readOnlyLaunch: ReadOnlyLaunchCapability | null;
 }
 
 /**
@@ -294,7 +325,24 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   plans: false,
   waitingBlocksSubmit: false,
   forceSend: false,
+  readOnlyLaunch: null,
 };
+
+/**
+ * El modo con el que arranca una pestana, que es desde donde se cuentan las
+ * pulsaciones del ciclo mientras la CLI no diga otro. Una pestana de revision
+ * (hito 49) arranca en el modo de solo lectura de su CLI, si lo tiene; las
+ * demas, en el de siempre. null si la CLI no tiene ciclo.
+ */
+export function launchModeFor(
+  capabilities: Pick<AgentCapabilities, 'permissionCycle' | 'readOnlyLaunch'>,
+  review: boolean,
+): PermissionMode | null {
+  const cycle = capabilities.permissionCycle;
+  if (cycle === null) return null;
+  const readOnly = review ? (capabilities.readOnlyLaunch?.mode ?? null) : null;
+  return readOnly !== null && cycle.modes.includes(readOnly) ? readOnly : cycle.launchMode;
+}
 
 /** Una CLI tal como la ve el cliente. */
 export interface AgentInfo {
@@ -357,6 +405,19 @@ export function parsePermissionCycle(value: unknown): PermissionCycleCapability 
   if (keyLabel === null) return null;
 
   return { modes, launchMode, keyLabel, approvesPendingOnCycle: record['approvesPendingOnCycle'] === true };
+}
+
+/**
+ * El arranque en solo lectura, o null. Todo o nada: una proteccion que este
+ * cliente no conoce no se puede describir, y no se ofrece como solo lectura.
+ */
+export function parseReadOnlyLaunch(value: unknown): ReadOnlyLaunchCapability | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const guard = asLiteral(record['guard'], READ_ONLY_GUARDS);
+  const rawMode = record['mode'];
+  if (guard === null || (rawMode !== null && !isPermissionMode(rawMode))) return null;
+  return { mode: rawMode === null ? null : rawMode, guard };
 }
 
 /**
@@ -454,6 +515,8 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     plans: record['plans'] === true,
     waitingBlocksSubmit: record['waitingBlocksSubmit'] === true,
     forceSend: record['forceSend'] === true,
+    // Ausente en un servidor anterior al hito 49: ninguna CLI se ofrece en solo lectura.
+    readOnlyLaunch: parseReadOnlyLaunch(record['readOnlyLaunch']),
   };
 }
 

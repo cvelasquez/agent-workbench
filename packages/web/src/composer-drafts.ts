@@ -50,7 +50,8 @@ import {
   type ComposerDraftEntry,
   type TerminalId,
 } from '@agent-workbench/shared';
-import { pastedLineCount } from './composer-paste.js';
+import { mergePrefill } from './agent-ui.js';
+import { nextPasteNumber, pasteReference, pastedLineCount, referencedPasteNumbers } from './composer-paste.js';
 import type { Attachment } from './useComposerAttachments.js';
 
 /** Cuanto se espera despues de la ultima tecla para guardar. */
@@ -82,6 +83,31 @@ export function localDraftOf(draft: ComposerDraft, newId: () => string): LocalDr
       lines: pastedLineCount(paste.text),
     })),
   };
+}
+
+/**
+ * Un texto prellenado en lo escrito de una pestana: antes de lo escrito, como
+ * siempre (`mergePrefill`), y sus textos pegados (hito 49: la respuesta del
+ * revisor) como fichas nuevas, con su marca al final del texto prellenado. Cada
+ * ficha toma un numero que no usa ninguna otra ni ninguna marca de lo escrito.
+ */
+export function mergePrefillDraft(
+  local: LocalDraft,
+  prefill: { text: string; pasted: readonly string[] },
+  newId: () => string,
+): LocalDraft {
+  const taken = [
+    ...local.items.flatMap((item) => (item.kind === 'text' ? [item.number] : [])),
+    ...referencedPasteNumbers(local.text),
+  ];
+  const chips: Attachment[] = [];
+  for (const text of prefill.pasted) {
+    const number = nextPasteNumber([...taken, ...chips.map((chip) => (chip.kind === 'text' ? chip.number : 0))]);
+    chips.push({ id: newId(), kind: 'text', number, text, lines: pastedLineCount(text) });
+  }
+  const references = chips.map((chip) => (chip.kind === 'text' ? pasteReference(chip.number) : '')).join(' ');
+  const text = references.length === 0 ? prefill.text : `${prefill.text}\n\n${references}`;
+  return { text: mergePrefill(local.text, text), items: [...local.items, ...chips] };
 }
 
 /**

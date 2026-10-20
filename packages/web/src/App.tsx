@@ -84,9 +84,11 @@ import { useNarrow } from './useNarrow.js';
 import { requestedTab } from './session-token.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
-import { useWorktreeDialogs, useWorktreeRows } from './useWorktrees.js';
+import { useWorktreeDialogs, useWorktreeRows, useWorktreeTeam } from './useWorktrees.js';
 import { WorktreeDialog } from './WorktreeDialog.js';
+import { WorktreeIntegrateDialog } from './WorktreeIntegrateDialog.js';
 import { WorktreeRemoveDialog } from './WorktreeRemoveDialog.js';
+import { WorktreeReviewDialog } from './WorktreeReviewDialog.js';
 import { tabColorCwd } from './worktree-ui.js';
 import type { GitPanelWorktrees } from './GitPanel.js';
 import { useLocale } from './i18n/useLocale.js';
@@ -262,7 +264,9 @@ export function App(): JSX.Element {
   */
   const activeAgent = activeTerminal?.agent ?? null;
   const activeCapabilities = capabilitiesFor(activeAgent);
-  const activeControls = useMemo(() => controlsFor(activeCapabilities), [activeCapabilities]);
+  // Una pestana de revision (hito 49) arranco en el modo de solo lectura de su CLI.
+  const activeReview = activeTerminal?.review === true;
+  const activeControls = useMemo(() => controlsFor(activeCapabilities, activeReview), [activeCapabilities, activeReview]);
   /*
     Lo que anuncia la CLI de la pestana activa ademas de sus capacidades: el
     nombre y, si tiene, su status line opcional (hito 27). Cambia sin recargar
@@ -630,7 +634,13 @@ export function App(): JSX.Element {
   const gitShown = narrow ? narrowView === 'git' : panelOpen && shownPanelTab === 'git';
   const worktreeRows = useWorktreeRows(connection, gitShown ? activeTerminalId : null, git.status.updatedAt);
   const worktreeDialogs = useWorktreeDialogs(connection, expectTab, setActiveTerminal);
+  // Hito 49: ver cambios, revisar, ponerse al dia e integrar.
+  const worktreeTeam = useWorktreeTeam(connection, expectTab, setActiveTerminal);
+  const { closeChanges } = worktreeTeam;
+  // "Ver cambios" es de la rama de la pestana que se miraba: otra pestana vuelve a Cambios.
+  useEffect(() => closeChanges(), [activeTerminalId, closeChanges]);
   const folderNameOf = (cwd: string): string => cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? cwd;
+  const agentLabelOf = (agent: AgentId): string => agents.find((info) => info.id === agent)?.label ?? agent;
   const gitWorktrees: GitPanelWorktrees = {
     rows: worktreeRows,
     onNew: () => {
@@ -641,11 +651,23 @@ export function App(): JSX.Element {
     // A la pestana que ya trabaja en esa carpeta, o una nueva ahi.
     onOpen: (row) => {
       const key = normalizeCwdKey(row.path, platform);
-      const open = terminals.find((terminal) => normalizeCwdKey(terminal.cwd, platform) === key);
+      const open = terminals.find((terminal) => normalizeCwdKey(terminal.cwd, platform) === key && !terminal.review);
       if (open !== undefined) selectTab(open.terminalId);
       else openTerminal({ cwd: row.path });
     },
     onRemove: (row) => worktreeDialogs.openRemove(row.id, row.branch ?? folderNameOf(row.path)),
+    changes: worktreeTeam.changes,
+    onViewChanges: (row) => worktreeTeam.openChanges(row.id, row.branch ?? folderNameOf(row.path)),
+    onOpenChangeDiff: worktreeTeam.openChangeDiff,
+    onCloseChangeDiff: worktreeTeam.closeChangeDiff,
+    onCloseChanges: worktreeTeam.closeChanges,
+    onRequestReview: (row) =>
+      worktreeTeam.openReview(row.id, row.branch ?? folderNameOf(row.path), activeTerminal === null ? row.path : tabColorCwd(activeTerminal)),
+    onSendReview: (row) => worktreeTeam.sendReview(row.id),
+    onShowReviewer: (terminalId) => selectTab(terminalId),
+    onCatchUp: (row) => worktreeTeam.catchUp(row.id),
+    onIntegrate: (row) => worktreeTeam.openIntegrate(row.id, row.branch ?? folderNameOf(row.path)),
+    agentLabel: agentLabelOf,
   };
   /** Con que CLI viene elegido el dialogo de crear: la de la pestana, o la del proyecto. */
   const worktreeAgent = ((): AgentId | null => {
@@ -1835,6 +1857,27 @@ export function App(): JSX.Element {
           onConfirm={worktreeDialogs.confirmRemove}
           onAskNotes={worktreeDialogs.askNotes}
           onClose={worktreeDialogs.closeRemove}
+        />
+      )}
+      {worktreeTeam.review !== null && (
+        <WorktreeReviewDialog
+          dialog={worktreeTeam.review}
+          agents={agents}
+          onSubmit={worktreeTeam.submitReview}
+          onClose={worktreeTeam.closeReview}
+        />
+      )}
+      {worktreeTeam.integrate !== null && (
+        <WorktreeIntegrateDialog
+          dialog={worktreeTeam.integrate}
+          agentLabel={agentLabelOf}
+          onConfirm={worktreeTeam.confirmIntegrate}
+          onRemove={() => {
+            const done = worktreeTeam.integrate;
+            worktreeTeam.closeIntegrate();
+            if (done !== null) worktreeDialogs.openRemove(done.worktreeId, done.branch);
+          }}
+          onClose={worktreeTeam.closeIntegrate}
         />
       )}
 

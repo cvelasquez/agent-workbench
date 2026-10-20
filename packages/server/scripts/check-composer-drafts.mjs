@@ -36,7 +36,7 @@ import {
   parseServerMessage,
 } from '@agent-workbench/shared';
 import { DraftStore, DraftTabs, MAX_STORED_DRAFTS, draftEntriesOf, draftOwnerOf, submitClearsDraft, workspaceDraftOwners } from '../src/draft-store.ts';
-import { ComposerDrafts, draftOf, draftTooLong, localDraftOf, viewToRestore } from '../../web/src/composer-drafts.ts';
+import { ComposerDrafts, draftOf, draftTooLong, localDraftOf, mergePrefillDraft, viewToRestore } from '../../web/src/composer-drafts.ts';
 
 let failures = 0;
 const check = (label, ok, extra = '') => {
@@ -647,6 +647,32 @@ const image = { id: 'img', kind: 'image', mediaType: 'image/png', base64: 'AAAA'
       drafts.get('t1')?.text === 'escrito sin conexión' && json(sent) === json([{ terminalId: 't1', draft: draft('escrito sin conexión') }]),
       json(sent));
   }
+}
+
+// --- 11. Un texto prellenado con fichas (hito 49: "Mandar a la rama") ------------------------
+//
+// La respuesta del revisor llega como ficha de texto pegado, con su marca al
+// final del pedido. No puede tomar el número de una ficha que ya está, ni el de
+// una marca que quedó escrita, y no pisa lo que el usuario tenía en el cuadro.
+{
+  let ids = 0;
+  const newId = () => `id${++ids}`;
+  const empty = mergePrefillDraft({ text: '', items: [] }, { text: 'Arregla esto.', pasted: ['1. a.ts:3 falla'] }, newId);
+  check('11.1 en un cuadro vacío: el pedido con la marca, y la ficha',
+    empty.text === 'Arregla esto.\n\n[Pasted text #1]' && json(empty.items) === json([{ id: 'id1', kind: 'text', number: 1, text: '1. a.ts:3 falla', lines: 1 }]),
+    json(empty));
+  const busy = mergePrefillDraft(
+    { text: 'lo mío [Pasted text #4]', items: [{ id: 'x', kind: 'text', number: 2, text: 'viejo', lines: 1 }] },
+    { text: 'Arregla esto.', pasted: ['uno', 'dos'] },
+    newId,
+  );
+  check('11.2 con algo escrito: va antes, con números que nadie usa, y lo de antes se queda',
+    busy.text === 'Arregla esto.\n\n[Pasted text #5] [Pasted text #6]\n\nlo mío [Pasted text #4]' &&
+      json(busy.items.map((item) => item.number)) === json([2, 5, 6]) && busy.items[0].text === 'viejo',
+    json(busy));
+  const plain = mergePrefillDraft({ text: 'hola', items: [] }, { text: 'pedido', pasted: [] }, newId);
+  check('11.3 sin fichas, es el prellenado de siempre', plain.text === 'pedido\n\nhola' && plain.items.length === 0, json(plain));
+  check('11.4 lo que se guarda lleva las fichas como textos pegados', json(draftOf(empty).pasted) === json([{ number: 1, text: '1. a.ts:3 falla' }]));
 }
 
 await rm(dir, { recursive: true, force: true });

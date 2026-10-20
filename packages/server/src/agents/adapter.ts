@@ -68,6 +68,12 @@ export interface LaunchInput {
    * Antigravity CLI escribe su log en un archivo por lanzamiento (hito 27).
    */
   launchToken: string;
+  /**
+   * Hito 49. true en una pestana de revision: la CLI arranca en su modo de solo
+   * lectura (`capabilities.readOnlyLaunch`). Solo lo usa la que lo declara; la
+   * que no, lanza como siempre. Ausente, como siempre.
+   */
+  readOnly?: boolean;
 }
 
 export type LaunchSession =

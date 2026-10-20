@@ -2505,6 +2505,8 @@ const throwsOn = (run) => {
     plans: false,
     waitingBlocksSubmit: false,
     forceSend: false,
+    // Hito 49: la sandbox de solo lectura, medida con la 0.162.1 (§10.15).
+    readOnlyLaunch: { mode: null, guard: 'cli' },
   }), show(adapter.capabilities));
   const onWindows = process.platform === 'win32';
   check('E1 envio: imagenes por ruta sola, 400 ms entre piezas, con marcadores, transcript entre comillas; en Windows, Fin antes del Enter y 3 s de arranque',

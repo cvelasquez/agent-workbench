@@ -213,6 +213,12 @@ export interface TerminalDescriptor {
    * su etiqueta de rama (§6.38). Un servidor anterior no lo manda: null.
    */
   worktree: TabWorktree | null;
+  /**
+   * Hito 49. true en la pestana que abrio "Pedir revision": la CLI se lanza en
+   * su modo de solo lectura, si lo tiene (`readOnlyLaunch`), y despierta igual.
+   * Se guarda entre arranques. Siempre false en las consolas.
+   */
+  review: boolean;
 }
 
 /**
@@ -423,5 +429,7 @@ export function parseTerminalDescriptor(value: unknown): TerminalDescriptor | nu
     // Ausente = un servidor anterior: no se sabe cuando arranco el proceso.
     launchedAt: asFiniteNumber(record['launchedAt']),
     worktree: parseTabWorktree(record['worktree']),
+    // Ausente = un servidor anterior al hito 49: no hay pestanas de revision.
+    review: kind === 'agent' && record['review'] === true,
   };
 }

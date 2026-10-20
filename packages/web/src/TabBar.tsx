@@ -94,6 +94,17 @@ export function tabTooltip(
 }
 
 /**
+ * La linea del medio del tooltip: la rama (hito 48) y, en una pestana de
+ * revision (hito 49), que arranco para revisar. null sin ninguna de las dos.
+ */
+export function tabExtraLine(terminal: Pick<TerminalDescriptor, 'worktree' | 'review'>, branch: string | null): string | null {
+  const lines = [tabBranchTooltip(terminal, branch), terminal.review ? t('worktree.tab.reviewTitle') : null].filter(
+    (line): line is string => line !== null,
+  );
+  return lines.length === 0 ? null : lines.join('\n');
+}
+
+/**
  * Una pestana pedida que el servidor todavia no confirmo (hito 31).
  *
  * Existe porque `terminal.opened` no llega hasta que la pty esta viva, y eso
@@ -289,7 +300,7 @@ export function TabBar({
               terminal.cwd,
               sessionTitles.get(terminal.terminalId),
               tabStateText(terminal),
-              tabBranchTooltip(terminal, branch),
+              tabExtraLine(terminal, branch),
             )}
             style={{ '--tab-project-color': projectColor(tabColorCwd(terminal)) } as React.CSSProperties}
           >
@@ -319,6 +330,7 @@ export function TabBar({
                   {terminal.agent !== null && tabBadgeVisible(offerAgentChoice, terminal.agent) && (
                     <AgentBadge agent={terminal.agent} agents={agents} />
                   )}
+                  {terminal.review && <span className="tab-review">{t('worktree.tab.review')}</span>}
                   {branch !== null && <span className="tab-branch">{branch}</span>}
                   {defaultTabLabel(terminal)}
                 </span>

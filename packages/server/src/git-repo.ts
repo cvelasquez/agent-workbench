@@ -634,6 +634,21 @@ export async function readDiff(options: ReadDiffOptions): Promise<GitDiff> {
   ];
 
   const result = await runGit(repoRoot, args);
+  return diffFromOutput(relativePath, staged, result, staged ? serverText('diffNoStaged') : serverText('diffNoUnstaged'));
+}
+
+/**
+ * La salida de un `git diff` como la muestra el panel, con sus topes (4 000
+ * lineas, 512 KiB). La comparten el diff de Cambios y, desde el hito 49, el de
+ * una rama aparte contra su base: los mismos topes en los dos. `empty` es lo que
+ * se dice cuando no hay lineas.
+ */
+export function diffFromOutput(
+  relativePath: string,
+  staged: boolean,
+  result: { stdout: string; stderr: string; code: number },
+  empty: ServerText,
+): GitDiff {
   if (result.code !== 0 && result.stdout.length === 0) {
     return {
       path: relativePath,
@@ -654,12 +669,7 @@ export async function readDiff(options: ReadDiffOptions): Promise<GitDiff> {
     lines: parsed.lines,
     truncated: parsed.truncated || capped,
     binary: parsed.binary,
-    message:
-      parsed.lines.length === 0
-        ? staged
-          ? serverText('diffNoStaged')
-          : serverText('diffNoUnstaged')
-        : null,
+    message: parsed.lines.length === 0 ? empty : null,
   };
 }
 

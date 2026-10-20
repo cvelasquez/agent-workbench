@@ -84,6 +84,14 @@
  * contesta ningun `worktree.*` y no manda los campos, y la web no ofrece ramas
  * aparte sin `isGitRepo`.
  *
+ * Y el hito 49, sin subir la version: `worktree.changes`, `changesDiff`,
+ * `planReview`, `requestReview`, `sendReview`, `catchUp`, `planIntegrate` e
+ * `integrate`, con sus respuestas; el estado contra la base y la revision en
+ * cada fila, `readOnlyLaunch` en las capacidades, `review` en el descriptor,
+ * `pasted` y `requestId` en `composer.prefill`, y la punta de la rama en el plan
+ * de integrar y en `integrate`, todos opcionales. Un servidor anterior no manda
+ * nada de eso, y la web no ofrece las acciones nuevas sin `behind` en la fila.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -138,15 +146,24 @@ import {
 import { parseGitDiff, parseGitStatus, type GitDiff, type GitStatus } from './git.js';
 import {
   WORKTREE_CREATE_MODES,
+  asCommitId,
+  parseWorktreeChanges,
   parseWorktreeInspection,
+  parseWorktreeIntegrateOutcome,
+  parseWorktreeIntegratePlan,
   parseWorktreeRemoveOutcome,
   parseWorktreeRemovePlan,
+  parseWorktreeReviewPlan,
   parseWorktreeRow,
   parseWorktreeSource,
+  type WorktreeChanges,
   type WorktreeCreateMode,
   type WorktreeInspection,
+  type WorktreeIntegrateOutcome,
+  type WorktreeIntegratePlan,
   type WorktreeRemoveOutcome,
   type WorktreeRemovePlan,
+  type WorktreeReviewPlan,
   type WorktreeRow,
   type WorktreeSource,
 } from './worktrees.js';
@@ -1174,6 +1191,87 @@ export interface ClientWorktreeAskNotesMessage {
   worktreeId: string;
 }
 
+/**
+ * Hito 49. "Ver cambios": lo que trae la rama contra su base (commits y
+ * archivos). Contesta `worktree.branchChanges`.
+ */
+export interface ClientWorktreeChangesMessage {
+  type: 'worktree.changes';
+  requestId: string;
+  worktreeId: string;
+}
+
+/**
+ * El diff de un archivo de la rama contra su base (`git diff <base>...<rama>`).
+ * `path` tiene que ser uno de los que listo `worktree.changes`: el servidor lo
+ * comprueba. Contesta `worktree.branchDiff`.
+ */
+export interface ClientWorktreeChangesDiffMessage {
+  type: 'worktree.changesDiff';
+  requestId: string;
+  worktreeId: string;
+  path: string;
+}
+
+/** Lo que muestra el dialogo de "Pedir revision". Contesta `worktree.reviewPlan`. No abre nada. */
+export interface ClientWorktreePlanReviewMessage {
+  type: 'worktree.planReview';
+  requestId: string;
+  worktreeId: string;
+}
+
+/**
+ * Abre una pestana de revision en la carpeta de la rama, con esa CLI y en su
+ * modo de solo lectura si lo tiene, y le manda el pedido (que arma el servidor)
+ * cuando esta lista; si la CLI no avisa cuando esta lista, queda en su cuadro.
+ * La pestana llega en un `terminal.opened` con este `requestId`.
+ */
+export interface ClientWorktreeRequestReviewMessage {
+  type: 'worktree.requestReview';
+  requestId: string;
+  worktreeId: string;
+  agent: AgentId;
+  /** Lo pone el parser: se pidio una CLI que este lado no conoce. */
+  unsupportedAgent?: string;
+}
+
+/**
+ * Deja en el cuadro de la pestana de la rama, sin mandarlo, la ultima respuesta
+ * del revisor con el pedido de arreglar lo que comparta. Si la rama no tiene
+ * pestana, abre su sesion mas reciente que no sea de revision.
+ */
+export interface ClientWorktreeSendReviewMessage {
+  type: 'worktree.sendReview';
+  requestId: string;
+  worktreeId: string;
+}
+
+/** Deja en el cuadro de la pestana de la rama, sin mandarlo, el pedido de ponerse al dia con la base. */
+export interface ClientWorktreeCatchUpMessage {
+  type: 'worktree.catchUp';
+  requestId: string;
+  worktreeId: string;
+}
+
+/** El plan de integrar la rama en su base. Contesta `worktree.integratePlan`. No cambia nada. */
+export interface ClientWorktreePlanIntegrateMessage {
+  type: 'worktree.planIntegrate';
+  requestId: string;
+  worktreeId: string;
+}
+
+/** Integra: rehace el plan y corre `git merge --ff-only`, nada mas. Contesta `worktree.integrated`. */
+export interface ClientWorktreeIntegrateMessage {
+  type: 'worktree.integrate';
+  requestId: string;
+  worktreeId: string;
+  /**
+   * La punta de la rama que mostro el plan (`WorktreeIntegratePlan.branchCommit`).
+   * Si la rama avanzo desde entonces, el servidor no integra nada.
+   */
+  branchCommit?: string;
+}
+
 export type ClientMessage =
   | ClientInputMessage
   | ClientSubmitMessage
@@ -1251,7 +1349,15 @@ export type ClientMessage =
   | ClientWorktreePlanRemoveMessage
   | ClientWorktreeRemoveMessage
   | ClientWorktreeReopenMessage
-  | ClientWorktreeAskNotesMessage;
+  | ClientWorktreeAskNotesMessage
+  | ClientWorktreeChangesMessage
+  | ClientWorktreeChangesDiffMessage
+  | ClientWorktreePlanReviewMessage
+  | ClientWorktreeRequestReviewMessage
+  | ClientWorktreeSendReviewMessage
+  | ClientWorktreeCatchUpMessage
+  | ClientWorktreePlanIntegrateMessage
+  | ClientWorktreeIntegrateMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -1950,12 +2056,26 @@ export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
  *    nada; la CLI lo deshizo y lo devolvio a su caja, y la app lo trae al
  *    cuadro para corregirlo (hito 44, §4.16).
  *  - `rewound`: el mensaje antes del que se volvio con `agent.rewind`.
+ *  - `requested`: lo pidio el usuario en un dialogo de la app (hito 48), sin
+ *    aviso.
  */
 export interface ServerComposerPrefillMessage {
   type: 'composer.prefill';
   terminalId: TerminalId;
   text: string;
   reason: ComposerPrefillReason;
+  /**
+   * Hito 49. Textos que van como fichas de texto pegado, cada uno con su marca
+   * al final de `text`: la respuesta del revisor que se le pasa a la rama. Un
+   * cliente anterior no lo conoce, pero tampoco tiene el boton que lo pide.
+   */
+  pasted?: string[];
+  /**
+   * Hito 49. El pedido al que contesta un prellenado `requested`: el cliente
+   * pasa a la vista la pestana del pedido que hizo, y no la de otro que llego
+   * al mismo tiempo. Un servidor anterior no lo manda.
+   */
+  requestId?: string;
 }
 
 /** El borrador guardado de una pestana. */
@@ -2103,9 +2223,46 @@ export interface ServerWorktreeRemovedMessage {
   outcome: WorktreeRemoveOutcome;
 }
 
-/** Se creo, se quito o se volvio a abrir una rama aparte: Cambios vuelve a preguntar. A todos. */
+/**
+ * Se creo, se quito o se volvio a abrir una rama aparte, y desde el hito 49 se
+ * integro una o cambio una revision: Cambios vuelve a preguntar. A todos.
+ */
 export interface ServerWorktreeChangedMessage {
   type: 'worktree.changed';
+}
+
+/** Hito 49. Lo que trae una rama contra su base, para "Ver cambios". */
+export interface ServerWorktreeBranchChangesMessage {
+  type: 'worktree.branchChanges';
+  requestId: string;
+  changes: WorktreeChanges;
+}
+
+/** El diff de un archivo de la rama contra su base, con los topes del de Cambios. */
+export interface ServerWorktreeBranchDiffMessage {
+  type: 'worktree.branchDiff';
+  requestId: string;
+  worktreeId: string;
+  diff: GitDiff;
+}
+
+export interface ServerWorktreeReviewPlanMessage {
+  type: 'worktree.reviewPlan';
+  requestId: string;
+  plan: WorktreeReviewPlan;
+}
+
+export interface ServerWorktreeIntegratePlanMessage {
+  type: 'worktree.integratePlan';
+  requestId: string;
+  plan: WorktreeIntegratePlan;
+}
+
+export interface ServerWorktreeIntegratedMessage {
+  type: 'worktree.integrated';
+  requestId: string;
+  worktreeId: string;
+  outcome: WorktreeIntegrateOutcome;
 }
 
 export interface ServerErrorMessage {
@@ -2180,6 +2337,11 @@ export type ServerMessage =
   | ServerWorktreeRemovePlanMessage
   | ServerWorktreeRemovedMessage
   | ServerWorktreeChangedMessage
+  | ServerWorktreeBranchChangesMessage
+  | ServerWorktreeBranchDiffMessage
+  | ServerWorktreeReviewPlanMessage
+  | ServerWorktreeIntegratePlanMessage
+  | ServerWorktreeIntegratedMessage
   | ServerErrorMessage;
 
 export type ServerMessageType = ServerMessage['type'];
@@ -2783,9 +2945,64 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const worktreeId = asNonEmptyString(record['worktreeId']);
       return requestId === null || worktreeId === null ? null : { type: 'worktree.askNotes', requestId, worktreeId };
     }
+    case 'worktree.changes':
+      return worktreeIdMessage(record, 'worktree.changes');
+    case 'worktree.planReview':
+      return worktreeIdMessage(record, 'worktree.planReview');
+    case 'worktree.sendReview':
+      return worktreeIdMessage(record, 'worktree.sendReview');
+    case 'worktree.catchUp':
+      return worktreeIdMessage(record, 'worktree.catchUp');
+    case 'worktree.planIntegrate':
+      return worktreeIdMessage(record, 'worktree.planIntegrate');
+    case 'worktree.integrate': {
+      const message = worktreeIdMessage(record, 'worktree.integrate');
+      if (message === null || record['branchCommit'] === undefined) return message;
+      // Una punta que no es un commit invalida el pedido: integrar sin poder comparar seria integrar a ciegas.
+      const branchCommit = asCommitId(record['branchCommit']);
+      return branchCommit === null ? null : { ...message, branchCommit };
+    }
+    case 'worktree.changesDiff': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      // Relativa y con `/`: la valida el servidor contra los archivos de la rama.
+      const path = asNonEmptyString(record['path']);
+      return requestId === null || worktreeId === null || path === null
+        ? null
+        : { type: 'worktree.changesDiff', requestId, worktreeId, path };
+    }
+    case 'worktree.requestReview': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      const rawAgent = asNonEmptyString(record['agent']);
+      if (requestId === null || worktreeId === null || rawAgent === null) return null;
+      // Como `terminal.open`: una CLI que este lado no conoce se conserva para rechazarla.
+      const agent = asLiteral(rawAgent, AGENT_IDS);
+      const message: ClientWorktreeRequestReviewMessage = { type: 'worktree.requestReview', requestId, worktreeId, agent: agent ?? 'claude-code' };
+      if (agent === null) message.unsupportedAgent = rawAgent;
+      return message;
+    }
     default:
       return null;
   }
+}
+
+/** Los pedidos del hito 49 que nombran una rama aparte y nada mas. */
+type WorktreeIdMessageType =
+  | 'worktree.changes'
+  | 'worktree.planReview'
+  | 'worktree.sendReview'
+  | 'worktree.catchUp'
+  | 'worktree.planIntegrate'
+  | 'worktree.integrate';
+
+function worktreeIdMessage<T extends WorktreeIdMessageType>(
+  record: Record<string, unknown>,
+  type: T,
+): { type: T; requestId: string; worktreeId: string } | null {
+  const requestId = asNonEmptyString(record['requestId']);
+  const worktreeId = asNonEmptyString(record['worktreeId']);
+  return requestId === null || worktreeId === null ? null : { type, requestId, worktreeId };
 }
 
 /** Un borrador de `composer.drafts`, o null si no tiene la forma. */
@@ -3284,9 +3501,17 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       // Un motivo desconocido invalida el mensaje: el cuadro dice por que llego
       // el texto, y un texto sin motivo no se escribe en el borrador de nadie.
       const reason = asLiteral(record['reason'], COMPOSER_PREFILL_REASONS);
-      return terminalId === null || text === null || reason === null
-        ? null
-        : { type: 'composer.prefill', terminalId, text, reason };
+      if (terminalId === null || text === null || reason === null) return null;
+      const message: ServerComposerPrefillMessage = { type: 'composer.prefill', terminalId, text, reason };
+      // Hito 49: las fichas de texto pegado. Una que no es texto invalida el mensaje: faltaria lo que nombra su marca.
+      if (record['pasted'] !== undefined) {
+        const pasted = asStringArray(record['pasted']);
+        if (pasted === null) return null;
+        if (pasted.length > 0) message.pasted = pasted;
+      }
+      const requestId = asNonEmptyString(record['requestId']);
+      if (requestId !== null) message.requestId = requestId;
+      return message;
     }
     case 'composer.drafts': {
       // Uno mal formado se descarta solo: no se lleva los de las demas pestanas.
@@ -3350,6 +3575,37 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     }
     case 'worktree.changed':
       return { type: 'worktree.changed' };
+    case 'worktree.branchChanges': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const changes = parseWorktreeChanges(record['changes']);
+      return requestId === null || changes === null ? null : { type: 'worktree.branchChanges', requestId, changes };
+    }
+    case 'worktree.branchDiff': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      const diff = parseGitDiff(record['diff']);
+      return requestId === null || worktreeId === null || diff === null
+        ? null
+        : { type: 'worktree.branchDiff', requestId, worktreeId, diff };
+    }
+    case 'worktree.reviewPlan': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const plan = parseWorktreeReviewPlan(record['plan']);
+      return requestId === null || plan === null ? null : { type: 'worktree.reviewPlan', requestId, plan };
+    }
+    case 'worktree.integratePlan': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const plan = parseWorktreeIntegratePlan(record['plan']);
+      return requestId === null || plan === null ? null : { type: 'worktree.integratePlan', requestId, plan };
+    }
+    case 'worktree.integrated': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      const outcome = parseWorktreeIntegrateOutcome(record['outcome']);
+      return requestId === null || worktreeId === null || outcome === null
+        ? null
+        : { type: 'worktree.integrated', requestId, worktreeId, outcome };
+    }
     case 'error': {
       const text = parseServerText(record['text']);
       if (text === null) return null;

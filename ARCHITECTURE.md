@@ -312,7 +312,10 @@ touch credentials.
   separate branches it created (`worktrees.json`), and the history copy (or the
   folder the user picks).
 - The system temp folder: pasted images and attachments, per-tab CLI logs,
-  temporary database copies. Folders are created `0o700`, files `0o600`.
+  temporary database copies, and the object folder of a branch's conflict
+  check (`git merge-tree` writes its objects there instead of the repository,
+  and the folder is deleted when it finishes). Folders are created `0o700`,
+  files `0o600`.
 - **Two places inside a project.** Shared memory: `.agents/memory/`, the text
   *between the markers* of a block in `AGENTS.md`/`CLAUDE.md`, and a few lines
   at the end of `.gitignore`. Always after a file-by-file preview and the
@@ -338,10 +341,22 @@ touch credentials.
   notes that changed only in the branch go back to the main folder with an
   atomic write; one that changed on both sides blocks the removal until the
   user decides. `git branch -d` (never `-D`) deletes a branch only if the app
-  created it and it's already merged. These three are the only git commands the
-  app runs that write, all in `worktrees/git.ts`: no commit, push, rebase or
-  merge, and the repository's git configuration is never touched. Requests name
-  a project or a registered branch, never a path.
+  created it and it's already merged. Merging a branch into its base is
+  `git merge --ff-only`, run in the folder where the base is checked out: it
+  creates no commit, git refuses if the base moved on, and it refuses again if
+  that folder has uncommitted changes in a file the branch touches (the plan
+  says so before). These four are the only git commands the app runs that
+  write, all in `worktrees/git.ts`: no commit, push, rebase, merge commit or
+  squash, and the repository's git configuration is never touched. Catching up
+  with the base is a rebase that the branch's agent runs in its own terminal.
+  Requests name a project or a registered branch, never a path; "See changes"
+  names a file, which the server looks up among the ones the branch changed.
+- **A review tab** opens another CLI in the branch's folder to review it, in
+  that CLI's read-only mode when it has one (`readOnlyLaunch`, measured per
+  CLI: Claude Code's plan mode, Codex's read-only sandbox, Antigravity's plan
+  mode, Pi without its edit tools); a CLI without one starts as usual, and the
+  dialog says so first. The app stores which CLI reviewed, which conversation
+  and which commits, never the review's text.
 
 ---
 
@@ -353,7 +368,9 @@ JSONL follower (lines split across reads, UTF-8 cut in half), the context
 window, `git status --porcelain=v2 -z` parsing, the path guard, saving a file
 from the Files tab and keeping the CLIs' folders out of it, separate branches
 (created and removed against throwaway repositories, notes that must not be
-lost, links that must not be followed, and no git write outside its module),
+lost, links that must not be followed, the conflict check leaving no object in
+the repository, reviews, merging only by fast-forward, and no git write or
+rebase outside its module),
 the shared memory bridge, every adapter's event mapping, the history copy, handoff, global
 search, remote access (pairing codes, device credentials, what a paired device
 is refused, and that with it off nothing of it is accepted) and the nine locale

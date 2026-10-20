@@ -71,3 +71,13 @@ export const PI_READY_AFTER_LAUNCH_MS = 3_000;
  * El margen es para el reloj de la pty.
  */
 export const PI_CLEAR_GAP_MS = 750;
+
+/**
+ * Las herramientas de una pestana de revision (hito 49): las de leer y la
+ * consola, sin `edit` ni `write`. Segun `docs/cli.md` de la 1.3.0, `--tools`
+ * con nombres sueltos reemplaza la seleccion entera, y las herramientas de MCP
+ * que ningun nombre nombra no se declaran. Medido: la revision uso bash, find,
+ * ls y read, y al reanudar con la misma lista el modelo nombro solo esas cinco.
+ * Sin comas con espacios: pasa entero por `cmd /c` (§3.1).
+ */
+export const PI_REVIEW_TOOLS = 'read,bash,grep,find,ls';

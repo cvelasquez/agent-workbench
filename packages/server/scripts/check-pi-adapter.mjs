@@ -1104,6 +1104,8 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
       plans: false,
       waitingBlocksSubmit: true,
       forceSend: true,
+      // Hito 49: sin `edit` ni `write`, pero con la consola (§16.19).
+      readOnlyLaunch: { mode: null, guard: 'tools' },
     }), show(piIndex.PI_BASE_CAPABILITIES));
   check('P10 como se le escribe, contra un literal',
     same(piIndex.PI_INPUT, { imageReference: 'quoted-path-line', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1, transcriptReference: 'quoted-path', readyAfterLaunchMs: 3000 }), show(piIndex.PI_INPUT));

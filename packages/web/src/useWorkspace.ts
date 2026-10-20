@@ -95,6 +95,8 @@ export interface ComposerPrefill {
   id: number;
   terminalId: TerminalId;
   text: string;
+  /** Hito 49. Los que van como fichas de texto pegado, con su marca al final del texto. */
+  pasted: readonly string[];
 }
 
 export interface Workspace {
@@ -472,7 +474,10 @@ export function useWorkspace(): Workspace {
         case 'composer.prefill': {
           const id = nextPrefillId.current;
           nextPrefillId.current += 1;
-          setPrefills((current) => [...current, { id, terminalId: message.terminalId, text: message.text }]);
+          setPrefills((current) => [
+            ...current,
+            { id, terminalId: message.terminalId, text: message.text, pasted: message.pasted ?? [] },
+          ]);
           const { reason } = message;
           /*
             Un mensaje que la CLI no llego a entregar y volvio al cuadro (hito

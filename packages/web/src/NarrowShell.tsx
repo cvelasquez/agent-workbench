@@ -411,6 +411,11 @@ function TabSheet({
                   activity={activity.get(terminal.terminalId)}
                   statusLine={statusLineOf(terminal)}
                 />
+                {terminal.review && (
+                  <span className="tab-review" title={t('worktree.tab.reviewTitle')}>
+                    {t('worktree.tab.review')}
+                  </span>
+                )}
                 {branch !== null && <span className="tab-branch">{branch}</span>}
                 <span className="narrow-tab-label">{defaultTabLabel(terminal)}</span>
               </button>

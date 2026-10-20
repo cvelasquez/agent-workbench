@@ -13,40 +13,29 @@
  *
  * Desde el hito 48 tiene lo unico que escribe en git, y no son commits: abrir
  * una rama aparte y quitarla (§6.38), cada una tras su dialogo, que muestra el
- * comando antes de correrlo.
+ * comando antes de correrlo. El hito 49 suma integrar con `merge --ff-only`,
+ * que tampoco crea commits, y lo que no escribe: ver lo que trae una rama,
+ * pedir una revision y los pedidos que quedan en el cuadro de su agente.
  */
 
-import type { GitChangeKind, GitFileChange, GitStatus, WorktreeRow } from '@agent-workbench/shared';
+import type { AgentId, GitFileChange, GitStatus, TerminalId, WorktreeRow } from '@agent-workbench/shared';
 import { BranchIcon } from './BranchIcon.js';
 import { DiffView } from './DiffView.js';
+import { KIND_BADGE, KIND_TITLE, splitPath } from './git-kinds.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { serverTextMessage } from './i18n/server-text.js';
 import { tRich } from './i18n/rich.js';
 import type { GitView } from './useGit.js';
-import { rowStatusParts, sortedRows } from './worktree-ui.js';
-
-/** Letra que se muestra en el cuadradito de cada archivo. */
-const KIND_BADGE: Readonly<Record<GitChangeKind, string>> = {
-  added: 'A',
-  modified: 'M',
-  deleted: 'D',
-  renamed: 'R',
-  copied: 'C',
-  'type-changed': 'T',
-  untracked: '?',
-  conflict: '!',
-};
-
-const KIND_TITLE: Readonly<Record<GitChangeKind, MessageKey>> = {
-  added: 'git.kind.added',
-  modified: 'git.kind.modified',
-  deleted: 'git.kind.deleted',
-  renamed: 'git.kind.renamed',
-  copied: 'git.kind.copied',
-  'type-changed': 'git.kind.typeChanged',
-  untracked: 'git.kind.untracked',
-  conflict: 'git.kind.conflict',
-};
+import type { ChangesView } from './useWorktrees.js';
+import { WorktreeChanges } from './WorktreeChanges.js';
+import {
+  reviewText,
+  rowActions,
+  rowIntegrateBlocker,
+  rowStatusParts,
+  rowTeamLines,
+  sortedRows,
+} from './worktree-ui.js';
 
 const GROUPS: readonly { stage: GitFileChange['stage']; title: MessageKey; hint: MessageKey }[] = [
   { stage: 'conflict', title: 'git.group.conflict', hint: 'git.group.conflictHint' },
@@ -54,26 +43,6 @@ const GROUPS: readonly { stage: GitFileChange['stage']; title: MessageKey; hint:
   { stage: 'unstaged', title: 'git.group.unstaged', hint: 'git.group.unstagedHint' },
   { stage: 'untracked', title: 'git.group.untracked', hint: 'git.group.untrackedHint' },
 ];
-
-/**
- * Separa el nombre de su directorio, para que la ruta larga no tape lo que
- * importa.
- *
- * Ojo con la barra final. `git status` no lista una carpeta nueva archivo por
- * archivo: la resume en una sola entrada terminada en `/` — `docs/`. Sin este
- * caso, el ultimo segmento es la cadena vacia y la fila sale sin nombre.
- */
-function splitPath(value: string): { dir: string; name: string; isDirectory: boolean } {
-  const isDirectory = value.endsWith('/');
-  const clean = isDirectory ? value.slice(0, -1) : value;
-  const index = clean.lastIndexOf('/');
-  const name = index === -1 ? clean : clean.slice(index + 1);
-  return {
-    dir: index === -1 ? '' : clean.slice(0, index + 1),
-    name: isDirectory ? `${name}/` : name,
-    isDirectory,
-  };
-}
 
 interface HeadlineProps {
   status: GitStatus;
@@ -103,6 +72,8 @@ function Headline({ status }: HeadlineProps): JSX.Element {
   );
 }
 
+type OwnRow = WorktreeRow & { id: string };
+
 /** Las ramas aparte del repo de la pestana (hito 48, §6.38). */
 export interface GitPanelWorktrees {
   rows: readonly WorktreeRow[];
@@ -111,7 +82,21 @@ export interface GitPanelWorktrees {
   /** Pasa a la pestana de esa carpeta, o abre una ahi. */
   onOpen: (row: WorktreeRow) => void;
   /** Solo las que creo la app (`id`). */
-  onRemove: (row: WorktreeRow & { id: string }) => void;
+  onRemove: (row: OwnRow) => void;
+  /** Hito 49. "Ver cambios" de una rama, o null: Cambios de siempre. */
+  changes: ChangesView | null;
+  onViewChanges: (row: OwnRow) => void;
+  onOpenChangeDiff: (path: string) => void;
+  onCloseChangeDiff: () => void;
+  onCloseChanges: () => void;
+  onRequestReview: (row: OwnRow) => void;
+  onSendReview: (row: OwnRow) => void;
+  /** Pasa a la pestana del revisor. */
+  onShowReviewer: (terminalId: TerminalId) => void;
+  onCatchUp: (row: OwnRow) => void;
+  onIntegrate: (row: OwnRow) => void;
+  /** El nombre de una CLI, para "Revision de Codex". */
+  agentLabel: (agent: AgentId) => string;
 }
 
 interface GitPanelProps {
@@ -119,10 +104,22 @@ interface GitPanelProps {
   worktrees: GitPanelWorktrees;
 }
 
+/** Lo que dijo el revisor, para el color de su linea. */
+function reviewTone(row: WorktreeRow): string {
+  const review = row.review;
+  if (review === null || review.state !== 'done' || review.stale) return '';
+  return review.verdict === 'ready' ? ' git-worktree-review-ready' : review.verdict === 'changes' ? ' git-worktree-review-changes' : '';
+}
+
 /** Una fila de "Ramas aparte": la rama, su estado contra la base y lo que se puede hacer. */
 function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPanelWorktrees }): JSX.Element {
   const status = rowStatusParts(row);
+  const team = rowTeamLines(row);
   const id = row.id;
+  const own: OwnRow | null = id !== null && !row.isMain ? { ...row, id } : null;
+  const actions = rowActions(row);
+  const integrateBlocker = rowIntegrateBlocker(row);
+  const review = row.review;
   return (
     <li>
       <div className="git-worktree" title={row.path}>
@@ -132,6 +129,27 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
           {row.isCurrent && <span className="git-worktree-main">{t('worktree.rows.current')}</span>}
         </span>
         {status.length > 0 && <span className="git-worktree-state">{status.join(' · ')}</span>}
+        {team.map((line) => (
+          <span key={line} className="git-worktree-team">
+            {line}
+          </span>
+        ))}
+        {review !== null && (
+          <span className={`git-worktree-review${reviewTone(row)}`}>
+            {reviewText(review, worktrees.agentLabel(review.agent))}
+            {review.terminalId !== null && (
+              <button
+                className="link-button"
+                onClick={() => {
+                  if (review.terminalId !== null) worktrees.onShowReviewer(review.terminalId);
+                }}
+                title={t('worktree.actions.showReviewerTitle')}
+              >
+                {t('worktree.actions.showReviewer')}
+              </button>
+            )}
+          </span>
+        )}
         <span className="git-worktree-path">{row.path}</span>
         <span className="git-worktree-actions">
           {!row.isCurrent && (
@@ -139,10 +157,44 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
               {t('worktree.rows.open')}
             </button>
           )}
-          {id !== null && !row.isMain && (
+          {own !== null && actions.viewChanges && (
+            <button className="link-button" onClick={() => worktrees.onViewChanges(own)} title={t('worktree.actions.viewChangesTitle')}>
+              {t('worktree.actions.viewChanges')}
+            </button>
+          )}
+          {own !== null && actions.review && (
+            <button className="link-button" onClick={() => worktrees.onRequestReview(own)} title={t('worktree.actions.reviewTitle')}>
+              {t('worktree.actions.review')}
+            </button>
+          )}
+          {own !== null && actions.sendReview && (
+            <button className="link-button" onClick={() => worktrees.onSendReview(own)} title={t('worktree.actions.sendReviewTitle')}>
+              {t('worktree.actions.sendReview')}
+            </button>
+          )}
+          {own !== null && actions.catchUp && row.base !== null && (
             <button
               className="link-button"
-              onClick={() => worktrees.onRemove({ ...row, id })}
+              onClick={() => worktrees.onCatchUp(own)}
+              title={t('worktree.actions.catchUpTitle', { base: row.base })}
+            >
+              {t('worktree.actions.catchUp')}
+            </button>
+          )}
+          {own !== null && actions.integrate && row.base !== null && (
+            <button
+              className="link-button"
+              onClick={() => worktrees.onIntegrate(own)}
+              disabled={integrateBlocker !== null}
+              title={integrateBlocker ?? t('worktree.actions.integrateTitle', { base: row.base })}
+            >
+              {t('worktree.actions.integrate', { base: row.base })}
+            </button>
+          )}
+          {own !== null && (
+            <button
+              className="link-button"
+              onClick={() => worktrees.onRemove(own)}
               title={t('worktree.rows.removeTitle')}
             >
               {t('worktree.rows.remove')}
@@ -156,6 +208,21 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
 
 export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
   const { status, diff, loadingDiff, openDiff, closeDiff, refresh } = view;
+
+  // "Ver cambios" de una rama (hito 49) reemplaza la lista, como el diff de un archivo.
+  if (worktrees.changes !== null) {
+    const changes = worktrees.changes;
+    const row = worktrees.rows.find((candidate) => candidate.id === changes.worktreeId) ?? null;
+    return (
+      <WorktreeChanges
+        view={changes}
+        onBack={worktrees.onCloseChanges}
+        onOpenDiff={worktrees.onOpenChangeDiff}
+        onCloseDiff={worktrees.onCloseChangeDiff}
+        onRequestReview={row === null || row.id === null ? null : () => worktrees.onRequestReview({ ...row, id: changes.worktreeId })}
+      />
+    );
+  }
 
   if (diff !== null || loadingDiff) {
     return (

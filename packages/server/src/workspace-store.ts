@@ -54,6 +54,12 @@ export interface PersistedTab {
   cwd: string;
   sessionId: string;
   label: string;
+  /**
+   * Hito 49. Solo en una pestana de revision: vuelve como de revision y
+   * despierta en el modo de solo lectura de su CLI. Una build anterior no lo
+   * mira y la despertaria en el modo de siempre (§3.2.6).
+   */
+  review?: true;
 }
 
 /** Una pestana de una CLI conocida que no esta en pantalla, con su lugar en la lista completa. */
@@ -170,7 +176,10 @@ function readTab(tab: Record<string, unknown>, missingAgent: AgentId | null): Or
     }
   }
   if (agent === null) return null;
-  return { kind: 'known', tab: { agent, cwd, sessionId, label: typeof label === 'string' ? label : '' } };
+  return {
+    kind: 'known',
+    tab: { agent, cwd, sessionId, label: typeof label === 'string' ? label : '', ...(tab['review'] === true ? { review: true } : {}) },
+  };
 }
 
 function parseState(raw: string): WorkspaceState | null {
@@ -253,6 +262,8 @@ export function persistableTabs(descriptors: readonly TerminalDescriptor[]): Per
       cwd: descriptor.cwd,
       sessionId: descriptor.sessionId,
       label: descriptor.label,
+      // Sin la marca, una pestana de siempre se guarda byte por byte como antes del hito 49.
+      ...(descriptor.review ? { review: true as const } : {}),
     });
   }
   return tabs;

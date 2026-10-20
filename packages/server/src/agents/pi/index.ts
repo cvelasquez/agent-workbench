@@ -38,6 +38,7 @@ import {
   PI_INSTALL_URL,
   PI_LABEL,
   PI_READY_AFTER_LAUNCH_MS,
+  PI_REVIEW_TOOLS,
 } from './constants.js';
 import { createPiHistory } from './history.js';
 import { PiLiveSessions, PiStatusSource, type PiLiveDeps } from './live.js';
@@ -83,6 +84,8 @@ export const PI_BASE_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: true,
   // Sin tecla de "enviar ya": se detiene y se vuelve a mandar lo que tenia en cola (hito 45, §16.18).
   forceSend: true,
+  // Hito 49: sin `edit` ni `write` (`PI_REVIEW_TOOLS`), pero su consola puede escribir: a medias (§16.19).
+  readOnlyLaunch: { mode: null, guard: 'tools' },
 };
 
 /**
@@ -161,9 +164,11 @@ export function createPiAdapter(options: PiAdapterOptions = {}): AgentAdapter {
     launch(input: LaunchInput): LaunchPlan {
       const sessionId = input.resumeSessionId ?? input.proposedSessionId;
       if (!isPiSessionId(sessionId)) throw new Error('Invalid Pi session id.');
+      // Hito 49: la pestana de revision, sin las herramientas de editar, al abrir y al reanudar.
+      const tools = input.readOnly === true ? ['--tools', PI_REVIEW_TOOLS] : [];
       return {
         file: input.location.file,
-        args: [...input.location.prefixArgs, '--session-id', sessionId],
+        args: [...input.location.prefixArgs, ...tools, '--session-id', sessionId],
         session: { kind: 'known', sessionId },
       };
     },

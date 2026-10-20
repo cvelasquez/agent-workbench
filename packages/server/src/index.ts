@@ -12,7 +12,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { TOKEN_QUERY_PARAM, type AgentInfo } from '@agent-workbench/shared';
+import { TOKEN_QUERY_PARAM, type AgentInfo, type TerminalId } from '@agent-workbench/shared';
 import { ArchivedSessions } from './archived-sessions.js';
 import { createAgentRegistry, type AgentRegistry } from './agents/registry.js';
 import { migrateLegacyConfigDir } from './config-dir-migration.js';
@@ -376,11 +376,30 @@ async function main(): Promise<void> {
     registry,
     projectCwd: (projectKey) => index.getProjects().find((project) => project.key === projectKey)?.cwd ?? null,
     findSession: (agent, sessionId) => index.find(agent, sessionId),
+    // Hito 49: las conversaciones de una rama (para dejarle un pedido a su autor) y la respuesta del revisor.
+    sessionsUnder: (folder) => {
+      const root = path.resolve(folder);
+      return index
+        .getProjects()
+        .flatMap((project) => project.sessions)
+        .filter((session) => {
+          if (session.archived || session.cwd.length === 0) return false;
+          const relative = path.relative(root, path.resolve(session.cwd));
+          return relative.length === 0 || (!relative.startsWith('..') && !path.isAbsolute(relative));
+        });
+    },
+    history: (agent) => agents.get(agent)?.adapter.history ?? null,
   });
   // Crear o quitar una rama cambia en que proyecto cae cada sesion y la etiqueta de cada pestana.
   worktrees.on('changed', () => {
     void index.refreshWorktrees();
     void registry.refreshWorktrees();
+  });
+  // Hito 49: la conversacion de un revisor se anota cuando su CLI la descubre, haya o no una ventana mirando.
+  registry.on('session', (terminalId: TerminalId) => {
+    worktrees.noteReviewSession(terminalId).catch((error: unknown) => {
+      console.warn(`[worktrees] couldn't note the review session of ${terminalId.slice(0, 8)}:`, error);
+    });
   });
   // La consola de las nuevas y las CLIs apagadas, desde Ajustes (Hito 41, §6.32).
   const appSettings = new AppSettingsService({

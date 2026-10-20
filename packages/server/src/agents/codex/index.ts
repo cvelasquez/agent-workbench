@@ -74,7 +74,17 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: false,
   // No hace cola: un mensaje con el agente trabajando le llega al modelo en el acto (hito 45).
   forceSend: false,
+  /*
+    Hito 49: `--sandbox read-only`, al abrir y al reanudar. Medido con la 0.162.1
+    y un proveedor falso: con la sandbox de Windows del usuario, escribir fallo
+    con "Acceso denegado" sin preguntar nada y `git diff` corrio; sin ella, pide
+    permiso para cada comando. Nunca escribe sin el permiso del usuario (§10.15).
+  */
+  readOnlyLaunch: { mode: null, guard: 'cli' },
 };
+
+/** El argumento de la sandbox de solo lectura, que no lleva espacios: pasa entero por `cmd /c` (§3.1). */
+const READ_ONLY_SANDBOX = ['--sandbox', 'read-only'] as const;
 
 /**
  * Como se le escribe un mensaje: cada imagen en su pegado, despues el texto, y
@@ -142,13 +152,15 @@ export function createCodexAdapter(): AgentAdapter {
      */
     launch(input: LaunchInput): LaunchPlan {
       const { resumeSessionId } = input;
+      // Hito 49: la pestana de revision. `codex resume` acepta la sandbox despues del subcomando (su `--help`).
+      const sandbox = input.readOnly === true ? READ_ONLY_SANDBOX : [];
       if (resumeSessionId === null) {
-        return { file: input.location.file, args: [...input.location.prefixArgs], session: { kind: 'discover' } };
+        return { file: input.location.file, args: [...input.location.prefixArgs, ...sandbox], session: { kind: 'discover' } };
       }
       if (!isUuid(resumeSessionId)) throw new Error('Invalid Codex session id.');
       return {
         file: input.location.file,
-        args: [...input.location.prefixArgs, 'resume', resumeSessionId],
+        args: [...input.location.prefixArgs, 'resume', ...sandbox, resumeSessionId],
         session: { kind: 'known', sessionId: resumeSessionId },
       };
     },

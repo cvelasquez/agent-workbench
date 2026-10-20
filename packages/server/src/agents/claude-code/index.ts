@@ -90,6 +90,12 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: false,
   // Su tecla de "enviar ya", Ctrl+X Ctrl+S, medida con la 2.1.301 (hito 45, §4.4.3).
   forceSend: true,
+  /*
+    Hito 49: `--permission-mode plan`. Medido con la 2.1.304 y el pedido de
+    revision: corrio git log, diff y status sin pedir permiso, no ofrecio salir
+    del modo plan y termino con la linea del veredicto, sin tocar nada (§4.8.1).
+  */
+  readOnlyLaunch: { mode: 'plan', guard: 'cli' },
 };
 
 /**
@@ -208,12 +214,14 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
      */
     launch(input: LaunchInput): LaunchPlan {
       const sessionId = input.resumeSessionId ?? input.proposedSessionId;
+      // Una pestana de revision (hito 49) arranca en el modo que declara la capacidad, y despierta igual.
+      const readOnlyMode = input.readOnly === true ? CLAUDE_CODE_CAPABILITIES.readOnlyLaunch?.mode : null;
       return {
         file: input.location.file,
         args: [
           ...input.location.prefixArgs,
           '--permission-mode',
-          LAUNCH_PERMISSION_MODE,
+          readOnlyMode ?? LAUNCH_PERMISSION_MODE,
           ...(input.resumeSessionId !== null
             ? ['--resume', input.resumeSessionId]
             : ['--session-id', input.proposedSessionId]),

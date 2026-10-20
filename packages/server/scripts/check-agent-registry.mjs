@@ -157,6 +157,15 @@ check('45 forceSend que no es true cae a false; true se lee',
   parseAgentCapabilities({ forceSend: 'true' }).forceSend === false &&
   parseAgentCapabilities({ forceSend: 1 }).forceSend === false &&
   parseAgentCapabilities({ forceSend: true }).forceSend === true);
+// Hito 49: un servidor anterior no la manda, y sin ella ninguna CLI se ofrece en solo lectura.
+check('49 readOnlyLaunch ausente es null, y NO_CAPABILITIES la declara null',
+  parseAgentCapabilities({ statusSource: true }).readOnlyLaunch === null && NO_CAPABILITIES.readOnlyLaunch === null);
+check('49 una proteccion o un modo que no se conocen la anulan entera; una valida pasa tal cual',
+  parseAgentCapabilities({ readOnlyLaunch: { mode: 'plan', guard: 'otra' } }).readOnlyLaunch === null &&
+  parseAgentCapabilities({ readOnlyLaunch: { mode: 'raro', guard: 'cli' } }).readOnlyLaunch === null &&
+  parseAgentCapabilities({ readOnlyLaunch: true }).readOnlyLaunch === null &&
+  sameShape(parseAgentCapabilities({ readOnlyLaunch: { mode: null, guard: 'tools' } }).readOnlyLaunch, { mode: null, guard: 'tools' }) &&
+  sameShape(parseAgentCapabilities({ readOnlyLaunch: { mode: 'plan', guard: 'cli' } }).readOnlyLaunch, { mode: 'plan', guard: 'cli' }));
 {
   const models = [
     { value: 'default', label: 'Por defecto', family: '', long: false, window: null },
@@ -646,6 +655,7 @@ const adapter = createClaudeCodeAdapter();
     plans: true,
     waitingBlocksSubmit: false,
     forceSend: true,
+    readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };
   check('capacidades de claude-code iguales al literal', sameShape(adapter.capabilities, expected), JSON.stringify(adapter.capabilities));
   check('el ciclo declarado es el que usa el servidor', sameShape([...adapter.capabilities.permissionCycle.modes], [...PERMISSION_MODE_CYCLE]));
@@ -772,6 +782,70 @@ const adapter = createClaudeCodeAdapter();
 }
 
 // ---------------------------------------------------------------------------
+// 49. El arranque en solo lectura de la pestana de revision
+// ---------------------------------------------------------------------------
+
+{
+  const { createAgentRegistry } = await import('../src/agents/registry.ts');
+  const appRegistry = createAgentRegistry();
+  const declared = Object.fromEntries(AGENT_IDS.map((id) => [id, appRegistry.adapter(id).capabilities.readOnlyLaunch]));
+  // Lo medido en el paso 0: Claude Code en plan, Codex en su sandbox, Antigravity en plan, Pi sin editar, OpenCode nada.
+  check('49 el arranque en solo lectura de cada CLI, como se midio',
+    sameShape(declared, {
+      'claude-code': { mode: 'plan', guard: 'cli' },
+      codex: { mode: null, guard: 'cli' },
+      opencode: null,
+      antigravity: { mode: 'plan', guard: 'cli' },
+      pi: { mode: null, guard: 'tools' },
+    }), JSON.stringify(declared));
+
+  const location = { resolvedPath: '/bin/x', file: '/bin/x', prefixArgs: [], version: null };
+  const uuid = '01a1578d-d037-7cf3-bbad-d4ff008299a2';
+  // Un token que no es uuid: Antigravity no arma su log y no toca la temporal.
+  const launch = (id, resumeSessionId, readOnly) =>
+    appRegistry.adapter(id).launch({
+      location, cwd: '/p', resumeSessionId, proposedSessionId: uuid, launchToken: 'sin-log',
+      ...(readOnly === undefined ? {} : { readOnly }),
+    });
+  const args = (id, resumeSessionId, readOnly) => [...launch(id, resumeSessionId, readOnly).args];
+  check('49 claude-code: la de revision arranca y reanuda en plan',
+    sameShape(args('claude-code', null, true), ['--permission-mode', 'plan', '--session-id', uuid]) &&
+      sameShape(args('claude-code', 'viejo', true), ['--permission-mode', 'plan', '--resume', 'viejo']),
+    JSON.stringify(args('claude-code', null, true)));
+  check('49 codex: la sandbox de solo lectura al abrir, y despues de `resume` al reanudar',
+    sameShape(args('codex', null, true), ['--sandbox', 'read-only']) &&
+      sameShape(args('codex', uuid, true), ['resume', '--sandbox', 'read-only', uuid]),
+    JSON.stringify(args('codex', uuid, true)));
+  check('49 antigravity: --mode plan en vez de accept-edits',
+    sameShape(args('antigravity', null, true), ['--mode', 'plan']) && sameShape(args('antigravity', null), ['--mode', 'accept-edits']),
+    JSON.stringify(args('antigravity', null, true)));
+  check('49 pi: sin las herramientas de editar, al abrir y al reanudar (el mismo comando)',
+    sameShape(args('pi', null, true), ['--tools', 'read,bash,grep,find,ls', '--session-id', uuid]) &&
+      sameShape(args('pi', uuid, true), ['--tools', 'read,bash,grep,find,ls', '--session-id', uuid]),
+    JSON.stringify(args('pi', null, true)));
+  // Ninguno de estos argumentos lleva espacios ni comillas: pasan enteros por `cmd /c` (§3.1).
+  const flat = ['claude-code', 'codex', 'antigravity', 'pi'].flatMap((id) => args(id, null, true));
+  check('49 nada de lo que suma lleva espacios ni comillas', flat.every((arg) => !/[\s"]/.test(arg)), flat.join(' '));
+  // Lo que declara la capacidad y lo que hace `launch` dicen lo mismo, y sin la marca todo arranca como antes.
+  const synchronous = ['claude-code', 'codex', 'antigravity', 'pi'];
+  check('49 una CLI cambia su arranque con readOnly si y solo si declara la capacidad',
+    synchronous.every((id) => (JSON.stringify(args(id, null, true)) !== JSON.stringify(args(id, null))) === (declared[id] !== null)));
+  check('49 readOnly false es lo mismo que no pasarlo',
+    synchronous.every((id) => JSON.stringify(args(id, null, false)) === JSON.stringify(args(id, null))));
+
+  const { launchModeFor } = shared;
+  const claudeCaps = appRegistry.adapter('claude-code').capabilities;
+  const agyCaps = appRegistry.adapter('antigravity').capabilities;
+  check('49 launchModeFor: la de revision parte del modo de solo lectura, las demas del de siempre',
+    launchModeFor(claudeCaps, true) === 'plan' && launchModeFor(claudeCaps, false) === 'auto' &&
+      launchModeFor(agyCaps, true) === 'plan' && launchModeFor(agyCaps, false) === 'acceptEdits' &&
+      launchModeFor(appRegistry.adapter('codex').capabilities, true) === null);
+  check('49 un modo de solo lectura que no esta en el ciclo no se usa: queda el de siempre',
+    launchModeFor({ permissionCycle: { ...claudeCaps.permissionCycle, modes: ['auto', 'default'] }, readOnlyLaunch: { mode: 'plan', guard: 'cli' } }, true) === 'auto');
+  appRegistry.disposeAll();
+}
+
+// ---------------------------------------------------------------------------
 // 2. Las pestanas guardadas (workspace.json)
 // ---------------------------------------------------------------------------
 
@@ -871,6 +945,35 @@ const adapter = createClaudeCodeAdapter();
       { agent: 'claude-code', cwd: 'D:\\p', sessionId: 'sa', label: 'l' },
       { agent: 'claude-code', cwd: '/q', sessionId: 'se', label: '' },
     ]), JSON.stringify(persisted));
+
+  // Hito 49: la pestana de revision recuerda su marca; las de siempre se guardan como antes.
+  const reviewed = persistableTabs([
+    descriptor({ terminalId: 'r', sessionId: 'sr', review: true }),
+    descriptor({ terminalId: 'n', sessionId: 'sn', review: false }),
+  ]);
+  check('49 persistableTabs: la marca solo en la de revision',
+    sameShape(reviewed, [
+      { agent: 'claude-code', cwd: 'D:\\p', sessionId: 'sr', label: 'l', review: true },
+      { agent: 'claude-code', cwd: 'D:\\p', sessionId: 'sn', label: 'l' },
+    ]), JSON.stringify(reviewed));
+  const withReview = [
+    { agent: 'claude-code', cwd: 'D:\\p.worktrees\\x', sessionId: 'r1', label: 'Revisión', review: true },
+    { agent: 'codex', cwd: 'D:\\p.worktrees\\x', sessionId: 'r2', label: '', review: true },
+    { agent: 'claude-code', cwd: 'D:\\p', sessionId: 'n1', label: '' },
+  ];
+  store.save({ tabs: withReview, foreignTabs: [] });
+  await store.flush();
+  const writtenReview = JSON.parse(await readFile(statePath, 'utf8'));
+  check('49 ida y vuelta de una pestana de revision, de las dos listas', sameShape((await store.load()).tabs, withReview),
+    JSON.stringify((await store.load()).tabs));
+  check('49 la de siempre se escribe sin la marca', writtenReview.tabs.find((tab) => tab.sessionId === 'n1') !== undefined &&
+    !('review' in writtenReview.tabs.find((tab) => tab.sessionId === 'n1')));
+  // Lo que se acepto por escrito (§3.2.6): la build anterior la lee como una pestana mas y la despertaria en el modo de siempre.
+  check('49 la build anterior la lee como una pestana mas, sin la marca',
+    sameShape(legacyParseState(JSON.stringify(writtenReview))?.tabs, [
+      { cwd: 'D:\\p.worktrees\\x', sessionId: 'r1', label: 'Revisión' },
+      { cwd: 'D:\\p', sessionId: 'n1', label: '' },
+    ]), JSON.stringify(legacyParseState(JSON.stringify(writtenReview))));
 }
 
 // ---------------------------------------------------------------------------
@@ -985,6 +1088,13 @@ const adapter = createClaudeCodeAdapter();
     controls.imagesAllowed && controls.rewind && controls.questionsAnswerable && controls.fileMentions &&
     controls.plansAvailable && controls.noteSendable && controls.forceSend, JSON.stringify(controls));
   check('claude-code: el medidor mide con variantes', controls.contextWindowSource === 'usage-with-variants');
+
+  // Hito 49: una pestana de revision arranco en plan, y el combo cuenta desde ahi.
+  const reviewControls = ui.controlsFor(claude.capabilities, true);
+  check('49 el combo de una pestana de revision parte de plan, con el mismo ciclo',
+    reviewControls.modeCycle?.launchMode === 'plan' && sameShape([...reviewControls.modeCycle.modes], [...PERMISSION_MODE_CYCLE]) &&
+      ui.shownMode(null, reviewControls.modeCycle) === 'plan', JSON.stringify(reviewControls.modeCycle));
+  check('49 fuera de una pestana de revision, los controles son los de siempre', sameShape(ui.controlsFor(claude.capabilities, false), controls));
 
   // --- Sin capacidades, todo apagado ---
   const none = ui.controlsFor(NO_CAPABILITIES);

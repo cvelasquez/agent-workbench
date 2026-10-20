@@ -22,6 +22,7 @@ import path from 'node:path';
 import {
   EMPTY_CONTEXT_USAGE,
   blindToApprovals,
+  launchModeFor,
   type AgentId,
   type ContextUsage,
   type ConversationEvent,
@@ -506,7 +507,8 @@ export class ConversationHub extends EventEmitter {
       adapter,
       follower: adapter.history.follow({ cwd, sessionId }),
       announcedMode: null,
-      assumedMode: adapter.capabilities.permissionCycle?.launchMode ?? null,
+      // Una pestana de revision (hito 49) arranca en el modo de solo lectura de su CLI.
+      assumedMode: launchModeFor(adapter.capabilities, this.registry.get(terminalId)?.review === true),
       observedMode: null,
       modeLaunchedAt: this.registry.launchedAtOf(terminalId),
       refs: 0,
