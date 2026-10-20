@@ -200,6 +200,22 @@ export const SERVER_TEXTS = {
   vaultTargetInsideCurrent: [],
   vaultTargetNotAbsolute: [],
   waitingSubmit: ['label'],
+  worktreeBaseMissing: ['base'],
+  worktreeBranchExists: ['branch'],
+  worktreeBranchInUse: ['branch'],
+  worktreeBranchInvalid: ['branch'],
+  worktreeBranchMissing: ['branch'],
+  worktreeFailed: [],
+  worktreeFolderExists: ['folder'],
+  worktreeGitFailed: ['detail'],
+  worktreeInUse: [],
+  worktreeNoConflicts: [],
+  worktreeNotRepo: [],
+  worktreeNotesConflict: ['count'],
+  worktreeNotesFailed: ['detail'],
+  worktreeProjectUnknown: [],
+  worktreeUncommitted: ['count'],
+  worktreeUnknown: [],
 } as const satisfies Readonly<Record<string, readonly string[]>>;
 
 // --- Fin de la lista ----------------------------------------------------------

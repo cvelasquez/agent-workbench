@@ -41,7 +41,7 @@ Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 | **Unterhaltung** | Die Nachrichten als Karten, live, mit eingeklappten Tool-Aufrufen. Ältere Nachrichten werden beim Hochscrollen geladen. Sie können suchen, jede Nachricht und jeden Codeblock kopieren und zu Ihrer vorherigen Nachricht (↑) oder ans Ende (↓) springen. Eine Zeile unten zeigt, wann Ihre Nachricht bei der CLI angekommen ist und ob der Agent noch arbeitet. Je nach CLI können Sie die Fragen des Agenten direkt dort beantworten. Eine Datei des Projekts, die der Agent nennt, öffnet sich mit einem Klick im Tab „Dateien“. Mit Claude Code kommt eine Nachricht, die Sie anhalten, bevor der Agent beginnt, zum Korrigieren ins Eingabefeld zurück, und **↩** an einer Nachricht geht zurück vor sie: die Unterhaltung und, wenn Sie wollen, der Code. Eine Nachricht, die Sie senden, während der Agent arbeitet, wartet am Ende als eingereiht; je nach CLI lässt **Senden jetzt erzwingen** den Agenten sie sofort lesen. |
 | **Eingabefeld** | Platz zum Schreiben, zum Einfügen von Bildern und zum Anhängen von Dateien; langer eingefügter Text wird zu einem übersichtlichen Chip. Was Sie gerade tippen, übersteht das Schließen der App und erscheint live in jedem offenen Fenster. Umschalt+Eingabe setzt eine nummerierte Liste oder eine Aufzählung fort. |
 | **Kontextanzeige** | Wie viel vom Kontextfenster des Modells die Unterhaltung belegt. Tokens, nie Geld. |
-| **Änderungen** | Der Branch, die geänderten Dateien und ihr Diff. **Nur zum Lesen**: keine Schaltflächen für Commit oder Push. |
+| **Änderungen** | Der Branch, die geänderten Dateien und ihr Diff. **Orchestriert Agenten parallel**: Öffnen Sie das Projekt in einem neuen Branch, in einem eigenen Ordner, und mehrere Agenten arbeiten gleichzeitig, ohne sich gegenseitig die Änderungen zu überschreiben. „Änderungen“ zeigt jeden Branch: was noch nicht committet ist, wie viele Commits er hat und ob er schon integriert ist. |
 | **Dateien** | Der Dateibaum des Projekts, mit Suche und einer Vorschau mit Syntaxhervorhebung. Öffnen Sie mehrere Dateien gleichzeitig, jede in ihrem eigenen Tab; Markdown-Dateien öffnen sich formatiert. Ein Klick fügt den Pfad einer Datei in Ihre Nachricht ein. Bearbeiten Sie eine Textdatei, etwa eine `.env`, und speichern Sie sie direkt dort: Hat der Agent sie inzwischen geändert, wird nichts überschrieben, und Sie übernehmen Ihre Änderungen in die neue Version. |
 | **Pläne** | Die Pläne und `.md`-Dokumente, die die Unterhaltung geschrieben hat, formatiert dargestellt. Ein Klick fügt den Pfad eines Dokuments in Ihre Nachricht ein. |
 | **Notizen** | Ein Notizblock neben der Unterhaltung, Bilder inklusive. Mit Claude Code schickt ein Klick eine Notiz an eine neue Unterhaltung. |
@@ -434,18 +434,22 @@ speichert und welche Berechtigungen sie anfordert, steht in
   Terminal an, und die App bekommt davon nicht einmal etwas mit.
 - **Die App liest die Historie der CLIs und schreibt nichts in deren Ordner.**
   Die Tabelle unten zeigt, was sie liest und was sie nie öffnet.
-- **Die App schreibt nur in ihre eigenen Ordner**, dazu zwei Dinge in Ihre
-  Projekte: das gemeinsame Gedächtnis, nur wenn Sie es bestätigen, und eine
-  Datei, die Sie selbst im Tab „Dateien“ bearbeiten und speichern.
+- **Die App schreibt nur in ihre eigenen Ordner**, dazu drei Dinge in Ihre
+  Projekte: das gemeinsame Gedächtnis, nur wenn Sie es bestätigen; eine Datei,
+  die Sie selbst im Tab „Dateien“ bearbeiten und speichern; und die eigenen
+  Branches, die Sie öffnen, jeder in seinem Ordner neben dem Projekt, mit den
+  Notizen, die beim Entfernen in den Hauptordner zurückgehen.
 - **Der Server lauscht nur auf Ihrem Computer** (`127.0.0.1`), auf einem
   zufälligen Port, mit einem neuen zufälligen Token bei jedem Start, und er
   weist Anfragen ab, die von anderen Webseiten kommen. Der Fernzugriff ändert
   daran nichts: Der Port wird zu einem festen, weiterhin auf `127.0.0.1`, und
   SSH – das Sie einschalten und kontrollieren – erledigt den Rest.
-- **Das Panel „Änderungen“ liest nur.** Kein Commit, kein Stage, kein Push:
-  Während ein Agent Dateien bearbeitet, ist eine Schaltfläche, die in die
-  Versionsgeschichte schreibt, genau die Art von Ding, bei der hinterher niemand
-  weiß, wer sie gedrückt hat.
+- **Git: Die App committet nie, pusht nie und schreibt keine Historie um.** Sie
+  führt drei git-Befehle aus, die schreiben, jeden erst nach einer Bestätigung,
+  die ihn zeigt: `git worktree add`, um einen Branch in einem eigenen Ordner zu
+  öffnen, `git worktree remove` (nie mit `--force`) und `git branch -d` (nur für
+  einen Branch, den die App erstellt hat und der schon integriert ist). Die
+  Commits machen die Agenten, in ihrem Terminal.
 
 | CLI | Was die App liest | Was sie nie öffnet |
 |---|---|---|

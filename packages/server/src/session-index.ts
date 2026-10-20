@@ -55,6 +55,7 @@ import type { AgentRegistry } from './agents/registry.js';
 import type { ArchivedSessions } from './archived-sessions.js';
 import { appConfigDir, sessionIndexCachePath } from './paths.js';
 import type { VaultSummary } from './vault/catalog.js';
+import type { WorktreeLink, WorktreeLinks } from './worktrees/links.js';
 
 /**
  * Sube cuando cambia la forma de la cache. La v3 agrego `modelIds`; la v4 la
@@ -206,6 +207,7 @@ export function vaultOnlySessions(
         archived: false,
         storage: 'vault',
         partial: copy.partial,
+        worktree: null,
       },
     });
   }
@@ -368,11 +370,14 @@ export function migrateIndexCache(parsed: unknown): CacheFileV4 | null {
  *     El primero que llega a un proyecto fija el `cwd` que se muestra.
  *  3. Las sesiones de cada proyecto, de la mas reciente a la mas vieja. Los
  *     proyectos, en el orden en que aparecieron.
+ *  4. Hito 48: una sesion de una rama aparte (`linkOf`) va al proyecto de su
+ *     carpeta principal, con su rama en `worktree`. Sin eso era otro proyecto.
  */
 export function buildProjects(
   sessions: Iterable<ProjectInput>,
   platform: string,
-): Array<Omit<ProjectSummary, 'cwdExists'>> {
+  linkOf: (cwd: string) => WorktreeLink | null = () => null,
+): Array<Omit<ProjectSummary, 'cwdExists' | 'isGitRepo'>> {
   const all = [...sessions];
 
   const groupCwd = new Map<string, string>();
@@ -383,10 +388,12 @@ export function buildProjects(
     }
   }
 
-  const projects = new Map<string, Omit<ProjectSummary, 'cwdExists'>>();
+  const projects = new Map<string, Omit<ProjectSummary, 'cwdExists' | 'isGitRepo'>>();
   for (const session of all) {
     const own = session.cwd !== null && session.cwd.length > 0 ? session.cwd : null;
-    const effective = own ?? groupCwd.get(`${session.agent}:${session.group}`) ?? '';
+    const sessionCwd = own ?? groupCwd.get(`${session.agent}:${session.group}`) ?? '';
+    const link = sessionCwd.length > 0 ? linkOf(sessionCwd) : null;
+    const effective = link?.mainCwd ?? sessionCwd;
     const key =
       effective.length > 0
         ? normalizeCwdKey(effective, platform)
@@ -405,7 +412,7 @@ export function buildProjects(
       };
       projects.set(key, project);
     }
-    project.sessions.push(session.summary);
+    project.sessions.push(link === null ? session.summary : { ...session.summary, worktree: link.worktree });
     project.lastActivityAt = Math.max(project.lastActivityAt, session.summary.updatedAt);
   }
 
@@ -451,6 +458,14 @@ export class SessionIndex extends EventEmitter {
   private readonly cwdExists = new Map<string, boolean>();
 
   /**
+   * Hito 48. La rama aparte de cada `cwd` (null si no es una), y si cada carpeta
+   * de proyecto es de git. Se aprenden junto con `cwdExists` y por lo mismo: la
+   * barra se arma sin tocar el disco.
+   */
+  private readonly cwdLink = new Map<string, WorktreeLink | null>();
+  private readonly cwdGit = new Map<string, boolean>();
+
+  /**
    * Como quedo el `list()` de cada CLI en el ultimo escaneo. Decide si una
    * copia de esa CLI se muestra (`vaultOnlySessions`). `refreshPath` no lo
    * toca: un aviso del watcher dice que un archivo cambio, no que la raiz se
@@ -477,6 +492,8 @@ export class SessionIndex extends EventEmitter {
      * indice de siempre.
      */
     private readonly catalog?: VaultCatalogView,
+    /** Hito 48: de que proyecto y que rama es cada carpeta. Ausente: cada carpeta es su proyecto, como siempre. */
+    private readonly links?: Pick<WorktreeLinks, 'sessionLink' | 'isGitRepo'>,
   ) {
     super();
     this.stopCatalog =
@@ -514,8 +531,13 @@ export class SessionIndex extends EventEmitter {
     );
   }
 
+  /** La rama aparte de una carpeta del historial, tal como la ve la barra. */
+  linkOf(cwd: string): WorktreeLink | null {
+    return this.cwdLink.get(cwd) ?? null;
+  }
+
   private projectsWith(copies: readonly ProjectInput[]): ProjectSummary[] {
-    return buildProjects([...this.sessions.values(), ...copies], process.platform)
+    return buildProjects([...this.sessions.values(), ...copies], process.platform, (cwd) => this.linkOf(cwd))
       .map((project) => this.finish(project))
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
@@ -552,10 +574,41 @@ export class SessionIndex extends EventEmitter {
    */
   private async learnVaultCwds(): Promise<void> {
     for (const copy of this.catalog?.summaries() ?? []) {
-      if (copy.cwd.length > 0 && !this.cwdExists.has(copy.cwd)) {
-        this.cwdExists.set(copy.cwd, await pathExists(copy.cwd));
-      }
+      if (copy.cwd.length > 0) await this.learnCwd(copy.cwd);
     }
+  }
+
+  /**
+   * Lo que la barra necesita saber de una carpeta, antes de que su sesion sea
+   * visible: si existe y, con ramas aparte, de que proyecto es y si ese
+   * proyecto es de git. `fresh` vuelve a mirar si existe: la carpeta pudo
+   * aparecer o borrarse desde el escaneo.
+   */
+  private async learnCwd(cwd: string, fresh = false): Promise<void> {
+    if (fresh || !this.cwdExists.has(cwd)) this.cwdExists.set(cwd, await pathExists(cwd));
+    if (this.links === undefined) return;
+    if (fresh || !this.cwdLink.has(cwd)) this.cwdLink.set(cwd, await this.links.sessionLink(cwd).catch(() => null));
+    const projectCwd = this.cwdLink.get(cwd)?.mainCwd ?? cwd;
+    if (projectCwd !== cwd && (fresh || !this.cwdExists.has(projectCwd))) {
+      this.cwdExists.set(projectCwd, await pathExists(projectCwd));
+    }
+    if (fresh || !this.cwdGit.has(projectCwd)) {
+      this.cwdGit.set(projectCwd, await this.links.isGitRepo(projectCwd).catch(() => false));
+    }
+  }
+
+  /**
+   * Hito 48: se creo, se quito o se volvio a abrir una rama aparte. Se vuelve a
+   * mirar cada carpeta conocida y se reemite la barra: una sesion de una rama
+   * quitada pasa a decirlo, y la de una nueva cae en su proyecto.
+   */
+  async refreshWorktrees(): Promise<void> {
+    if (this.links === undefined) return;
+    const cwds = new Set<string>();
+    for (const session of this.sessions.values()) if (session.cwd !== null) cwds.add(session.cwd);
+    for (const copy of this.catalog?.summaries() ?? []) if (copy.cwd.length > 0) cwds.add(copy.cwd);
+    for (const cwd of cwds) await this.learnCwd(cwd, true);
+    this.emitProjects();
   }
 
   /**
@@ -619,10 +672,11 @@ export class SessionIndex extends EventEmitter {
   }
 
   /** Completa un proyecto armado para salir: si su carpeta existe, y que esta archivado. */
-  private finish(project: Omit<ProjectSummary, 'cwdExists'>): ProjectSummary {
+  private finish(project: Omit<ProjectSummary, 'cwdExists' | 'isGitRepo'>): ProjectSummary {
     return this.withArchived({
       ...project,
       cwdExists: project.cwd.length > 0 ? (this.cwdExists.get(project.cwd) ?? false) : false,
+      isGitRepo: project.cwd.length > 0 ? (this.cwdGit.get(project.cwd) ?? false) : false,
     });
   }
 
@@ -745,6 +799,8 @@ export class SessionIndex extends EventEmitter {
         */
         this.sessions.clear();
         this.cwdExists.clear();
+        this.cwdLink.clear();
+        this.cwdGit.clear();
         await this.learnVaultCwds();
         this.setStatus({ state: 'ready', scannedFiles: 0, totalFiles: 0 });
         this.emitProjects();
@@ -755,6 +811,8 @@ export class SessionIndex extends EventEmitter {
       // Las dos juntas: una sesion sin su `cwdExists` se veria tachada.
       this.sessions.clear();
       this.cwdExists.clear();
+      this.cwdLink.clear();
+      this.cwdGit.clear();
       let scanned = 0;
       this.setStatus({ state: 'scanning', scannedFiles: 0, totalFiles });
 
@@ -777,9 +835,7 @@ export class SessionIndex extends EventEmitter {
 
           // Una vez por `cwd` distinto, y antes de que la sesion sea visible.
           for (const session of batch) {
-            if (session.cwd !== null && !this.cwdExists.has(session.cwd)) {
-              this.cwdExists.set(session.cwd, await pathExists(session.cwd));
-            }
+            if (session.cwd !== null) await this.learnCwd(session.cwd);
           }
           /*
             El grupo entra entero y de una: una sesion sin `cwd` que se viera
@@ -796,7 +852,7 @@ export class SessionIndex extends EventEmitter {
             anteriores; uno parcial pisaria en el cliente al que ya estaba.
           */
           const fresh = new Set(batch.map((session) => session.summary));
-          const touched = buildProjects(this.sessions.values(), process.platform).filter(
+          const touched = buildProjects(this.sessions.values(), process.platform, (cwd) => this.linkOf(cwd)).filter(
             (project) => project.sessions.some((summary) => fresh.has(summary)),
           );
           this.emit(
@@ -912,6 +968,8 @@ export class SessionIndex extends EventEmitter {
         archived: false,
         storage: 'native',
         partial: false,
+        // La pone `buildProjects` (hito 48): depende de la carpeta, no del archivo.
+        worktree: null,
       },
     };
   }
@@ -972,7 +1030,7 @@ export class SessionIndex extends EventEmitter {
         continue;
       }
       // Siempre de nuevo: la carpeta pudo aparecer o borrarse desde el escaneo.
-      if (indexed.cwd !== null) this.cwdExists.set(indexed.cwd, await pathExists(indexed.cwd));
+      if (indexed.cwd !== null) await this.learnCwd(indexed.cwd, true);
       // Un `set` sobre una clave que ya estaba conserva su posicion.
       this.sessions.set(key, indexed);
       changed = true;

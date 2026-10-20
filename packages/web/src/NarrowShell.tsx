@@ -52,6 +52,7 @@ import {
 import { projectColor } from './project-color.js';
 import { NotifyButton, SoundControl } from './SoundControl.js';
 import { TabStatus, defaultTabLabel } from './TabBar.js';
+import { tabBranch, tabColorCwd } from './worktree-ui.js';
 import { TerminalKeys } from './TerminalKeys.js';
 import type { PhoneChimeSource } from './notification-sound.js';
 import type { NotificationSoundState } from './useNotificationSound.js';
@@ -89,6 +90,8 @@ interface NarrowShellProps {
   agents: readonly AgentInfo[];
   offerAgentChoice: boolean;
   newTabAgent: AgentId | null;
+  /** El del `hello`: decide si dos carpetas son el mismo proyecto (la etiqueta de rama, hito 48). */
+  platform: string;
   canOpen: boolean;
   newTabBlockedTitle: string | null;
   onSelectTab: (terminalId: TerminalId) => void;
@@ -126,6 +129,7 @@ export function NarrowShell({
   agents,
   offerAgentChoice,
   newTabAgent,
+  platform,
   canOpen,
   newTabBlockedTitle,
   onSelectTab,
@@ -242,7 +246,7 @@ export function NarrowShell({
                 activity={activity.get(activeTerminal.terminalId)}
                 statusLine={statusLineOf(activeTerminal)}
               />
-              <span className="project-swatch" style={{ background: projectColor(activeTerminal.cwd) }} />
+              <span className="project-swatch" style={{ background: projectColor(tabColorCwd(activeTerminal)) }} />
               <span className="narrow-current-label">{defaultTabLabel(activeTerminal)}</span>
             </>
           )}
@@ -301,6 +305,7 @@ export function NarrowShell({
           <div className="narrow-sheet" role="dialog" aria-label={t('narrow.tabs.open')} onClick={(event) => event.stopPropagation()}>
             <TabSheet
               terminals={terminals}
+              platform={platform}
               activeTerminalId={activeTerminalId}
               activity={activity}
               statusLineOf={statusLineOf}
@@ -341,6 +346,7 @@ export function NarrowShell({
 
 function TabSheet({
   terminals,
+  platform,
   activeTerminalId,
   activity,
   statusLineOf,
@@ -349,6 +355,7 @@ function TabSheet({
   onRename,
 }: {
   terminals: readonly TerminalDescriptor[];
+  platform: string;
   activeTerminalId: TerminalId | null;
   activity: ReadonlyMap<TerminalId, TerminalActivity>;
   statusLineOf: (terminal: TerminalDescriptor) => StatusLineSetupInfo | null;
@@ -375,11 +382,12 @@ function TabSheet({
     <ul className="narrow-tabs">
       {terminals.map((terminal) => {
         const editing = editingId === terminal.terminalId;
+        const branch = tabBranch(terminal, terminals, platform);
         return (
           <li
             key={terminal.terminalId}
             className={`narrow-tab-row${terminal.terminalId === activeTerminalId ? ' narrow-tab-active' : ''}`}
-            style={{ '--tab-project-color': projectColor(terminal.cwd) } as CSSProperties}
+            style={{ '--tab-project-color': projectColor(tabColorCwd(terminal)) } as CSSProperties}
           >
             {editing ? (
               <input
@@ -403,6 +411,7 @@ function TabSheet({
                   activity={activity.get(terminal.terminalId)}
                   statusLine={statusLineOf(terminal)}
                 />
+                {branch !== null && <span className="tab-branch">{branch}</span>}
                 <span className="narrow-tab-label">{defaultTabLabel(terminal)}</span>
               </button>
             )}

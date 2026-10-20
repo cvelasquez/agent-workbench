@@ -41,7 +41,7 @@ Le terminal reste le terminal : tout ce que vous tapez va directement à la CLI.
 | **Conversation** | Les messages sous forme de cartes, en direct, avec les appels d'outils repliés. Les messages plus anciens se chargent quand vous remontez. Recherchez, copiez n'importe quel message ou bloc de code, et revenez à votre message précédent (↑) ou allez à la fin (↓). Une ligne en bas indique quand votre message a été remis à la CLI et si l'agent travaille encore. Selon la CLI, vous pouvez répondre aux questions de l'agent directement dans la conversation. Un fichier du projet que l'agent mentionne s'ouvre dans l'onglet Fichiers en un clic. Avec Claude Code, un message que vous arrêtez avant que l'agent commence revient dans la zone de saisie pour le corriger, et **↩** sur un message revient avant lui : la conversation et, si vous le voulez, le code. Un message envoyé pendant que l'agent travaille attend à la fin, marqué en file d'attente ; selon la CLI, **Forcer l'envoi maintenant** le fait lire tout de suite à l'agent. |
 | **Zone de saisie** | De la place pour écrire, coller des images, joindre des fichiers, et les longs textes collés rangés dans une pastille compacte. Ce que vous êtes en train d'écrire survit à la fermeture de l'application et s'affiche en direct dans toutes les fenêtres ouvertes. Maj+Entrée continue une liste numérotée ou à puces. |
 | **Jauge de contexte** | La part de la fenêtre de contexte du modèle qu'occupe la conversation. En tokens, jamais en argent. |
-| **Modifications** | La branche, les fichiers modifiés et leur diff. **Lecture seule** : aucun bouton de commit ni de push. |
+| **Modifications** | La branche, les fichiers modifiés et leur diff. **Orchestre des agents en parallèle** : ouvrez le projet sur une nouvelle branche, dans son propre dossier, et plusieurs agents travaillent en même temps sans se marcher sur leurs modifications. Modifications montre chaque branche : ce qui n'est pas encore commité, combien de commits elle a et si elle est déjà intégrée. |
 | **Fichiers** | L'arborescence du projet, avec une recherche et un aperçu avec coloration syntaxique. Ouvrez plusieurs fichiers à la fois, chacun dans son onglet ; les fichiers Markdown s'ouvrent mis en forme. Un clic place le chemin d'un fichier dans votre message. Modifiez un fichier texte, un `.env` par exemple, et enregistrez-le sur place : si l'agent l'a changé pendant que vous le modifiiez, rien n'est écrasé, et vous reportez vos modifications dans la nouvelle version. |
 | **Plans** | Les plans et les documents `.md` que la conversation a écrits, mis en forme. Un clic place le chemin d'un document dans votre message. |
 | **Notes** | Un bloc-notes à côté de la conversation, images comprises. Avec Claude Code, un clic envoie une note dans une nouvelle conversation. |
@@ -436,18 +436,22 @@ décrits dans [`PRIVACY.md`](PRIVACY.md).
   son propre terminal, et l'application ne s'en aperçoit même pas.
 - **Elle lit l'historique des CLI et n'écrit rien dans leurs dossiers.** Le
   tableau ci-dessous liste ce qu'elle lit et ce qu'elle n'ouvre jamais.
-- **Elle n'écrit que dans ses propres dossiers**, plus deux choses dans vos
-  projets : la mémoire partagée, seulement si vous le confirmez, et un fichier
-  que vous modifiez et enregistrez vous-même dans l'onglet Fichiers.
+- **Elle n'écrit que dans ses propres dossiers**, plus trois choses dans vos
+  projets : la mémoire partagée, seulement si vous le confirmez ; un fichier que
+  vous modifiez et enregistrez vous-même dans l'onglet Fichiers ; et les
+  branches à part que vous ouvrez, chacune dans son dossier à côté du projet,
+  avec les notes qui reviennent au dossier principal quand vous la retirez.
 - **Le serveur n'écoute que sur votre ordinateur** (`127.0.0.1`), sur un port
   aléatoire, avec un nouveau jeton aléatoire à chaque démarrage, et il rejette
   les requêtes venant d'autres pages web. L'accès à distance n'y change rien :
   le port devient fixe, toujours sur `127.0.0.1`, et SSH — que vous activez et
   contrôlez — fait le reste.
-- **Le panneau Modifications est en lecture seule.** Ni commit, ni stage, ni
-  push : quand un agent modifie des fichiers, un bouton qui écrit l'historique,
-  c'est exactement le genre de bouton dont on ne sait plus, après coup, qui l'a
-  pressé.
+- **Git : l'application ne fait jamais de commit ni de push, et ne réécrit pas
+  l'historique.** Elle exécute trois commandes git qui écrivent, chacune après
+  une confirmation qui l'affiche : `git worktree add` pour ouvrir une branche
+  dans son propre dossier, `git worktree remove` (jamais avec `--force`) et
+  `git branch -d` (seulement pour une branche créée par l'application et déjà
+  intégrée). Les commits, ce sont les agents qui les font, dans leur terminal.
 
 | CLI | Ce qui est lu | Ce qui n'est jamais ouvert |
 |---|---|---|

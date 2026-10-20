@@ -84,6 +84,11 @@ import { useNarrow } from './useNarrow.js';
 import { requestedTab } from './session-token.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
+import { useWorktreeDialogs, useWorktreeRows } from './useWorktrees.js';
+import { WorktreeDialog } from './WorktreeDialog.js';
+import { WorktreeRemoveDialog } from './WorktreeRemoveDialog.js';
+import { tabColorCwd } from './worktree-ui.js';
+import type { GitPanelWorktrees } from './GitPanel.js';
 import { useLocale } from './i18n/useLocale.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
@@ -96,7 +101,7 @@ import { RewindDialog } from './RewindDialog.js';
 import { changedFilesAfter, rewindPreview } from './rewind-ui.js';
 import { useRewind } from './useRewind.js';
 import type { ConnectionStatus } from './connection.js';
-import { blindToApprovals, type GlobalSearchHit, type TerminalId } from '@agent-workbench/shared';
+import { blindToApprovals, normalizeCwdKey, type AgentId, type GlobalSearchHit, type TerminalId } from '@agent-workbench/shared';
 
 const STATUS_LABEL_KEYS: Record<ConnectionStatus, MessageKey> = {
   connecting: 'app.status.connecting',
@@ -201,6 +206,7 @@ export function App(): JSX.Element {
     refreshIndex,
     refreshAgents,
     continueSession,
+    expectTab,
     handoffs,
     dismissHandoff,
     returnedMessages,
@@ -617,6 +623,41 @@ export function App(): JSX.Element {
   const panelFollowing = narrow ? activeTerminal !== null : panelOpen;
   const filesShown = narrow ? narrowView === 'files' : panelOpen && shownPanelTab === 'files';
   const git = useGit(connection, panelFollowing ? activeTerminalId : null);
+  /*
+    Las ramas aparte (hito 48, §6.38): las filas de Cambios, solo con su solapa
+    delante (son procesos de git por rama), y los dialogos de crear y quitar.
+  */
+  const gitShown = narrow ? narrowView === 'git' : panelOpen && shownPanelTab === 'git';
+  const worktreeRows = useWorktreeRows(connection, gitShown ? activeTerminalId : null, git.status.updatedAt);
+  const worktreeDialogs = useWorktreeDialogs(connection, expectTab, setActiveTerminal);
+  const folderNameOf = (cwd: string): string => cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? cwd;
+  const gitWorktrees: GitPanelWorktrees = {
+    rows: worktreeRows,
+    onNew: () => {
+      if (activeTerminal === null) return;
+      const projectCwd = tabColorCwd(activeTerminal);
+      worktreeDialogs.openCreate({ kind: 'terminal', terminalId: activeTerminal.terminalId }, projectCwd, folderNameOf(projectCwd));
+    },
+    // A la pestana que ya trabaja en esa carpeta, o una nueva ahi.
+    onOpen: (row) => {
+      const key = normalizeCwdKey(row.path, platform);
+      const open = terminals.find((terminal) => normalizeCwdKey(terminal.cwd, platform) === key);
+      if (open !== undefined) selectTab(open.terminalId);
+      else openTerminal({ cwd: row.path });
+    },
+    onRemove: (row) => worktreeDialogs.openRemove(row.id, row.branch ?? folderNameOf(row.path)),
+  };
+  /** Con que CLI viene elegido el dialogo de crear: la de la pestana, o la del proyecto. */
+  const worktreeAgent = ((): AgentId | null => {
+    const dialog = worktreeDialogs.create;
+    if (dialog === null) return null;
+    const { source } = dialog;
+    if (source.kind === 'terminal') {
+      return terminals.find((terminal) => terminal.terminalId === source.terminalId)?.agent ?? defaultAgent;
+    }
+    const project = projects.find((candidate) => candidate.key === source.projectKey);
+    return project === undefined ? defaultAgent : projectAgent(terminals, project, platform, agents, defaultAgent);
+  })();
   const files = useFiles(connection, filesShown ? activeTerminalId : null);
   /*
     Los planes se escuchan siempre, no solo con la solapa delante: la lista
@@ -1317,6 +1358,14 @@ export function App(): JSX.Element {
       onExportProject={remoteClient ? null : vault.exportProject}
       exporting={vault.exporting}
       lastExported={vault.lastExported}
+      onNewWorktree={(project) => {
+        leaveDrawer();
+        worktreeDialogs.openCreate({ kind: 'project', projectKey: project.key }, project.cwd, folderNameOf(project.cwd));
+      }}
+      onReopenWorktree={(session, project) => {
+        leaveDrawer();
+        worktreeDialogs.reopen(session.agent, session.sessionId, project.cwd, session.worktree?.branch ?? '');
+      }}
       onContinueSession={(session, target) => {
         leaveDrawer();
         continueSession(
@@ -1447,7 +1496,7 @@ export function App(): JSX.Element {
           terminalId={activeTerminalId}
           alive={activeTerminal.alive}
           sleeping={activeTerminal.sleeping}
-          projectColor={projectColor(activeTerminal.cwd)}
+          projectColor={projectColor(tabColorCwd(activeTerminal))}
           activity={activity.get(activeTerminal.terminalId)}
           imagesAllowed={activeControls.imagesAllowed}
           blockedReason={blockedReason}
@@ -1511,6 +1560,7 @@ export function App(): JSX.Element {
         onTabChange={narrow ? changeNarrowView : changePanelTab}
         title={panelTitle}
         cwd={activeTerminal.cwd}
+        colorCwd={tabColorCwd(activeTerminal)}
         platform={platform}
         cli={
           <div className="terminal-stack">
@@ -1545,6 +1595,7 @@ export function App(): JSX.Element {
         expanded={panelExpanded}
         onToggleExpanded={toggleExpanded}
         git={git}
+        worktrees={gitWorktrees}
         files={files}
         plans={plans}
         documents={documents}
@@ -1768,6 +1819,25 @@ export function App(): JSX.Element {
         />
       )}
 
+      {worktreeDialogs.create !== null && (
+        <WorktreeDialog
+          dialog={worktreeDialogs.create}
+          agents={agents}
+          offerAgentChoice={offerAgentChoice}
+          agent={worktreeAgent}
+          onSubmit={worktreeDialogs.submitCreate}
+          onClose={worktreeDialogs.closeCreate}
+        />
+      )}
+      {worktreeDialogs.remove !== null && (
+        <WorktreeRemoveDialog
+          dialog={worktreeDialogs.remove}
+          onConfirm={worktreeDialogs.confirmRemove}
+          onAskNotes={worktreeDialogs.askNotes}
+          onClose={worktreeDialogs.closeRemove}
+        />
+      )}
+
       {settingsVisible && (
         <SettingsDialog
           onClose={() => setSettingsVisible(false)}
@@ -1896,6 +1966,7 @@ export function App(): JSX.Element {
           agents={agents}
           offerAgentChoice={offerAgentChoice}
           newTabAgent={newTabAgent}
+          platform={platform}
           canOpen={cliAvailable && defaultCwd.length > 0}
           newTabBlockedTitle={newTabBlockedTitle}
           onSelectTab={selectTab}

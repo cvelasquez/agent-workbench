@@ -537,6 +537,10 @@ try {
       ['input', 'agent.submit', 'terminal.open', 'files.read', 'files.write', 'vault.enable', 'notes.create'].every((type) => remoteRefusal(type, true) === null));
     check('al anfitrión no se le niega nada',
       [...hostOnly, ...opensOnHost, 'input'].every((type) => remoteRefusal(type, false) === null));
+    // Hito 48, decisión 5: las ramas aparte desde el teléfono, lo mismo que en la PC.
+    check('las ramas aparte se atienden también desde un equipo remoto',
+      ['worktree.inspect', 'worktree.create', 'worktree.status', 'worktree.planRemove', 'worktree.remove', 'worktree.reopen', 'worktree.askNotes']
+        .every((type) => remoteRefusal(type, true) === null));
   }
 
   // --- 11. El protocolo --------------------------------------------------------

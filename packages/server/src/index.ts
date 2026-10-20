@@ -52,6 +52,9 @@ import { VaultCatalog } from './vault/catalog.js';
 import { defaultVaultDir } from './vault/paths.js';
 import { VaultService } from './vault/service.js';
 import { WorkspaceStore } from './workspace-store.js';
+import { WorktreeLinks } from './worktrees/links.js';
+import { WorktreeService } from './worktrees/service.js';
+import { WorktreeStore } from './worktrees/store.js';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -346,17 +349,39 @@ async function main(): Promise<void> {
   const catalog = new VaultCatalog();
   await catalog.load(settings.get().vault.dir ?? defaultVaultDir());
   /*
+    Las ramas aparte que creo la app (hito 48, §6.38). Antes del indice: de
+    ahi sale en que proyecto cae la sesion de una rama ya quitada.
+  */
+  const worktreeStore = new WorktreeStore();
+  await worktreeStore.load();
+  const worktreeLinks = new WorktreeLinks(worktreeStore);
+  /*
     El indice lee el historial de cada CLI a traves de su adaptador, y al leer
     le ensena al adaptador lo que haga falta —con Claude Code, que variante de
     modelo usa la instalacion—. Va antes que el registro de terminales porque
     le dice de que CLI es una sesion que se reanuda.
   */
-  const index = new SessionIndex(agents, archived, catalog);
+  const index = new SessionIndex(agents, archived, catalog, worktreeLinks);
   const vault = new VaultService({ agents, index, archived, settings, catalog, platform: process.platform });
   vault.start();
-  const registry = new TerminalRegistry(agents, shell, store, (sessionId) =>
-    index.agentOf(sessionId),
+  const registry = new TerminalRegistry(
+    agents,
+    shell,
+    store,
+    (sessionId) => index.agentOf(sessionId),
+    (cwd) => worktreeLinks.tabWorktree(cwd),
   );
+  const worktrees = new WorktreeService({
+    store: worktreeStore,
+    registry,
+    projectCwd: (projectKey) => index.getProjects().find((project) => project.key === projectKey)?.cwd ?? null,
+    findSession: (agent, sessionId) => index.find(agent, sessionId),
+  });
+  // Crear o quitar una rama cambia en que proyecto cae cada sesion y la etiqueta de cada pestana.
+  worktrees.on('changed', () => {
+    void index.refreshWorktrees();
+    void registry.refreshWorktrees();
+  });
   // La consola de las nuevas y las CLIs apagadas, desde Ajustes (Hito 41, §6.32).
   const appSettings = new AppSettingsService({
     settings,
@@ -446,6 +471,7 @@ async function main(): Promise<void> {
     defaultCwd,
     vault,
     remote,
+    worktrees,
   });
 
   // El indice arranca en segundo plano: 3,2 s en frio no pueden demorar la URL.
@@ -522,7 +548,15 @@ async function main(): Promise<void> {
     registry.disposeAll();
     remote.dispose();
 
-    void Promise.all([store.flush(), archived.flush(), notes.flush(), drafts.flush(), remote.flush(), agentsDisposed])
+    void Promise.all([
+      store.flush(),
+      archived.flush(),
+      notes.flush(),
+      drafts.flush(),
+      remote.flush(),
+      worktreeStore.flush(),
+      agentsDisposed,
+    ])
       .catch(() => undefined)
       .then(() => closeUi())
       .catch(() => undefined)

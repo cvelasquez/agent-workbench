@@ -29,6 +29,7 @@ import {
   type VaultStatus,
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
+import { BranchIcon } from './BranchIcon.js';
 import { LongPressButton } from './LongPressButton.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import {
@@ -169,6 +170,13 @@ interface SidebarProps {
   globalSearch: (GlobalSearchApi & { vaultEnabled: boolean }) | null;
   /** Abre un acierto: su sesion, con el texto encontrado para el buscador del hilo. */
   onOpenSearchHit: (hit: GlobalSearchHit, threadQuery: string) => void;
+  /**
+   * Hito 48: "Nueva sesion en una rama aparte" en un proyecto de git. null si el
+   * servidor no las ofrece.
+   */
+  onNewWorktree: ((project: ProjectSummary) => void) | null;
+  /** Hito 48: vuelve a abrir la rama quitada de una sesion y la reanuda. */
+  onReopenWorktree: (session: SessionSummary & { agent: AgentId }, project: ProjectSummary) => void;
 }
 
 /** El fragmento de un acierto con lo encontrado resaltado. */
@@ -435,6 +443,8 @@ export function Sidebar({
   onContinueSession,
   globalSearch,
   onOpenSearchHit,
+  onNewWorktree,
+  onReopenWorktree,
 }: SidebarProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -931,6 +941,21 @@ export function Sidebar({
                   negativo en cada boton, el segundo caia encima del primero.
                 */}
                 <span className="project-actions">
+                {/*
+                  Nueva sesion en una rama aparte (hito 48): solo en un proyecto
+                  de git que sigue en disco. Al pasar el mouse, como exportar.
+                */}
+                {onNewWorktree !== null && project.isGitRepo && project.cwdExists && (
+                  <button
+                    className="icon-button project-action"
+                    onClick={() => onNewWorktree(project)}
+                    disabled={disabled}
+                    title={t('worktree.new')}
+                    aria-label={t('worktree.new')}
+                  >
+                    <BranchIcon />
+                  </button>
+                )}
                 {onExportProject !== null && (
                   <button
                     className={`icon-button project-action${
@@ -1010,7 +1035,9 @@ export function Sidebar({
                     // no depende de la CLI ni de la carpeta (hito 28, D8).
                     const vaultView = sessionVaultView(session);
                     const resumable = resumableSession(session) && canResume(session.agent);
-                    const openable = vaultView.copy ? onOpenVaultSession !== null : canOpen && resumable;
+                    // Hito 48: la de una rama quitada no se reanuda: su carpeta ya no esta.
+                    const branchGone = session.worktree !== null && !session.worktree.exists;
+                    const openable = vaultView.copy ? onOpenVaultSession !== null : canOpen && resumable && !branchGone;
 
                     return (
                       <li
@@ -1067,6 +1094,19 @@ export function Sidebar({
                                 {partialMarkText()}
                               </span>
                             )}
+                            {session.worktree !== null && (
+                              <span
+                                className={`session-branch${branchGone ? ' session-branch-gone' : ''}`}
+                                title={
+                                  branchGone
+                                    ? t('worktree.sidebar.removedTitle')
+                                    : t('worktree.sidebar.branchTitle', { branch: session.worktree.branch })
+                                }
+                              >
+                                {session.worktree.branch}
+                                {branchGone && <span className="session-branch-note">{t('worktree.sidebar.removed')}</span>}
+                              </span>
+                            )}
                             {sessionTitleText(session.title, session.titleSource)}
                           </span>
                           <span className="session-meta">{formatWhen(session.updatedAt)}</span>
@@ -1080,6 +1120,21 @@ export function Sidebar({
                           no, cada titulo se cortaria antes para quien tiene
                           varias CLIs.
                         */}
+                        {/*
+                          Hito 48: la rama de esta sesion se quito pero sigue en el
+                          repo. La saca otra vez en la misma carpeta y la reanuda.
+                        */}
+                        {branchGone && session.worktree?.reopenable === true && canOpen && resumableSession(session) && canResume(session.agent) && (
+                          <button
+                            className="icon-button session-action session-reopen"
+                            onClick={() => onReopenWorktree(session, project)}
+                            title={t('worktree.sidebar.reopenTitle')}
+                            aria-label={t('worktree.sidebar.reopen')}
+                          >
+                            <BranchIcon />
+                          </button>
+                        )}
+
                         <ContinueButton
                           targets={continueTargets(agents, session.agent, session.partial)}
                           className="icon-button session-continue"

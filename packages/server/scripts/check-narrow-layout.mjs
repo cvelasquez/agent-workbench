@@ -273,5 +273,18 @@ const json = (value) => JSON.stringify(value);
   check('theme-color, para la barra del sistema', /<meta name="theme-color"/.test(html));
 }
 
+// --- 6. Las ramas aparte en el teléfono (hito 48, §6.38) ----------------------------
+// Lo mismo que en la PC (decisión 5): la hoja de pestañas lleva la etiqueta de
+// rama y el color del proyecto con las mismas reglas que la barra de pestañas.
+{
+  const shell = readFileSync(join(WEB, 'src', 'NarrowShell.tsx'), 'utf8');
+  const tabBar = readFileSync(join(WEB, 'src', 'TabBar.tsx'), 'utf8');
+  check('la hoja de pestañas y la barra usan la misma regla de la etiqueta de rama',
+    /tabBranch\(terminal, terminals, platform\)/.test(shell) && /tabBranch\(terminal, terminals, platform\)/.test(tabBar));
+  check('y el mismo color de proyecto',
+    /projectColor\(tabColorCwd\(terminal\)\)/.test(shell) && /projectColor\(tabColorCwd\(activeTerminal\)\)/.test(shell) &&
+      /projectColor\(tabColorCwd\(terminal\)\)/.test(tabBar));
+}
+
 console.log(failures === 0 ? '\nTodo bien.' : `\n${failures} fallo(s).`);
 process.exit(failures === 0 ? 0 : 1);

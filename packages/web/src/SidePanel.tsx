@@ -19,7 +19,7 @@
 import type { GitStatus } from '@agent-workbench/shared';
 import { visiblePanelTabs } from './agent-ui.js';
 import { FilesPanel } from './FilesPanel.js';
-import { GitPanel } from './GitPanel.js';
+import { GitPanel, type GitPanelWorktrees } from './GitPanel.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { MemoryPanel } from './MemoryPanel.js';
 import { PlansPanel } from './PlansPanel.js';
@@ -69,6 +69,8 @@ interface SidePanelProps {
   /** Etiqueta de la pestana activa, para el encabezado. */
   title: string;
   cwd: string;
+  /** Hito 48: la carpeta del proyecto, que da el color. En una rama aparte, la principal. */
+  colorCwd: string;
   platform: string;
   /**
    * Las terminales, ya montadas.
@@ -84,6 +86,8 @@ interface SidePanelProps {
   expanded: boolean;
   onToggleExpanded: () => void;
   git: GitView;
+  /** Las ramas aparte del repo de la pestana, para Cambios (hito 48). */
+  worktrees: GitPanelWorktrees;
   files: FilesView;
   plans: PlansView;
   /** Los archivos y planes abiertos de la pestana activa, cada uno en su pestana (§6.31). */
@@ -108,12 +112,14 @@ export function SidePanel({
   onTabChange,
   title,
   cwd,
+  colorCwd,
   platform,
   cli,
   cliUnseen,
   expanded,
   onToggleExpanded,
   git,
+  worktrees,
   files,
   plans,
   documents,
@@ -139,7 +145,7 @@ export function SidePanel({
         <button className="icon-button" onClick={onHide} title={t('panel.hide')}>
           »
         </button>
-        {cwd.length > 0 && <span className="project-swatch" style={{ background: projectColor(cwd) }} />}
+        {cwd.length > 0 && <span className="project-swatch" style={{ background: projectColor(colorCwd) }} />}
         <span className="side-panel-title" title={cwd}>
           {title}
         </span>
@@ -192,7 +198,7 @@ export function SidePanel({
         {/* Siempre montada; solo se esconde. Ver la cabecera del archivo. */}
         <div className={`cli-slot${tab === 'cli' ? '' : ' cli-slot-hidden'}`}>{cli}</div>
 
-        {tab === 'git' && <GitPanel view={git} />}
+        {tab === 'git' && <GitPanel view={git} worktrees={worktrees} />}
         {tab === 'plans' && <PlansPanel view={plans} docs={documents.plans} onInsertPath={onInsertPath} />}
         {tab === 'memory' && <MemoryPanel view={memory} />}
         {tab === 'files' && (

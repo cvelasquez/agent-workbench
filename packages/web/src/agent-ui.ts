@@ -1332,13 +1332,18 @@ export function pendingTabLabel(pending: PendingOpen): string {
  * no las dos en el mismo sitio.
  */
 export function pendingTabPlacements(
-  terminals: readonly Pick<TerminalDescriptor, 'terminalId' | 'kind' | 'cwd'>[],
+  terminals: readonly (Pick<TerminalDescriptor, 'terminalId' | 'kind' | 'cwd'> & Partial<Pick<TerminalDescriptor, 'worktree'>>)[],
   pendings: readonly PendingOpen[],
   platform: string,
 ): PendingTabPlacement[] {
-  const order: { terminalId: TerminalId; kind: TerminalKind; cwd: string }[] = terminals.map(
-    (terminal) => ({ terminalId: terminal.terminalId, kind: terminal.kind, cwd: terminal.cwd }),
-  );
+  // Con su rama aparte (hito 48): una pestana de una rama cuenta en el proyecto de su carpeta principal.
+  const order: { terminalId: TerminalId; kind: TerminalKind; cwd: string; worktree?: TerminalDescriptor['worktree'] }[] =
+    terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      kind: terminal.kind,
+      cwd: terminal.cwd,
+      worktree: terminal.worktree ?? null,
+    }));
   const placements: PendingTabPlacement[] = [];
 
   for (const pending of pendings) {

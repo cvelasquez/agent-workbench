@@ -147,6 +147,7 @@ packages/
       cli-folders.ts          the CLIs' own folders, kept out of the Files tab
       file-write.ts           saving a file edited in the Files viewer, one of two writes in a project
       memory-hub.ts           shared memory, the other write inside a project
+      worktrees/              separate branches (git worktrees): the only git commands that write
       queued-submits.ts       messages a CLI hands back to its editor on interrupt
       handoff/                continue a conversation with another CLI
       global-search.ts        search across the text of every conversation
@@ -307,8 +308,9 @@ touch credentials.
 ### Where the app writes
 
 - Its own configuration directory: tabs, index cache, notes, archived
-  sessions, settings, the paired devices of remote access (hashes only), and
-  the history copy (or the folder the user picks).
+  sessions, settings, the paired devices of remote access (hashes only), the
+  separate branches it created (`worktrees.json`), and the history copy (or the
+  folder the user picks).
 - The system temp folder: pasted images and attachments, per-tab CLI logs,
   temporary database copies. Folders are created `0o700`, files `0o600`.
 - **Two places inside a project.** Shared memory: `.agents/memory/`, the text
@@ -328,6 +330,18 @@ touch credentials.
   an exclusive temp file and `rename`, keeping the file's mode outside
   Windows). A read-only file, or one the viewer doesn't offer to edit, is never
   replaced.
+- **Next to a project, the separate branches** the user opens, always after a
+  dialog that shows the git command: each one's folder in
+  `<project>.worktrees/`, created and removed by git (`git worktree add` and
+  `git worktree remove`, never with `--force`), with the ignored notes copied
+  from the main folder (never a CLI's configuration). When one is removed, the
+  notes that changed only in the branch go back to the main folder with an
+  atomic write; one that changed on both sides blocks the removal until the
+  user decides. `git branch -d` (never `-D`) deletes a branch only if the app
+  created it and it's already merged. These three are the only git commands the
+  app runs that write, all in `worktrees/git.ts`: no commit, push, rebase or
+  merge, and the repository's git configuration is never touched. Requests name
+  a project or a registered branch, never a path.
 
 ---
 
@@ -337,8 +351,10 @@ The web has no test runner; the server has `pnpm check`, a chain of scripts in
 `packages/server/scripts/`. They cover what breaks silently: the incremental
 JSONL follower (lines split across reads, UTF-8 cut in half), the context
 window, `git status --porcelain=v2 -z` parsing, the path guard, saving a file
-from the Files tab and keeping the CLIs' folders out of it, the shared memory
-bridge, every adapter's event mapping, the history copy, handoff, global
+from the Files tab and keeping the CLIs' folders out of it, separate branches
+(created and removed against throwaway repositories, notes that must not be
+lost, links that must not be followed, and no git write outside its module),
+the shared memory bridge, every adapter's event mapping, the history copy, handoff, global
 search, remote access (pairing codes, device credentials, what a paired device
 is refused, and that with it off nothing of it is accepted) and the nine locale
 files. The Android app has its own tests, on the JVM (section 7).

@@ -10,14 +10,20 @@
  * El panel es angosto, asi que la lista y el diff no conviven: se hace clic en
  * un archivo y el diff **reemplaza** la lista, con una vuelta atras. Partir 460
  * px en dos deja las dos mitades inservibles.
+ *
+ * Desde el hito 48 tiene lo unico que escribe en git, y no son commits: abrir
+ * una rama aparte y quitarla (§6.38), cada una tras su dialogo, que muestra el
+ * comando antes de correrlo.
  */
 
-import type { GitChangeKind, GitFileChange, GitStatus } from '@agent-workbench/shared';
+import type { GitChangeKind, GitFileChange, GitStatus, WorktreeRow } from '@agent-workbench/shared';
+import { BranchIcon } from './BranchIcon.js';
 import { DiffView } from './DiffView.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { serverTextMessage } from './i18n/server-text.js';
 import { tRich } from './i18n/rich.js';
 import type { GitView } from './useGit.js';
+import { rowStatusParts, sortedRows } from './worktree-ui.js';
 
 /** Letra que se muestra en el cuadradito de cada archivo. */
 const KIND_BADGE: Readonly<Record<GitChangeKind, string>> = {
@@ -97,11 +103,58 @@ function Headline({ status }: HeadlineProps): JSX.Element {
   );
 }
 
-interface GitPanelProps {
-  view: GitView;
+/** Las ramas aparte del repo de la pestana (hito 48, §6.38). */
+export interface GitPanelWorktrees {
+  rows: readonly WorktreeRow[];
+  /** Nueva sesion en una rama aparte, desde esta pestana. */
+  onNew: () => void;
+  /** Pasa a la pestana de esa carpeta, o abre una ahi. */
+  onOpen: (row: WorktreeRow) => void;
+  /** Solo las que creo la app (`id`). */
+  onRemove: (row: WorktreeRow & { id: string }) => void;
 }
 
-export function GitPanel({ view }: GitPanelProps): JSX.Element {
+interface GitPanelProps {
+  view: GitView;
+  worktrees: GitPanelWorktrees;
+}
+
+/** Una fila de "Ramas aparte": la rama, su estado contra la base y lo que se puede hacer. */
+function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPanelWorktrees }): JSX.Element {
+  const status = rowStatusParts(row);
+  const id = row.id;
+  return (
+    <li>
+      <div className="git-worktree" title={row.path}>
+        <span className="git-worktree-branch">
+          {row.branch ?? t('git.worktrees.detached')}
+          {row.isMain && <span className="git-worktree-main">{t('worktree.rows.main')}</span>}
+          {row.isCurrent && <span className="git-worktree-main">{t('worktree.rows.current')}</span>}
+        </span>
+        {status.length > 0 && <span className="git-worktree-state">{status.join(' · ')}</span>}
+        <span className="git-worktree-path">{row.path}</span>
+        <span className="git-worktree-actions">
+          {!row.isCurrent && (
+            <button className="link-button" onClick={() => worktrees.onOpen(row)} title={t('worktree.rows.openTitle')}>
+              {t('worktree.rows.open')}
+            </button>
+          )}
+          {id !== null && !row.isMain && (
+            <button
+              className="link-button"
+              onClick={() => worktrees.onRemove({ ...row, id })}
+              title={t('worktree.rows.removeTitle')}
+            >
+              {t('worktree.rows.remove')}
+            </button>
+          )}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
   const { status, diff, loadingDiff, openDiff, closeDiff, refresh } = view;
 
   if (diff !== null || loadingDiff) {
@@ -135,12 +188,26 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
     );
   }
 
-  const otherWorktrees = status.worktrees.filter((worktree) => !worktree.isCurrent);
+  /*
+    Las ramas aparte del repo, y la principal si la pestana esta en una: la de
+    la pestana tambien, para poder quitarla desde ella misma. La seccion aparece
+    solo con alguna rama aparte: sin ellas, Cambios es el de siempre.
+  */
+  const otherWorktrees = sortedRows(worktrees.rows).filter((row) => !(row.isCurrent && row.isMain));
+  const anyLinked = otherWorktrees.some((row) => !row.isMain);
 
   return (
     <div className="panel-body">
       <div className="panel-subhead">
         <Headline status={status} />
+        <button
+          className="icon-button"
+          onClick={worktrees.onNew}
+          title={t('worktree.new')}
+          aria-label={t('worktree.new')}
+        >
+          <BranchIcon />
+        </button>
         <button className="icon-button" onClick={refresh} title={t('git.refresh')}>
           ⟳
         </button>
@@ -215,27 +282,21 @@ export function GitPanel({ view }: GitPanelProps): JSX.Element {
 
         {status.truncated && <p className="panel-note">{tRich('git.truncated')}</p>}
 
-        {otherWorktrees.length > 0 && (
+        {anyLinked && (
           <section className="git-group">
             {/*
               Se listan porque con varios worktrees del mismo repo es facil
               perder de vista en cual esta parada la pestana, y ahi se le pide
-              al agente que edite el arbol equivocado.
+              al agente que edite el arbol equivocado. Desde el hito 48, con su
+              estado contra la rama de la que salieron, y abrir y quitar.
             */}
-            <h3 className="git-group-title" title={t('git.worktrees.headingTitle')}>
-              {t('git.worktrees.heading')}
+            <h3 className="git-group-title" title={t('worktree.rows.headingTitle')}>
+              {t('worktree.rows.heading')}
               <span className="git-group-count">{otherWorktrees.length}</span>
             </h3>
             <ul className="git-list">
-              {otherWorktrees.map((worktree) => (
-                <li key={worktree.path}>
-                  <div className="git-worktree" title={worktree.path}>
-                    <span className="git-worktree-branch">
-                      {worktree.branch ?? t('git.worktrees.detached')}
-                    </span>
-                    <span className="git-worktree-path">{worktree.path}</span>
-                  </div>
-                </li>
+              {otherWorktrees.map((row) => (
+                <WorktreeItem key={row.path} row={row} worktrees={worktrees} />
               ))}
             </ul>
           </section>

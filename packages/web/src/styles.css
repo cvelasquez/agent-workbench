@@ -914,6 +914,27 @@ kbd {
   vertical-align: 1px;
 }
 
+/*
+  La rama de una pestana en una rama aparte (hito 48, §6.38), y la de la
+  carpeta principal cuando su proyecto tiene alguna abierta. Como la insignia de
+  la CLI: adentro de la etiqueta, y se recorta con ella.
+*/
+.tab-branch {
+  display: inline-block;
+  max-width: 12em;
+  margin-right: 5px;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--tab-project-color, var(--accent)) 22%, transparent);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+
 /* ---------- centro: la conversacion ---------- */
 
 .chat-stack {
@@ -3277,6 +3298,29 @@ kbd {
   font-size: 12px;
 }
 
+/* Hito 48: "carpeta principal", al lado de su rama. */
+.git-worktree-main {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* Lo que tiene contra la rama de la que salio: sin commit, adelante, integrada. */
+.git-worktree-state {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.git-worktree-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.git-worktree-actions:empty {
+  display: none;
+}
+
 .git-worktree-path {
   font-size: 10px;
   color: var(--text-dim);
@@ -4629,6 +4673,121 @@ kbd {
   width: min(520px, calc(100vw - 32px));
 }
 
+/* ---------- ramas aparte: crear y quitar (hito 48, §6.38) ---------- */
+
+.worktree-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.worktree-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.worktree-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.worktree-label {
+  flex: 0 0 4.5em;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.worktree-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--chrome);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.worktree-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: calc(4.5em + 10px);
+}
+
+.worktree-mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.worktree-base {
+  flex: 0 1 14em;
+}
+
+.worktree-check {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.worktree-problem {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--danger, var(--warning));
+}
+
+.worktree-warning {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  font-size: 12px;
+}
+
+.worktree-warning p {
+  margin: 0 0 4px;
+}
+
+.worktree-path {
+  margin: 4px 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.worktree-files {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.worktree-command {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.worktree-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.worktree-warning .worktree-actions {
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.worktree-actions .primary-button {
+  margin-top: 0;
+}
+
 .rewind-quote {
   margin: 0 0 8px;
   padding: 8px 10px;
@@ -5281,6 +5440,39 @@ kbd {
 .session-partial-mark {
   color: var(--warning);
   border: 1px dashed color-mix(in srgb, var(--warning) 60%, transparent);
+}
+
+/*
+  La rama aparte en la que trabajo una sesion (hito 48), dentro del titulo como
+  las marcas de arriba. Quitada, tachada y con su aviso.
+*/
+.session-branch {
+  display: inline-block;
+  max-width: 10em;
+  margin-right: 5px;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 9.5px;
+  line-height: 13px;
+  white-space: nowrap;
+  vertical-align: 1px;
+  color: var(--text-dim);
+}
+
+.session-branch-gone {
+  text-decoration: line-through;
+  border-style: dashed;
+}
+
+.session-branch-note {
+  margin-left: 4px;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-block;
 }
 
 /*

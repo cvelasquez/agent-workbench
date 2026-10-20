@@ -54,6 +54,11 @@ export function workspaceStatePath(): string {
   return path.join(appConfigDir(), 'workspace.json');
 }
 
+/** Las ramas aparte que creo la app (hito 48, §6.38): de donde salieron y que notas se copiaron. */
+export function worktreesStatePath(): string {
+  return path.join(appConfigDir(), 'worktrees.json');
+}
+
 /**
  * Sesiones archivadas: las que el usuario escondio de la barra lateral.
  *

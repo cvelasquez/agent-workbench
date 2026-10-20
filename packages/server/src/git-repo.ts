@@ -318,36 +318,67 @@ export function parsePorcelainV2(raw: string): ParsedStatus {
   return parsed;
 }
 
-/** Parser de `git worktree list --porcelain`. Bloques separados por linea vacia. */
-export function parseWorktrees(raw: string, currentRoot: string): GitWorktree[] {
-  const worktrees: GitWorktree[] = [];
-  let current: { path: string; branch: string | null } | null = null;
+/** Una carpeta de `git worktree list`. */
+export interface WorktreeEntry {
+  path: string;
+  /** null con HEAD desprendido o en un repo desnudo. */
+  branch: string | null;
+  /** La primera de la lista: la carpeta principal. */
+  isMain: boolean;
+  bare: boolean;
+  locked: boolean;
+  prunable: boolean;
+}
 
+/**
+ * Parser de `git worktree list --porcelain -z` (hito 48): campos separados por
+ * NUL y cada carpeta cerrada por un NUL vacio. Sin `-z`, una ruta con un salto
+ * de linea partia el registro en dos. La primera carpeta es la principal.
+ */
+export function parseWorktreeListZ(raw: string): WorktreeEntry[] {
+  const entries: WorktreeEntry[] = [];
+  let current: WorktreeEntry | null = null;
   const flush = (): void => {
-    if (current === null) return;
-    worktrees.push({
-      path: current.path,
-      branch: current.branch,
-      isCurrent: path.resolve(current.path) === path.resolve(currentRoot),
-    });
+    if (current !== null) entries.push(current);
     current = null;
   };
-
-  for (const line of raw.split(/\r?\n/)) {
-    if (line.length === 0) {
+  for (const field of raw.split('\0')) {
+    if (field.length === 0) {
       flush();
       continue;
     }
-    if (line.startsWith('worktree ')) {
+    if (field.startsWith('worktree ')) {
       flush();
-      current = { path: line.slice('worktree '.length), branch: null };
-    } else if (line.startsWith('branch ') && current !== null) {
-      current.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+      current = {
+        path: path.resolve(field.slice('worktree '.length)),
+        branch: null,
+        isMain: entries.length === 0,
+        bare: false,
+        locked: false,
+        prunable: false,
+      };
+      continue;
     }
+    if (current === null) continue;
+    if (field.startsWith('branch ')) current.branch = field.slice('branch '.length).replace(/^refs\/heads\//, '');
+    else if (field === 'bare') current.bare = true;
+    else if (field === 'locked' || field.startsWith('locked ')) current.locked = true;
+    else if (field === 'prunable' || field.startsWith('prunable ')) current.prunable = true;
   }
   flush();
+  return entries;
+}
 
-  return worktrees;
+/** Las carpetas del repo para el panel, marcando la de la pestana. Sin la de un repo desnudo. */
+export function parseWorktrees(raw: string, currentRoot: string): GitWorktree[] {
+  return parseWorktreeListZ(raw)
+    .filter((entry) => !entry.bare)
+    .map((entry) => ({
+      path: entry.path,
+      branch: entry.branch,
+      isCurrent: entry.path === path.resolve(currentRoot),
+      isMain: entry.isMain,
+    }));
 }
 
 /**
@@ -397,7 +428,7 @@ export async function readStatus(cwd: string): Promise<GitStatus> {
 
   const [statusResult, worktreeResult] = await Promise.all([
     runGit(cwd, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal']),
-    runGit(cwd, ['worktree', 'list', '--porcelain']),
+    runGit(cwd, ['worktree', 'list', '--porcelain', '-z']),
   ]);
 
   if (statusResult.code !== 0) {

@@ -39,6 +39,7 @@ import { t } from './i18n/index.js';
 import { serverTextMessage } from './i18n/server-text.js';
 import { useLocale } from './i18n/useLocale.js';
 import { isMemoryPanelRequest } from './useMemory.js';
+import { isWorktreeDialogRequest } from './useWorktrees.js';
 
 const ACTIVE_TAB_KEY = 'agent-workbench.activeTab';
 
@@ -78,7 +79,7 @@ export interface HandoffNotice {
   /** `sending`: el servidor la esta mandando sola. `prefilled`: quedo en el cuadro. */
   delivery: HandoffDelivery;
   /** Por que quedo en el cuadro, si quedo; null mientras se manda sola. */
-  prefillReason: Exclude<ComposerPrefillReason, ReturnedReason | 'rewound'> | null;
+  prefillReason: Exclude<ComposerPrefillReason, ReturnedReason | 'rewound' | 'requested'> | null;
 }
 
 /**
@@ -188,6 +189,12 @@ export interface Workspace {
    * ser la activa, como una que se abre desde aca.
    */
   continueSession: (source: { agent: SessionAgentId; sessionId: string }, target: AgentId, label: string) => void;
+  /**
+   * Una pestana que va a abrir el servidor por un pedido de esta ventana que no
+   * es `terminal.open` (hito 48: crear una rama aparte, volver a abrirla): pasa
+   * a ser la activa al llegar y, con `pending`, se dibuja la provisional.
+   */
+  expectTab: (requestId: string, pending: { cwd: string; label: string; agent: AgentId | null } | null) => void;
   /** El aviso de continuacion de cada pestana que lo tiene. */
   handoffs: ReadonlyMap<TerminalId, HandoffNotice>;
   /** Cierra el aviso de una pestana: con la ×, o al mandar el primer mensaje. */
@@ -477,8 +484,9 @@ export function useWorkspace(): Workspace {
             );
             break;
           }
-          // El mensaje antes del que se volvio (hito 44): lo pidio el usuario en su dialogo, sin aviso.
-          if (reason === 'rewound') break;
+          // El mensaje antes del que se volvio (hito 44), o el pedido de las notas de
+          // una rama aparte (hito 48): los pidio el usuario en su dialogo, sin aviso.
+          if (reason === 'rewound' || reason === 'requested') break;
           setHandoffs((current) => {
             const notice = current.get(message.terminalId);
             if (notice === undefined) return current;
@@ -545,6 +553,17 @@ export function useWorkspace(): Workspace {
           break;
 
         case 'error':
+          // Lo de un dialogo de ramas aparte lo dice el dialogo (hito 48), pero la
+          // provisional de su pestana se suelta igual.
+          if (isWorktreeDialogRequest(message.requestId)) {
+            if (message.detail !== undefined) console.error('[servidor]', message.detail);
+            if (message.requestId !== undefined) {
+              ownRequests.current.delete(message.requestId);
+              pendingOpen.current.delete(message.requestId);
+              dropPending(message.requestId);
+            }
+            break;
+          }
           // Un pedido del panel de memoria lo explica el panel, junto al
           // formulario que lo provoco: repetirlo arriba eran dos avisos con dos ×.
           if (isMemoryPanelRequest(message.requestId)) {
@@ -762,6 +781,17 @@ export function useWorkspace(): Workspace {
     [connection],
   );
 
+  const expectTab = useCallback(
+    (requestId: string, pending: { cwd: string; label: string; agent: AgentId | null } | null) => {
+      ownRequests.current.add(requestId);
+      if (pending === null) return;
+      setPendingOpens((current) => [...current, { requestId, ...pending, at: Date.now() }]);
+      const timer = setTimeout(() => dropPending(requestId), PENDING_OPEN_TIMEOUT_MS);
+      pendingTimers.current.set(requestId, timer);
+    },
+    [dropPending],
+  );
+
   const dismissHandoff = useCallback((terminalId: TerminalId) => {
     setHandoffs((current) => {
       if (!current.has(terminalId)) return current;
@@ -863,6 +893,7 @@ export function useWorkspace(): Workspace {
     refreshAgents,
     archiveSessions,
     continueSession,
+    expectTab,
     handoffs,
     dismissHandoff,
     returnedMessages,

@@ -554,9 +554,10 @@ const status = (overrides = {}) => ({
     !/(copia propia|respaldo) apagad/i.test(sidebarSource) && !/(copia propia|respaldo) apagad/i.test(appSource));
   // Desde el hito 37 una fila "copia" tampoco se abre en una ventana remota
   // (`onOpenVaultSession` null): abriria su Markdown en el escritorio del anfitrion.
+  // Desde el hito 48, tampoco una nativa de una rama aparte quitada (`branchGone`).
   check('1 textos: las marcas de la fila salen de sessionVaultView y una fila nativa sigue deshabilitada como antes',
     /const vaultView = sessionVaultView\(session\);/.test(sidebarSource) &&
-    /const openable = vaultView\.copy \? onOpenVaultSession !== null : canOpen && resumable;/.test(sidebarSource) &&
+    /const openable = vaultView\.copy \? onOpenVaultSession !== null : canOpen && resumable && !branchGone;/.test(sidebarSource) &&
     /disabled=\{!openable\}/.test(sidebarSource));
   const chooseAt = appSource.indexOf('vault.chooseDir(pickerId);');
   check('1 textos: la carpeta se manda con el selector abierto, antes de cerrarlo',

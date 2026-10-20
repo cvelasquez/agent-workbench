@@ -14,6 +14,10 @@
  *
  * Puro y sin disco, para que lo pruebe el chequeo sin cargar `node-pty`.
  *
+ * **Desde el hito 48 el proyecto de una rama aparte es el de su carpeta
+ * principal** (`worktree.mainCwd`): la pestana de `hito-48` cae junto a las de
+ * `Agent Explorer`, no al final como si fuera otro proyecto.
+ *
  * **Vive en `shared` desde el hito 31**, y no en el servidor, porque la regla
  * la necesitan los dos lados: el registro, para insertar la pestana de verdad,
  * y la barra de pestanas del navegador, para dibujar la **provisional** en el
@@ -26,7 +30,12 @@
 import { normalizeCwdKey } from './project-key.js';
 import type { TerminalDescriptor, TerminalId } from './models.js';
 
-type Placement = Pick<TerminalDescriptor, 'kind' | 'cwd'>;
+type Placement = Pick<TerminalDescriptor, 'kind' | 'cwd'> & { worktree?: TerminalDescriptor['worktree'] };
+
+/** La carpeta del proyecto de una pestana: la principal, si esta en una rama aparte. */
+export function projectCwdOf(placement: Placement): string {
+  return placement.worktree?.mainCwd ?? placement.cwd;
+}
 
 /**
  * Indice donde insertar la pestana `descriptor` en `order`. `order.length` si
@@ -44,12 +53,12 @@ export function insertionIndex(
 ): number {
   if (descriptor.kind !== 'agent') return order.length;
 
-  const key = normalizeCwdKey(descriptor.cwd, platform);
+  const key = normalizeCwdKey(projectCwdOf(descriptor), platform);
   let last = -1;
   for (const [index, terminalId] of order.entries()) {
     const other = describe(terminalId);
     if (other === undefined || other.kind !== 'agent') continue;
-    if (normalizeCwdKey(other.cwd, platform) === key) last = index;
+    if (normalizeCwdKey(projectCwdOf(other), platform) === key) last = index;
   }
   return last === -1 ? order.length : last + 1;
 }

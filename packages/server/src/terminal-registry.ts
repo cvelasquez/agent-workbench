@@ -24,6 +24,7 @@ import {
   type TerminalId,
   type TerminalKind,
   type TerminalOfflineReason,
+  type TabWorktree,
 } from '@agent-workbench/shared';
 import type { AgentAdapter, CliLocation, LaunchHook, LaunchPlan } from './agents/adapter.js';
 import {
@@ -68,6 +69,12 @@ export type OutputListener = (terminalId: TerminalId, chunk: string) => void;
  * cuando el cliente no lo dice.
  */
 export type SessionAgentLookup = (sessionId: string) => AgentId | null;
+
+/**
+ * La rama de la carpeta de una pestana y su carpeta principal, o null fuera de
+ * git (hito 48). Lo contesta `WorktreeLinks.tabWorktree`, leyendo `.git`.
+ */
+export type TabWorktreeLookup = (cwd: string) => Promise<TabWorktree | null>;
 
 interface TerminalEntry {
   descriptor: TerminalDescriptor;
@@ -205,8 +212,39 @@ export class TerminalRegistry extends EventEmitter {
      * lo sabe y decide la CLI por defecto (ver `resolveAgentForOpen`).
      */
     private readonly sessionAgentOf: SessionAgentLookup = () => null,
+    /** Hito 48. Sin quien conteste, ninguna pestana sabe su rama: la barra es la de siempre. */
+    private readonly tabWorktreeOf: TabWorktreeLookup = () => Promise.resolve(null),
   ) {
     super();
+  }
+
+  /** La rama de una carpeta, sin que un fallo al leer `.git` frene una pestana. */
+  private async worktreeFor(kind: TerminalKind, cwd: string): Promise<TabWorktree | null> {
+    if (kind !== 'agent') return null;
+    try {
+      return await this.tabWorktreeOf(cwd);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Vuelve a leer la rama de cada pestana de agente (o de una sola) y avisa si
+   * alguna cambio. Lo llaman crear y quitar una rama aparte, y el panel de git
+   * cuando ve otra rama: un `git checkout` en la terminal cambia la etiqueta.
+   */
+  async refreshWorktrees(terminalId?: TerminalId): Promise<void> {
+    let changed = false;
+    for (const [id, entry] of this.terminals) {
+      if (terminalId !== undefined && id !== terminalId) continue;
+      const next = await this.worktreeFor(entry.descriptor.kind, entry.descriptor.cwd);
+      // Cerrada mientras se leia.
+      if (this.terminals.get(id) !== entry) continue;
+      if (JSON.stringify(next) === JSON.stringify(entry.descriptor.worktree)) continue;
+      entry.descriptor = { ...entry.descriptor, worktree: next };
+      changed = true;
+    }
+    if (changed) this.emit('changed');
   }
 
   /** Otra consola para las que se abran desde ahora (Ajustes, Hito 41). Las abiertas no cambian. */
@@ -321,6 +359,7 @@ export class TerminalRegistry extends EventEmitter {
     }
 
     await this.assertDirectory(options.cwd);
+    const worktree = await this.worktreeFor(kind, options.cwd);
 
     const resumed = kind === 'agent' && options.resumeSessionId !== undefined;
     const terminalId = randomUUID();
@@ -342,6 +381,7 @@ export class TerminalRegistry extends EventEmitter {
       exitCode: null,
       sleeping: true,
       launchedAt: null,
+      worktree,
     };
 
     const entry: TerminalEntry = {
@@ -817,6 +857,8 @@ export class TerminalRegistry extends EventEmitter {
       }
 
       const terminalId = randomUUID();
+      // Se lee al restaurar y no se guarda: la rama de una carpeta cambia sin la app.
+      const worktree = await this.worktreeFor('agent', tab.cwd);
       const descriptor: TerminalDescriptor = {
         terminalId,
         kind: 'agent',
@@ -832,6 +874,7 @@ export class TerminalRegistry extends EventEmitter {
         exitCode: null,
         sleeping: true,
         launchedAt: null,
+        worktree,
       };
 
       this.terminals.set(terminalId, {

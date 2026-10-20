@@ -39,6 +39,7 @@ import {
 } from './agent-ui.js';
 import { t } from './i18n/index.js';
 import { projectColor } from './project-color.js';
+import { tabBranch, tabBranchTooltip, tabColorCwd } from './worktree-ui.js';
 
 interface TabBarProps {
   terminals: TerminalDescriptor[];
@@ -81,9 +82,15 @@ interface TabBarProps {
  * El tooltip de una pestana: el `cwd`, el titulo de la sesion si tiene, y en la
  * segunda linea en que estado esta su CLI.
  */
-export function tabTooltip(cwd: string, sessionTitle: string | undefined, stateText: string): string {
+export function tabTooltip(
+  cwd: string,
+  sessionTitle: string | undefined,
+  stateText: string,
+  /** Hito 48: la rama de la pestana y de que proyecto es, si esta en uno de git. */
+  branchLine: string | null = null,
+): string {
   const head = sessionTitle === undefined || sessionTitle.length === 0 ? cwd : `${cwd} — ${sessionTitle}`;
-  return `${head}\n${stateText}`;
+  return branchLine === null ? `${head}\n${stateText}` : `${head}\n${branchLine}\n${stateText}`;
 }
 
 /**
@@ -178,8 +185,10 @@ export function TabStatus({
 
 export function defaultTabLabel(terminal: TerminalDescriptor): string {
   if (terminal.label.length > 0) return terminal.label;
-  const parts = terminal.cwd.split(/[\\/]/).filter((part) => part.length > 0);
-  const folder = parts[parts.length - 1] ?? terminal.cwd;
+  // En una rama aparte, el nombre del proyecto: la rama ya va en su etiqueta (hito 48).
+  const base = terminal.worktree?.linked === true ? terminal.worktree.mainCwd : terminal.cwd;
+  const parts = base.split(/[\\/]/).filter((part) => part.length > 0);
+  const folder = parts[parts.length - 1] ?? base;
   return terminal.resumed ? `${folder} ↩` : folder;
 }
 
@@ -262,6 +271,7 @@ export function TabBar({
       {terminals.map((terminal, position) => {
         const isActive = terminal.terminalId === activeTerminalId;
         const isEditing = terminal.terminalId === editingId;
+        const branch = tabBranch(terminal, terminals, platform);
 
         return (
           <React.Fragment key={terminal.terminalId}>
@@ -275,8 +285,13 @@ export function TabBar({
             onDragEnd={() => setDragId(null)}
             onClick={() => onSelect(terminal.terminalId)}
             onDoubleClick={() => startEditing(terminal)}
-            title={tabTooltip(terminal.cwd, sessionTitles.get(terminal.terminalId), tabStateText(terminal))}
-            style={{ '--tab-project-color': projectColor(terminal.cwd) } as React.CSSProperties}
+            title={tabTooltip(
+              terminal.cwd,
+              sessionTitles.get(terminal.terminalId),
+              tabStateText(terminal),
+              tabBranchTooltip(terminal, branch),
+            )}
+            style={{ '--tab-project-color': projectColor(tabColorCwd(terminal)) } as React.CSSProperties}
           >
             {isEditing ? (
               <input
@@ -304,6 +319,7 @@ export function TabBar({
                   {terminal.agent !== null && tabBadgeVisible(offerAgentChoice, terminal.agent) && (
                     <AgentBadge agent={terminal.agent} agents={agents} />
                   )}
+                  {branch !== null && <span className="tab-branch">{branch}</span>}
                   {defaultTabLabel(terminal)}
                 </span>
                 <button

@@ -8,6 +8,12 @@
 
 import { AGENT_IDS, SESSION_AGENT_IDS, type AgentId, type SessionAgentId } from './agents.js';
 import {
+  parseSessionWorktree,
+  parseTabWorktree,
+  type SessionWorktree,
+  type TabWorktree,
+} from './worktrees.js';
+import {
   asArrayFiltered,
   asBoolean,
   asFiniteNumber,
@@ -83,6 +89,12 @@ export interface SessionSummary {
   storage: SessionStorage;
   /** Hito 28. true si la copia es parcial (un rescate). Siempre false en `native`. */
   partial: boolean;
+  /**
+   * Hito 48. La rama aparte en la que trabajo, o null si fue en la carpeta del
+   * proyecto. Con esto la sesion cae dentro de su proyecto, con su rama, y no
+   * como un proyecto aparte.
+   */
+  worktree: SessionWorktree | null;
 }
 
 /**
@@ -109,6 +121,8 @@ export interface ProjectSummary {
   cwd: string;
   /** false si el directorio ya no esta en disco. Se marca, no se oculta. */
   cwdExists: boolean;
+  /** Hito 48. true si la carpeta esta en un repositorio de git: ahi se ofrece una rama aparte. */
+  isGitRepo: boolean;
   sessions: SessionSummary[];
   lastActivityAt: number;
 }
@@ -193,6 +207,12 @@ export interface TerminalDescriptor {
    * escrito la corrida anterior. Un servidor que no lo manda equivale a null.
    */
   launchedAt: number | null;
+  /**
+   * Hito 48. La rama de la carpeta de la pestana y su carpeta principal, o null
+   * fuera de un repositorio de git. Decide el color y el lugar de la pestana, y
+   * su etiqueta de rama (§6.38). Un servidor anterior no lo manda: null.
+   */
+  worktree: TabWorktree | null;
 }
 
 /**
@@ -285,6 +305,8 @@ export function parseSessionSummary(value: unknown): SessionSummary | null {
     // cache escrita antes, hablaba solo de historial nativo.
     storage: asLiteral(record['storage'], SESSION_STORAGES) ?? 'native',
     partial: record['partial'] === true,
+    // Ausente = un servidor anterior al hito 48, o una sesion de la carpeta del proyecto.
+    worktree: parseSessionWorktree(record['worktree']),
   };
 }
 
@@ -314,6 +336,7 @@ export function parseProjectSummary(value: unknown): ProjectSummary | null {
       fallbackName: asString(record['fallbackName']) ?? '',
       cwd,
       cwdExists,
+      isGitRepo: record['isGitRepo'] === true,
       sessions,
       lastActivityAt,
     };
@@ -325,6 +348,7 @@ export function parseProjectSummary(value: unknown): ProjectSummary | null {
     fallbackName: cwd.length === 0 ? slug : '',
     cwd,
     cwdExists,
+    isGitRepo: false,
     sessions,
     lastActivityAt,
   };
@@ -398,5 +422,6 @@ export function parseTerminalDescriptor(value: unknown): TerminalDescriptor | nu
     sleeping: record['sleeping'] === true,
     // Ausente = un servidor anterior: no se sabe cuando arranco el proceso.
     launchedAt: asFiniteNumber(record['launchedAt']),
+    worktree: parseTabWorktree(record['worktree']),
   };
 }

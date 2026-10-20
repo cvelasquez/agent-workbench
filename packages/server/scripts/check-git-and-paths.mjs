@@ -18,7 +18,7 @@
 
 import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { parsePorcelainV2, parseUnifiedDiff, parseWorktrees } from '../src/git-repo.ts';
+import { parsePorcelainV2, parseUnifiedDiff, parseWorktreeListZ, parseWorktrees } from '../src/git-repo.ts';
 import { InvalidPathError, resolveInside } from '../src/path-guard.ts';
 import { NO_CLI_FOLDERS } from '../src/cli-folders.ts';
 import { existingFiles } from '../src/file-browser.ts';
@@ -133,24 +133,37 @@ check('"\\ No newline" es meta, no una linea del archivo',
 // worktree list
 // ---------------------------------------------------------------------------
 
-const worktrees = parseWorktrees(
-  [
-    'worktree /repo',
-    'HEAD abc',
-    'branch refs/heads/main',
-    '',
-    'worktree /repo-wt',
-    'HEAD def',
-    'detached',
-    '',
-  ].join('\n'),
-  '/repo',
-);
+// Hito 48: `worktree list --porcelain -z`. Campos separados por NUL, cada
+// carpeta cerrada por un NUL vacio; sin `-z`, una ruta con un salto de linea
+// partia el registro.
+const worktreeList = [
+  'worktree /repo',
+  'HEAD abc',
+  'branch refs/heads/main',
+  '',
+  'worktree /repo-wt',
+  'HEAD def',
+  'detached',
+  '',
+  'worktree /otra\ncarpeta',
+  'HEAD fed',
+  'branch refs/heads/feat/x',
+  'locked razon',
+  'prunable gitdir file points to non-existent location',
+  '',
+].join('\0');
+const worktrees = parseWorktrees(worktreeList, '/repo');
 
-check('dos worktrees', worktrees.length === 2, String(worktrees.length));
+check('tres worktrees', worktrees.length === 3, String(worktrees.length));
 check('refs/heads/ recortado', worktrees[0]?.branch === 'main', worktrees[0]?.branch ?? 'null');
 check('el actual se marca', worktrees[0]?.isCurrent === true && worktrees[1]?.isCurrent === false);
 check('detached -> rama null', worktrees[1]?.branch === null);
+check('la primera es la principal, y solo ella', worktrees[0]?.isMain === true && worktrees[1]?.isMain === false && worktrees[2]?.isMain === false);
+check('una ruta con salto de linea no parte el registro', worktrees[2]?.branch === 'feat/x' && worktrees[2]?.path.includes('\n') === true, JSON.stringify(worktrees[2]));
+const entries = parseWorktreeListZ(worktreeList);
+check('bloqueada y podable se leen', entries[2]?.locked === true && entries[2]?.prunable === true && entries[0]?.locked === false);
+const bare = parseWorktrees(['worktree /repo.git', 'bare', '', 'worktree /wt', 'HEAD a', 'branch refs/heads/b', ''].join('\0'), '/wt');
+check('un repo desnudo no es una carpeta del panel', bare.length === 1 && bare[0]?.branch === 'b' && bare[0]?.isCurrent === true, JSON.stringify(bare));
 
 // ---------------------------------------------------------------------------
 // guardia de rutas

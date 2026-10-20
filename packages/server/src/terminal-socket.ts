@@ -90,6 +90,8 @@ import { AppSettingsChangeError, type AppSettingsService } from './app-settings-
 import { TerminalOpenError, type OutputListener, type TerminalRegistry } from './terminal-registry.js';
 import { TerminalWriteQueue, type PieceWriter } from './terminal-write-queue.js';
 import { VaultError, type VaultService } from './vault/service.js';
+import { GitMissingError } from './git-repo.js';
+import { WorktreeError, type WorktreeService } from './worktrees/service.js';
 import { remoteRefusal } from './remote-access.js';
 import type { RemoteAccessService } from './remote-access-service.js';
 import { authorizeRequest, type Credential } from './security.js';
@@ -156,6 +158,8 @@ export interface TerminalSocketOptions {
   vault: VaultService;
   /** El acceso remoto (`remote.*`, hito 37): quien entra, y que se le niega al que entro como equipo. */
   remote: RemoteAccessService;
+  /** Las ramas aparte (`worktree.*`, hito 48, §6.38). */
+  worktrees: WorktreeService;
 }
 
 export function attachTerminalSocket(options: TerminalSocketOptions): () => void {
@@ -176,6 +180,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     defaultCwd,
     vault,
     remote,
+    worktrees,
   } = options;
 
   const pasteStore = options.pasteStore ?? new PasteStore();
@@ -395,8 +400,32 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     repos.onConversationActivity(terminalId);
   };
 
-  const onGitStatus = (terminalId: TerminalId, status: GitStatus): void =>
+  const onGitStatus = (terminalId: TerminalId, status: GitStatus): void => {
     broadcast({ type: 'git.status', terminalId, status });
+    // Hito 48: un `git checkout` en la terminal cambia la etiqueta de rama de la pestana.
+    const worktree = registry.get(terminalId)?.worktree ?? null;
+    if (worktree !== null && status.state === 'ready' && status.branch !== worktree.branch) {
+      void registry.refreshWorktrees(terminalId);
+    }
+  };
+
+  /** Se creo, se quito o se volvio a abrir una rama aparte: el panel de Cambios de cada ventana vuelve a preguntar. */
+  const onWorktreesChanged = (): void => broadcast({ type: 'worktree.changed' });
+
+  /** Un pedido `worktree.*` que fallo: lo dice el dialogo que lo pidio (§6.38). */
+  const sendWorktreeError = (socket: WebSocket, error: unknown, requestId?: string): void => {
+    if (error instanceof TerminalOpenError) {
+      sendError(socket, error.code, error.text, error.detail, requestId);
+    } else if (error instanceof WorktreeError) {
+      sendError(socket, 'worktree-failed', error.text, undefined, requestId);
+    } else if (error instanceof GitMissingError) {
+      sendError(socket, 'worktree-failed', serverText('gitMissing'), undefined, requestId);
+    } else {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn('[worktrees] a request failed:', detail);
+      sendError(socket, 'worktree-failed', serverText('worktreeFailed'), detail, requestId);
+    }
+  };
 
   const onMemoryStatus = (terminalId: TerminalId, status: MemoryStatus): void =>
     broadcast({ type: 'memory.status', terminalId, status });
@@ -690,6 +719,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('parts', onConversationParts);
   repos.on('status', onGitStatus);
   memory.on('status', onMemoryStatus);
+  worktrees.on('changed', onWorktreesChanged);
 
   /*
     El usuario configuro —o quito— la status line de una CLI con la app abierta:
@@ -2538,6 +2568,92 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           break;
 
         /*
+          Las ramas aparte (hito 48, §6.38). Ningun pedido trae una ruta: el
+          servicio arma las carpetas, y crear y quitar rehacen lo que se mostro
+          antes de escribir. Desde un equipo remoto, lo mismo que en la PC
+          (decision 5 del plan): ya puede abrir pestanas y guardar archivos.
+        */
+        case 'worktree.inspect': {
+          const { requestId, source } = message;
+          void worktrees.inspect(source).then(
+            (inspection) => send(socket, { type: 'worktree.inspected', requestId, inspection }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.create': {
+          const { requestId } = message;
+          if (message.unsupportedAgent !== undefined) {
+            sendError(socket, 'agent-unsupported', serverText('agentUnknown'), message.unsupportedAgent, requestId);
+            break;
+          }
+          void worktrees
+            .create({
+              source: message.source,
+              branch: message.branch,
+              base: message.base,
+              mode: message.mode,
+              copyNotes: message.copyNotes,
+              ...(message.agent !== undefined ? { agent: message.agent } : {}),
+            })
+            .then(
+              (terminal) => send(socket, { type: 'terminal.opened', requestId, terminal }),
+              (error: unknown) => sendWorktreeError(socket, error, requestId),
+            );
+          break;
+        }
+
+        case 'worktree.status': {
+          const { terminalId } = message;
+          void worktrees.rows(terminalId).then(
+            (rows) => send(socket, { type: 'worktree.rows', terminalId, rows }),
+            (error: unknown) => sendWorktreeError(socket, error),
+          );
+          break;
+        }
+
+        case 'worktree.planRemove': {
+          const { requestId, worktreeId } = message;
+          void worktrees.planRemove(worktreeId).then(
+            (plan) => send(socket, { type: 'worktree.removePlan', requestId, plan }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.remove': {
+          const { requestId, worktreeId, discardConflicts } = message;
+          // Las pestanas de la rama se cierran como desde la barra, soltando todo lo que las seguia.
+          void worktrees.remove(worktreeId, discardConflicts, (terminalId) => void dropTab(terminalId)).then(
+            (outcome) => send(socket, { type: 'worktree.removed', requestId, worktreeId, outcome }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.reopen': {
+          const { requestId } = message;
+          void worktrees.reopen(message.agent, message.sessionId).then(
+            (terminal) => send(socket, { type: 'terminal.opened', requestId, terminal }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.askNotes': {
+          const { requestId, worktreeId } = message;
+          void worktrees.notesRequest(worktreeId).then(
+            ({ terminal, opened, text }) => {
+              if (opened) send(socket, { type: 'terminal.opened', requestId, terminal });
+              send(socket, { type: 'composer.prefill', terminalId: terminal.terminalId, text, reason: 'requested' });
+            },
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        /*
           Ajustes (Hito 41, §6.32). Una consola que ya no esta, o un disco que no
           deja escribir, se dicen; lo demas lo valido el parser. A una ventana
           remota no llega: lo frena `remoteRefusal`.
@@ -2682,6 +2798,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('queue', onConversationQueue);
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);
+    worktrees.off('changed', onWorktreesChanged);
     stopAgentChanges();
     stopPlanLimits();
     planLimits.dispose();

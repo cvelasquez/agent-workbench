@@ -41,7 +41,7 @@ CLI.
 | **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. A file of the project that the agent names opens in the Files tab with one click. With Claude Code, a message you stop before the agent starts comes back to the box so you can fix it, and **↩** on a message goes back to before it: the conversation and, if you want, the code. A message you send while the agent works waits at the end, marked as queued; depending on the CLI, **Force send now** makes the agent read it right away. |
 | **Message box** | Room to write, paste images, attach files, and long pasted text kept as a tidy chip. What you're typing survives closing the app, and shows up live in every open window. Shift+Enter continues a numbered or bulleted list. |
 | **Context meter** | How much of the model's context window the conversation is using. Tokens, never money. |
-| **Changes** | The branch, the changed files and their diff. **Read-only**: no commit or push buttons. |
+| **Changes** | The branch, the changed files and their diff. **Orchestrates agents in parallel**: open the project on a new branch, in its own folder, and several agents work at once without stepping on each other's changes. Changes shows every branch: what isn't committed yet, how many commits it has and whether it's merged. |
 | **Files** | The project's file tree, with search and a preview with syntax highlighting. Open several files at once, each in its own tab; Markdown files open formatted. One click puts a file's path in your message. Edit a text file, a `.env` for instance, and save it right there: if the agent changed it while you were editing, nothing is overwritten, and you move your changes to the new version. |
 | **Plans** | The plans and `.md` documents the conversation wrote, rendered. One click puts a document's path in your message. |
 | **Notes** | A scratchpad next to the conversation, images included. With Claude Code, one click sends a note to a new conversation. |
@@ -405,17 +405,21 @@ app keeps on the phone and the permissions it asks for are in
   you to log in, you do it in its own terminal, and the app doesn't even notice.
 - **It reads the CLIs' history and writes nothing in their folders.** The table
   below lists what it reads and what it never opens.
-- **It writes only in its own folders**, plus two things in your projects: the
-  shared memory, only if you confirm it, and a file you edit and save yourself
-  in the Files tab.
+- **It writes only in its own folders**, plus three things in your projects:
+  the shared memory, only if you confirm it; a file you edit and save yourself
+  in the Files tab; and the separate branches you open, each in its own folder
+  next to the project, with the notes that go back to the main folder when you
+  remove one.
 - **The server listens only on your computer** (`127.0.0.1`), on a random port,
   with a new random token on every start, and it rejects requests coming from
   other web pages. Remote access doesn't change that: the port becomes a fixed
   one, still on `127.0.0.1`, and SSH —which you turn on and control— does the
   rest.
-- **The Changes panel is read-only.** No commit, stage or push: with an agent
-  editing files, a button that writes history is exactly the kind of thing
-  where, later, nobody knows who pressed it.
+- **Git: the app never commits, pushes or rewrites history.** It runs three git
+  commands that write, each after a confirmation that shows it:
+  `git worktree add` to open a branch in its own folder, `git worktree remove`
+  (never with `--force`) and `git branch -d` (only for a branch the app created
+  and that is already merged). The agents make the commits, in their terminal.
 
 | CLI | What it reads | What it never opens |
 |---|---|---|

@@ -77,6 +77,13 @@
  * plan de cada CLI, y `planLimitsSetup` en `AgentInfo`. Un servidor anterior no
  * los manda, y la web no dibuja el medidor del plan.
  *
+ * Y el hito 48, sin subir la version (§6.38): la familia `worktree.*` (las ramas
+ * aparte), el error `worktree-failed`, el motivo `requested` de
+ * `composer.prefill`, y `worktree` en el descriptor de una pestana y en una
+ * sesion, e `isGitRepo` en un proyecto, opcionales. Un servidor anterior no
+ * contesta ningun `worktree.*` y no manda los campos, y la web no ofrece ramas
+ * aparte sin `isGitRepo`.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -129,6 +136,20 @@ import {
   type FileSearchResult,
 } from './files.js';
 import { parseGitDiff, parseGitStatus, type GitDiff, type GitStatus } from './git.js';
+import {
+  WORKTREE_CREATE_MODES,
+  parseWorktreeInspection,
+  parseWorktreeRemoveOutcome,
+  parseWorktreeRemovePlan,
+  parseWorktreeRow,
+  parseWorktreeSource,
+  type WorktreeCreateMode,
+  type WorktreeInspection,
+  type WorktreeRemoveOutcome,
+  type WorktreeRemovePlan,
+  type WorktreeRow,
+  type WorktreeSource,
+} from './worktrees.js';
 import {
   parseMemoryChange,
   parseMemoryInstallOptions,
@@ -1079,6 +1100,80 @@ export interface ClientComposerDraftMessage {
   draft: ComposerDraft;
 }
 
+/**
+ * Las ramas aparte (`worktree.*`, hito 48, §6.38).
+ *
+ * **Ningun pedido lleva una ruta** (§2.4): una rama nueva sale de un proyecto
+ * de la barra (su `key`) o de una pestana, y una que ya existe se nombra por el
+ * id del registro de la app. El servidor arma las carpetas y rehace cada plan
+ * antes de escribir. `requestId` vuelve en la respuesta y en el `error`
+ * (`worktree-failed`).
+ */
+export interface ClientWorktreeInspectMessage {
+  type: 'worktree.inspect';
+  requestId: string;
+  source: WorktreeSource;
+}
+
+/**
+ * Crea la rama aparte y abre ahi una pestana, que llega en un `terminal.opened`
+ * con este `requestId`.
+ */
+export interface ClientWorktreeCreateMessage {
+  type: 'worktree.create';
+  requestId: string;
+  source: WorktreeSource;
+  branch: string;
+  /** De que rama sale una nueva; con `existing`, contra cual se mira si ya esta integrada. */
+  base: string;
+  mode: WorktreeCreateMode;
+  /** Que CLI se abre. Ausente: la que decide el servidor, como `terminal.open`. */
+  agent?: AgentId;
+  /** Copiar las instrucciones y la memoria que el repo ignora. */
+  copyNotes: boolean;
+  /** Lo pone el parser: se pidio una CLI que este lado no conoce. */
+  unsupportedAgent?: string;
+}
+
+/** El estado de las ramas del repo de una pestana, para Cambios. Contesta `worktree.rows`. */
+export interface ClientWorktreeStatusMessage {
+  type: 'worktree.status';
+  terminalId: TerminalId;
+}
+
+export interface ClientWorktreePlanRemoveMessage {
+  type: 'worktree.planRemove';
+  requestId: string;
+  worktreeId: string;
+}
+
+export interface ClientWorktreeRemoveMessage {
+  type: 'worktree.remove';
+  requestId: string;
+  worktreeId: string;
+  /** "Quitar igual": se pierden las notas que cambiaron en los dos lados. */
+  discardConflicts: boolean;
+}
+
+/** Vuelve a abrir la rama quitada de una sesion de la barra, y la reanuda. */
+export interface ClientWorktreeReopenMessage {
+  type: 'worktree.reopen';
+  requestId: string;
+  agent: AgentId;
+  sessionId: SessionId;
+}
+
+/**
+ * Deja en el cuadro del agente de la rama, sin mandarlo, el pedido de pasar a la
+ * carpeta principal las notas que chocaron. Si la rama no tiene pestana, abre
+ * una (con este `requestId`).
+ */
+export interface ClientWorktreeAskNotesMessage {
+  type: 'worktree.askNotes';
+  requestId: string;
+  worktreeId: string;
+}
+
 export type ClientMessage =
   | ClientInputMessage
   | ClientSubmitMessage
@@ -1149,7 +1244,14 @@ export type ClientMessage =
   | ClientRemotePhoneCancelMessage
   | ClientRemoteDeviceForgetSelfMessage
   | ClientComposerDraftMessage
-  | ClientSettingsUpdateMessage;
+  | ClientSettingsUpdateMessage
+  | ClientWorktreeInspectMessage
+  | ClientWorktreeCreateMessage
+  | ClientWorktreeStatusMessage
+  | ClientWorktreePlanRemoveMessage
+  | ClientWorktreeRemoveMessage
+  | ClientWorktreeReopenMessage
+  | ClientWorktreeAskNotesMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -1820,7 +1922,9 @@ export type ComposerPrefillReason =
   | 'send-failed'
   | 'returned-by-cli'
   | 'stopped-early'
-  | 'rewound';
+  | 'rewound'
+  /** Hito 48: lo pidio el usuario en un dialogo de la app (las notas de una rama aparte). Sin aviso. */
+  | 'requested';
 export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
   'no-delivery',
   'not-ready',
@@ -1828,6 +1932,7 @@ export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
   'returned-by-cli',
   'stopped-early',
   'rewound',
+  'requested',
 ];
 
 /**
@@ -1927,6 +2032,8 @@ export type ServerErrorCode =
   | 'force-send-failed'
   /** Un `files.write` que no se pudo hacer (Hito 46). El archivo quedo como estaba. */
   | 'write-failed'
+  /** Un pedido `worktree.*` que no se pudo cumplir (hito 48). El texto dice por que. */
+  | 'worktree-failed'
   /** Un pedido que a un equipo remoto no se le atiende (hito 37). No se hizo nada. */
   | 'remote-refused'
   /**
@@ -1963,10 +2070,43 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'rewind-failed',
   'force-send-failed',
   'write-failed',
+  'worktree-failed',
   'remote-refused',
   'agent-unsupported',
   'internal',
 ];
+
+/** Lo que el dialogo de crear una rama aparte muestra antes de crear nada (hito 48). */
+export interface ServerWorktreeInspectedMessage {
+  type: 'worktree.inspected';
+  requestId: string;
+  inspection: WorktreeInspection;
+}
+
+/** Las ramas del repo de una pestana, con su estado, para Cambios. */
+export interface ServerWorktreeRowsMessage {
+  type: 'worktree.rows';
+  terminalId: TerminalId;
+  rows: WorktreeRow[];
+}
+
+export interface ServerWorktreeRemovePlanMessage {
+  type: 'worktree.removePlan';
+  requestId: string;
+  plan: WorktreeRemovePlan;
+}
+
+export interface ServerWorktreeRemovedMessage {
+  type: 'worktree.removed';
+  requestId: string;
+  worktreeId: string;
+  outcome: WorktreeRemoveOutcome;
+}
+
+/** Se creo, se quito o se volvio a abrir una rama aparte: Cambios vuelve a preguntar. A todos. */
+export interface ServerWorktreeChangedMessage {
+  type: 'worktree.changed';
+}
 
 export interface ServerErrorMessage {
   type: 'error';
@@ -2035,6 +2175,11 @@ export type ServerMessage =
   | ServerPlanLimitsMessage
   | ServerRemotePairingCodeMessage
   | ServerRemotePhonePairingMessage
+  | ServerWorktreeInspectedMessage
+  | ServerWorktreeRowsMessage
+  | ServerWorktreeRemovePlanMessage
+  | ServerWorktreeRemovedMessage
+  | ServerWorktreeChangedMessage
   | ServerErrorMessage;
 
 export type ServerMessageType = ServerMessage['type'];
@@ -2583,6 +2728,61 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const change = parseAppSettingsChange(record);
       return change === null ? null : { type: 'settings.update', ...change };
     }
+    case 'worktree.inspect': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const source = parseWorktreeSource(record['source']);
+      return requestId === null || source === null ? null : { type: 'worktree.inspect', requestId, source };
+    }
+    case 'worktree.create': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const source = parseWorktreeSource(record['source']);
+      const branch = asNonEmptyString(record['branch']);
+      const base = asNonEmptyString(record['base']);
+      const mode = asLiteral(record['mode'], WORKTREE_CREATE_MODES);
+      const copyNotes = asBoolean(record['copyNotes']);
+      if (requestId === null || source === null || branch === null || base === null || mode === null || copyNotes === null) {
+        return null;
+      }
+      const message: ClientWorktreeCreateMessage = { type: 'worktree.create', requestId, source, branch, base, mode, copyNotes };
+      // Como `terminal.open`: una CLI que este lado no conoce se conserva para rechazarla.
+      const rawAgent = record['agent'];
+      if (rawAgent !== undefined && rawAgent !== null) {
+        const agent = asLiteral(rawAgent, AGENT_IDS);
+        if (agent !== null) message.agent = agent;
+        else message.unsupportedAgent = String(rawAgent);
+      }
+      return message;
+    }
+    case 'worktree.status': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      return terminalId === null ? null : { type: 'worktree.status', terminalId };
+    }
+    case 'worktree.planRemove': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      return requestId === null || worktreeId === null ? null : { type: 'worktree.planRemove', requestId, worktreeId };
+    }
+    case 'worktree.remove': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      const discardConflicts = asBoolean(record['discardConflicts']);
+      return requestId === null || worktreeId === null || discardConflicts === null
+        ? null
+        : { type: 'worktree.remove', requestId, worktreeId, discardConflicts };
+    }
+    case 'worktree.reopen': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const agent = asLiteral(record['agent'], AGENT_IDS);
+      const sessionId = asNonEmptyString(record['sessionId']);
+      return requestId === null || agent === null || sessionId === null
+        ? null
+        : { type: 'worktree.reopen', requestId, agent, sessionId };
+    }
+    case 'worktree.askNotes': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      return requestId === null || worktreeId === null ? null : { type: 'worktree.askNotes', requestId, worktreeId };
+    }
     default:
       return null;
   }
@@ -3124,6 +3324,32 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       const result = parseGlobalSearchResult(record['result']);
       return searchId === null || result === null ? null : { type: 'search.results', searchId, result };
     }
+    case 'worktree.inspected': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const inspection = parseWorktreeInspection(record['inspection']);
+      return requestId === null || inspection === null ? null : { type: 'worktree.inspected', requestId, inspection };
+    }
+    case 'worktree.rows': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      // Filtrada: una fila que este lado no entiende no se lleva a las demas.
+      const rows = asArrayFiltered(record['rows'], parseWorktreeRow);
+      return terminalId === null || rows === null ? null : { type: 'worktree.rows', terminalId, rows };
+    }
+    case 'worktree.removePlan': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const plan = parseWorktreeRemovePlan(record['plan']);
+      return requestId === null || plan === null ? null : { type: 'worktree.removePlan', requestId, plan };
+    }
+    case 'worktree.removed': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      const outcome = parseWorktreeRemoveOutcome(record['outcome']);
+      return requestId === null || worktreeId === null || outcome === null
+        ? null
+        : { type: 'worktree.removed', requestId, worktreeId, outcome };
+    }
+    case 'worktree.changed':
+      return { type: 'worktree.changed' };
     case 'error': {
       const text = parseServerText(record['text']);
       if (text === null) return null;

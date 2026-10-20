@@ -6,7 +6,9 @@
  *  1. **Solo lectura.** No hay ningun tipo que represente un commit, un stage
  *     ni un push, y no es un olvido: la app muestra el estado del repo y nada
  *     mas. Lo que cambia historia se hace en la terminal, que es donde el
- *     usuario ve lo que escribe y puede cancelar.
+ *     usuario ve lo que escribe y puede cancelar. Lo unico que escribe en git
+ *     son las ramas aparte (hito 48, `worktrees.ts`): abrir y quitar una
+ *     carpeta, y borrar una rama ya integrada, siempre tras confirmar.
  *  2. **Lo que viaja ya viene recortado.** Un `git status` de un repo con
  *     `node_modules` sin ignorar son decenas de miles de entradas, y un diff
  *     puede pesar megabytes. El servidor corta y marca `truncated`; el
@@ -76,6 +78,8 @@ export interface GitWorktree {
   branch: string | null;
   /** true en el worktree al que pertenece el `cwd` de la pestana. */
   isCurrent: boolean;
+  /** Hito 48. true en la carpeta principal del repo. Un servidor anterior no lo manda: false. */
+  isMain: boolean;
 }
 
 /**
@@ -184,6 +188,7 @@ export function parseGitWorktree(value: unknown): GitWorktree | null {
     path: worktreePath,
     branch: asString(record['branch']),
     isCurrent: record['isCurrent'] === true,
+    isMain: record['isMain'] === true,
   };
 }
 

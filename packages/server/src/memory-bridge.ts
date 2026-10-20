@@ -60,6 +60,7 @@ import {
 import { writeAtomically } from './atomic-write.js';
 import { InvalidPathError, resolveInside } from './path-guard.js';
 import { projectSlugFor } from './agents/claude-code/paths.js';
+import { readCheckout } from './worktrees/checkout.js';
 
 /** Un fallo que se le explica al usuario. El texto va como clave: la frase la arma la web (§6.23). */
 export class MemoryBridgeError extends ServerTextError {}
@@ -1008,14 +1009,28 @@ async function countNativeMemory(
 
 async function nativeMemoryFolders(cwd: string, home: string): Promise<string[]> {
   const root = path.join(home, '.claude', 'projects');
-  const slug = projectSlugFor(cwd).toLowerCase();
+  /*
+    En una rama aparte (hito 48), tambien la de la carpeta principal: segun su
+    documentacion, la memoria automatica de Claude Code es "per repository,
+    shared across worktrees", y su carpeta sale del repositorio. La de la rama
+    va primero, como siempre; despues la de la principal.
+  */
+  const checkout = await readCheckout(cwd).catch(() => null);
+  const slugs = [projectSlugFor(cwd).toLowerCase()];
+  if (checkout?.linked === true) slugs.push(projectSlugFor(checkout.mainRoot).toLowerCase());
   try {
     const entries = await readdir(root, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isDirectory() && entry.name.toLowerCase() === slug)
-      .map((entry) => entry.name)
-      .sort()
-      .map((name) => path.join(root, name, 'memory'));
+    const folders: string[] = [];
+    for (const slug of new Set(slugs)) {
+      folders.push(
+        ...entries
+          .filter((entry) => entry.isDirectory() && entry.name.toLowerCase() === slug)
+          .map((entry) => entry.name)
+          .sort()
+          .map((name) => path.join(root, name, 'memory')),
+      );
+    }
+    return folders;
   } catch {
     return [];
   }

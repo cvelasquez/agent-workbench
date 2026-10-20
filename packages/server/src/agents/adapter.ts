@@ -217,7 +217,7 @@ export interface HistoryItem {
 export type HistoryExtra = Record<string, unknown>;
 
 /** Lo que el indice guarda de cada sesion y completa al emitir. */
-export type ScannedSummary = Omit<SessionSummary, 'agent' | 'cwd' | 'archived' | 'storage' | 'partial'>;
+export type ScannedSummary = Omit<SessionSummary, 'agent' | 'cwd' | 'archived' | 'storage' | 'partial' | 'worktree'>;
 
 export interface ScannedSession {
   /**
