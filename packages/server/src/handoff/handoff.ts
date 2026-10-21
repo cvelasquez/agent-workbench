@@ -92,7 +92,14 @@ export interface ContinueDeps {
       location: CliLocation | null;
     } | null;
   };
-  index: { find(agent: SessionAgentId, sessionId: string): SessionSummary | null };
+  index: {
+    find(agent: SessionAgentId, sessionId: string): SessionSummary | null;
+    /**
+     * La rama aparte de una carpeta del historial, como la ve la barra (hito
+     * 48). Con la de una rama quitada se continua en la carpeta principal.
+     */
+    linkOf?(cwd: string): { mainCwd: string; worktree: { branch: string; exists: boolean } } | null;
+  };
   pasteStore: { saveText(terminalId: string, baseName: 'continuacion', content: string): Promise<{ path: string }> };
   /** La copia propia, o null si no hay (el chequeo, o un servidor sin copia). */
   archive: ArchiveReader | null;
@@ -220,6 +227,11 @@ export async function continueSession(
   }
   if (source === null) return failed(serverText('continueHistoryMissing'));
 
+  // La de una rama aparte quitada sigue en la carpeta principal: la suya ya no
+  // esta, y abrir ahi terminaba en "la carpeta no existe" (20-10-2026).
+  const link = deps.index.linkOf?.(summary.cwd) ?? null;
+  const moved = link !== null && !link.worktree.exists ? { cwd: link.mainCwd, branch: link.worktree.branch } : null;
+
   // 4. El transcript, antes de abrir nada: sin turnos no hay continuacion (H5).
   const sourceLabel = isAgentId(request.agent)
     ? (deps.agents.get(request.agent)?.adapter.label ?? request.agent)
@@ -233,6 +245,7 @@ export async function continueSession(
       sessionId: summary.sessionId,
       lastAt: summary.updatedAt,
       partial: summary.partial || source.partial,
+      ...(moved !== null ? { movedTo: moved } : {}),
     },
     events: source.events,
     state: source.state,
@@ -240,11 +253,11 @@ export async function continueSession(
   });
   if (!plan.ok) return failed(plan.text);
 
-  // 5. La pestana de la CLI que continua, en la carpeta de la sesion.
+  // 5. La pestana de la CLI que continua, en la carpeta de la sesion (o la principal).
   let descriptor: TerminalDescriptor;
   try {
     descriptor = await deps.registry.open({
-      cwd: summary.cwd,
+      cwd: moved?.cwd ?? summary.cwd,
       agent: request.target,
       kind: 'agent',
       label: request.label ?? continuationLabel(summary.title),

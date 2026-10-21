@@ -347,6 +347,11 @@ export interface TranscriptHeader {
   lastAt: number | null;
   /** El 28 marca "historial parcial" lo importado sin contenido completo. */
   partial: boolean;
+  /**
+   * La conversacion trabajo en una rama aparte cuya carpeta se quito, y la
+   * pestana que continua corre en la carpeta principal (20-10-2026).
+   */
+  movedTo?: { cwd: string; branch: string };
 }
 
 function coverageSentence(included: number, total: number, complete: boolean): string {
@@ -376,6 +381,14 @@ function renderHeader(header: TranscriptHeader, included: number, selection: Tur
     `- Project: ${cwd.trim().length > 0 ? inlineCode(cwd) : 'unknown'}`,
     `- Conversation: ${named} (${agent}, ${sessionId})`,
   ];
+  if (header.movedTo !== undefined) {
+    const mainCwd = cutChars(sanitizeForPaste(header.movedTo.cwd).replace(/[\n\t]/g, ' ').trim(), HEADER_CWD_CHARS).text;
+    const branch = cutChars(oneLine(header.movedTo.branch), 200).text;
+    facts.push(
+      `- That folder was a separate checkout of the branch ${inlineCode(branch)}, and it was removed: ` +
+        `you are in the project's main folder, ${inlineCode(mainCwd)}.`,
+    );
+  }
   if (header.lastAt !== null && header.lastAt > 0) facts.push(`- Last reply: ${formatStamp(header.lastAt)}`);
   facts.push(`- ${coverageSentence(included, selection.totalTurns, selection.complete)}`);
   if (header.partial) facts.push("- Partial history: the original conversation couldn't be read in full.");

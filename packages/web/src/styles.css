@@ -6144,8 +6144,14 @@ kbd {
   margen negativo descuenta su ancho y el hueco de `.session-row`, y se dibuja
   encima del final del titulo. Con la opacidad sola, quien tiene dos CLIs veria
   cada titulo cortado 24 px antes. Con el menu abierto queda a la vista.
+
+  **Con `z-index`**: un titulo con opacidad (el de una archivada, o uno apagado
+  por `button:disabled`, como el de una rama quitada) se pinta encima de lo que
+  no tiene posicion, y se quedaba con el clic (20-10-2026).
 */
 .session-continue {
+  position: relative;
+  z-index: 1;
   opacity: 0;
   pointer-events: none;
   width: 22px;

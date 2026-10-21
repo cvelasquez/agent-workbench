@@ -1120,14 +1120,13 @@ export function Sidebar({
                           no, cada titulo se cortaria antes para quien tiene
                           varias CLIs.
 
-                          Tampoco en la de una rama quitada (20-10-2026): la
-                          continuacion abre su pestana en la carpeta de la
-                          sesion, que ya no esta, y terminaria en "la carpeta no
-                          existe". Y con su margen negativo tapaba al boton de
-                          volver a abrir, que va despues por lo mismo.
+                          En la de una rama quitada, el servidor abre la pestana
+                          en la carpeta principal (20-10-2026). Va antes del
+                          boton de volver a abrir: con su margen negativo lo
+                          tapaba.
                         */}
                         <ContinueButton
-                          targets={branchGone ? [] : continueTargets(agents, session.agent, session.partial)}
+                          targets={continueTargets(agents, session.agent, session.partial)}
                           className="icon-button session-continue"
                           text="↪"
                           onPick={(target) => onContinueSession(session, target)}

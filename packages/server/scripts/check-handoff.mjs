@@ -457,7 +457,7 @@ function fakeRegistry({ fail = null } = {}) {
 const pasteRoot = path.join(root, 'pegados');
 
 /** Deps de `continueSession` con todo falso salvo lo que se pise. */
-function continueDeps({ sessions = [summaryOf('opencode', 'ses_origen')], history = fakeHistory(events), archive = null, registry = fakeRegistry(), pasteStore = new PasteStore(pasteRoot), targets, maxEvents } = {}) {
+function continueDeps({ sessions = [summaryOf('opencode', 'ses_origen')], history = fakeHistory(events), archive = null, registry = fakeRegistry(), pasteStore = new PasteStore(pasteRoot), targets, maxEvents, linkOf } = {}) {
   const closed = [];
   const agents = new Map([
     ['claude-code', registered('claude-code', 'Claude Code', CLAUDE_CODE_CAPABILITIES, CLAUDE_CODE_INPUT, fakeHistory([]))],
@@ -472,7 +472,10 @@ function continueDeps({ sessions = [summaryOf('opencode', 'ses_origen')], histor
       registry,
       closeTab: (terminalId) => closed.push(terminalId),
       agents: { get: (id) => agents.get(id) ?? null },
-      index: { find: (agent, sessionId) => sessions.find((s) => s.agent === agent && s.sessionId === sessionId) ?? null },
+      index: {
+        find: (agent, sessionId) => sessions.find((s) => s.agent === agent && s.sessionId === sessionId) ?? null,
+        ...(linkOf !== undefined ? { linkOf } : {}),
+      },
       pasteStore,
       archive,
       ...(maxEvents !== undefined ? { maxEvents } : {}),
@@ -593,6 +596,27 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   check('H6 si el transcript no se guarda: se cierra la pestana recien abierta y continue-failed',
     saveFailed.ok === false && saveFailed.code === 'continue-failed' && saveFailed.detail === 'disco lleno' &&
     brokenStore.registry.opened.length === 1 && brokenStore.closed.length === 1 && brokenStore.closed[0] === 'tab-1', show(saveFailed));
+
+  // Hito 48 (20-10-2026): la de una rama aparte quitada sigue en la carpeta principal.
+  const MAIN_CWD = path.join(root, 'principal');
+  const branchLink = (exists) => (cwd) => (cwd === HANDOFF_CWD ? { mainCwd: MAIN_CWD, worktree: { branch: 'feat/x', exists, reopenable: false } } : null);
+  const markdownOf = async (outcome) => {
+    const file = outcome.ok ? pathInMessage(outcome.message) : null;
+    return file === null ? '' : readFile(file, 'utf8');
+  };
+  const gone = continueDeps({ linkOf: branchLink(false) });
+  const goneOutcome = await continueSession(gone.deps, request());
+  const goneMarkdown = await markdownOf(goneOutcome);
+  check('H6 la de una rama quitada se abre en la carpeta principal, y el transcript dice por que',
+    goneOutcome.ok && gone.registry.opened.length === 1 && gone.registry.opened[0].cwd === MAIN_CWD &&
+    goneMarkdown.includes(`- Project: \`${HANDOFF_CWD}\``) &&
+    goneMarkdown.includes(`separate checkout of the branch \`feat/x\`, and it was removed: you are in the project's main folder, \`${MAIN_CWD}\`.`),
+    show(gone.registry.opened));
+  const live = continueDeps({ linkOf: branchLink(true) });
+  const liveOutcome = await continueSession(live.deps, request());
+  const liveMarkdown = await markdownOf(liveOutcome);
+  check('H6 la de una rama que sigue, en su carpeta y sin esa linea',
+    liveOutcome.ok && live.registry.opened[0]?.cwd === HANDOFF_CWD && !liveMarkdown.includes('separate checkout'), show(live.registry.opened));
 
   check('H6 la etiqueta corta el titulo a 40 con "…", y sin titulo dice solo Continuacion',
     continuationLabel('x'.repeat(60)) === `Continuación: ${'x'.repeat(40)}…` && continuationLabel('Corto') === 'Continuación: Corto' &&
