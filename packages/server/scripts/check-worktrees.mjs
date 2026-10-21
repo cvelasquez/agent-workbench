@@ -17,7 +17,7 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +55,8 @@ const { WorktreeLinks } = await import('../src/worktrees/links.ts');
 const { WorktreeService, WorktreeError, folderInUse, notesConflictPrompt } = await import('../src/worktrees/service.ts');
 const overlap = await import('../src/worktrees/overlap.ts');
 const review = await import('../src/worktrees/review.ts');
+const mergeNotes = await import('../src/worktrees/merge-notes.ts');
+const { NoteBases, keepsNoteBase, NOTE_BASE_MAX_BYTES } = await import('../src/worktrees/note-bases.ts');
 const { reviewPrompt, catchUpPrompt, sendBackPrompt } = review;
 const { buildProjects } = await import('../src/session-index.ts');
 const { setLocale } = await import('../../web/src/i18n/index.ts');
@@ -360,15 +362,20 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
   check('Q2 y quitar se niega sin tocar nada', refused instanceof WorktreeError && refused.text.key === 'worktreeUncommitted' && existsSync(folder));
   await rm(path.join(folder, 'sin-commit.ts'));
 
-  // Notas: una cambia sólo en la rama, otra en los dos lados, una nueva bajo una carpeta copiada.
+  // Notas: una cambia sólo en la rama, otra en los dos lados en partes distintas, otra en la misma
+  // línea de los dos lados, y una nueva bajo una carpeta copiada.
   await writeFile(path.join(folder, 'CLAUDE.md'), '# Notas\nuna regla\notra regla de la rama\n');
   await writeFile(path.join(folder, 'CHECKLIST.md'), '- [x] uno\n- [ ] dos\n');
   await writeFile(path.join(repo, 'CHECKLIST.md'), '- [ ] uno\n- [ ] dos\n- [ ] tres\n');
+  await writeFile(path.join(folder, 'docs', 'a.md'), 'a de la rama\n');
+  await writeFile(path.join(repo, 'docs', 'a.md'), 'a de la principal\n');
   await writeFile(path.join(folder, 'docs', 'nuevo.md'), 'nuevo en la rama\n');
   plan = await service.planRemove(record.id);
-  check('Q3 vuelven las que cambiaron sólo en la rama, y lo nuevo bajo docs/',
-    JSON.stringify(plan.returning) === JSON.stringify(['CLAUDE.md', 'docs/nuevo.md']), plan.returning.join(' '));
-  check('Q4 la que cambió en los dos lados choca', JSON.stringify(plan.conflicts) === JSON.stringify(['CHECKLIST.md']), plan.conflicts.join(' '));
+  check('Q3 vuelven las que cambiaron sólo en la rama, lo nuevo bajo docs/ y la que se junta',
+    JSON.stringify(plan.returning) === JSON.stringify(['CHECKLIST.md', 'CLAUDE.md', 'docs/nuevo.md']), plan.returning.join(' '));
+  check('Q4 la que cambió en los dos lados en partes distintas se junta (21-10-2026)',
+    JSON.stringify(plan.merging) === JSON.stringify(['CHECKLIST.md']), plan.merging.join(' '));
+  check('Q4b la que cambió en la misma línea de los dos lados choca', JSON.stringify(plan.conflicts) === JSON.stringify(['docs/a.md']), plan.conflicts.join(' '));
   check('Q5 los comandos se muestran, sin --force', plan.commands.length === 1 && plan.commands[0].includes('worktree remove') && !plan.commands.join(' ').includes('--force'), plan.commands.join(' | '));
   check('Q6 la rama no se borra: tiene un commit sin integrar', plan.deletesBranch === false);
   check('Q7 la pestaña de la rama se nombra', plan.tabs.length === 1 && plan.tabs[0].label === path.basename(folder));
@@ -378,13 +385,17 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
   } catch (error) {
     refused = error;
   }
-  check('Q8 con notas que chocan no se quita sin "quitar igual"', refused?.text?.key === 'worktreeNotesConflict' && existsSync(folder));
-  check('Q9 el pedido al agente nombra las que chocaron, en inglés', notesConflictPrompt(repo, plan.conflicts).includes('CHECKLIST.md') && /^Some ignored notes/.test(notesConflictPrompt(repo, plan.conflicts)));
+  check('Q8 con notas que chocan no se quita sin elegir perderlas', refused?.text?.key === 'worktreeNotesConflict' && existsSync(folder));
+  check('Q9 el pedido al agente nombra las que chocaron, en inglés',
+    notesConflictPrompt(repo, plan.conflicts).includes('docs/a.md') && /^Some ignored notes/.test(notesConflictPrompt(repo, plan.conflicts)));
 
-  // La principal ya trajo lo de la rama: no hay nada que salvar.
+  // La principal ya trajo lo de la rama: no hay nada que salvar, ni que juntar.
   await writeFile(path.join(repo, 'CHECKLIST.md'), '- [x] uno\n- [ ] dos\n- [ ] tres\n');
+  await writeFile(path.join(repo, 'docs', 'a.md'), 'a de la principal\na de la rama\n');
   plan = await service.planRemove(record.id);
-  check('Q10 si la principal ya tiene cada línea de la rama, no choca', plan.conflicts.length === 0, plan.conflicts.join(' '));
+  check('Q10 si la principal ya tiene lo de la rama, no choca ni vuelve',
+    plan.conflicts.length === 0 && !plan.returning.includes('CHECKLIST.md') && !plan.returning.includes('docs/a.md'),
+    `${plan.conflicts.join(' ')} / ${plan.returning.join(' ')}`);
 
   // Otro programa parado en la carpeta (Windows no deja quitarla y git queda a medias).
   if (windows) {
@@ -1090,6 +1101,156 @@ let reviewSession = '';
 }
 
 // ---------------------------------------------------------------------------
+// H. Las notas que cambiaron en los dos lados se juntan, y viajan al integrar
+//    (21-10-2026)
+// ---------------------------------------------------------------------------
+
+{
+  // Sus propias copias de origen, y limpiar sin esperar: las de las otras secciones no se tocan.
+  const notesDir = path.join(root, 'copias-de-origen');
+  const notesBases = new NoteBases(notesDir, { graceMs: 0 });
+  const notesService = new WorktreeService({
+    store: teamStore,
+    registry: teamRegistry,
+    projectCwd: (key) => (key === 'equipo' ? team : null),
+    findSession: () => null,
+    noteBases: notesBases,
+  });
+  // Una nota que no es de texto viaja a la rama, pero su copia no se guarda: podría ser una clave.
+  await writeFile(path.join(team, 'docs', 'secreto.env'), 'TOKEN=x\n');
+  const bitacora = 'intro\nel final del parrafo.\n';
+  await writeFile(path.join(team, 'docs', 'bitacora.md'), bitacora);
+  const opened = await notesService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/notas-h', base: 'main', mode: 'new', copyNotes: true });
+  const H = teamStore.byPath(opened.cwd);
+  const baseOf = (file) => H.copied.find((entry) => entry.path === file)?.hash;
+  const kept = await readdir(notesDir);
+  check('H1 al crear se guarda la copia de origen de cada nota de texto, y de nada más',
+    ['CHECKLIST.md', 'CLAUDE.md', 'docs/a.md', 'docs/bitacora.md'].every((file) => kept.includes(baseOf(file))) &&
+      baseOf('docs/secreto.env') !== undefined && !kept.includes(baseOf('docs/secreto.env')),
+    kept.join(' '));
+
+  // En los dos lados: la lista en partes distintas; la bitácora pegada (la principal alarga el último
+  // párrafo y la rama agrega una sección justo debajo, como la de fix/comp); y docs/a.md en la misma línea.
+  await writeFile(path.join(opened.cwd, 'CHECKLIST.md'), '- [x] uno\n- [ ] dos\n');
+  await writeFile(path.join(team, 'CHECKLIST.md'), '- [ ] uno\n- [ ] dos\n- [ ] tres\n');
+  await writeFile(path.join(opened.cwd, 'docs', 'bitacora.md'), `${bitacora}\n## Nueva\nde la rama\n`);
+  await writeFile(path.join(team, 'docs', 'bitacora.md'), 'intro\nel final del parrafo, alargado\ncon otra linea.\n');
+  await writeFile(path.join(opened.cwd, 'docs', 'a.md'), 'a de la rama\n');
+  await writeFile(path.join(team, 'docs', 'a.md'), 'a de la principal\n');
+  await writeFile(path.join(opened.cwd, 'h.txt'), 'h\n');
+  git(opened.cwd, 'add', 'h.txt');
+  git(opened.cwd, 'commit', '-q', '-m', 'h');
+
+  let plan = await notesService.planIntegrate(H.id);
+  check('H2 el plan de integrar dice qué notas viajan, cuáles se juntan y cuál se queda',
+    plan.blocker === null && JSON.stringify(plan.notes?.returning) === JSON.stringify(['CHECKLIST.md', 'docs/bitacora.md']) &&
+      JSON.stringify(plan.notes?.merging) === JSON.stringify(['CHECKLIST.md', 'docs/bitacora.md']) &&
+      JSON.stringify(plan.notes?.conflicts) === JSON.stringify(['docs/a.md']) &&
+      shared.parseWorktreeIntegratePlan(JSON.parse(JSON.stringify(plan)))?.notes?.merging.length === 2,
+    JSON.stringify(plan.notes));
+  const outcome = await notesService.integrate(H.id, plan.branchCommit ?? undefined);
+  const checklist = await readFile(path.join(team, 'CHECKLIST.md'), 'utf8');
+  check('H3 integrar trae los commits y las notas, juntas con lo que cambió en la principal',
+    tip(team, 'main') === tip(team, 'feat/notas-h') && outcome.notes?.returned === 2 &&
+      JSON.stringify(outcome.notes?.stayed) === JSON.stringify(['docs/a.md']) && checklist === '- [x] uno\n- [ ] dos\n- [ ] tres\n',
+    JSON.stringify({ outcome, checklist }));
+  const joined = await readFile(path.join(team, 'docs', 'bitacora.md'), 'utf8');
+  check('H4 la bitácora: el párrafo alargado de la principal y, debajo, la sección de la rama (git lo daba por choque)',
+    joined === 'intro\nel final del parrafo, alargado\ncon otra linea.\n\n## Nueva\nde la rama\n', JSON.stringify(joined));
+  check('H5 la que no se puede juntar no se tocó en la principal', (await readFile(path.join(team, 'docs', 'a.md'), 'utf8')) === 'a de la principal\n');
+
+  const branchChecklist = await readFile(path.join(opened.cwd, 'CHECKLIST.md'));
+  const syncedBase = include.hashOf(branchChecklist);
+  check('H6 lo que viajó pasa a ser el origen de cada nota, con su copia guardada',
+    teamStore.get(H.id)?.copied.find((entry) => entry.path === 'CHECKLIST.md')?.hash === syncedBase &&
+      (await notesBases.load(syncedBase))?.equals(branchChecklist) === true);
+  plan = await notesService.planRemove(H.id);
+  check('H7 quitarla después no las trae otra vez: sólo queda la que choca',
+    plan.returning.length === 0 && JSON.stringify(plan.conflicts) === JSON.stringify(['docs/a.md']) && plan.deletesBranch === true,
+    JSON.stringify(plan));
+
+  // El agente de la rama sigue: lo nuevo se junta contra lo que ya viajó, no contra lo de antes.
+  await writeFile(path.join(opened.cwd, 'CHECKLIST.md'), '- [x] uno\n- [x] dos\n');
+  await writeFile(path.join(team, 'CHECKLIST.md'), '- [x] uno\n- [ ] dos\n- [ ] tres\n- [ ] cuatro\n');
+  plan = await notesService.planRemove(H.id);
+  check('H8 lo que la rama cambió después de integrar se junta al quitarla',
+    JSON.stringify(plan.merging) === JSON.stringify(['CHECKLIST.md']) && JSON.stringify(plan.conflicts) === JSON.stringify(['docs/a.md']),
+    JSON.stringify(plan));
+  const removal = await notesService.remove(H.id, true, () => {});
+  check('H9 quitada: lo nuevo vuelve junto, y sólo se pierde lo de la que choca, como se eligió',
+    removal.returned === 1 && removal.discarded === 1 && removal.branchDeleted === true &&
+      (await readFile(path.join(team, 'CHECKLIST.md'), 'utf8')) === '- [x] uno\n- [x] dos\n- [ ] tres\n- [ ] cuatro\n' &&
+      (await readFile(path.join(team, 'docs', 'a.md'), 'utf8')) === 'a de la principal\n',
+    JSON.stringify(removal));
+  check('H10 y sus copias de origen se borran', !(await readdir(notesDir)).includes(syncedBase));
+
+  // Una rama de antes del 21-10-2026 no tiene copias de origen: si una nota cambió en los dos lados, se pregunta como antes.
+  const old = await notesService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/vieja-h', base: 'main', mode: 'new', copyNotes: true });
+  const oldRecord = teamStore.byPath(old.cwd);
+  await rm(path.join(notesDir, oldRecord.copied.find((entry) => entry.path === 'CHECKLIST.md').hash));
+  await writeFile(path.join(old.cwd, 'CHECKLIST.md'), `${await readFile(path.join(old.cwd, 'CHECKLIST.md'), 'utf8')}- [ ] de la rama\n`);
+  await writeFile(path.join(team, 'CHECKLIST.md'), `- [ ] arriba\n${await readFile(path.join(team, 'CHECKLIST.md'), 'utf8')}`);
+  plan = await notesService.planRemove(oldRecord.id);
+  check('H11 sin la copia de origen, como antes: cambió en los dos lados y se pregunta',
+    JSON.stringify(plan.conflicts) === JSON.stringify(['CHECKLIST.md']) && plan.merging.length === 0, JSON.stringify(plan));
+  await notesService.remove(oldRecord.id, true, () => {});
+
+  // Lo que no deja quitar una rama: el pedido de commitear va al cuadro de su agente, sin mandar.
+  const pending = await notesService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/commit-h', base: 'main', mode: 'new', copyNotes: false });
+  const pendingRecord = teamStore.byPath(pending.cwd);
+  await writeFile(path.join(pending.cwd, 'pendiente.txt'), 'p\n');
+  const asked = await notesService.commitRequest(pendingRecord.id);
+  check('H12 con algo sin commit, el pedido va a la pestaña de la rama, nombra el archivo, en inglés y sin subir nada',
+    asked.terminal.cwd === pending.cwd && asked.opened === false && asked.text.includes('pendiente.txt') &&
+      /^This branch folder has uncommitted changes/.test(asked.text) && asked.text.includes("Don't push"),
+    asked.text);
+  await rm(path.join(pending.cwd, 'pendiente.txt'));
+  check('H13 sin nada sin commit, lo dice', (await errorKey(() => notesService.commitRequest(pendingRecord.id))) === 'worktreeNothingToCommit');
+  await notesService.remove(pendingRecord.id, false, () => {});
+
+  // Quitar falla a mitad de camino: una nota ya se escribió (juntada) y la siguiente no se puede escribir
+  // (en la principal hay una carpeta con su nombre). Al reintentar, la primera no se junta otra vez.
+  await writeFile(path.join(team, 'docs', 'a-junta.md'), 'intro\nfin.\n');
+  const halfway = await notesService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/mitad-h', base: 'main', mode: 'new', copyNotes: false });
+  const halfwayRecord = teamStore.byPath(halfway.cwd);
+  await writeFile(path.join(halfway.cwd, 'docs', 'a-junta.md'), 'intro\nfin.\n\n## Nueva\n');
+  await writeFile(path.join(team, 'docs', 'a-junta.md'), 'intro\nfin, alargado.\n');
+  await writeFile(path.join(halfway.cwd, 'docs', 'z-traba.md'), 'nueva en la rama\n');
+  await mkdir(path.join(team, 'docs', 'z-traba.md'), { recursive: true });
+  const failed = await errorKey(() => notesService.remove(halfwayRecord.id, false, () => {}));
+  const juntada = 'intro\nfin, alargado.\n\n## Nueva\n';
+  check('H14 quitar falla a mitad: la nota juntada ya está en la principal, y su origen nuevo quedó anotado',
+    failed === 'worktreeNotesFailed' && (await readFile(path.join(team, 'docs', 'a-junta.md'), 'utf8')) === juntada &&
+      teamStore.get(halfwayRecord.id)?.copied.find((entry) => entry.path === 'docs/a-junta.md')?.hash ===
+        include.hashOf(await readFile(path.join(halfway.cwd, 'docs', 'a-junta.md'))) && existsSync(halfway.cwd),
+    failed);
+  await rm(path.join(team, 'docs', 'z-traba.md'), { recursive: true });
+  const retried = await notesService.remove(halfwayRecord.id, false, () => {});
+  check('H15 al reintentar, la juntada no vuelve a juntarse (nada repetido) y la otra llega',
+    retried.returned === 1 && (await readFile(path.join(team, 'docs', 'a-junta.md'), 'utf8')) === juntada &&
+      (await readFile(path.join(team, 'docs', 'z-traba.md'), 'utf8')) === 'nueva en la rama\n' && !existsSync(halfway.cwd),
+    JSON.stringify(retried));
+
+  // Un CLAUDE.md versionado no es una nota: lo lleva git. Integrar no avisa que "se queda en la rama".
+  git(team, 'add', '-f', 'CLAUDE.md');
+  git(team, 'commit', '-q', '-m', 'CLAUDE.md versionado');
+  const tracked = await notesService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/versionado-h', base: 'main', mode: 'new', copyNotes: true });
+  const trackedRecord = teamStore.byPath(tracked.cwd);
+  await writeFile(path.join(tracked.cwd, 'CLAUDE.md'), `${await readFile(path.join(tracked.cwd, 'CLAUDE.md'), 'utf8')}una regla de la rama\n`);
+  git(tracked.cwd, 'add', 'CLAUDE.md');
+  git(tracked.cwd, 'commit', '-q', '-m', 'regla');
+  const trackedRemove = await notesService.planRemove(trackedRecord.id);
+  const trackedPlan = await notesService.planIntegrate(trackedRecord.id);
+  check('H16 un CLAUDE.md versionado no cuenta como nota, ni al quitar ni al integrar',
+    !trackedRemove.conflicts.includes('CLAUDE.md') && !trackedRemove.returning.includes('CLAUDE.md') && trackedPlan.notes === null,
+    JSON.stringify({ conflicts: trackedRemove.conflicts, notes: trackedPlan.notes }));
+  const trackedOutcome = await notesService.integrate(trackedRecord.id, trackedPlan.branchCommit ?? undefined);
+  check('H17 y git lo integra: la principal tiene la regla de la rama, sin aviso de notas',
+    trackedOutcome.notes === undefined && (await readFile(path.join(team, 'CLAUDE.md'), 'utf8')).includes('una regla de la rama'));
+  await notesService.remove(trackedRecord.id, false, () => {});
+}
+
+// ---------------------------------------------------------------------------
 // M. Las piezas puras del hito 49
 // ---------------------------------------------------------------------------
 
@@ -1230,6 +1391,148 @@ let reviewSession = '';
 }
 
 // ---------------------------------------------------------------------------
+// J. Juntar las dos versiones de una nota (puro, 21-10-2026)
+// ---------------------------------------------------------------------------
+
+{
+  const join = (base, main, branch) =>
+    mergeNotes.mergeNote(Buffer.from(base, 'latin1'), Buffer.from(main, 'latin1'), Buffer.from(branch, 'latin1'))?.toString('latin1') ?? null;
+  check('J1 cambios en partes distintas: van los dos', join('a\nb\nc\nd\ne\n', 'A\nb\nc\nd\ne\n', 'a\nb\nc\nd\nE\n') === 'A\nb\nc\nd\nE\n');
+  check('J1b dos líneas vecinas cambiadas, una en cada lado: no chocan', join('a\nb\nc\n', 'A\nb\nc\n', 'a\nB\nc\n') === 'A\nB\nc\n');
+  check('J2 pegados no chocan: el párrafo alargado y la sección de abajo, en ese orden',
+    join('intro\nfin.\n', 'intro\nfin, alargado.\n', 'intro\nfin.\n\n## Nueva\n') === 'intro\nfin, alargado.\n\n## Nueva\n');
+  check('J3 dos agregados en el mismo lugar van los dos, primero el de la principal',
+    join('- uno\n', '- uno\n- de la principal\n', '- uno\n- de la rama\n') === '- uno\n- de la principal\n- de la rama\n');
+  check('J4 el mismo cambio en los dos lados va una vez', join('a\nb\n', 'a\nB\n', 'a\nB\n') === 'a\nB\n');
+  check('J5 la misma línea cambiada distinto en cada lado choca', join('a\nb\n', 'a\nB1\n', 'a\nB2\n') === null);
+  check('J6 un agregado adentro de lo que el otro reemplazó choca', join('a\nb\nc\n', 'a\nX\n', 'a\nb\nnueva\nc\n') === null);
+  check('J7 una CLI que reescribió con \\n una nota con \\r\\n no la cambió: se junta lo demás, con el fin de línea de la principal',
+    join('a\r\nb\r\nc\r\n', 'A\r\nb\r\nc\r\n', 'a\nb\nc\nd\n') === 'A\r\nb\r\nc\r\nd\r\n');
+  check('J7b si la que pasó la nota a \\n es la principal, la junta no la devuelve a medias a \\r\\n',
+    join('a\r\nb\r\nc\r\nd\r\n', 'A\nb\nc\nd\n', 'a\r\nb\r\nc\r\nD\r\n') === 'A\nb\nc\nD\n');
+  check('J8 sin fin de línea al final, lo agregado no se pega a la última línea', join('a\nb', 'a\nb\nc', 'z\na\nb') === 'z\na\nb\nc');
+  // Y cuando la última línea sin terminar sale de la principal, que no la cambió, y la rama agrega detrás.
+  check('J8b tampoco si la principal agrega arriba y la rama agrega al final', join('a\nb', 'x\na\nb', 'a\nb\nc') === 'x\na\nb\nc');
+  const many = (count, prefix) => Array.from({ length: count }, (_, index) => `${prefix}${index}\n`).join('');
+  check('J9 pasado el tope de lo que se compara, no se junta: se pregunta',
+    mergeNotes.lineChanges(['x\n'], Array.from({ length: 50 }, (_, index) => `${index}\n`), 10) === null &&
+      join(many(3000, 'a'), many(3000, 'b'), `${many(3000, 'a')}extra\n`) === null);
+
+  // El cálculo, contra lo que tiene que dar en cualquier caso: con un generador fijo, siempre los mismos.
+  let seed = 7;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const randomLines = () => Array.from({ length: Math.floor(random() * 12) }, () => `${'abcd'[Math.floor(random() * 4)]}\n`);
+  let wrongDiff = 0;
+  let wrongMerge = 0;
+  for (let round = 0; round < 500; round += 1) {
+    const a = randomLines();
+    const b = randomLines();
+    const changes = mergeNotes.lineChanges(a, b);
+    if (changes === null || mergeNotes.applyChanges(a, changes).join('') !== b.join('')) wrongDiff += 1;
+    if (join(a.join(''), a.join(''), b.join('')) !== b.join('') || join(a.join(''), b.join(''), a.join('')) !== b.join('')) wrongMerge += 1;
+  }
+  check('J10 aplicar los cambios de una versión hacia otra da la otra (500 al azar)', wrongDiff === 0, String(wrongDiff));
+  check('J11 juntar con un lado sin cambios da el otro (500 al azar)', wrongMerge === 0, String(wrongMerge));
+
+  const text = (value) => Buffer.from(value, 'utf8');
+  const origin = text('- uno\n- dos\n');
+  const originHash = include.hashOf(origin);
+  const outcome = include.noteOutcome(originHash, text('- [x] uno\n- dos\n'), text('- uno\n- dos\n- tres\n'), origin);
+  check('J12 con la copia de origen, lo que cambió en los dos lados se junta',
+    outcome.verdict === 'merge' && outcome.content?.toString('utf8') === '- [x] uno\n- dos\n- tres\n');
+  // Con la principal como origen, juntar daría la rama entera y pisaría lo de la principal: tiene que chocar.
+  check('J13 una copia que no es la de esa huella no se usa: choca, como antes',
+    include.noteVerdict(originHash, text('- [x] uno\n- dos\n'), text('- uno\n- dos\n- tres\n'), text('- uno\n- dos\n- tres\n')) === 'conflict');
+  check('J14 si juntas dan la principal, no hay nada que traer',
+    include.noteVerdict(originHash, text('- [x] uno\n- dos\n'), text('- [x] uno\n- dos\n- tres\n'), origin) === 'unchanged');
+  check('J15 se guarda la copia de una nota de texto, nunca de un .env, un binario ni algo enorme',
+    keepsNoteBase('docs/a.md', text('a\n')) && keepsNoteBase('NOTAS.TXT', text('a\n')) && !keepsNoteBase('.env', text('A=1\n')) &&
+      !keepsNoteBase('docs/clave.env', text('A=1\n')) && !keepsNoteBase('docs/a.md', Buffer.from([97, 0, 98])) &&
+      !keepsNoteBase('docs/a.md', Buffer.alloc(NOTE_BASE_MAX_BYTES + 1, 97)));
+
+  const basesDir = path.join(root, 'copias-j');
+  const bases = new NoteBases(basesDir, { graceMs: 0 });
+  await bases.save('a.md', text('hola\n'));
+  await bases.save('b.md', text('chau\n'));
+  await bases.save('.env', text('TOKEN=x\n'));
+  const hola = include.hashOf(text('hola\n'));
+  const chau = include.hashOf(text('chau\n'));
+  await writeFile(path.join(basesDir, hola), 'cambiada\n');
+  check('J16 una copia que alguien cambió no se usa, y una huella que no es una huella no se busca',
+    (await bases.load(hola)) === null && (await bases.load('../worktrees.json')) === null && (await readdir(basesDir)).length === 2);
+  await bases.save('a.md', text('hola\n'));
+  await writeFile(path.join(basesDir, 'LEEME.txt'), 'no es una copia\n');
+  await bases.prune(new Set([hola]));
+  check('J17 se vuelve a guardar bien, y limpiar deja sólo las que se nombran, sin tocar lo demás',
+    (await bases.load(hola))?.toString('utf8') === 'hola\n' && (await bases.load(chau)) === null && existsSync(path.join(basesDir, 'LEEME.txt')));
+  const fresh = new NoteBases(basesDir);
+  await fresh.save('c.md', text('recien\n'));
+  await fresh.prune(new Set());
+  check('J18 lo recién guardado no se limpia: una rama que se está creando todavía no está en el registro',
+    (await fresh.load(include.hashOf(text('recien\n'))))?.toString('utf8') === 'recien\n');
+  // Una copia vieja que otra rama nueva vuelve a necesitar: guardarla otra vez le renueva la fecha.
+  const viejo = include.hashOf(text('compartida\n'));
+  await fresh.save('d.md', text('compartida\n'));
+  const anHourAgo = new Date(Date.now() - 3_600_000);
+  await utimes(path.join(basesDir, viejo), anHourAgo, anHourAgo);
+  await fresh.save('e.md', text('compartida\n'));
+  await fresh.prune(new Set());
+  check('J19 una copia que ya estaba y se vuelve a guardar tampoco se limpia enseguida',
+    (await fresh.load(viejo))?.toString('utf8') === 'compartida\n');
+
+  // Juntar otra vez sobre lo ya juntado (si no se llegó a anotar el origen nuevo, o alguien lo pasó a mano):
+  // lo de la rama no se repite, en las formas de una nota que crece.
+  const once = (base, main, branch) => join(base, join(base, main, branch) ?? '', branch);
+  check('J20 juntar otra vez la bitácora y la lista da lo mismo: nada repetido',
+    once('intro\nfin.\n', 'intro\nfin, alargado.\n', 'intro\nfin.\n\n## Nueva\n') === 'intro\nfin, alargado.\n\n## Nueva\n' &&
+      once('- uno\n', '- uno\n- de la principal\n', '- uno\n- de la rama\n') === '- uno\n- de la principal\n- de la rama\n' &&
+      join('- uno\n', '- uno\n- de la rama\n- de la principal\n', '- uno\n- de la rama\n') === '- uno\n- de la rama\n- de la principal\n');
+}
+
+// ---------------------------------------------------------------------------
+// D. El diálogo de quitar: un solo botón principal, y siempre hace algo
+//    (21-10-2026)
+// ---------------------------------------------------------------------------
+
+{
+  const plan = {
+    id: 'w', branch: 'fix/comp', path: 'D:\\x', commands: [], uncommitted: [], uncommittedCount: 0, tabs: [],
+    returning: [], merging: [], conflicts: [], inUse: false, deletesBranch: true, branchUnused: false, createdBranch: true,
+  };
+  check('D1 sin nada que frene, el botón quita', ui.removeAction(plan) === 'remove');
+  check('D2 con algo que frena, el botón lo destraba: commitear, volver a intentar o juntar las notas',
+    ui.removeAction({ ...plan, uncommitted: ['a.ts'], uncommittedCount: 1 }) === 'ask-commit' &&
+      ui.removeAction({ ...plan, inUse: true }) === 'retry' &&
+      ui.removeAction({ ...plan, conflicts: ['CHECKLIST.md'] }) === 'ask-notes' &&
+      ui.removeAction({ ...plan, uncommittedCount: 1, conflicts: ['CHECKLIST.md'] }) === 'ask-commit');
+  check('D3 qué pasa con la carpeta y con la rama, en cada caso',
+    ui.removeFateText(plan).startsWith('Ya está integrada') &&
+      ui.removeFateText({ ...plan, branchUnused: true }).startsWith('No tiene commits propios') &&
+      ui.removeFateText({ ...plan, deletesBranch: false }).startsWith('Todavía no está integrada') &&
+      ui.removeFateText({ ...plan, deletesBranch: false, createdBranch: false }).startsWith('La rama fix/comp ya existía'));
+  const fromOld = shared.parseWorktreeRemovePlan(JSON.parse(JSON.stringify({ ...plan, returning: ['a.md'], merging: undefined, createdBranch: undefined })));
+  const fromNew = shared.parseWorktreeRemovePlan({ ...plan, returning: ['a.md'], merging: ['a.md', 'otra.md'], createdBranch: false });
+  check('D4 el plan de un servidor anterior: ninguna se junta y la rama es de la app; una que se junta tiene que volver',
+    fromOld?.merging.length === 0 && fromOld.createdBranch === true &&
+      JSON.stringify(fromNew?.merging) === JSON.stringify(['a.md']) && fromNew.createdBranch === false);
+  const integratePlan = {
+    id: 'w', branch: 'b', base: 'main', baseFolder: 'D:\\x', command: 'git merge --ff-only b', branchCommit: null, ahead: 1, behind: 0,
+    files: [], fileCount: 0, review: null, tabs: [], localConflicts: [], branchUncommitted: 0, blocker: null,
+  };
+  check('D5 el plan de integrar sin notas (un servidor anterior) y con ellas',
+    shared.parseWorktreeIntegratePlan(integratePlan)?.notes === null &&
+      JSON.stringify(shared.parseWorktreeIntegratePlan({ ...integratePlan, notes: { returning: ['a.md'], conflicts: [] } })?.notes) ===
+        JSON.stringify({ returning: ['a.md'], merging: [], conflicts: [] }));
+  check('D6 lo que integrar dice de las notas viaja, y sin ellas no aparece',
+    shared.parseWorktreeIntegrateOutcome({ commits: 1, base: 'main' })?.notes === undefined &&
+      JSON.stringify(shared.parseWorktreeIntegrateOutcome({ commits: 1, base: 'main', notes: { returned: 2, stayed: ['a.md'] } })?.notes) ===
+        JSON.stringify({ returned: 2, stayed: ['a.md'] }));
+  check('D7 el pedido de commitear nombra los archivos y cuántos más hay, y no sube nada',
+    review.commitPrompt(['a.ts', 'b.ts'], 5).includes('a.ts, b.ts and 3 more') && review.commitPrompt(['a.ts'], 1).includes("Don't push") &&
+      !review.commitPrompt(['a.ts'], 1).includes('more'));
+}
+
+// ---------------------------------------------------------------------------
 // E. El protocolo
 // ---------------------------------------------------------------------------
 
@@ -1248,7 +1551,7 @@ let reviewSession = '';
   check('E5 pedir revisión con una CLI desconocida se conserva para rechazarla, y nada más viaja',
     review?.type === 'worktree.requestReview' && review.unsupportedAgent === 'no-existe' &&
       JSON.stringify(Object.keys(review).sort()) === JSON.stringify(['agent', 'requestId', 'type', 'unsupportedAgent', 'worktreeId']));
-  const simple = ['worktree.changes', 'worktree.planReview', 'worktree.sendReview', 'worktree.catchUp', 'worktree.planIntegrate', 'worktree.integrate'];
+  const simple = ['worktree.changes', 'worktree.planReview', 'worktree.sendReview', 'worktree.catchUp', 'worktree.askCommit', 'worktree.planIntegrate', 'worktree.integrate'];
   check('E6 los pedidos del hito 49 con id y sin él',
     simple.every((type) => shared.parseClientMessage(JSON.stringify({ type, requestId: 'r', worktreeId: 'w' }))?.type === type &&
       shared.parseClientMessage(JSON.stringify({ type, requestId: 'r' })) === null) &&

@@ -303,12 +303,42 @@ export function deleteBranchBlockerText(plan: WorktreeDeleteBranchPlan): string 
 export type RemoveBlocker = 'uncommitted' | 'in-use' | 'conflicts';
 
 /**
- * Por qué no se puede quitar todavía, o null. Las notas que chocaron no
- * bloquean del todo: el usuario puede elegir "quitar igual".
+ * Por qué no se puede quitar todavía, o null. Las notas que no se pueden
+ * juntar no bloquean del todo: el usuario puede elegir perder lo de la rama.
  */
 export function removeBlocker(plan: WorktreeRemovePlan): RemoveBlocker | null {
   if (plan.uncommittedCount > 0) return 'uncommitted';
   if (plan.inUse === true) return 'in-use';
   if (plan.conflicts.length > 0) return 'conflicts';
   return null;
+}
+
+/**
+ * Lo que hace el botón principal del diálogo de quitar (21-10-2026). Nunca está
+ * desactivado: si algo frena, es lo que lo destraba. Antes era "Quitar",
+ * apagado, con las salidas como enlaces al costado, y se leía como dos botones
+ * de quitar.
+ */
+export type RemoveAction = 'remove' | 'ask-commit' | 'retry' | 'ask-notes';
+
+export function removeAction(plan: WorktreeRemovePlan): RemoveAction {
+  switch (removeBlocker(plan)) {
+    case 'uncommitted':
+      return 'ask-commit';
+    case 'in-use':
+      return 'retry';
+    case 'conflicts':
+      return 'ask-notes';
+    case null:
+      return 'remove';
+  }
+}
+
+/** Qué pasa con la carpeta y con la rama al quitarla, en una línea. */
+export function removeFateText(plan: WorktreeRemovePlan): string {
+  const { branch } = plan;
+  if (plan.deletesBranch) {
+    return plan.branchUnused ? t('worktree.remove.deletesUnusedBranch', { branch }) : t('worktree.remove.deletesBranch', { branch });
+  }
+  return plan.createdBranch ? t('worktree.remove.keepsBranch', { branch }) : t('worktree.remove.keepsExistingBranch', { branch });
 }

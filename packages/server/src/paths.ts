@@ -59,6 +59,11 @@ export function worktreesStatePath(): string {
   return path.join(appConfigDir(), 'worktrees.json');
 }
 
+/** Las copias de origen de las notas de las ramas aparte (21-10-2026, §6.38): una por contenido. */
+export function worktreeNotesDir(): string {
+  return path.join(appConfigDir(), 'worktree-notes');
+}
+
 /**
  * Sesiones archivadas: las que el usuario escondio de la barra lateral.
  *

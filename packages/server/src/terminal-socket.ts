@@ -2783,9 +2783,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
         // Lo que se le deja al autor de la rama: queda en su cuadro, sin mandar, y lo manda el usuario.
         case 'worktree.sendReview':
-        case 'worktree.catchUp': {
+        case 'worktree.catchUp':
+        case 'worktree.askCommit': {
           const { requestId, worktreeId } = message;
-          const asked = message.type === 'worktree.sendReview' ? worktrees.sendReview(worktreeId) : worktrees.catchUp(worktreeId);
+          const asked =
+            message.type === 'worktree.sendReview'
+              ? worktrees.sendReview(worktreeId)
+              : message.type === 'worktree.catchUp'
+                ? worktrees.catchUp(worktreeId)
+                : worktrees.commitRequest(worktreeId);
           void asked.then(
             ({ terminal, opened, text, pasted }) => {
               if (opened) send(socket, { type: 'terminal.opened', requestId, terminal });

@@ -160,8 +160,12 @@ export interface WorktreeDialogs {
   remove: RemoveDialog | null;
   openRemove: (worktreeId: string, branch: string) => void;
   confirmRemove: (discardConflicts: boolean) => void;
-  /** Deja en el cuadro del agente de la rama el pedido de pasar las notas que chocaron. */
+  /** Deja en el cuadro del agente de la rama el pedido de juntar las notas que no se pudieron juntar solas. */
   askNotes: () => void;
+  /** Deja en el cuadro del agente de la rama el pedido de commitear lo que no deja quitarla (21-10-2026). */
+  askCommit: () => void;
+  /** Vuelve a pedir el plan: otro programa soltó la carpeta, o algo falló. */
+  retryRemove: () => void;
   closeRemove: () => void;
   /** Vuelve a abrir la rama quitada de una sesión de la barra. Su error va al aviso de arriba. */
   reopen: (agent: AgentId, sessionId: string, projectCwd: string, label: string) => void;
@@ -182,7 +186,8 @@ export function useWorktreeDialogs(
   /** El pedido en curso de cada diálogo: una respuesta de otro pedido no se aplica. */
   const createRequest = useRef<string | null>(null);
   const removeRequest = useRef<string | null>(null);
-  const notesRequest = useRef<string | null>(null);
+  /** El pedido para el agente de la rama que salió del diálogo de quitar: juntar las notas o commitear. */
+  const agentRequest = useRef<string | null>(null);
   const deleteBranchRequest = useRef<string | null>(null);
 
   useEffect(
@@ -218,9 +223,9 @@ export function useWorktreeDialogs(
             setDeleteBranch((current) => (current === null ? null : { ...current, state: { phase: 'done' } }));
             break;
           case 'composer.prefill':
-            // El pedido de las notas quedó en el cuadro de esa pestaña: se la muestra.
-            if (answersRequest(message, notesRequest.current)) {
-              notesRequest.current = null;
+            // El pedido quedó en el cuadro de esa pestaña: se la muestra.
+            if (answersRequest(message, agentRequest.current)) {
+              agentRequest.current = null;
               activate(message.terminalId);
             }
             break;
@@ -250,8 +255,8 @@ export function useWorktreeDialogs(
                 return { ...current, state: { phase: 'failed', plan, message: text } };
               });
             }
-            // El de las notas va al aviso de arriba: su diálogo ya se cerró.
-            if (message.requestId !== undefined && message.requestId === notesRequest.current) notesRequest.current = null;
+            // El del pedido al agente va al aviso de arriba: su diálogo ya se cerró.
+            if (message.requestId !== undefined && message.requestId === agentRequest.current) agentRequest.current = null;
             break;
           }
           default:
@@ -328,15 +333,26 @@ export function useWorktreeDialogs(
     [connection, remove],
   );
 
-  const askNotes = useCallback(() => {
-    if (remove === null) return;
-    const requestId = crypto.randomUUID();
-    notesRequest.current = requestId;
-    // Si la rama no tiene pestaña, el servidor abre una: que pase a ser la activa.
-    expectTab(requestId, null);
-    connection.send({ type: 'worktree.askNotes', requestId, worktreeId: remove.worktreeId });
-    setRemove(null);
-  }, [connection, expectTab, remove]);
+  const askAgent = useCallback(
+    (type: 'worktree.askNotes' | 'worktree.askCommit') => {
+      if (remove === null) return;
+      const requestId = crypto.randomUUID();
+      agentRequest.current = requestId;
+      // Si la rama no tiene pestaña, el servidor abre una: que pase a ser la activa.
+      expectTab(requestId, null);
+      connection.send({ type, requestId, worktreeId: remove.worktreeId });
+      removeRequest.current = null;
+      setRemove(null);
+    },
+    [connection, expectTab, remove],
+  );
+
+  const askNotes = useCallback(() => askAgent('worktree.askNotes'), [askAgent]);
+  const askCommit = useCallback(() => askAgent('worktree.askCommit'), [askAgent]);
+
+  const retryRemove = useCallback(() => {
+    if (remove !== null) openRemove(remove.worktreeId, remove.branch);
+  }, [openRemove, remove]);
 
   const closeRemove = useCallback(() => {
     removeRequest.current = null;
@@ -384,6 +400,8 @@ export function useWorktreeDialogs(
     openRemove,
     confirmRemove,
     askNotes,
+    askCommit,
+    retryRemove,
     closeRemove,
     reopen,
     deleteBranch,

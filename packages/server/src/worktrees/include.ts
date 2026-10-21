@@ -20,8 +20,11 @@
  *
  * Al quitar la rama, `git worktree remove` borra lo ignorado sin avisar
  * (medido), así que antes se mira qué notas cambiaron: las que sólo cambiaron
- * en la rama vuelven a la principal; las que cambiaron en los dos lados no se
- * tocan, y la rama no se quita sin que el usuario lo decida.
+ * en la rama vuelven a la principal, y desde el 21-10-2026 las que cambiaron en
+ * los dos lados se juntan, con la copia de cómo estaban al copiarse
+ * (`note-bases.ts`, `merge-notes.ts`). Sólo las que no se pueden juntar no se
+ * tocan, y la rama no se quita sin que el usuario lo decida. Lo mismo al
+ * integrar: las notas viajan con los commits.
  */
 
 import { createHash } from 'node:crypto';
@@ -35,7 +38,9 @@ import {
 } from '@agent-workbench/shared';
 import { writeAtomically } from '../atomic-write.js';
 import { resolveInside } from '../path-guard.js';
-import { ignoredSelection } from './git.js';
+import { ignoredAmong, ignoredSelection } from './git.js';
+import { mergeNote } from './merge-notes.js';
+import type { NoteBases } from './note-bases.js';
 
 /** Las instrucciones y la memoria que se copian si el repo las ignora. Ancladas a la raíz. */
 export const NOTE_PATTERNS: readonly string[] = ['/CLAUDE.md', '/AGENTS.md', '/CLAUDE.local.md', '/.agents/memory/'];
@@ -203,16 +208,23 @@ export function summarize(selection: CopySelection): WorktreeCopySummary {
  * Copia los archivos de la principal a la rama recién creada, y devuelve la
  * huella de cada uno. Lee con el guardia contra la principal y escribe con el
  * guardia contra la rama; un archivo que ya existe en la rama (porque la rama
- * lo versiona) no se pisa.
+ * lo versiona) no se pisa. Con `bases`, guarda además la copia de origen de
+ * cada nota de texto, para juntarla después si cambia en los dos lados.
  */
-export async function copyToWorktree(mainRoot: string, folder: string, files: readonly CopyFile[]): Promise<CopiedFile[]> {
+export async function copyToWorktree(
+  mainRoot: string,
+  folder: string,
+  files: readonly CopyFile[],
+  bases?: NoteBases,
+): Promise<CopiedFile[]> {
   const copied: CopiedFile[] = [];
   for (const file of files) {
+    let content: Buffer;
     try {
       const source = await resolveInside(mainRoot, file.path, { mustExist: true });
       const info = await lstat(source);
       if (!info.isFile()) continue;
-      const content = await readFile(source);
+      content = await readFile(source);
       const target = await resolveInside(folder, file.path);
       await mkdir(path.dirname(target), { recursive: true });
       // `wx`: si la rama ya lo tiene, es suyo.
@@ -220,7 +232,12 @@ export async function copyToWorktree(mainRoot: string, folder: string, files: re
       copied.push({ path: file.path, hash: hashOf(content) });
     } catch (error) {
       console.warn(`[worktrees] ${file.path} wasn't copied to the branch folder:`, error);
+      continue;
     }
+    // Sin la copia de origen, esa nota se pregunta como antes: no frena la rama.
+    await bases?.save(file.path, content).catch((error: unknown) => {
+      console.warn(`[worktrees] the original of ${file.path} wasn't kept:`, error);
+    });
   }
   return copied;
 }
@@ -247,26 +264,64 @@ export function containsAllLines(main: string, branch: string): boolean {
   return branch.split(/\r?\n/).every((line) => line.length === 0 || have.has(line));
 }
 
-export type NoteVerdict = 'unchanged' | 'return' | 'conflict';
+/**
+ * `return`: vuelve la versión de la rama tal cual. `merge`: vuelven las dos
+ * juntas. `conflict`: cambió en los dos lados y no se pudo juntar.
+ */
+export type NoteVerdict = 'unchanged' | 'return' | 'merge' | 'conflict';
+
+export interface NoteOutcome {
+  verdict: NoteVerdict;
+  /** Lo que se escribe en la principal: la versión de la rama (`return`) o las dos juntas (`merge`). */
+  content: Buffer | null;
+}
+
+const UNCHANGED: NoteOutcome = { verdict: 'unchanged', content: null };
 
 /**
- * Qué hacer con una nota de la rama al quitarla. Pura: la prueba el chequeo.
+ * Qué hacer con una nota de la rama al quitarla o integrarla. Pura: la prueba
+ * el chequeo.
  *
- * `base` es la huella de cuando se copió, o null si la nota nació en la rama.
+ * `base` es la huella de cuando se copió (o de cuando volvió por última vez a
+ * la principal), o null si la nota nació en la rama. `baseContent` es la copia
+ * de origen con esa huella (`note-bases.ts`): con ella, una nota que cambió en
+ * los dos lados se junta; sin ella, choca.
  */
-export function noteVerdict(base: string | null, branch: Buffer, main: Buffer | null): NoteVerdict {
+export function noteOutcome(base: string | null, branch: Buffer, main: Buffer | null, baseContent: Buffer | null = null): NoteOutcome {
   const branchHash = hashOf(branch);
-  if (base !== null && branchHash === base) return 'unchanged';
-  if (main === null) return 'return';
+  if (base !== null && branchHash === base) return UNCHANGED;
+  if (main === null) return { verdict: 'return', content: branch };
   const mainHash = hashOf(main);
-  if (mainHash === branchHash) return 'unchanged';
-  if (base !== null && mainHash === base) return 'return';
-  if (containsAllLines(main.toString('utf8'), branch.toString('utf8'))) return 'unchanged';
-  return 'conflict';
+  if (mainHash === branchHash) return UNCHANGED;
+  if (base !== null && mainHash === base) return { verdict: 'return', content: branch };
+  if (base !== null && baseContent !== null && hashOf(baseContent) === base) {
+    const merged = mergeNote(baseContent, main, branch);
+    // Juntas dan la principal: lo de la rama ya estaba.
+    if (merged !== null) return merged.equals(main) ? UNCHANGED : { verdict: 'merge', content: merged };
+  }
+  if (containsAllLines(main.toString('utf8'), branch.toString('utf8'))) return UNCHANGED;
+  return { verdict: 'conflict', content: null };
+}
+
+export function noteVerdict(base: string | null, branch: Buffer, main: Buffer | null, baseContent: Buffer | null = null): NoteVerdict {
+  return noteOutcome(base, branch, main, baseContent).verdict;
+}
+
+/** La copia de origen de una huella, si la hay. */
+export type LoadNoteBase = (hash: string) => Promise<Buffer | null>;
+
+/** Como `noteOutcome`, pero busca la copia de origen sólo cuando hace falta: si la nota cambió en los dos lados. */
+async function outcomeOf(base: string | null, branch: Buffer, main: Buffer | null, loadBase?: LoadNoteBase): Promise<NoteOutcome> {
+  const bothChanged = base !== null && main !== null && hashOf(branch) !== base && hashOf(main) !== base && !main.equals(branch);
+  const baseContent = bothChanged && loadBase !== undefined ? await loadBase(base) : null;
+  return noteOutcome(base, branch, main, baseContent);
 }
 
 export interface NoteReview {
+  /** Las que se escriben en la principal: vuelven tal cual o se juntan. */
   returning: string[];
+  /** De `returning`, las que se juntan con lo que cambió en la principal. */
+  merging: string[];
   conflicts: string[];
 }
 
@@ -297,16 +352,21 @@ async function filesUnder(folder: string, relative: string, out: string[]): Prom
 }
 
 /**
- * Las notas de una rama que cambiaron: las que vuelven y las que chocan.
+ * Las notas de una rama que cambiaron: las que vuelven (tal cual o juntas) y
+ * las que chocan.
  *
  * Se miran las que se copiaron, lo nuevo debajo de las carpetas copiadas
  * enteras y, si se copiaron las instrucciones, las de la raíz aunque no
- * estuvieran (el agente de la rama pudo crear un `CLAUDE.md`).
+ * estuvieran (el agente de la rama pudo crear un `CLAUDE.md`). **Sólo lo que
+ * git ignora en la rama**: un `CLAUDE.md` versionado no es una nota, lo lleva
+ * git, y contarlo hacía que integrar avisara en falso que se quedaba en la
+ * rama (revisión del 21-10-2026).
  */
 export async function reviewNotes(
   mainRoot: string,
   folder: string,
   record: { copied: readonly CopiedFile[]; copiedDirs: readonly string[]; copyNotes: boolean },
+  loadBase?: LoadNoteBase,
 ): Promise<NoteReview> {
   const bases = new Map(record.copied.map((file) => [file.path, file.hash]));
   const candidates = new Set(bases.keys());
@@ -316,57 +376,98 @@ export async function reviewNotes(
     for (const file of found) if (!isCliConfigPath(file)) candidates.add(file);
   }
   if (record.copyNotes) for (const file of NOTE_ROOT_FILES) candidates.add(file);
+  // Si git no contesta, como antes: se miran todas.
+  const ignored = await ignoredAmong(folder, [...candidates]);
+  const notes = [...candidates].filter((file) => ignored === null || ignored.has(file)).sort();
 
   const returning: string[] = [];
+  const merging: string[] = [];
   const conflicts: string[] = [];
-  for (const file of [...candidates].sort()) {
+  for (const file of notes) {
     const branch = await readInside(folder, file);
     // Borrada en la rama: no se borra en la principal.
     if (branch === null) continue;
-    const verdict = noteVerdict(bases.get(file) ?? null, branch, await readInside(mainRoot, file));
-    if (verdict === 'return') returning.push(file);
+    const { verdict } = await outcomeOf(bases.get(file) ?? null, branch, await readInside(mainRoot, file), loadBase);
+    if (verdict === 'return' || verdict === 'merge') returning.push(file);
+    if (verdict === 'merge') merging.push(file);
     else if (verdict === 'conflict') conflicts.push(file);
   }
-  return { returning, conflicts };
+  return { returning, merging, conflicts };
+}
+
+export interface ReturnedNotes {
+  /** Las que se escribieron en la principal, tal cual o juntas. */
+  returned: string[];
+  /** De `returned`, las que se juntaron. */
+  merged: string[];
+  skipped: string[];
+  /** Las que no se pudieron traer y se dejaron en la rama (sólo con `onConflict: 'skip'`). */
+  conflicts: string[];
+}
+
+export interface ReturnNotesOptions {
+  loadBase?: LoadNoteBase;
+  /**
+   * Una nota que choca desde el plan, o que no se pudo escribir. Al quitar la
+   * rama, `throw`: no se quita, o se perdería lo suyo. Al integrar, `skip`: los
+   * commits ya entraron, y la nota se queda en la rama hasta que se quite.
+   */
+  onConflict?: 'throw' | 'skip';
+  /**
+   * Se llama apenas se escribe cada nota, con la versión de la rama: la
+   * principal ya la tiene, y pasa a ser su origen. Si se anotara al final, un
+   * fallo con otra nota dejaba ésta con el origen viejo, y el reintento la
+   * juntaba otra vez (revisión del 21-10-2026). Un fallo acá no deshace nada.
+   */
+  onWritten?: (file: string, branch: Buffer) => Promise<void>;
 }
 
 /**
- * Devuelve a la principal las notas que cambiaron sólo en la rama, con
- * escritura atómica. Justo antes de cada reemplazo se vuelve a mirar la
- * principal: si cambió desde el plan, esa nota no se pisa.
+ * Devuelve a la principal las notas que cambiaron en la rama, tal cual o
+ * juntas con lo que cambió allá, con escritura atómica. Justo antes de cada
+ * reemplazo se vuelve a mirar la principal: si cambió desde que se leyó, esa
+ * nota no se pisa.
  */
 export async function returnNotes(
   mainRoot: string,
   folder: string,
   files: readonly string[],
   bases: ReadonlyMap<string, string>,
-): Promise<{ returned: string[]; skipped: string[] }> {
-  const returned: string[] = [];
-  const skipped: string[] = [];
+  options: ReturnNotesOptions = {},
+): Promise<ReturnedNotes> {
+  const result: ReturnedNotes = { returned: [], merged: [], skipped: [], conflicts: [] };
   for (const file of files) {
-    const branch = await readInside(folder, file);
-    if (branch === null) {
-      skipped.push(file);
-      continue;
+    try {
+      const branch = await readInside(folder, file);
+      if (branch === null) {
+        result.skipped.push(file);
+        continue;
+      }
+      const target = await resolveInside(mainRoot, file);
+      const mainBefore = await readInside(mainRoot, file);
+      const outcome = await outcomeOf(bases.get(file) ?? null, branch, mainBefore, options.loadBase);
+      if (outcome.verdict === 'conflict') throw new Error(`${file} changed in the main folder since the plan`);
+      if (outcome.content === null) {
+        result.skipped.push(file);
+        continue;
+      }
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeAtomically(target, outcome.content, {
+        beforeRename: async () => {
+          const now = await readInside(mainRoot, file);
+          const same = now === null ? mainBefore === null : mainBefore !== null && hashOf(now) === hashOf(mainBefore);
+          if (!same) throw new Error(`${file} changed in the main folder while it was being returned`);
+        },
+      });
+      result.returned.push(file);
+      if (outcome.verdict === 'merge') result.merged.push(file);
+      await options.onWritten?.(file, branch).catch((error: unknown) => {
+        console.warn(`[worktrees] ${file} went back, but its new original wasn't noted:`, error);
+      });
+    } catch (error) {
+      if (options.onConflict !== 'skip') throw error;
+      result.conflicts.push(file);
     }
-    const target = await resolveInside(mainRoot, file);
-    const mainBefore = await readInside(mainRoot, file);
-    const verdict = noteVerdict(bases.get(file) ?? null, branch, mainBefore);
-    // Chocó desde el plan: la rama no se puede quitar, o se perdería lo suyo.
-    if (verdict === 'conflict') throw new Error(`${file} changed in the main folder since the plan`);
-    if (verdict === 'unchanged') {
-      skipped.push(file);
-      continue;
-    }
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeAtomically(target, branch, {
-      beforeRename: async () => {
-        const now = await readInside(mainRoot, file);
-        const same = now === null ? mainBefore === null : mainBefore !== null && hashOf(now) === hashOf(mainBefore);
-        if (!same) throw new Error(`${file} changed in the main folder while it was being returned`);
-      },
-    });
-    returned.push(file);
   }
-  return { returned, skipped };
+  return result;
 }

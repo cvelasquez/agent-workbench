@@ -233,9 +233,14 @@ export interface WorktreeRemovePlan {
   uncommittedCount: number;
   /** Lo que se cierra al confirmar. */
   tabs: WorktreeOpenTab[];
-  /** Notas ignoradas que cambiaron en la rama y vuelven a la carpeta principal. */
+  /** Notas ignoradas que cambiaron en la rama y vuelven a la carpeta principal, tal cual o juntas. */
   returning: string[];
-  /** Notas que cambiaron en los dos lados: con alguna no se quita, salvo "quitar igual". */
+  /**
+   * De `returning`, las que cambiaron también en la principal y se juntan
+   * (21-10-2026). Un servidor anterior no lo manda: ninguna.
+   */
+  merging: string[];
+  /** Notas que cambiaron en los dos lados y no se pueden juntar: con alguna no se quita, salvo perderlas. */
   conflicts: string[];
   /** true si otro programa tiene la carpeta abierta; null si no se pudo saber (hay pestañas de la app adentro). */
   inUse: boolean | null;
@@ -247,6 +252,22 @@ export interface WorktreeRemovePlan {
    * integrada. Del 20-10-2026; un servidor anterior no lo manda: false.
    */
   branchUnused: boolean;
+  /**
+   * false si la rama ya existía y la app sólo la sacó en una carpeta: esa rama
+   * no se borra nunca. Del 21-10-2026; un servidor anterior no lo manda: true.
+   */
+  createdBranch: boolean;
+}
+
+/**
+ * Las notas que viajan a la carpeta principal al integrar (21-10-2026): las
+ * que vuelven (tal cual o juntas) y las que se quedan en la rama porque
+ * cambiaron en los dos lados y no se pueden juntar.
+ */
+export interface WorktreeNotesPreview {
+  returning: string[];
+  merging: string[];
+  conflicts: string[];
 }
 
 export interface WorktreeRemoveOutcome {
@@ -410,12 +431,23 @@ export interface WorktreeIntegratePlan {
   /** Archivos sin commit en la rama: eso no entra. */
   branchUncommitted: number;
   blocker: WorktreeIntegrateBlocker | null;
+  /**
+   * Las notas que viajan con los commits (21-10-2026). null si no viaja
+   * ninguna: la base no está en la carpeta principal (vuelven al quitar la
+   * rama), o un servidor anterior.
+   */
+  notes: WorktreeNotesPreview | null;
 }
 
 export interface WorktreeIntegrateOutcome {
   /** Commits que entraron en la base. */
   commits: number;
   base: string;
+  /**
+   * Las notas que volvieron a la carpeta principal, y las que se quedaron en la
+   * rama (21-10-2026). Ausente si no viajó ninguna.
+   */
+  notes?: { returned: number; stayed: string[] };
 }
 
 /**
@@ -730,7 +762,18 @@ export function parseWorktreeIntegratePlan(value: unknown): WorktreeIntegratePla
     localConflicts,
     branchUncommitted,
     blocker,
+    // Ausente en un servidor anterior: no viaja ninguna nota.
+    notes: parseWorktreeNotesPreview(record['notes']),
   };
+}
+
+export function parseWorktreeNotesPreview(value: unknown): WorktreeNotesPreview | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const returning = asStringArray(record['returning']);
+  const conflicts = asStringArray(record['conflicts']);
+  if (returning === null || conflicts === null) return null;
+  return { returning, merging: asStringArray(record['merging']) ?? [], conflicts };
 }
 
 export function parseWorktreeIntegrateOutcome(value: unknown): WorktreeIntegrateOutcome | null {
@@ -738,7 +781,11 @@ export function parseWorktreeIntegrateOutcome(value: unknown): WorktreeIntegrate
   if (record === null) return null;
   const commits = asFiniteNumber(record['commits']);
   const base = asNonEmptyString(record['base']);
-  return commits === null || base === null ? null : { commits, base };
+  if (commits === null || base === null) return null;
+  const notes = asRecord(record['notes']);
+  const returned = asFiniteNumber(notes?.['returned']);
+  const stayed = asStringArray(notes?.['stayed']);
+  return returned === null || stayed === null ? { commits, base } : { commits, base, notes: { returned, stayed } };
 }
 
 export function parseWorktreeKeptBranch(value: unknown): WorktreeKeptBranch | null {
@@ -816,10 +863,13 @@ export function parseWorktreeRemovePlan(value: unknown): WorktreeRemovePlan | nu
     uncommittedCount,
     tabs,
     returning,
+    // Ausentes en un servidor anterior: ninguna se junta, y la rama la creó la app.
+    merging: (asStringArray(record['merging']) ?? []).filter((file) => returning.includes(file)),
     conflicts,
     inUse: typeof inUse === 'boolean' ? inUse : null,
     deletesBranch,
     branchUnused: deletesBranch && record['branchUnused'] === true,
+    createdBranch: record['createdBranch'] !== false,
   };
 }
 

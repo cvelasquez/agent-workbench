@@ -233,6 +233,23 @@ export async function ignoredSelection(
   return candidates.filter((entry) => ignored.has(entry));
 }
 
+/**
+ * De `paths` (relativas a `cwd`, con `/`), las que git ignora ahí; null si git
+ * no pudo contestar. Un archivo versionado no sale nunca: `check-ignore` sin
+ * `--no-index` no mira los que git sigue, aunque un patrón los nombre.
+ */
+export async function ignoredAmong(cwd: string, paths: readonly string[]): Promise<Set<string> | null> {
+  if (paths.length === 0) return new Set();
+  try {
+    const checked = await read(cwd, ['check-ignore', '--stdin', '-z'], paths.join('\0') + '\0');
+    // 0: alguna ignorada; 1: ninguna. Otro código es un fallo.
+    if (checked.code !== 0 && checked.code !== 1) return null;
+    return new Set(checked.stdout.split('\0').filter((entry) => entry.length > 0));
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Lecturas del hito 49: la rama contra su base
 // ---------------------------------------------------------------------------

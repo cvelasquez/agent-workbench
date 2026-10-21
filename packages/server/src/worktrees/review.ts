@@ -58,6 +58,20 @@ export function catchUpPrompt(base: string, conflicts: readonly string[], uncomm
 }
 
 /**
+ * "Pedirle al agente que los commitee" (21-10-2026): lo que la rama tiene sin
+ * commit no deja quitarla, y el que sabe qué es cada cambio es su agente. Puede
+ * contestar que algo sobra: descartarlo lo decide el usuario, y subir la rama
+ * también.
+ */
+export function commitPrompt(files: readonly string[], count: number): string {
+  const more = count > files.length ? ` and ${count - files.length} more` : '';
+  return (
+    `This branch folder has uncommitted changes: ${files.join(', ')}${more}. ` +
+    "Commit them with a clear message, or tell me first if any of them should be discarded instead. Don't push."
+  );
+}
+
+/**
  * El texto de la última respuesta del agente: el último mensaje suyo con texto
  * y, hacia atrás, los que lo preceden sin herramientas de por medio (una CLI
  * escribe cada bloque de texto en una línea aparte). null si todavía no contestó.

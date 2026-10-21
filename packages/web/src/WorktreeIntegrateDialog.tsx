@@ -8,6 +8,10 @@
  * no entra) y, si algo lo impide, qué. Después la confirmación, y el servidor
  * lo rehace antes de correr el comando.
  *
+ * Desde el 21-10-2026 las notas de la rama viajan con los commits a la carpeta
+ * principal, juntas con lo que cambió allá si hace falta, y el plan dice
+ * cuáles; las que no se pueden juntar se quedan en la rama hasta quitarla.
+ *
  * Al terminar ofrece quitar la rama aparte: es el diálogo del hito 48, con su
  * propio plan, y ahí `branch -d` ya funciona.
  */
@@ -17,6 +21,7 @@ import type { AgentId } from '@agent-workbench/shared';
 import { formatList } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import type { IntegrateDialog } from './useWorktrees.js';
+import { WorktreeNotesLine } from './WorktreeNotesLine.js';
 import { integrateBlockerText, reviewText } from './worktree-ui.js';
 
 interface WorktreeIntegrateDialogProps {
@@ -63,6 +68,12 @@ export function WorktreeIntegrateDialog({ dialog, agentLabel, onConfirm, onRemov
           {state.phase === 'done' && (
             <>
               <p className="modal-hint">{t('worktree.integrate.done', { base: state.outcome.base, count: state.outcome.commits })}</p>
+              {state.outcome.notes !== undefined && state.outcome.notes.returned > 0 && (
+                <p className="modal-hint">{t('worktree.notes.returned', { count: state.outcome.notes.returned })}</p>
+              )}
+              {state.outcome.notes !== undefined && state.outcome.notes.stayed.length > 0 && (
+                <p className="worktree-warning">{t('worktree.integrate.notesStayed', { list: formatList(state.outcome.notes.stayed) })}</p>
+              )}
               <p className="modal-hint">{t('worktree.integrate.doneOthers', { base: state.outcome.base })}</p>
               <div className="worktree-actions">
                 <button className="link-button" onClick={onClose}>
@@ -90,6 +101,11 @@ export function WorktreeIntegrateDialog({ dialog, agentLabel, onConfirm, onRemov
                     list: `${formatList(plan.files)}${plan.fileCount > plan.files.length ? '…' : ''}`,
                   })}
                 </p>
+              )}
+
+              {plan.notes !== null && <WorktreeNotesLine returning={plan.notes.returning} merging={plan.notes.merging} />}
+              {plan.notes !== null && plan.notes.conflicts.length > 0 && (
+                <p className="worktree-warning">{t('worktree.integrate.notesStay', { list: formatList(plan.notes.conflicts) })}</p>
               )}
 
               <p className={plan.review === null ? 'modal-hint' : plan.review.state === 'done' && plan.review.verdict === 'ready' && !plan.review.stale ? 'modal-hint' : 'worktree-warning'}>

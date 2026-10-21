@@ -13,12 +13,14 @@
  *
  *  1. trabajo sin commit: no se quita; git se negaría sin `--force`, y
  *     `--force` no se usa;
- *  2. notas que cambiaron en los dos lados: no se quita, salvo "quitar igual";
+ *  2. notas que cambiaron en los dos lados y no se pueden juntar: no se
+ *     quita, salvo que el usuario elija perder lo de la rama;
  *  3. otro programa con la carpeta abierta: no se quita (Windows dejaría a git
  *     a medias, medido);
  *  4. se cierran las pestañas y consolas de ahí, y se espera a que Windows
  *     suelte la carpeta (unos 50 ms, medido en el paso 0);
- *  5. las notas que cambiaron en la rama vuelven a la principal;
+ *  5. las notas que cambiaron en la rama vuelven a la principal, juntas con lo
+ *     que cambió allá si hace falta (21-10-2026);
  *  6. `git worktree remove`; lo que quede (los enlaces de pnpm, que git no
  *     borra) se borra sin seguir enlaces y sólo dentro de esa carpeta;
  *  7. la rama, con `branch -d`, sólo si la creó la app y ya está integrada. El
@@ -26,9 +28,10 @@
  *     ahí la crea otra vez en ese commit (20-10-2026).
  *
  * Integrar (hito 49) es un solo comando, `git merge --ff-only`, en la carpeta
- * donde está sacada la base, y sólo cuando no hace falta crear un commit. El
- * rebase de ponerse al día lo hace el agente de la rama en su terminal, nunca
- * la app: reescribe commits (§6.1).
+ * donde está sacada la base, y sólo cuando no hace falta crear un commit. Desde
+ * el 21-10-2026, si esa carpeta es la principal, las notas de la rama viajan
+ * con los commits, como al quitarla. El rebase de ponerse al día lo hace el
+ * agente de la rama en su terminal, nunca la app: reescribe commits (§6.1).
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -59,6 +62,7 @@ import {
   type WorktreeIntegratePlan,
   type WorktreeKeptBranch,
   type WorktreeMerge,
+  type WorktreeNotesPreview,
   type WorktreeOpenTab,
   type WorktreeRemoveOutcome,
   type WorktreeRemovePlan,
@@ -99,10 +103,11 @@ import {
   uncommittedPaths,
   type WorktreeEntry,
 } from './git.js';
-import { copyToWorktree, planCopy, returnNotes, reviewNotes, summarize, type CopyPlan } from './include.js';
+import { copyToWorktree, hashOf, planCopy, returnNotes, reviewNotes, summarize, type CopyPlan } from './include.js';
 import { worktreeFolderFor, worktreesParentFor } from './names.js';
+import { NoteBases } from './note-bases.js';
 import { overlapsFor, pathsTouching, type BranchFiles } from './overlap.js';
-import { catchUpPrompt, lastReplyText, readVerdict, reviewPrompt, sendBackPrompt } from './review.js';
+import { catchUpPrompt, commitPrompt, lastReplyText, readVerdict, reviewPrompt, sendBackPrompt } from './review.js';
 import { withReviewSession, type WorktreeRecord, type WorktreeStore } from './store.js';
 
 /** Un pedido de ramas aparte que no se pudo cumplir. El texto dice por qué (§6.23). */
@@ -145,6 +150,8 @@ export interface WorktreeServiceDeps {
   sessionsUnder?(folder: string): SessionSummary[];
   /** Hito 49. El historial de una CLI, para leer la respuesta del revisor. */
   history?(agent: AgentId): Pick<HistorySource, 'follow' | 'wholeRead'> | null;
+  /** Las copias de origen de las notas (21-10-2026). Ausente: las de la carpeta de la app. */
+  noteBases?: NoteBases;
   now?: () => number;
 }
 
@@ -273,10 +280,13 @@ export class WorktreeService extends EventEmitter {
   private readonly replies = new Map<string, { stamp: string; text: Promise<string | null> }>();
   private activityTimer: NodeJS.Timeout | null = null;
   private readonly now: () => number;
+  private readonly noteBases: NoteBases;
+  private readonly loadNoteBase = (hash: string): Promise<Buffer | null> => this.noteBases.load(hash);
 
   constructor(private readonly deps: WorktreeServiceDeps) {
     super();
     this.now = deps.now ?? Date.now;
+    this.noteBases = deps.noteBases ?? new NoteBases();
   }
 
   /** La carpeta principal del repo de un proyecto o de una pestaña. */
@@ -368,8 +378,22 @@ export class WorktreeService extends EventEmitter {
     const parts = [copy?.include ?? null, copyNotes ? (copy?.notes ?? null) : null].filter(
       (part) => part !== null && !part.overCap,
     );
-    const copied = await copyToWorktree(mainRoot, folder, parts.flatMap((part) => part?.files ?? []));
+    const copied = await copyToWorktree(mainRoot, folder, parts.flatMap((part) => part?.files ?? []), this.noteBases);
     return { copied, copiedDirs: [...new Set(parts.flatMap((part) => part?.dirs ?? []))] };
+  }
+
+  /**
+   * Borra las copias de origen que ya no nombra ninguna rama viva. Un fallo no
+   * frena nada: lo que quede se borra la próxima vez.
+   */
+  private async pruneNoteBases(): Promise<void> {
+    const keep = new Set(
+      this.deps.store
+        .list()
+        .filter((record) => record.removedAt === null)
+        .flatMap((record) => record.copied.map((file) => file.hash)),
+    );
+    await this.noteBases.prune(keep).catch(() => undefined);
   }
 
   /** Las filas de "Ramas aparte" para la pestaña que pregunta. Vacío fuera de git. */
@@ -523,7 +547,9 @@ export class WorktreeService extends EventEmitter {
     const present = await exists(record.path);
     const [uncommitted, notes, integrated] = await Promise.all([
       present ? uncommittedPaths(record.path) : Promise.resolve([]),
-      present ? reviewNotes(record.mainRoot, record.path, record) : Promise.resolve({ returning: [], conflicts: [] }),
+      present
+        ? reviewNotes(record.mainRoot, record.path, record, this.loadNoteBase)
+        : Promise.resolve({ returning: [], merging: [], conflicts: [] }),
       record.createdBranch ? isIntegrated(record.mainRoot, record.branch, record.base) : Promise.resolve(false),
     ]);
     if (uncommitted === null) throw new WorktreeError(serverText('worktreeGitFailed', { detail: 'git status' }));
@@ -543,11 +569,13 @@ export class WorktreeService extends EventEmitter {
       uncommittedCount: uncommitted.length,
       tabs,
       returning: notes.returning,
+      merging: notes.merging,
       conflicts: notes.conflicts,
       // Con pestañas de la app adentro, la prueba daría "en uso" por ellas mismas: se mira al confirmar.
       inUse: !present ? false : tabs.length > 0 ? null : await folderInUse(record.path),
       deletesBranch,
       branchUnused,
+      createdBranch: record.createdBranch,
     };
   }
 
@@ -579,7 +607,12 @@ export class WorktreeService extends EventEmitter {
 
       const bases = new Map(record.copied.map((file) => [file.path, file.hash]));
       try {
-        returned = (await returnNotes(record.mainRoot, record.path, plan.returning, bases)).returned.length;
+        returned = (
+          await returnNotes(record.mainRoot, record.path, plan.returning, bases, {
+            loadBase: this.loadNoteBase,
+            onWritten: (file, branch) => this.noteReturned(record.id, file, branch),
+          })
+        ).returned.length;
       } catch (error) {
         throw new WorktreeError(serverText('worktreeNotesFailed', { detail: error instanceof Error ? error.message : String(error) }));
       }
@@ -593,6 +626,8 @@ export class WorktreeService extends EventEmitter {
     const endCommit = await branchCommit(record.mainRoot, record.branch);
     const branchDeleted = plan.deletesBranch && (await deleteBranch(record.mainRoot, record.branch)).code === 0;
     await this.deps.store.update(id, { removedAt: this.now(), endCommit: endCommit ?? record.endCommit });
+    // Sus copias de origen ya no hacen falta: volver a abrirla copia las notas otra vez.
+    await this.pruneNoteBases();
     this.changed();
     return { branchDeleted, returned, discarded: discardConflicts ? plan.conflicts.length : 0 };
   }
@@ -762,10 +797,25 @@ export class WorktreeService extends EventEmitter {
    */
   async notesRequest(id: string): Promise<{ terminal: TerminalDescriptor; opened: boolean; text: string }> {
     const record = this.recordOrThrow(id);
-    const { conflicts } = await reviewNotes(record.mainRoot, record.path, record);
+    const { conflicts } = await reviewNotes(record.mainRoot, record.path, record, this.loadNoteBase);
     if (conflicts.length === 0) throw new WorktreeError(serverText('worktreeNoConflicts'));
     const text = notesConflictPrompt(record.mainRoot, conflicts);
     return { ...(await this.authorTarget(record)), text };
+  }
+
+  /**
+   * El pedido de commitear lo que la rama tiene sin commit, que no deja
+   * quitarla (21-10-2026). Va al cuadro de su autor, sin mandar: puede haber
+   * algo que el usuario prefiera descartar.
+   */
+  async commitRequest(id: string): Promise<AuthorRequest> {
+    const record = await this.presentRecordOrThrow(id);
+    const uncommitted = await uncommittedPaths(record.path);
+    if (uncommitted === null) throw new WorktreeError(serverText('worktreeGitFailed', { detail: 'git status' }));
+    if (uncommitted.length === 0) throw new WorktreeError(serverText('worktreeNothingToCommit'));
+    const text = commitPrompt(uncommitted.slice(0, WORKTREE_PLAN_PATHS_MAX), uncommitted.length);
+    const { terminal, opened } = await this.authorTarget(record);
+    return { terminal, opened, text, pasted: [] };
   }
 
   // -------------------------------------------------------------------------
@@ -1105,6 +1155,11 @@ export class WorktreeService extends EventEmitter {
       baseEntry === null ? Promise.resolve(`refs/heads/${record.branch}`) : mergeTarget(baseEntry.path, record.branch),
     ]);
     const localConflicts = pathsTouching(baseChanges ?? [], files);
+    // Las notas viajan con los commits sólo a la carpeta principal: es adonde vuelven siempre (21-10-2026).
+    const notes: WorktreeNotesPreview | null =
+      baseEntry?.isMain === true && (await exists(record.path))
+        ? await reviewNotes(mainRoot, record.path, record, this.loadNoteBase)
+        : null;
     const blocker =
       pair.ahead === 0
         ? 'nothing'
@@ -1131,6 +1186,7 @@ export class WorktreeService extends EventEmitter {
       localConflicts: localConflicts.slice(0, WORKTREE_PLAN_PATHS_MAX),
       branchUncommitted: branchChanges?.length ?? 0,
       blocker,
+      notes: notes !== null && (notes.returning.length > 0 || notes.conflicts.length > 0) ? notes : null,
     };
     return { plan, target };
   }
@@ -1142,10 +1198,11 @@ export class WorktreeService extends EventEmitter {
 
   /**
    * Integra: rehace el plan y, si nada lo impide, corre `git merge --ff-only`
-   * en la carpeta de la base. Nada más: quitar la rama aparte es otro paso, con
-   * su propio diálogo. `branchCommit` es la punta que mostró el plan: si la
-   * rama avanzó desde entonces, entraría algo que el usuario no vio, y no se
-   * integra nada.
+   * en la carpeta de la base, y si esa carpeta es la principal, le pasa las
+   * notas de la rama (21-10-2026). Nada más: quitar la rama aparte es otro
+   * paso, con su propio diálogo. `branchCommit` es la punta que mostró el
+   * plan: si la rama avanzó desde entonces, entraría algo que el usuario no
+   * vio, y no se integra nada.
    */
   async integrate(id: string, branchCommit?: string): Promise<WorktreeIntegrateOutcome> {
     const record = this.recordOrThrow(id);
@@ -1168,8 +1225,42 @@ export class WorktreeService extends EventEmitter {
     if (plan.baseFolder === null) throw new WorktreeError(serverText('worktreeBaseNotOpen', { base: record.base }));
     const merged = await fastForward(plan.baseFolder, target);
     if (merged.code !== 0) throw new WorktreeError(serverText('worktreeGitFailed', { detail: gitFailureText(merged) }));
+    const notes = plan.notes === null ? null : await this.syncNotes(record, plan.notes);
     this.changed();
-    return { commits: plan.ahead, base: record.base };
+    return { commits: plan.ahead, base: record.base, ...(notes !== null ? { notes } : {}) };
+  }
+
+  /**
+   * Pasa a la carpeta principal las notas de la rama, después de integrar. Las
+   * que no se pueden juntar se quedan en la rama: los commits ya entraron, y al
+   * quitarla se pregunta qué hacer con ellas.
+   */
+  private async syncNotes(record: WorktreeRecord, preview: WorktreeNotesPreview): Promise<{ returned: number; stayed: string[] }> {
+    const bases = new Map(record.copied.map((file) => [file.path, file.hash]));
+    const result = await returnNotes(record.mainRoot, record.path, preview.returning, bases, {
+      loadBase: this.loadNoteBase,
+      onConflict: 'skip',
+      onWritten: (file, branch) => this.noteReturned(record.id, file, branch),
+    });
+    if (result.returned.length > 0) await this.pruneNoteBases();
+    return { returned: result.returned.length, stayed: [...preview.conflicts, ...result.conflicts].sort() };
+  }
+
+  /**
+   * Una nota que acaba de volver a la principal: la versión de la rama pasa a
+   * ser su origen (la huella en el registro y su copia), y la próxima vez se
+   * compara contra eso. Así no vuelve dos veces, y lo que la rama cambie
+   * después se junta sobre lo que ya viajó.
+   */
+  private async noteReturned(id: string, file: string, branch: Buffer): Promise<void> {
+    await this.noteBases.save(file, branch).catch(() => undefined);
+    const current = this.deps.store.get(id);
+    if (current === null) return;
+    const hash = hashOf(branch);
+    const copied = current.copied.some((entry) => entry.path === file)
+      ? current.copied.map((entry) => (entry.path === file ? { path: file, hash } : entry))
+      : [...current.copied, { path: file, hash }];
+    await this.deps.store.update(id, { copied });
   }
 
   /**

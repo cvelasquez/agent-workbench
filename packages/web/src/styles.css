@@ -1368,7 +1368,8 @@ kbd {
   font-size: 12px;
 }
 
-.primary-button:hover {
+/* Desactivado no se ilumina: con el hover parecía activo, y un "Quitar" apagado se leía como un botón más (21-10-2026). */
+.primary-button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
@@ -4854,6 +4855,29 @@ kbd {
 .worktree-warning .worktree-actions {
   justify-content: flex-start;
   margin-top: 4px;
+}
+
+/* Las notas que vuelven: una línea, y la lista sólo si se pide (21-10-2026). */
+.worktree-notes-toggle {
+  padding: 0 2px;
+  font-size: inherit;
+  text-decoration: underline;
+}
+
+.worktree-notes-list {
+  max-height: 160px;
+  margin: -4px 0 8px;
+  padding-left: 18px;
+  overflow-y: auto;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.worktree-notes-mark {
+  margin-left: 8px;
+  color: var(--accent);
 }
 
 .worktree-actions .primary-button {

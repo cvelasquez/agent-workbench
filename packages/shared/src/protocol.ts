@@ -1172,7 +1172,7 @@ export interface ClientWorktreeRemoveMessage {
   type: 'worktree.remove';
   requestId: string;
   worktreeId: string;
-  /** "Quitar igual": se pierden las notas que cambiaron en los dos lados. */
+  /** "Quitar y perder esos cambios": se pierde lo que la rama cambio en las notas que no se pueden juntar. */
   discardConflicts: boolean;
 }
 
@@ -1191,6 +1191,17 @@ export interface ClientWorktreeReopenMessage {
  */
 export interface ClientWorktreeAskNotesMessage {
   type: 'worktree.askNotes';
+  requestId: string;
+  worktreeId: string;
+}
+
+/**
+ * Deja en el cuadro del agente de la rama, sin mandarlo, el pedido de
+ * commitear lo que tiene sin commit, que no deja quitarla (21-10-2026). Como
+ * `worktree.catchUp`: si la rama no tiene pestana, abre una.
+ */
+export interface ClientWorktreeAskCommitMessage {
+  type: 'worktree.askCommit';
   requestId: string;
   worktreeId: string;
 }
@@ -1372,6 +1383,7 @@ export type ClientMessage =
   | ClientWorktreeRemoveMessage
   | ClientWorktreeReopenMessage
   | ClientWorktreeAskNotesMessage
+  | ClientWorktreeAskCommitMessage
   | ClientWorktreeChangesMessage
   | ClientWorktreeChangesDiffMessage
   | ClientWorktreePlanReviewMessage
@@ -2997,6 +3009,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return worktreeIdMessage(record, 'worktree.sendReview');
     case 'worktree.catchUp':
       return worktreeIdMessage(record, 'worktree.catchUp');
+    case 'worktree.askCommit':
+      return worktreeIdMessage(record, 'worktree.askCommit');
     case 'worktree.planIntegrate':
       return worktreeIdMessage(record, 'worktree.planIntegrate');
     case 'worktree.planDeleteBranch':
@@ -3041,6 +3055,7 @@ type WorktreeIdMessageType =
   | 'worktree.planReview'
   | 'worktree.sendReview'
   | 'worktree.catchUp'
+  | 'worktree.askCommit'
   | 'worktree.planIntegrate'
   | 'worktree.integrate'
   | 'worktree.planDeleteBranch'

@@ -1859,6 +1859,8 @@ export function App(): JSX.Element {
           dialog={worktreeDialogs.remove}
           onConfirm={worktreeDialogs.confirmRemove}
           onAskNotes={worktreeDialogs.askNotes}
+          onAskCommit={worktreeDialogs.askCommit}
+          onRetry={worktreeDialogs.retryRemove}
           onClose={worktreeDialogs.closeRemove}
         />
       )}

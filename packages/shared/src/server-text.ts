@@ -222,6 +222,7 @@ export const SERVER_TEXTS = {
   worktreeNotRepo: [],
   worktreeNotesConflict: ['count'],
   worktreeNotesFailed: ['detail'],
+  worktreeNothingToCommit: [],
   worktreeNothingToIntegrate: [],
   worktreeNothingToReview: [],
   worktreeProjectUnknown: [],
