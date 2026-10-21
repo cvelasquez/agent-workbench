@@ -1119,7 +1119,20 @@ export function Sidebar({
                           ocupa lugar, como exportar un proyecto (§13.10): si
                           no, cada titulo se cortaria antes para quien tiene
                           varias CLIs.
+
+                          Tampoco en la de una rama quitada (20-10-2026): la
+                          continuacion abre su pestana en la carpeta de la
+                          sesion, que ya no esta, y terminaria en "la carpeta no
+                          existe". Y con su margen negativo tapaba al boton de
+                          volver a abrir, que va despues por lo mismo.
                         */}
+                        <ContinueButton
+                          targets={branchGone ? [] : continueTargets(agents, session.agent, session.partial)}
+                          className="icon-button session-continue"
+                          text="↪"
+                          onPick={(target) => onContinueSession(session, target)}
+                        />
+
                         {/*
                           Hito 48: la rama de esta sesion se quito pero sigue en el
                           repo. La saca otra vez en la misma carpeta y la reanuda.
@@ -1134,13 +1147,6 @@ export function Sidebar({
                             <BranchIcon />
                           </button>
                         )}
-
-                        <ContinueButton
-                          targets={continueTargets(agents, session.agent, session.partial)}
-                          className="icon-button session-continue"
-                          text="↪"
-                          onPick={(target) => onContinueSession(session, target)}
-                        />
 
                         <button
                           className="icon-button session-action"
