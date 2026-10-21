@@ -1,12 +1,13 @@
 /**
  * "Borrar la rama" de una rama guardada (20-10-2026, §6.38): una que creó la
- * app, cuya carpeta se quitó y que sigue en el repo, porque quedó con "Borrar
- * también la rama" desmarcado o sin integrar.
+ * app, cuya carpeta se quitó y que sigue en el repo, porque se quitó sin
+ * integrar.
  *
  * Primero el plan, que arma el servidor sin tocar nada: el comando
  * (`git branch -d`) y en qué carpeta corre, y si algo lo impide. Una rama con
  * commits que la base no tiene no se borra desde acá: se perderían. Después la
- * confirmación, y el servidor lo rehace antes de correr el comando.
+ * confirmación, y el servidor lo rehace antes de correr el comando. Borrada,
+ * sus conversaciones se siguen pudiendo volver a abrir.
  */
 
 import { useEffect } from 'react';
@@ -68,10 +69,7 @@ export function WorktreeDeleteBranchDialog({ dialog, onConfirm, onClose }: Workt
               {blocker !== null ? (
                 <p className="worktree-problem">{blocker}</p>
               ) : (
-                <>
-                  <p className="modal-hint">{t('worktree.deleteBranch.intro', { base: plan.base })}</p>
-                  <p className="worktree-warning">{t('worktree.remove.deleteBranchWarning')}</p>
-                </>
+                <p className="modal-hint">{t('worktree.deleteBranch.intro', { base: plan.base })}</p>
               )}
 
               <h3 className="modal-section">{t('worktree.integrate.folder')}</h3>

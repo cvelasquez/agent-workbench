@@ -280,15 +280,6 @@ export function reviewCandidates(agents: readonly AgentInfo[]): { id: AgentId; g
     .map((info) => ({ id: info.id, guard: info.capabilities.readOnlyLaunch?.guard ?? null }));
 }
 
-/**
- * Los comandos que muestra el plan de quitar, según la casilla "Borrar también
- * la rama" (20-10-2026). El servidor pone el `branch -d` al final y sólo si la
- * borraría: desmarcada, ese no se corre y no se muestra.
- */
-export function removeCommandsShown(plan: WorktreeRemovePlan, deleteBranch: boolean): string[] {
-  return plan.deletesBranch && !deleteBranch ? plan.commands.slice(0, -1) : [...plan.commands];
-}
-
 /** Lo que dice la fila de una rama guardada de su base, o null si no se pudo leer (20-10-2026). */
 export function keptStatusText(kept: WorktreeKeptBranch): string | null {
   if (kept.ahead === null) return null;

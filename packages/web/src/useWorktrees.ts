@@ -159,8 +159,7 @@ export interface WorktreeDialogs {
   closeCreate: () => void;
   remove: RemoveDialog | null;
   openRemove: (worktreeId: string, branch: string) => void;
-  /** `keepBranch`: "Borrar también la rama" desmarcado (20-10-2026). */
-  confirmRemove: (discardConflicts: boolean, keepBranch: boolean) => void;
+  confirmRemove: (discardConflicts: boolean) => void;
   /** Deja en el cuadro del agente de la rama el pedido de pasar las notas que chocaron. */
   askNotes: () => void;
   closeRemove: () => void;
@@ -319,18 +318,12 @@ export function useWorktreeDialogs(
   );
 
   const confirmRemove = useCallback(
-    (discardConflicts: boolean, keepBranch: boolean) => {
+    (discardConflicts: boolean) => {
       if (remove === null || remove.state.phase !== 'ready') return;
       const requestId = claim();
       removeRequest.current = requestId;
       setRemove({ ...remove, state: { phase: 'removing', plan: remove.state.plan } });
-      connection.send({
-        type: 'worktree.remove',
-        requestId,
-        worktreeId: remove.worktreeId,
-        discardConflicts,
-        ...(keepBranch ? { keepBranch: true } : {}),
-      });
+      connection.send({ type: 'worktree.remove', requestId, worktreeId: remove.worktreeId, discardConflicts });
     },
     [connection, remove],
   );

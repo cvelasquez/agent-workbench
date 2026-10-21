@@ -420,8 +420,8 @@ export interface WorktreeIntegrateOutcome {
 
 /**
  * Una rama que creó la app, cuya carpeta se quitó y que sigue en el repo
- * (20-10-2026): quedó con "Borrar también la rama" desmarcado, o sin integrar.
- * Cambios la lista en "Ramas aparte" para poder borrarla después.
+ * (20-10-2026): se quitó sin integrar. Cambios la lista en "Ramas aparte" para
+ * poder borrarla después.
  */
 export interface WorktreeKeptBranch {
   /** El registro de la app: la acción la nombra por él, nunca por una ruta (§2.4). */

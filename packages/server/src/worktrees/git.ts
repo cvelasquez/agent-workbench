@@ -181,6 +181,13 @@ export async function branchCommit(cwd: string, branch: string): Promise<string 
   return result.code === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
 }
 
+/** true si el repo todavía tiene ese commit: el de una rama borrada, hasta que git lo limpie. */
+export async function commitExists(cwd: string, commit: string): Promise<boolean> {
+  if (!/^[0-9a-f]{40,64}$/.test(commit)) return false;
+  const result = await read(cwd, ['rev-parse', '--verify', '--quiet', `${commit}^{commit}`]);
+  return result.code === 0;
+}
+
 /** La palabra de git sobre un nombre de rama: lo que las reglas de `shared` no cubren. */
 export async function refFormatAccepts(cwd: string, branch: string): Promise<boolean> {
   const result = await read(cwd, ['check-ref-format', '--branch', branch]);

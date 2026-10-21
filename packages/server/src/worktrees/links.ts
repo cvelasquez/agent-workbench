@@ -20,7 +20,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { SessionWorktree, TabWorktree } from '@agent-workbench/shared';
 import { mainCwdFor, readCheckout } from './checkout.js';
-import { branchCommit } from './git.js';
+import { branchCommit, commitExists } from './git.js';
 import { mainRootFromShape } from './names.js';
 import type { WorktreeRecord } from './store.js';
 
@@ -96,13 +96,15 @@ export class WorktreeLinks {
 
   /**
    * Se puede volver a abrir una rama quitada si la creó la app, su carpeta no
-   * está, la principal sí, y la rama sigue en el repo.
+   * está, la principal sí, y la rama sigue en el repo o, si se borró, el repo
+   * tiene todavía el commit donde quedó (20-10-2026: se vuelve a crear ahí).
    */
   async reopenable(record: WorktreeRecord): Promise<boolean> {
     if (record.removedAt === null) return false;
     if ((await exists(record.path)) || !(await exists(record.mainRoot))) return false;
     try {
-      return (await branchCommit(record.mainRoot, record.branch)) !== null;
+      if ((await branchCommit(record.mainRoot, record.branch)) !== null) return true;
+      return record.endCommit !== null && (await commitExists(record.mainRoot, record.endCommit));
     } catch {
       return false;
     }

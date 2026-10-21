@@ -482,7 +482,8 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
 }
 
 // ---------------------------------------------------------------------------
-// K. "Borrar también la rama" desmarcado, y las ramas guardadas (20-10-2026)
+// K. Una rama integrada que se borra al quitarla se vuelve a abrir igual, y
+//    las ramas guardadas (20-10-2026)
 // ---------------------------------------------------------------------------
 
 {
@@ -494,31 +495,75 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
     git(cwd, 'add', file);
     git(cwd, 'commit', '-q', '-m', file);
   };
+  const linkOf = (cwd) => new WorktreeLinks(store).sessionLink(cwd);
 
-  // Integrada y quitada sin borrar la rama: sus conversaciones se pueden volver a abrir.
+  // Integrada y quitada: la rama se borra, y sus conversaciones se pueden volver a abrir igual.
+  const merged = await service.create({ source: { kind: 'project', projectKey: 'proyecto' }, branch: 'integrada', base: 'main', mode: 'new', copyNotes: false });
+  const mergedRecord = store.byPath(merged.cwd);
+  await commitIn(merged.cwd, 'integrada.txt');
+  git(repo, 'merge', '-q', '--ff-only', 'integrada');
+  const mergedTip = git(repo, 'rev-parse', 'integrada').trim();
+  const mergedPlan = await service.planRemove(mergedRecord.id);
+  check('K1 integrada y con commits propios: el plan la borra, sin decir "sin commits propios"',
+    mergedPlan.deletesBranch === true && mergedPlan.branchUnused === false && mergedPlan.commands.some((command) => command.includes('branch -d')));
+  closeTabsIn(merged.cwd);
+  const mergedOutcome = await service.remove(mergedRecord.id, false, () => {});
+  const savedMerged = parseWorktreesState(await readFile(path.join(root, 'appdata', 'worktrees.json'), 'utf8')).find((candidate) => candidate.id === mergedRecord.id);
+  check('K2 quitada: la rama se borró y el registro anota el commit donde quedó, también en disco',
+    mergedOutcome.branchDeleted === true && git(repo, 'branch', '--list', 'integrada').trim() === '' &&
+      store.get(mergedRecord.id)?.endCommit === mergedTip && savedMerged?.endCommit === mergedTip,
+    String(store.get(mergedRecord.id)?.endCommit));
+  const mergedLink = await linkOf(merged.cwd);
+  check('K3 sin la rama, su conversación se puede volver a abrir igual',
+    mergedLink?.worktree.exists === false && mergedLink.worktree.reopenable === true, JSON.stringify(mergedLink));
+  sessions.set('claude-code:sesion-integrada', { agent: 'claude-code', sessionId: 'sesion-integrada', cwd: merged.cwd });
+  const reopenedMerged = await service.reopen('claude-code', 'sesion-integrada');
+  check('K4 volver a abrirla crea la rama otra vez en ese commit, en la misma carpeta, y reanuda la conversación',
+    git(repo, 'rev-parse', 'integrada').trim() === mergedTip && existsSync(path.join(merged.cwd, 'integrada.txt')) &&
+      reopenedMerged.cwd === merged.cwd && registry.opened.at(-1)?.resumeSessionId === 'sesion-integrada' &&
+      store.get(mergedRecord.id)?.removedAt === null);
+  closeTabsIn(merged.cwd);
+  const mergedAgain = await service.remove(mergedRecord.id, false, () => {});
+  check('K4b quitada otra vez, se vuelve a borrar y se puede volver a abrir',
+    mergedAgain.branchDeleted === true && (await linkOf(merged.cwd))?.worktree.reopenable === true);
+
+  // Un registro de antes no sabe dónde quedó; y un commit que git ya limpió no se puede usar.
+  await store.update(mergedRecord.id, { endCommit: null });
+  const legacyLink = await linkOf(merged.cwd);
+  let legacyRefused = null;
+  try {
+    await service.reopen('claude-code', 'sesion-integrada');
+  } catch (error) {
+    legacyRefused = error;
+  }
+  await store.update(mergedRecord.id, { endCommit: 'f'.repeat(40) });
+  const cleanedLink = await linkOf(merged.cwd);
+  let cleanedRefused = null;
+  try {
+    await service.reopen('claude-code', 'sesion-integrada');
+  } catch (error) {
+    cleanedRefused = error;
+  }
+  check('K4c sin el commit donde quedó, o con uno que el repo ya no tiene, no se ofrece ni se crea nada',
+    legacyLink?.worktree.reopenable === false && legacyRefused?.text?.key === 'worktreeBranchMissing' &&
+      cleanedLink?.worktree.reopenable === false && cleanedRefused?.text?.key === 'worktreeBranchMissing' &&
+      git(repo, 'branch', '--list', 'integrada').trim() === '' && !existsSync(merged.cwd),
+    JSON.stringify([legacyLink, cleanedLink]));
+  await store.update(mergedRecord.id, { endCommit: mergedTip });
+
+  // Quitada sin integrar: la rama se queda. Integrada después a mano, se puede borrar desde Cambios.
   const kept = await service.create({ source: { kind: 'project', projectKey: 'proyecto' }, branch: 'guardada', base: 'main', mode: 'new', copyNotes: false });
   const keptRecord = store.byPath(kept.cwd);
   await commitIn(kept.cwd, 'guardada.txt');
-  git(repo, 'merge', '-q', '--ff-only', 'guardada');
-  const keptPlan = await service.planRemove(keptRecord.id);
-  check('K1 integrada y con commits propios: el plan la borraría, sin decir "sin commits propios"',
-    keptPlan.deletesBranch === true && keptPlan.branchUnused === false);
-  check('K2 con la casilla desmarcada el diálogo no muestra el branch -d; marcada, sí',
-    ui.removeCommandsShown(keptPlan, false).length === keptPlan.commands.length - 1 &&
-      ui.removeCommandsShown(keptPlan, false).every((command) => !command.includes('branch -d')) &&
-      ui.removeCommandsShown(keptPlan, true).some((command) => command.includes('branch -d')),
-    JSON.stringify(keptPlan.commands));
   closeTabsIn(kept.cwd);
-  const keptOutcome = await service.remove(keptRecord.id, false, () => {}, true);
-  const keptLink = await new WorktreeLinks(store).sessionLink(kept.cwd);
-  check('K3 quitada sin borrar la rama: la rama sigue y su conversación se puede volver a abrir',
+  const keptOutcome = await service.remove(keptRecord.id, false, () => {});
+  git(repo, 'merge', '-q', '--ff-only', 'guardada');
+  const keptTip = git(repo, 'rev-parse', 'guardada').trim();
+  const keptLink = await linkOf(kept.cwd);
+  check('K4d quitada sin integrar: la rama se queda y su conversación se puede volver a abrir',
     keptOutcome.branchDeleted === false && !existsSync(kept.cwd) && git(repo, 'branch', '--list', 'guardada').trim().length > 0 &&
       keptLink?.worktree.reopenable === true,
     JSON.stringify(keptLink));
-  check('K4 un cliente anterior no manda keepBranch: se borra como siempre',
-    shared.parseClientMessage(JSON.stringify({ type: 'worktree.remove', requestId: 'r', worktreeId: 'w', discardConflicts: false }))?.keepBranch === undefined &&
-      shared.parseClientMessage(JSON.stringify({ type: 'worktree.remove', requestId: 'r', worktreeId: 'w', discardConflicts: false, keepBranch: true }))?.keepBranch === true &&
-      shared.parseClientMessage(JSON.stringify({ type: 'worktree.remove', requestId: 'r', worktreeId: 'w', discardConflicts: false, keepBranch: 'si' }))?.keepBranch === undefined);
 
   // Una sin integrar, quitada: la rama se queda siempre (no se pierden sus commits).
   const unmerged = await service.create({ source: { kind: 'project', projectKey: 'proyecto' }, branch: 'sin-integrar', base: 'main', mode: 'new', copyNotes: false });
@@ -557,14 +602,16 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
       ui.deleteBranchBlockerText(blockedPlan).startsWith('Tiene 1 commit que main no tiene'),
     ui.deleteBranchBlockerText(blockedPlan) ?? '');
 
+  // Como una que se guardó antes de que el registro anotara dónde quedaba: borrarla desde Cambios lo anota.
+  await store.update(keptRecord.id, { endCommit: null });
   const deleted = await service.deleteKeptBranch(keptRecord.id);
-  const afterLink = await new WorktreeLinks(store).sessionLink(kept.cwd);
+  const afterLink = await linkOf(kept.cwd);
   const afterList = await service.keptBranches(mainTab.terminalId);
-  check('K9 borrada: la rama no está, deja de listarse y su conversación ya no se ofrece volver a abrir',
+  check('K9 borrada: la rama no está y deja de listarse, pero su conversación se puede volver a abrir igual',
     deleted.branch === 'guardada' && git(repo, 'branch', '--list', 'guardada').trim() === '' &&
       JSON.stringify(afterList.map((candidate) => candidate.branch)) === JSON.stringify(['feat/notas', 'sin-integrar']) &&
-      afterLink?.worktree.reopenable === false,
-    JSON.stringify(afterList));
+      store.get(keptRecord.id)?.endCommit === keptTip && afterLink?.worktree.reopenable === true,
+    JSON.stringify([afterList, afterLink]));
 
   // Vuelta a abrir, la guardada está sacada en su carpeta: no se lista ni se borra.
   sessions.set('claude-code:sesion-sin-integrar', { agent: 'claude-code', sessionId: 'sesion-sin-integrar', cwd: unmerged.cwd });

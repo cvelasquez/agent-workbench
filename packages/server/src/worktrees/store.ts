@@ -84,6 +84,12 @@ export interface WorktreeRecord {
   createdAt: number;
   /** null mientras la carpeta existe. */
   removedAt: number | null;
+  /**
+   * El commit en que estaba la rama al quitar su carpeta, o al borrarla desde
+   * Cambios. Con él, la rama que se borró se vuelve a crear ahí para volver a
+   * abrir sus conversaciones (20-10-2026). null en un registro de antes.
+   */
+  endCommit: string | null;
   /** Hito 49. La última revisión pedida, o null. Ausente en un registro del hito 48. */
   review: WorktreeReviewRecord | null;
   /**
@@ -164,6 +170,8 @@ export function parseWorktreeRecord(value: unknown): WorktreeRecord | null {
     copiedDirs,
     createdAt,
     removedAt,
+    // Ausente en un registro anterior: la rama borrada no se puede volver a crear.
+    endCommit: asCommitId(record['endCommit']),
     // Ausentes en un registro del hito 48: sin revisión.
     review: parseReview(record['review']),
     reviewSessions: asStringArray(record['reviewSessions'])?.filter((id) => id.length > 0) ?? [],

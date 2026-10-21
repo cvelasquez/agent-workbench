@@ -1174,12 +1174,6 @@ export interface ClientWorktreeRemoveMessage {
   worktreeId: string;
   /** "Quitar igual": se pierden las notas que cambiaron en los dos lados. */
   discardConflicts: boolean;
-  /**
-   * 20-10-2026. true si el usuario desmarco "Borrar tambien la rama": una rama
-   * integrada se queda, y sus conversaciones se pueden volver a abrir. Ausente
-   * (un cliente anterior) es false: se borra como siempre.
-   */
-  keepBranch?: boolean;
 }
 
 /** Vuelve a abrir la rama quitada de una sesion de la barra, y la reanuda. */
@@ -2978,9 +2972,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const requestId = asNonEmptyString(record['requestId']);
       const worktreeId = asNonEmptyString(record['worktreeId']);
       const discardConflicts = asBoolean(record['discardConflicts']);
-      if (requestId === null || worktreeId === null || discardConflicts === null) return null;
-      return record['keepBranch'] === true
-        ? { type: 'worktree.remove', requestId, worktreeId, discardConflicts, keepBranch: true }
+      return requestId === null || worktreeId === null || discardConflicts === null
+        ? null
         : { type: 'worktree.remove', requestId, worktreeId, discardConflicts };
     }
     case 'worktree.reopen': {
