@@ -984,6 +984,50 @@ async function waitFor(condition, timeoutMs = 5000) {
   check('B5 sin total_tokens no hay como comparar: suma', sink.getUsage().assistantMessages === 4);
 }
 
+// C5b. La compactacion (§10.16), con la secuencia medida con la 0.162.1: el
+// token_count del pedido que resume, `compacted`, un token_count con la ultima
+// peticion en cero, y el de la peticion siguiente.
+{
+  const ui = await import('../../web/src/agent-ui.ts');
+  const compacted = (ms) => rec(ms, 'compacted', { message: 'Another language model started to solve this problem', replacement_history: [] });
+  const early = await sinkRead(sessionMeta({ id: cid(51) }) + taskStarted(BASE, 95000) + compacted(BASE + 1));
+  check('C5b compactar sin ninguna peticion medida: el aviso, y el medidor sin la marca',
+    shape(early.result.added) === 'line-3:assistant:notice' && early.sink.getUsage().compacted === undefined, shape(early.result.added));
+
+  const file = path.join(work, 'compactar.jsonl');
+  await writeFile(file, sessionMeta({ id: cid(52) }) + taskStarted(BASE, 95000) + turnContext(BASE + 1) +
+    tokenCount(BASE + 2, { input: 61000, output: 50, total: 61050 }, { input: 101000, output: 100, total: 101100 }, 95000) +
+    tokenCount(BASE + 3, { input: 9500, output: 50, total: 9550 }, { input: 110500, output: 150, total: 110650 }, 95000));
+  const sink = new CodexRolloutSink('');
+  const follower = new JsonlFollower(file, sink);
+  await follower.poll();
+  check('C5b antes de compactar, medido y sin la marca', sink.getUsage().lastRequestTokens === 9500 && sink.getUsage().compacted === undefined);
+
+  await appendFile(file, compacted(BASE + 4));
+  const { added } = await follower.poll();
+  const notice = added[0];
+  check('C5b compacted: un aviso "Contexto compactado", sin modelo, y el medidor sin medir',
+    added.length === 1 && notice.role === 'assistant' && notice.parts.length === 1 && notice.parts[0].kind === 'notice' &&
+    notice.parts[0].notice === 'compacted' && notice.parts[0].detail === '' && notice.model === null && sink.getUsage().compacted === true,
+    show({ added, usage: sink.getUsage() }));
+  check('C5b y la web lo dibuja sin medir, con la ventana', ui.meterMeasured('token-count', sink.getUsage()) === false &&
+    ui.meterIdleWindow('token-count', sink.getUsage(), null) === 95000);
+
+  await appendFile(file, rec(BASE + 5, 'event_msg', { type: 'token_count', rate_limits: {}, info: {
+    total_token_usage: usageOf({ input: 110500, output: 150, total: 110650 }),
+    last_token_usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0, total_tokens: 7326 },
+    model_context_window: 95000,
+  } }));
+  await follower.poll();
+  check('C5b el token_count de despues, con la ultima peticion en cero: sigue sin medir (nunca un 0)',
+    sink.getUsage().compacted === true && ui.meterMeasured('token-count', sink.getUsage()) === false, show(sink.getUsage()));
+
+  await appendFile(file, tokenCount(BASE + 6, { input: 10000, output: 50, total: 10050 }, { input: 120500, output: 200, total: 120700 }, 95000));
+  await follower.poll();
+  check('C5b la peticion siguiente vuelve a medir', sink.getUsage().compacted === undefined &&
+    sink.getUsage().lastRequestTokens === 10000 && ui.meterMeasured('token-count', sink.getUsage()) === true, show(sink.getUsage()));
+}
+
 // C6. Duracion del turno.
 {
   const id = cid(6);
@@ -1122,7 +1166,7 @@ async function waitFor(condition, timeoutMs = 5000) {
 // C9. Desconocido, ordinal y metadata.
 {
   const unknown =
-    rec(BASE, 'world_state', { anything: 1 }) + rec(BASE, 'token_usage_record', { x: 1 }) + rec(BASE, 'compacted', { message: 'x' }) +
+    rec(BASE, 'world_state', { anything: 1 }) + rec(BASE, 'token_usage_record', { x: 1 }) +
     rec(BASE, 'event_msg', { type: 'item_completed', item: { type: 'function_call_output', call_id: 'c', output: 'Exit code: 0' } }) +
     rec(BASE, 'response_item', { type: 'local_shell_call', call_id: 'c' }) + line({ type: 'nuevo' }) +
     line({ timestamp: iso(BASE), type: 'response_item', payload: [1, 2] }) + line({ timestamp: iso(BASE), type: 'event_msg', payload: 'x' }) +

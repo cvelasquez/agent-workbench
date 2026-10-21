@@ -431,6 +431,32 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
 }
 
 {
+  // La compactacion (§6.37): el aviso, y el medidor sin medir hasta la respuesta siguiente.
+  const ui = await import('../../web/src/agent-ui.ts');
+  const id = '44444444-4444-4444-8444-444444444444';
+  const file = sessionFile(id);
+  await writeFile(file, line(header(id)) + line(node('compaction', 'k0', null, T0, { summary: 'x' })));
+  const follower = new PiSessionFollower(projectCwd, id, { catalog: newCatalog() });
+  await follower.start();
+  let result = await follower.poll();
+  check('P3 compactar sin respuestas medidas: el aviso, y el medidor sin la marca',
+    describe(result.added) === 'A:notice-compacted' && follower.getUsage().compacted === undefined, describe(result.added));
+
+  await appendFile(file, line(userMessage('ku1', 'k0', T0 + 1000, 'hola')) + line(assistantMessage('ka1', 'ku1', T0 + 2000, { text: 'listo' })) +
+    line(node('compaction', 'k1', 'ka1', T0 + 3000, { summary: 'x' })));
+  result = await follower.poll();
+  check('P3 compactar despues de una respuesta: el aviso, y el medidor con la marca',
+    describe(result.added) === 'U:hola | A:listo | A:notice-compacted' && follower.getUsage().compacted === true &&
+    follower.getUsage().lastRequestTokens === 1358 && ui.meterMeasured('usage-with-catalog', follower.getUsage()) === false, show(follower.getUsage()));
+
+  await appendFile(file, line(userMessage('ku2', 'k1', T0 + 4000, 'sigue')) + line(assistantMessage('ka2', 'ku2', T0 + 5000, { text: 'sigo' })));
+  await follower.poll();
+  check('P3 la respuesta siguiente vuelve a medir', follower.getUsage().compacted === undefined && follower.getUsage().assistantMessages === 2 &&
+    ui.meterMeasured('usage-with-catalog', follower.getUsage()) === true, show(follower.getUsage()));
+  await rm(file);
+}
+
+{
   // Los topes del respaldo, y el tope de eventos.
   const id = '33333333-3333-4333-8333-333333333333';
   const file = sessionFile(id);

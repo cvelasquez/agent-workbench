@@ -32,6 +32,8 @@ export interface PiMeter {
   totalOutputTokens: number;
   totalCacheReadTokens: number;
   assistantMessages: number;
+  /** true si la rama compacto despues de la ultima respuesta medida (§6.37). */
+  compacted: boolean;
 }
 
 interface PathState {
@@ -57,6 +59,7 @@ function emptyState(): PathState {
       totalOutputTokens: 0,
       totalCacheReadTokens: 0,
       assistantMessages: 0,
+      compacted: false,
     },
     inFlight: false,
     turnStartedAt: null,
@@ -130,6 +133,8 @@ function step(state: PathState, entry: PiEntry): ConversationEvent[] {
 
     case 'compaction':
       added.push(event(`${entry.id}:notice`, 'assistant', entry.at, [{ kind: 'notice', notice: 'compacted', detail: '' }]));
+      // La ultima peticion medida ya no describe el contexto: sin medir hasta la respuesta siguiente.
+      if (state.meter.assistantMessages > 0) state.meter = { ...state.meter, compacted: true };
       break;
 
     case 'user': {
@@ -157,6 +162,7 @@ function step(state: PathState, entry: PiEntry): ConversationEvent[] {
           totalOutputTokens: state.meter.totalOutputTokens + usage.output,
           totalCacheReadTokens: state.meter.totalCacheReadTokens + usage.cacheRead,
           assistantMessages: state.meter.assistantMessages + 1,
+          compacted: false,
         };
       }
 

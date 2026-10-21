@@ -938,6 +938,58 @@ const { JsonlFollower: PlainJsonlFollower } = await import('../src/agents/jsonl-
     withStatus.getUsage().lastRequestTokens === 0 && withStatus.hasOpenToolCall(launchedAt) === true && withStatus.getPermissionMode() === null);
 }
 
+// La compactacion (§12.15), con los pasos que escribio la 1.4.3 al mandarle
+// `/compact`: el comando como USER_INPUT y un CHECKPOINT de SYSTEM. La status
+// line sigue publicando los tokens de antes (15 671 antes y despues).
+{
+  const ui = await import('../../web/src/agent-ui.ts');
+  const checkpoint = (index) => step(index, 'SYSTEM', 'CHECKPOINT', { content: '# Resuming from a compaction\n\nYou are continuing work on the task described above.' });
+  const before = [
+    step(0, 'USER_EXPLICIT', 'USER_INPUT', { content: userContent('Responde solo con la palabra OK.') }),
+    planner(1, [], { content: 'OK', input_tokens: 10910 }),
+  ];
+  const compacting = [step(2, 'USER_EXPLICIT', 'USER_INPUT', { content: userContent('/compact') }), checkpoint(3)];
+  const after = [
+    step(4, 'USER_EXPLICIT', 'USER_INPUT', { content: userContent('/compactar no es el comando') }),
+    planner(5, [], { content: 'OK', input_tokens: 11547 }),
+  ];
+
+  const mapper = new TranscriptMapper();
+  const { feed } = feeder(mapper);
+  feed(before);
+  check('12.15 antes de compactar, sin la marca', mapper.compacted === false && mapper.assistantMessages === 1);
+  const compactEvents = feed(compacting);
+  check('12.15 el `/compact` no es una tarjeta, y el CHECKPOINT es el aviso "Contexto compactado", sin modelo',
+    compactEvents.length === 1 && compactEvents[0].eventId === 's3' && compactEvents[0].role === 'assistant' && compactEvents[0].model === null &&
+    same(compactEvents[0].parts, [{ kind: 'notice', notice: 'compacted', detail: '' }]), show(compactEvents));
+  check('12.15 el aviso no cuenta como respuesta, y deja la marca', mapper.assistantMessages === 1 && mapper.compacted === true);
+  const afterEvents = feed(after);
+  check('12.15 lo que solo empieza parecido se ve, y la respuesta siguiente quita la marca',
+    afterEvents.map((event) => event.eventId).join(' ') === 's4 s5' && mapper.compacted === false);
+  const early = new TranscriptMapper();
+  feeder(early).feed([checkpoint(0)]);
+  check('12.15 un CHECKPOINT sin respuestas antes no marca nada', early.compacted === false);
+
+  const id = U(216);
+  await writeTranscript(id, jsonl([...before, ...compacting]));
+  const statusLine = {
+    active: () => true,
+    live: () => true,
+    refresh: async () => {},
+    usage: (conversationId, base) => (conversationId === id ? { ...base, lastRequestTokens: 15671, contextWindow: 1048576 } : null),
+    permissionMode: () => null,
+  };
+  const follower = new AntigravitySessionFollower(id, { statusLine });
+  await follower.poll();
+  const compactedUsage = follower.getUsage();
+  check('12.15 con la status line: el uso lleva la marca, y la web dice sin medir con la ventana',
+    compactedUsage.compacted === true && ui.meterMeasured('status-line', compactedUsage) === false &&
+    ui.meterIdleWindow('status-line', compactedUsage, null) === 1048576, show(compactedUsage));
+  await appendFile(agyPaths.transcriptPaths(id).full, jsonl(after));
+  await follower.poll();
+  check('12.15 con la respuesta siguiente vuelve a medir', follower.getUsage().compacted === undefined && ui.meterMeasured('status-line', follower.getUsage()) === true);
+}
+
 // ---------------------------------------------------------------------------
 // 5. Catalogo e historial
 // ---------------------------------------------------------------------------

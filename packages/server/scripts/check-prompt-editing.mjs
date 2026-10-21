@@ -213,7 +213,8 @@ async function visibleOf(records) {
     compact('c1', 'a1'),
     user('p2', 'c1', 'sigue'),
   ]);
-  check('B3 herramientas en paralelo y /compact: no se esconde nada', same(ids, ['p1', 't1', 't2', 'r1', 'r2', 'a1', 'p2']), json(ids));
+  // Desde el 20-10-2026 la marca de la compactacion es el aviso "Contexto compactado" (§6.37): c1 se ve.
+  check('B3 herramientas en paralelo y /compact: no se esconde nada', same(ids, ['p1', 't1', 't2', 'r1', 'r2', 'a1', 'c1', 'p2']), json(ids));
 }
 {
   // Incremental: el mensaje llega, se retira (la CLI no escribe nada), y despues el corregido.

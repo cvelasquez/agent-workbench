@@ -27,6 +27,7 @@ import {
   type QueuedPrompt,
 } from '@agent-workbench/shared';
 import {
+  isCompactBoundary,
   stripFileReference,
   toPlanRefs,
   toConversationEvent,
@@ -484,6 +485,15 @@ export class ConversationFollower implements JsonlLineSink {
     if (attachment !== null) {
       this.applyImageAttachment(attachment, events);
       return null;
+    }
+
+    /*
+      Una compactacion deja vieja la ultima peticion medida (§6.37): el medidor
+      vuelve a "sin medir" hasta la respuesta siguiente, que con `accumulate`
+      arma un uso nuevo sin la marca. Sin respuestas todavia ya esta sin medir.
+    */
+    if (isCompactBoundary(record) && this.usage.assistantMessages > 0) {
+      this.usage = { ...this.usage, compacted: true };
     }
 
     const event = toConversationEvent(record, lineNumber, this.limits);

@@ -5,9 +5,9 @@
  *
  *  - **Desconocido = se ignora en silencio.** Hay 17 tipos de linea distintos y
  *    cambian entre versiones de la CLI (`file-history-delta` no estaba
- *    documentado y aparece 44 veces). Producen eventos `user`, `assistant` y
- *    —solo en un caso muy acotado— `attachment`; todo lo demas devuelve null
- *    sin lanzar.
+ *    documentado y aparece 44 veces). Producen eventos `user`, `assistant` y,
+ *    solo en dos casos muy acotados, `attachment` y `system` (la marca de una
+ *    compactacion, como aviso); todo lo demas devuelve null sin lanzar.
  *  - **Todo se recorta.** Una linea puede pesar 290 KB. El panel es un resumen
  *    navegable, no un visor de adjuntos.
  *  - **Las imagenes no viajan.** Se cuentan y se descartan: son base64 de
@@ -112,6 +112,58 @@ function isHumanOrigin(origin: unknown): boolean {
   if (typeof origin !== 'object' || origin === null) return true;
   const kind = (origin as Record<string, unknown>)['kind'];
   return typeof kind !== 'string' || kind === 'human';
+}
+
+/**
+ * `/compact` a secas, o con lo que se le pide que conserve.
+ *
+ * Desde la 2.1.305 la CLI escribe el comando **sin envoltorio**, en una linea
+ * `user` propia antes de compactar, ademas del `command-name` de siempre
+ * (medido el 20-10-2026: 3 casos en el historial desde septiembre, y ningun
+ * otro comando escrito asi). Es la orden a la CLI, no un mensaje al modelo, y
+ * en el hilo salia como si el usuario lo hubiera escrito (§4.12, §6.37). En su
+ * lugar va el aviso de `compact_boundary` (`toCompactNotice`).
+ */
+const COMPACT_COMMAND = /^\/compact(?:\s|$)/;
+
+function isCompactCommand(content: unknown): boolean {
+  return typeof content === 'string' && COMPACT_COMMAND.test(content.trim());
+}
+
+/**
+ * true si la linea es la marca de una compactacion de la conversacion
+ * principal: `{"type":"system","subtype":"compact_boundary",…}`. Lo que sigue
+ * en el archivo ya es el contexto resumido.
+ */
+export function isCompactBoundary(record: Record<string, unknown>): boolean {
+  return (
+    record['type'] === 'system' &&
+    record['subtype'] === 'compact_boundary' &&
+    record['isSidechain'] !== true
+  );
+}
+
+/**
+ * El aviso "Contexto compactado" en el lugar de la marca, como en las CLIs que
+ * lo guardan como dato (§6.17): "automaticamente" si `compactMetadata.trigger`
+ * es `auto`. Sin el, compactar con el boton no dejaba rastro en el hilo una vez
+ * descartado el `/compact`.
+ */
+function toCompactNotice(record: Record<string, unknown>, lineNumber: number): ConversationEvent | null {
+  if (!isCompactBoundary(record)) return null;
+  const uuid = record['uuid'];
+  const trigger = recordOf(record['compactMetadata'])?.['trigger'];
+  return {
+    eventId: typeof uuid === 'string' && uuid.length > 0 ? uuid : `line-${lineNumber}`,
+    role: 'assistant',
+    at: readTimestamp(record['timestamp']),
+    parts: [{ kind: 'notice', notice: 'compacted', detail: trigger === 'auto' ? 'auto' : '' }],
+    model: null,
+    usage: null,
+    effort: null,
+    durationMs: null,
+    queued: false,
+  };
 }
 
 /** `message.usage`, con los nombres del JSONL pasados a los nuestros. */
@@ -658,6 +710,9 @@ export function toConversationEvent(
   // del arnes y siguen ignorandose en silencio (§4.4).
   if (type === 'attachment') return toQueuedUserEvent(record, lineNumber, limits);
 
+  // De las lineas `system`, solo la marca de una compactacion se ve: como aviso.
+  if (type === 'system') return toCompactNotice(record, lineNumber);
+
   if (type !== 'user' && type !== 'assistant') return null;
 
   // Una linea `user` que no escribio el usuario (hito 32). El aviso de que
@@ -675,6 +730,7 @@ export function toConversationEvent(
 
   const role: ConversationRole = type;
   const content = messageRecord['content'];
+  if (role === 'user' && isCompactCommand(content)) return null;
 
   const parts: ConversationPart[] = [];
   if (typeof content === 'string') {

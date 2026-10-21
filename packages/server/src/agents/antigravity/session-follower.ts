@@ -207,7 +207,9 @@ export class AntigravitySessionFollower implements SessionFollower {
       assistantMessages: this.mapper?.assistantMessages ?? 0,
     };
     if (this.paths === null || this.statusLine === null || !this.statusLine.active()) return base;
-    return this.statusLine.usage(this.sessionId, base) ?? base;
+    const usage = this.statusLine.usage(this.sessionId, base) ?? base;
+    // Compacto despues de la ultima peticion: lo que publica la status line es de antes (§12.15).
+    return this.mapper?.compacted === true ? { ...usage, compacted: true } : usage;
   }
 
   getPermissionMode(): PermissionMode | null {

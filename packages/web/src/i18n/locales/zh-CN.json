@@ -22,6 +22,7 @@
   "agent.handoff.turns.lastOne": "最后一轮（共 {{total}} 轮）",
   "agent.handoff.turns.lastOneOfMore": "最后一轮（共超过 {{total}} 轮）",
   "agent.handoff.turns.single": "唯一一轮",
+  "agent.meter.idle.compacted": "上下文在最后一次测得的回复之后已压缩。新的用量会随下一次回复出现。",
   "agent.meter.idle.noFile": "此会话尚未测得任何回复的用量。用量并非从零开始：系统提示词、工具和项目的指令文件都已占用上下文，实际数值会随第一次回复出现。",
   "agent.meter.idle.statusLine": "status line 尚未提供此对话的 token 用量。用量并非从零开始：数值会在 CLI 运行 status line 时出现，即发送第一条消息或恢复会话时。",
   "agent.meter.idle.withFile": "此会话尚未测得任何回复的用量。用量并非从零开始：系统提示词、工具和 {{file}} 都已占用上下文，实际数值会随第一次回复出现。",

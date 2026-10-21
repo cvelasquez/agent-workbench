@@ -999,7 +999,7 @@ export function App(): JSX.Element {
   );
 
   /*
-    "Compactar" debajo del medidor de contexto, con la ventana al 80 % (hito
+    "Compactar" debajo del medidor de contexto, con la ventana al 70 % (hito
     47, §6.37). Es un comando de barra mas, por el mismo camino que los combos:
     el borrador del cuadro no se toca. Apagado sin CLI abierta, y con el agente
     trabajando o esperando: ahi el comando quedaria en la cola de la CLI, o

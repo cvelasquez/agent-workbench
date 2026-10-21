@@ -900,10 +900,19 @@ const byId = (id) => richBuilt.events.find((event) => event.eventId === id);
 {
   const visible = applyRevert({ ...rich, revert: null }).messages;
   const usage = buildUsage(visible, 1_050_000);
-  check('9 la ultima peticion es el paso mas reciente sin summary: input + cache.read + cache.write', same(usage, {
+  check('9 la ultima peticion es el paso mas reciente sin summary: input + cache.read + cache.write; y despues de compactar sin otro paso con tokens, la marca', same(usage, {
     lastRequestTokens: 50512, lastOutputTokens: 300, lastModel: 'openai/gpt-5.6-terra', contextWindow: 1_050_000,
     contextWindowEstimated: false, totalInputTokens: 168091, totalOutputTokens: 2723, totalCacheReadTokens: 95616, assistantMessages: 3,
+    compacted: true,
   }), show(usage));
+  // §6.37: el fixture tiene que tener la compactacion como ultimo paso con tokens, o el caso no mira nada.
+  const lastCounted = visible.filter((message) => message.role === 'assistant' && message.id !== 'msg_c07' && message.id !== 'msg_c09').at(-1);
+  check('9 el fixture: el ultimo paso con tokens es la compactacion', lastCounted?.id === 'msg_c05', lastCounted?.id);
+  const beforeCompaction = buildUsage(visible.filter((message) => message.id !== 'msg_c05'), 1_050_000);
+  check('9 sin compactacion, sin la marca', beforeCompaction.compacted === undefined && beforeCompaction.lastRequestTokens === 50512, show(beforeCompaction));
+  const afterSummary = { ...visible.find((message) => message.id === 'msg_c03'), id: 'msg_c10', time_created: 4000 };
+  const resumed = buildUsage([...visible, afterSummary], 1_050_000);
+  check('9 un paso con tokens despues de compactar vuelve a medir', resumed.compacted === undefined && resumed.assistantMessages === 4, show(resumed));
   check('9 tokens mayores que la ventana: sin ventana', buildUsage(visible, 40_000).contextWindow === null);
   check('9 sin catalogo: sin ventana', buildUsage(visible, null).contextWindow === null);
   const onlySummary = buildUsage(visible.filter((message) => message.id === 'msg_c05'), 1_050_000);

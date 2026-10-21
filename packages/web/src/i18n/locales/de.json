@@ -25,6 +25,7 @@
   "agent.handoff.turns.lastOne": "der letzten Runde von {{total}}",
   "agent.handoff.turns.lastOneOfMore": "der letzten Runde von mehr als {{total}}",
   "agent.handoff.turns.single": "der einzigen Runde",
+  "agent.meter.idle.compacted": "Der Kontext wurde nach der letzten gemessenen Antwort komprimiert. Die neue Größe erscheint mit der nächsten Antwort.",
   "agent.meter.idle.noFile": "Die Sitzung hat noch keine Antwort gemessen. Der Verbrauch liegt trotzdem nicht bei null: Systemprompt, Tools und die Anweisungsdatei des Projekts belegen bereits Kontext, und der tatsächliche Wert erscheint mit der ersten Antwort.",
   "agent.meter.idle.statusLine": "Die Statuszeile hat für diese Unterhaltung noch keine Tokens veröffentlicht. Der Verbrauch liegt trotzdem nicht bei null: Der Wert erscheint, sobald die CLI die Statuszeile ausführt – mit der ersten Nachricht oder beim Wiederaufnehmen der Sitzung.",
   "agent.meter.idle.withFile": "Die Sitzung hat noch keine Antwort gemessen. Der Verbrauch liegt trotzdem nicht bei null: Systemprompt, Tools und {{file}} belegen bereits Kontext, und der tatsächliche Wert erscheint mit der ersten Antwort.",

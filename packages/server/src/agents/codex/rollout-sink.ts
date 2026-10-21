@@ -163,6 +163,8 @@ export class CodexRolloutSink implements JsonlLineSink {
       return this.consumeEvent(kind, payload, lineNumber, at, events, pendingContent);
     }
 
+    if (type === 'compacted') return this.compaction(lineNumber, at);
+
     if (type !== 'response_item') return null;
 
     if (kind === 'message') {
@@ -339,10 +341,27 @@ export class CodexRolloutSink implements JsonlLineSink {
     ]);
   }
 
+  /**
+   * La linea `compacted`: Codex resumio el contexto, con `/compact` o solo
+   * (§10.16). Deja el aviso en el hilo, y el medidor sin medir hasta la proxima
+   * peticion: el `token_count` que escribe despues trae la ultima peticion en
+   * cero, y dibujarlo seria un 0 que dice que la ventana esta libre.
+   */
+  private compaction(lineNumber: number, at: number): ConversationEvent {
+    if (this.usage.assistantMessages > 0) this.usage = { ...this.usage, compacted: true };
+    return {
+      ...this.event('assistant', lineNumber, at, [{ kind: 'notice', notice: 'compacted', detail: '' }]),
+      model: null,
+      effort: null,
+    };
+  }
+
   private applyTokenCount(payload: Record<string, unknown>): void {
     const info = readTokenInfo(payload);
     if (info === null) return;
     if (info.window !== null) this.window = info.window;
+    // Sin peticion nueva despues de compactar, sigue sin medir (`compaction`).
+    const compacted = this.usage.compacted === true && info.last.inputTokens === 0;
 
     /*
       Una respuesta mas solo si el acumulado cambio. Si bajo, el proceso se
@@ -363,6 +382,7 @@ export class CodexRolloutSink implements JsonlLineSink {
       totalOutputTokens: info.total.outputTokens,
       totalCacheReadTokens: info.total.cachedInputTokens,
       assistantMessages: this.usage.assistantMessages + (fresh ? 1 : 0),
+      ...(compacted ? { compacted: true as const } : {}),
     };
   }
 

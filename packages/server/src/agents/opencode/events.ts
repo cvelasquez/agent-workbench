@@ -531,6 +531,9 @@ function applyTurnDurations(
  *    10 292), asi que lo que leyo el modelo es `input + cache.read + cache.write`.
  *  - La ventana es la del catalogo, salvo que la peticion no entre en ella: ahi
  *    el catalogo no describe ese proveedor, y no se inventa otra.
+ *  - Si el paso mas reciente con tokens es la compactacion, la ultima peticion
+ *    ya no describe el contexto: `compacted`, y el medidor dice "sin medir"
+ *    hasta el paso siguiente (§6.37).
  *
  * `messages` ya sin lo deshecho (`applyRevert`).
  */
@@ -551,6 +554,7 @@ export function buildUsage(messages: readonly MessageRow[], window: number | nul
 
   const tokens = last === null ? null : tokensOf(last);
   const lastRequestTokens = tokens === null ? 0 : tokens.input + tokens.read + tokens.write;
+  const latest = counted[counted.length - 1];
   return {
     lastRequestTokens,
     lastOutputTokens: tokens?.output ?? 0,
@@ -561,6 +565,7 @@ export function buildUsage(messages: readonly MessageRow[], window: number | nul
     totalOutputTokens,
     totalCacheReadTokens,
     assistantMessages: counted.length,
+    ...(latest !== undefined && isTrue(latest.summary) ? { compacted: true as const } : {}),
   };
 }
 

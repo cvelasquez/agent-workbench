@@ -546,8 +546,28 @@ const limits = (fiveHour, sevenDay) => ({
   // "Compactar": el comando de cada CLI y el umbral.
   check('6.11 las cinco CLIs compactan con /compact', Object.keys(AGENT_UI).every((agent) => compactCommandFor(agent) === '/compact') && compactCommandFor(null) === null);
   const meterSource = await readFile(path.join(WEB_SRC, 'ContextMeter.tsx'), 'utf8');
-  check('6.12 "Compactar" sale desde el 80 % de la ventana, y solo con la accion de la CLI',
-    /export const COMPACT_RATIO = 0\.8;/.test(meterSource) && /compactAction !== null && ratio !== null && ratio >= COMPACT_RATIO/.test(meterSource));
+  check('6.12 "Compactar" sale desde el 70 % de la ventana (pedido del 20-10-2026), y solo con la accion de la CLI',
+    /export const COMPACT_RATIO = 0\.7;/.test(meterSource) && /compactAction !== null && ratio !== null && ratio >= COMPACT_RATIO/.test(meterSource));
+
+  // Despues de compactar, sin medir hasta la respuesta siguiente (20-10-2026): sin numero no hay barra ni "Compactar".
+  const ui = await import('../../web/src/agent-ui.ts');
+  const measuredUsage = { ...shared.EMPTY_CONTEXT_USAGE, lastRequestTokens: 760000, contextWindow: 1000000, assistantMessages: 40 };
+  const compactedUsage = { ...measuredUsage, compacted: true };
+  const sources = ['usage-with-variants', 'usage-with-catalog', 'token-count', 'status-line'];
+  check('6.15 con la marca de compactar, ninguna fuente mide; sin ella, todas',
+    sources.every((source) => ui.meterMeasured(source, compactedUsage) === false && ui.meterMeasured(source, measuredUsage) === true));
+  check('6.15 sin medir tras compactar dibuja la ventana que ya midio la sesion, antes que la configurada; una cota deducida no',
+    ui.meterIdleWindow('usage-with-variants', compactedUsage, 200000) === 1000000 &&
+    ui.meterIdleWindow('usage-with-variants', { ...compactedUsage, contextWindowEstimated: true }, null) === null &&
+    ui.meterIdleWindow('usage-with-variants', measuredUsage, null) === null);
+  check('6.15 el titulo dice que se compacto y que el tamano llega con la respuesta siguiente',
+    ui.meterIdleDetail('CLAUDE.md', 'usage-with-variants', true).includes('compactó') &&
+    ui.meterIdleDetail('CLAUDE.md', 'status-line', true) === ui.meterIdleDetail(null, null, true) &&
+    ui.meterIdleDetail('CLAUDE.md', 'usage-with-variants') !== ui.meterIdleDetail('CLAUDE.md', 'usage-with-variants', true));
+  check('6.15 la marca viaja: el parser del protocolo la conserva y no la inventa',
+    shared.parseContextUsage(JSON.parse(JSON.stringify(compactedUsage)))?.compacted === true &&
+    shared.parseContextUsage(JSON.parse(JSON.stringify(measuredUsage)))?.compacted === undefined &&
+    shared.parseContextUsage({ ...measuredUsage, compacted: 'si' })?.compacted === undefined);
   const appSource = await readFile(path.join(WEB_SRC, 'App.tsx'), 'utf8');
   check('6.12 apagado sin CLI abierta, y con el agente trabajando o esperando; manda por sendCommand (sin tocar el borrador)',
     /!activeTerminal\.alive\s*\? t\('meter\.compactNoCli'\)/.test(appSource) &&

@@ -1019,6 +1019,63 @@ check('7.15 el parser del protocolo conserva `pasted`',
   parsedPasted?.parts[0]?.kind === 'image' && parsedPasted.parts[0].source === 'pasted',
   JSON.stringify(parsedPasted?.parts[0]));
 
+// 8. La compactacion (§4.12, §6.37), con las lineas que escribe la 2.1.305 al
+// mandar `/compact`: el comando sin envoltorio, la marca, el resumen, el caveat,
+// el `command-name` y la salida.
+const compactFile = path.join(dir, 'compactar.jsonl');
+const at = new Date().toISOString();
+const raw = (o) => line({ isSidechain: false, timestamp: at, cwd: 'D:/x', ...o });
+const usageOf = (cacheRead) => ({ input_tokens: 10, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0, output_tokens: 40 });
+const boundary = (uuid, logical, trigger) => raw({
+  type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', parentUuid: null, logicalParentUuid: logical, uuid,
+  compactMetadata: { trigger, preTokens: 150000, postTokens: 14540 },
+});
+await writeFile(compactFile,
+  raw({ type: 'user', uuid: 'cu1', parentUuid: null, message: { role: 'user', content: 'hola' } }) +
+  raw({ type: 'assistant', uuid: 'ca1', parentUuid: 'cu1', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'listo' }], usage: usageOf(150000) } }) +
+  raw({ type: 'user', uuid: 'cc0', parentUuid: 'ca1', promptId: 'p1', message: { role: 'user', content: '/compact' } }) +
+  boundary('cb1', 'ca1', 'manual') +
+  raw({ type: 'user', uuid: 'cs1', parentUuid: 'cb1', isVisibleInTranscriptOnly: true, isCompactSummary: true, message: { role: 'user', content: 'This session is being continued from a previous conversation.' } }) +
+  raw({ type: 'user', uuid: 'cm1', parentUuid: 'cs1', isMeta: true, message: { role: 'user', content: '<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>' } }) +
+  raw({ type: 'user', uuid: 'ck1', parentUuid: 'cm1', message: { role: 'user', content: '<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>' } }) +
+  raw({ type: 'user', uuid: 'co1', parentUuid: 'ck1', message: { role: 'user', content: '<local-command-stdout>\u001b[2mCompacted (ctrl+o to see full summary)\u001b[22m</local-command-stdout>' } }));
+const compactFollower = new ConversationFollower(compactFile);
+const compactRead = await compactFollower.poll();
+const compactIds = compactRead.added.map((event) => event.eventId).join(',');
+check('8.1 el `/compact` sin envoltorio no es una tarjeta, y en su lugar va el aviso', compactIds === 'cu1,ca1,cb1', compactIds);
+const compactNotice = compactRead.added.find((event) => event.eventId === 'cb1');
+check('8.2 el aviso: "Contexto compactado", del asistente, sin modelo ni uso',
+  compactNotice?.role === 'assistant' && compactNotice.parts.length === 1 && compactNotice.parts[0].kind === 'notice' &&
+  compactNotice.parts[0].notice === 'compacted' && compactNotice.parts[0].detail === '' && compactNotice.model === null && compactNotice.usage === null,
+  JSON.stringify(compactNotice));
+check('8.3 tras la marca el medidor queda sin medir: la ultima peticion es de antes y lo dice',
+  compactFollower.getUsage().compacted === true && compactFollower.getUsage().lastRequestTokens === 150010 &&
+  compactFollower.getUsage().assistantMessages === 1, JSON.stringify(compactFollower.getUsage()));
+
+await appendFile(compactFile,
+  raw({ type: 'user', uuid: 'cu2', parentUuid: 'co1', message: { role: 'user', content: 'sigamos' } }) +
+  raw({ type: 'assistant', uuid: 'ca2', parentUuid: 'cu2', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'sigo' }], usage: usageOf(60000) } }));
+const afterCompact = await compactFollower.poll();
+check('8.4 la respuesta siguiente vuelve a medir, sin la marca',
+  afterCompact.added.length === 2 && compactFollower.getUsage().compacted === undefined && compactFollower.getUsage().lastRequestTokens === 60010,
+  JSON.stringify(compactFollower.getUsage()));
+
+const autoFile = path.join(dir, 'compactar-auto.jsonl');
+await writeFile(autoFile,
+  boundary('cb0', null, 'auto') +
+  raw({ type: 'user', uuid: 'au1', parentUuid: 'cb0', message: { role: 'user', content: '/compactar no es el comando' } }) +
+  raw({ type: 'user', uuid: 'au2', parentUuid: 'au1', message: { role: 'user', content: 'mira esto: /compact' } }) +
+  raw({ type: 'user', uuid: 'au3', parentUuid: 'au2', message: { role: 'user', content: '  /compact conserva las decisiones  ' } }) +
+  raw({ type: 'system', subtype: 'compact_boundary', uuid: 'cbs', isSidechain: true, parentUuid: null }) +
+  raw({ type: 'system', subtype: 'informational', uuid: 'cbx', parentUuid: null, content: 'otra cosa' }));
+const autoFollower = new ConversationFollower(autoFile);
+const autoRead = await autoFollower.poll();
+check('8.5 la automatica dice "automaticamente", y sin respuestas antes no marca el medidor',
+  autoRead.added[0]?.parts[0]?.kind === 'notice' && autoRead.added[0].parts[0].detail === 'auto' && autoFollower.getUsage().compacted === undefined,
+  JSON.stringify(autoRead.added[0]));
+check('8.6 solo se descarta el comando: un texto que lo nombra, o lo que empieza parecido, se ve; con argumentos tambien es el comando',
+  autoRead.added.map((event) => event.eventId).join(',') === 'cb0,au1,au2', autoRead.added.map((event) => event.eventId).join(','));
+
 await rm(dir, { recursive: true, force: true });
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLOS`);
 process.exit(failures === 0 ? 0 : 1);

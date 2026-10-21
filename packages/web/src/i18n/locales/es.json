@@ -25,6 +25,7 @@
   "agent.handoff.turns.lastOne": "del último turno de {{total}}",
   "agent.handoff.turns.lastOneOfMore": "del último turno de más de {{total}}",
   "agent.handoff.turns.single": "del único turno",
+  "agent.meter.idle.compacted": "El contexto se compactó después de la última respuesta medida. El tamaño nuevo aparece con la próxima respuesta.",
   "agent.meter.idle.noFile": "La sesión todavía no midió ninguna respuesta. No arranca en cero: el prompt de sistema, las herramientas y el archivo de instrucciones del proyecto ya ocupan contexto, y el número real aparece con la primera respuesta.",
   "agent.meter.idle.statusLine": "La status line todavía no publicó tokens de esta conversación. No arranca en cero: el número aparece cuando la CLI la corre, con el primer mensaje o al retomar la sesión.",
   "agent.meter.idle.withFile": "La sesión todavía no midió ninguna respuesta. No arranca en cero: el prompt de sistema, las herramientas y el {{file}} ya ocupan contexto, y el número real aparece con la primera respuesta.",

@@ -172,6 +172,7 @@ export class PiSessionFollower implements SessionFollower {
       totalCacheReadTokens: meter.totalCacheReadTokens,
       assistantMessages: meter.assistantMessages,
       ...(meter.effort !== null ? { lastEffort: meter.effort } : {}),
+      ...(meter.compacted ? { compacted: true as const } : {}),
     };
   }
 

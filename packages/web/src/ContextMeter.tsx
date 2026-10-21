@@ -16,7 +16,8 @@
  *     esta libre, que es la misma clase de mentira que la regla 2. Se dibuja el
  *     hueco de la barra, vacio, y la palabra "sin medir" donde va el numero:
  *     asi el medidor no aparece de la nada al llegar la primera respuesta ni
- *     promete un dato que no tiene.
+ *     promete un dato que no tiene. Lo mismo despues de compactar, hasta la
+ *     respuesta siguiente (`ContextUsage.compacted`, §6.37).
  *  4. **Se dice de donde sale el limite.** El nombre del modelo que guarda el
  *     JSONL viene sin el sufijo de variante, asi que el limite se reconstruye
  *     (ver `model-variants.ts`). Cuando ademas hubo que deducirlo de los tokens
@@ -42,9 +43,10 @@ const DANGER_RATIO = 0.9;
 
 /**
  * Desde aca se ofrece "Compactar" debajo del medidor (hito 47, §6.37). Pedido
- * por el usuario: antes de que la CLI compacte sola, o de que se llene.
+ * por el usuario: antes de que la CLI compacte sola, o de que se llene. Era
+ * 0.8 hasta el 20-10-2026, cuando el usuario lo pidio en 0.7.
  */
-export const COMPACT_RATIO = 0.8;
+export const COMPACT_RATIO = 0.7;
 
 /** El boton "Compactar": que comando manda, y por que esta apagado si lo esta. */
 export interface CompactAction {
@@ -102,7 +104,7 @@ interface ContextMeterProps {
   /** Abre el dialogo de configurar la status line. */
   onConfigure?: () => void;
   /**
-   * "Compactar", con la ventana al 80 % o mas (hito 47). Solo en la version de
+   * "Compactar", con la ventana al 70 % o mas (hito 47). Solo en la version de
    * una linea; null o ausente, la CLI no tiene el comando y no se ofrece.
    */
   compactAction?: CompactAction | null;
@@ -165,7 +167,7 @@ export function ContextMeter({
       la ventana exacta al empezar el turno: ahi ya es un dato (ver
       `meterIdleWindow`).
     */
-    const detail = meterIdleDetail(instructionsFile, source);
+    const detail = meterIdleDetail(instructionsFile, source, usage.compacted === true);
     const idleWindow = meterIdleWindow(source, usage, fallbackWindow);
 
     return (
@@ -227,7 +229,7 @@ export function ContextMeter({
     /*
       "Compactar" cuelga debajo del medidor, sobre la esquina del hilo: en la
       fila no hay sitio, y si empujara la conversacion, esta saltaria cada vez
-      que el contexto cruza el 80 %.
+      que el contexto cruza el 70 %.
     */
     const offerCompact = compactAction !== null && ratio !== null && ratio >= COMPACT_RATIO;
 

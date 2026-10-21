@@ -54,6 +54,13 @@ export interface UnwrappedUserInput {
 const REQUEST_OPEN = '<USER_REQUEST>';
 const REQUEST_CLOSE = '</USER_REQUEST>';
 
+/**
+ * `/compact`, que la CLI anota como un `USER_INPUT` mas (medido con la 1.4.3 el
+ * 20-10-2026, §12.15). Es la orden a la CLI, no un mensaje al modelo: en el
+ * hilo va el aviso de su paso `CHECKPOINT`.
+ */
+const COMPACT_COMMAND = /^\/compact(?:\s|$)/;
+
 function blockPattern(name: string): RegExp {
   return new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'g');
 }
@@ -209,6 +216,8 @@ export class TranscriptMapper implements JsonlLineSink {
   private model: string | null = null;
   private effort: string | null = null;
   private assistantCount = 0;
+  /** El ultimo paso `CHECKPOINT`: una compactacion (§12.15). */
+  private checkpointStep: number | null = null;
   private partUpdates = new Map<string, ConversationPart[]>();
 
   constructor(options: TranscriptMapperOptions = {}) {
@@ -231,6 +240,20 @@ export class TranscriptMapper implements JsonlLineSink {
   /** Cuantos eventos `assistant` salieron. Es lo que cuenta el medidor. */
   get assistantMessages(): number {
     return this.assistantCount;
+  }
+
+  /**
+   * true si la conversacion compacto despues del ultimo paso de planificacion.
+   * La status line sigue publicando los tokens de antes hasta la peticion
+   * siguiente (medido: 15 671 antes y despues de `/compact`), y el medidor
+   * tiene que decir "sin medir" (§6.37).
+   */
+  get compacted(): boolean {
+    return (
+      this.checkpointStep !== null &&
+      this.assistantCount > 0 &&
+      (this.plannerStep === null || this.checkpointStep > this.plannerStep)
+    );
   }
 
   /**
@@ -265,6 +288,7 @@ export class TranscriptMapper implements JsonlLineSink {
     this.model = null;
     this.effort = null;
     this.assistantCount = 0;
+    this.checkpointStep = null;
     this.partUpdates = new Map();
   }
 
@@ -287,6 +311,7 @@ export class TranscriptMapper implements JsonlLineSink {
     if (type === 'USER_INPUT' && source === 'USER_EXPLICIT') {
       return this.userInput(stepIndex, record, at, memo, events);
     }
+    if (type === 'CHECKPOINT' && source === 'SYSTEM') return this.checkpoint(stepIndex, at, events);
     if (source !== 'MODEL') return null;
     if (type === 'PLANNER_RESPONSE') {
       return this.plannerResponse(stepIndex, record, at, memo, events);
@@ -316,8 +341,30 @@ export class TranscriptMapper implements JsonlLineSink {
       this.steps.set(stepIndex, { kind: 'user' });
     }
 
-    if (text.length === 0) return null;
+    if (text.length === 0 || COMPACT_COMMAND.test(text)) return null;
     return this.emit(stepIndex, 'user', at, [{ kind: 'text', ...cut(text, this.limits.textMaxChars) }], events);
+  }
+
+  /**
+   * El paso `CHECKPOINT` de `SYSTEM` que deja la compactacion ("# Resuming from
+   * a compaction", el unico del historial de la maquina): el aviso en el hilo.
+   * No cuenta como respuesta ni lleva modelo.
+   */
+  private checkpoint(stepIndex: number, at: number, events: EventLookup): ConversationEvent | null {
+    if (this.checkpointStep === null || stepIndex > this.checkpointStep) this.checkpointStep = stepIndex;
+    const eventId = `s${stepIndex}`;
+    if (events.find(eventId) !== undefined) return null;
+    return {
+      eventId,
+      role: 'assistant',
+      at,
+      parts: [{ kind: 'notice', notice: 'compacted', detail: '' }],
+      model: null,
+      usage: null,
+      effort: null,
+      durationMs: null,
+      queued: false,
+    };
   }
 
   private plannerResponse(

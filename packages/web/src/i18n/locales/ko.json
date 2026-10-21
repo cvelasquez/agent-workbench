@@ -22,6 +22,7 @@
   "agent.handoff.turns.lastOne": "{{total}}개 턴 중 마지막 턴",
   "agent.handoff.turns.lastOneOfMore": "{{total}}개가 넘는 턴 중 마지막 턴",
   "agent.handoff.turns.single": "유일한 턴",
+  "agent.meter.idle.compacted": "마지막으로 측정한 응답 이후 컨텍스트가 압축되었습니다. 새 크기는 다음 응답에서 표시됩니다.",
   "agent.meter.idle.noFile": "세션에서 아직 측정된 응답이 없습니다. 사용량은 0부터 시작하지 않습니다. 시스템 프롬프트, 도구, 프로젝트의 지침 파일이 이미 컨텍스트를 차지하고 있으며, 실제 수치는 첫 응답이 오면 표시됩니다.",
   "agent.meter.idle.statusLine": "상태 표시줄이 아직 이 대화의 토큰 정보를 제공하지 않았습니다. 사용량은 0부터 시작하지 않습니다. CLI가 상태 표시줄을 실행할 때, 즉 첫 메시지를 보내거나 세션을 재개할 때 수치가 표시됩니다.",
   "agent.meter.idle.withFile": "세션에서 아직 측정된 응답이 없습니다. 사용량은 0부터 시작하지 않습니다. 시스템 프롬프트, 도구, {{file}} 파일이 이미 컨텍스트를 차지하고 있으며, 실제 수치는 첫 응답이 오면 표시됩니다.",

@@ -444,6 +444,13 @@ export interface ContextUsage {
    * esto, tras un `/effort` el combo de modelo cambiaba y el de esfuerzo no.
    */
   lastEffort?: string;
+  /**
+   * true si la CLI compacto el contexto despues de la ultima peticion medida.
+   * `lastRequestTokens` sigue siendo cierto de esa peticion, pero ya no dice
+   * cuanto ocupa el contexto: el medidor vuelve a "sin medir" hasta la
+   * respuesta siguiente (§6.37). Ausente si no compacto.
+   */
+  compacted?: true;
 }
 
 export const EMPTY_CONTEXT_USAGE: ContextUsage = {
@@ -763,6 +770,7 @@ export function parseContextUsage(value: unknown): ContextUsage | null {
     assistantMessages,
     // Solo si viene: las CLIs que no lo publican no llevan el campo.
     ...(lastEffort !== null ? { lastEffort } : {}),
+    ...(record['compacted'] === true ? { compacted: true as const } : {}),
   };
 }
 

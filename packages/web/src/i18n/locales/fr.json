@@ -25,6 +25,7 @@
   "agent.handoff.turns.lastOne": "du dernier tour sur {{total}}",
   "agent.handoff.turns.lastOneOfMore": "du dernier tour sur plus de {{total}}",
   "agent.handoff.turns.single": "de l'unique tour",
+  "agent.meter.idle.compacted": "Le contexte a été compacté après la dernière réponse mesurée. La nouvelle taille apparaît avec la prochaine réponse.",
   "agent.meter.idle.noFile": "La session n'a encore mesuré aucune réponse. Le contexte ne part pas de zéro : le prompt système, les outils et le fichier d'instructions du projet en occupent déjà une partie, et le chiffre réel apparaît avec la première réponse.",
   "agent.meter.idle.statusLine": "La status line n'a encore publié aucun token pour cette conversation. Le contexte ne part pas de zéro : le chiffre apparaît quand la CLI exécute la status line, avec le premier message ou à la reprise de la session.",
   "agent.meter.idle.withFile": "La session n'a encore mesuré aucune réponse. Le contexte ne part pas de zéro : le prompt système, les outils et {{file}} en occupent déjà une partie, et le chiffre réel apparaît avec la première réponse.",

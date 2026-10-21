@@ -87,7 +87,7 @@ export interface AgentUi {
   effortCommand?: string;
   /**
    * El comando que compacta la conversacion, o null si la CLI no tiene uno. Es
-   * lo que manda el boton "Compactar" con el contexto al 80 % (hito 47, §6.37).
+   * lo que manda el boton "Compactar" con el contexto al 70 % (hito 47, §6.37).
    * Obligatorio a proposito: una CLI nueva no compila sin decirlo.
    */
   compactCommand: string | null;
@@ -644,12 +644,20 @@ export function imagesRefusedMessage(): string {
  * line (hito 27, B6): la ventana llega exacta antes que los tokens. Con
  * cualquier otra fuente, lo que traiga el uso antes de medir no es un dato
  * publicado y no se muestra.
+ *
+ * Despues de compactar, la ventana que ya midio la sesion: es la que corrio,
+ * y gana a la configuracion igual que con el numero a la vista. Una cota
+ * deducida no, porque aca se dibuja sin la marca `+`.
  */
 export function meterIdleWindow(
   source: ContextWindowSource | null,
-  usage: Pick<ContextUsage, 'contextWindow'>,
+  usage: Pick<ContextUsage, 'contextWindow' | 'compacted'> &
+    Partial<Pick<ContextUsage, 'contextWindowEstimated'>>,
   fallbackWindow: number | null,
 ): number | null {
+  if (usage.compacted === true && usage.contextWindow !== null && usage.contextWindowEstimated !== true) {
+    return usage.contextWindow;
+  }
   return (
     fallbackWindow ??
     (source === 'token-count' || source === 'status-line' ? usage.contextWindow : null)
@@ -664,11 +672,17 @@ export function meterIdleWindow(
  * lo que la CLI publico, y hasta que lo publica —una conversacion reanudada
  * antes de que corra, o una recien limpiada— no hay nada que medir aunque el
  * hilo tenga mensajes. Dibujar ahi un 0 afirmaria que la ventana esta libre.
+ *
+ * Y con cualquier fuente, no despues de compactar (§6.37): la ultima peticion
+ * medida es de antes, y la cifra que publica la CLI al compactar no cuenta el
+ * prompt de sistema ni las herramientas (14,5k contra 73,7k en la respuesta
+ * siguiente, medido el 20-10-2026). Hasta la proxima respuesta, sin medir.
  */
 export function meterMeasured(
   source: ContextWindowSource | null,
-  usage: Pick<ContextUsage, 'assistantMessages' | 'lastRequestTokens'>,
+  usage: Pick<ContextUsage, 'assistantMessages' | 'lastRequestTokens' | 'compacted'>,
 ): boolean {
+  if (usage.compacted === true) return false;
   if (source === 'status-line') return usage.lastRequestTokens > 0;
   return usage.assistantMessages > 0;
 }
@@ -719,12 +733,15 @@ export function meterWindowOrigin(
  * Titulo del medidor antes de la primera respuesta.
  *
  * Con la status line (hito 27) el numero no espera una respuesta sino que la
- * CLI la corra con esta conversacion, y se dice eso.
+ * CLI la corra con esta conversacion, y se dice eso. Despues de compactar, que
+ * el tamano nuevo llega con la respuesta siguiente.
  */
 export function meterIdleDetail(
   instructionsFile: string | null,
   source: ContextWindowSource | null = null,
+  compacted = false,
 ): string {
+  if (compacted) return t('agent.meter.idle.compacted');
   if (source === 'status-line') return t('agent.meter.idle.statusLine');
   return instructionsFile === null
     ? t('agent.meter.idle.noFile')
