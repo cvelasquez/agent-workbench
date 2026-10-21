@@ -1170,6 +1170,7 @@
   "worktree.notes.hide": "隠す",
   "worktree.notes.mergedMark": "まとめる",
   "worktree.notes.merged_other": "そのうち {{count}} 件は、メインのフォルダーでの変更とまとめます。",
+  "worktree.notes.resolved_other": "ブランチのエージェントがすでにまとめました: {{list}}。メインのフォルダーではそのまま残ります。",
   "worktree.notes.returned_other": "{{count}} 件のメモをメインのフォルダーに戻しました。",
   "worktree.notes.show": "一覧を表示",
   "worktree.remove.askCommit_other": "エージェントにコミットしてもらう",

@@ -1238,6 +1238,8 @@
   "worktree.notes.mergedMark": "zusammengeführt",
   "worktree.notes.merged_one": "{{count}} wird mit dem zusammengeführt, was sich dort geändert hat.",
   "worktree.notes.merged_other": "{{count}} werden mit dem zusammengeführt, was sich dort geändert hat.",
+  "worktree.notes.resolved_one": "Der Agent des Branches hat {{list}} schon zusammengeführt: Sie bleibt im Hauptordner, wie sie ist.",
+  "worktree.notes.resolved_other": "Der Agent des Branches hat {{list}} schon zusammengeführt: Sie bleiben im Hauptordner, wie sie sind.",
   "worktree.notes.returned_one": "{{count}} Notiz ging in den Hauptordner zurück.",
   "worktree.notes.returned_other": "{{count}} Notizen gingen in den Hauptordner zurück.",
   "worktree.notes.show": "welche anzeigen",

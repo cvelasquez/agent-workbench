@@ -117,7 +117,7 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onAskCommi
               )}
 
               <p className="modal-hint">{removeFateText(plan)}</p>
-              <WorktreeNotesLine returning={plan.returning} merging={plan.merging} />
+              <WorktreeNotesLine returning={plan.returning} merging={plan.merging} resolved={plan.resolved} />
               {plan.tabs.length > 0 && (
                 <p className="modal-hint">{t('worktree.remove.tabs', { list: formatList(plan.tabs.map((tab) => tab.label)) })}</p>
               )}

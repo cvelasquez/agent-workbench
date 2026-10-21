@@ -240,6 +240,12 @@ export interface WorktreeRemovePlan {
    * (21-10-2026). Un servidor anterior no lo manda: ninguna.
    */
   merging: string[];
+  /**
+   * Notas que el usuario le pidió al agente de la rama que juntara, y que ya
+   * juntó: quedan como están en la principal (21-10-2026). Un servidor
+   * anterior no lo manda: ninguna.
+   */
+  resolved: string[];
   /** Notas que cambiaron en los dos lados y no se pueden juntar: con alguna no se quita, salvo perderlas. */
   conflicts: string[];
   /** true si otro programa tiene la carpeta abierta; null si no se pudo saber (hay pestañas de la app adentro). */
@@ -267,6 +273,8 @@ export interface WorktreeRemovePlan {
 export interface WorktreeNotesPreview {
   returning: string[];
   merging: string[];
+  /** Las que juntó el agente de la rama a pedido del usuario: no viajan. */
+  resolved: string[];
   conflicts: string[];
 }
 
@@ -773,7 +781,7 @@ export function parseWorktreeNotesPreview(value: unknown): WorktreeNotesPreview 
   const returning = asStringArray(record['returning']);
   const conflicts = asStringArray(record['conflicts']);
   if (returning === null || conflicts === null) return null;
-  return { returning, merging: asStringArray(record['merging']) ?? [], conflicts };
+  return { returning, merging: asStringArray(record['merging']) ?? [], resolved: asStringArray(record['resolved']) ?? [], conflicts };
 }
 
 export function parseWorktreeIntegrateOutcome(value: unknown): WorktreeIntegrateOutcome | null {
@@ -865,6 +873,7 @@ export function parseWorktreeRemovePlan(value: unknown): WorktreeRemovePlan | nu
     returning,
     // Ausentes en un servidor anterior: ninguna se junta, y la rama la creó la app.
     merging: (asStringArray(record['merging']) ?? []).filter((file) => returning.includes(file)),
+    resolved: asStringArray(record['resolved']) ?? [],
     conflicts,
     inUse: typeof inUse === 'boolean' ? inUse : null,
     deletesBranch,

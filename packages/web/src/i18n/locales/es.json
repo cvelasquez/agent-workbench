@@ -1238,6 +1238,8 @@
   "worktree.notes.mergedMark": "se junta",
   "worktree.notes.merged_one": "{{count}} se junta con lo que cambió allá.",
   "worktree.notes.merged_other": "{{count}} se juntan con lo que cambió allá.",
+  "worktree.notes.resolved_one": "El agente de la rama ya juntó {{list}}: queda como está en la carpeta principal.",
+  "worktree.notes.resolved_other": "El agente de la rama ya juntó {{list}}: quedan como están en la carpeta principal.",
   "worktree.notes.returned_one": "{{count}} nota volvió a la carpeta principal.",
   "worktree.notes.returned_other": "{{count}} notas volvieron a la carpeta principal.",
   "worktree.notes.show": "ver cuáles",

@@ -266,9 +266,17 @@ export function containsAllLines(main: string, branch: string): boolean {
 
 /**
  * `return`: vuelve la versión de la rama tal cual. `merge`: vuelven las dos
- * juntas. `conflict`: cambió en los dos lados y no se pudo juntar.
+ * juntas. `resolved`: la juntó el agente de la rama, a pedido del usuario, y
+ * la principal queda como está. `conflict`: cambió en los dos lados y no se
+ * pudo juntar.
  */
-export type NoteVerdict = 'unchanged' | 'return' | 'merge' | 'conflict';
+export type NoteVerdict = 'unchanged' | 'return' | 'merge' | 'resolved' | 'conflict';
+
+/** Cómo estaba una nota en los dos lados cuando se le pidió al agente de la rama que la juntara. */
+export interface AskedNote {
+  branch: string;
+  main: string | null;
+}
 
 export interface NoteOutcome {
   verdict: NoteVerdict;
@@ -277,6 +285,7 @@ export interface NoteOutcome {
 }
 
 const UNCHANGED: NoteOutcome = { verdict: 'unchanged', content: null };
+const RESOLVED: NoteOutcome = { verdict: 'resolved', content: null };
 
 /**
  * Qué hacer con una nota de la rama al quitarla o integrarla. Pura: la prueba
@@ -286,14 +295,28 @@ const UNCHANGED: NoteOutcome = { verdict: 'unchanged', content: null };
  * la principal), o null si la nota nació en la rama. `baseContent` es la copia
  * de origen con esa huella (`note-bases.ts`): con ella, una nota que cambió en
  * los dos lados se junta; sin ella, choca.
+ *
+ * `asked` es cómo estaban los dos lados cuando el usuario le pidió al agente de
+ * la rama que la juntara. Si desde entonces la principal cambió y la rama no,
+ * el agente la juntó, y lo suyo se respeta: no se junta otra vez ni se
+ * pregunta (pedido del usuario el 21-10-2026). Antes, con un agente que
+ * juntaba editando en vez de copiar, la pregunta no se iba nunca: la rama
+ * guardaba líneas viejas que la principal ya había actualizado.
  */
-export function noteOutcome(base: string | null, branch: Buffer, main: Buffer | null, baseContent: Buffer | null = null): NoteOutcome {
+export function noteOutcome(
+  base: string | null,
+  branch: Buffer,
+  main: Buffer | null,
+  baseContent: Buffer | null = null,
+  asked: AskedNote | null = null,
+): NoteOutcome {
   const branchHash = hashOf(branch);
   if (base !== null && branchHash === base) return UNCHANGED;
   if (main === null) return { verdict: 'return', content: branch };
   const mainHash = hashOf(main);
   if (mainHash === branchHash) return UNCHANGED;
   if (base !== null && mainHash === base) return { verdict: 'return', content: branch };
+  if (asked !== null && asked.branch === branchHash && asked.main !== mainHash) return RESOLVED;
   if (base !== null && baseContent !== null && hashOf(baseContent) === base) {
     const merged = mergeNote(baseContent, main, branch);
     // Juntas dan la principal: lo de la rama ya estaba.
@@ -303,18 +326,59 @@ export function noteOutcome(base: string | null, branch: Buffer, main: Buffer | 
   return { verdict: 'conflict', content: null };
 }
 
-export function noteVerdict(base: string | null, branch: Buffer, main: Buffer | null, baseContent: Buffer | null = null): NoteVerdict {
-  return noteOutcome(base, branch, main, baseContent).verdict;
+export function noteVerdict(
+  base: string | null,
+  branch: Buffer,
+  main: Buffer | null,
+  baseContent: Buffer | null = null,
+  asked: AskedNote | null = null,
+): NoteVerdict {
+  return noteOutcome(base, branch, main, baseContent, asked).verdict;
 }
 
 /** La copia de origen de una huella, si la hay. */
 export type LoadNoteBase = (hash: string) => Promise<Buffer | null>;
 
 /** Como `noteOutcome`, pero busca la copia de origen sólo cuando hace falta: si la nota cambió en los dos lados. */
-async function outcomeOf(base: string | null, branch: Buffer, main: Buffer | null, loadBase?: LoadNoteBase): Promise<NoteOutcome> {
+async function outcomeOf(
+  base: string | null,
+  branch: Buffer,
+  main: Buffer | null,
+  loadBase?: LoadNoteBase,
+  asked: AskedNote | null = null,
+): Promise<NoteOutcome> {
   const bothChanged = base !== null && main !== null && hashOf(branch) !== base && hashOf(main) !== base && !main.equals(branch);
   const baseContent = bothChanged && loadBase !== undefined ? await loadBase(base) : null;
-  return noteOutcome(base, branch, main, baseContent);
+  return noteOutcome(base, branch, main, baseContent, asked);
+}
+
+/** El contenido en la rama de cada una de esas notas que todavía está ahí. */
+export async function notesIn(folder: string, files: readonly string[]): Promise<Array<[string, Buffer]>> {
+  const found: Array<[string, Buffer]> = [];
+  for (const file of files) {
+    const content = await readInside(folder, file);
+    if (content !== null) found.push([file, content]);
+  }
+  return found;
+}
+
+/** Las notas pedidas al agente de la rama, por ruta. */
+export type AskedNotes = ReadonlyMap<string, AskedNote>;
+
+/** Cómo están ahora, en la rama y en la principal, las notas que se le van a pedir al agente que junte. */
+export async function askedNotesNow(
+  mainRoot: string,
+  folder: string,
+  files: readonly string[],
+): Promise<Array<{ path: string } & AskedNote>> {
+  const asked: Array<{ path: string } & AskedNote> = [];
+  for (const file of files) {
+    const branch = await readInside(folder, file);
+    if (branch === null) continue;
+    const main = await readInside(mainRoot, file);
+    asked.push({ path: file, branch: hashOf(branch), main: main === null ? null : hashOf(main) });
+  }
+  return asked;
 }
 
 export interface NoteReview {
@@ -322,6 +386,8 @@ export interface NoteReview {
   returning: string[];
   /** De `returning`, las que se juntan con lo que cambió en la principal. */
   merging: string[];
+  /** Las que juntó el agente de la rama a pedido del usuario: quedan como están en la principal. */
+  resolved: string[];
   conflicts: string[];
 }
 
@@ -365,10 +431,16 @@ async function filesUnder(folder: string, relative: string, out: string[]): Prom
 export async function reviewNotes(
   mainRoot: string,
   folder: string,
-  record: { copied: readonly CopiedFile[]; copiedDirs: readonly string[]; copyNotes: boolean },
+  record: {
+    copied: readonly CopiedFile[];
+    copiedDirs: readonly string[];
+    copyNotes: boolean;
+    notesAsked?: ReadonlyArray<{ path: string } & AskedNote>;
+  },
   loadBase?: LoadNoteBase,
 ): Promise<NoteReview> {
   const bases = new Map(record.copied.map((file) => [file.path, file.hash]));
+  const asked = askedByPath(record.notesAsked);
   const candidates = new Set(bases.keys());
   for (const dir of record.copiedDirs) {
     const found: string[] = [];
@@ -382,17 +454,24 @@ export async function reviewNotes(
 
   const returning: string[] = [];
   const merging: string[] = [];
+  const resolved: string[] = [];
   const conflicts: string[] = [];
   for (const file of notes) {
     const branch = await readInside(folder, file);
     // Borrada en la rama: no se borra en la principal.
     if (branch === null) continue;
-    const { verdict } = await outcomeOf(bases.get(file) ?? null, branch, await readInside(mainRoot, file), loadBase);
+    const main = await readInside(mainRoot, file);
+    const { verdict } = await outcomeOf(bases.get(file) ?? null, branch, main, loadBase, asked.get(file) ?? null);
     if (verdict === 'return' || verdict === 'merge') returning.push(file);
     if (verdict === 'merge') merging.push(file);
+    else if (verdict === 'resolved') resolved.push(file);
     else if (verdict === 'conflict') conflicts.push(file);
   }
-  return { returning, merging, conflicts };
+  return { returning, merging, resolved, conflicts };
+}
+
+function askedByPath(notesAsked: ReadonlyArray<{ path: string } & AskedNote> | undefined): AskedNotes {
+  return new Map((notesAsked ?? []).map((request) => [request.path, { branch: request.branch, main: request.main }]));
 }
 
 export interface ReturnedNotes {
@@ -420,6 +499,8 @@ export interface ReturnNotesOptions {
    * juntaba otra vez (revisión del 21-10-2026). Un fallo acá no deshace nada.
    */
   onWritten?: (file: string, branch: Buffer) => Promise<void>;
+  /** Las notas pedidas al agente de la rama: una que juntó entre el plan y la confirmación no se toca. */
+  notesAsked?: ReadonlyArray<{ path: string } & AskedNote>;
 }
 
 /**
@@ -436,6 +517,7 @@ export async function returnNotes(
   options: ReturnNotesOptions = {},
 ): Promise<ReturnedNotes> {
   const result: ReturnedNotes = { returned: [], merged: [], skipped: [], conflicts: [] };
+  const asked = askedByPath(options.notesAsked);
   for (const file of files) {
     try {
       const branch = await readInside(folder, file);
@@ -445,7 +527,7 @@ export async function returnNotes(
       }
       const target = await resolveInside(mainRoot, file);
       const mainBefore = await readInside(mainRoot, file);
-      const outcome = await outcomeOf(bases.get(file) ?? null, branch, mainBefore, options.loadBase);
+      const outcome = await outcomeOf(bases.get(file) ?? null, branch, mainBefore, options.loadBase, asked.get(file) ?? null);
       if (outcome.verdict === 'conflict') throw new Error(`${file} changed in the main folder since the plan`);
       if (outcome.content === null) {
         result.skipped.push(file);

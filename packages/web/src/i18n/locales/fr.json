@@ -1238,6 +1238,8 @@
   "worktree.notes.mergedMark": "combinée",
   "worktree.notes.merged_one": "{{count}} est combinée avec ce qui a changé là-bas.",
   "worktree.notes.merged_other": "{{count}} sont combinées avec ce qui a changé là-bas.",
+  "worktree.notes.resolved_one": "L'agent de la branche a déjà combiné {{list}} : elle reste telle quelle dans le dossier principal.",
+  "worktree.notes.resolved_other": "L'agent de la branche a déjà combiné {{list}} : elles restent telles quelles dans le dossier principal.",
   "worktree.notes.returned_one": "{{count}} note est revenue au dossier principal.",
   "worktree.notes.returned_other": "{{count}} notes sont revenues au dossier principal.",
   "worktree.notes.show": "voir lesquelles",

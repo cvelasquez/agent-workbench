@@ -1238,6 +1238,8 @@
   "worktree.notes.mergedMark": "combined",
   "worktree.notes.merged_one": "{{count}} is combined with what changed there.",
   "worktree.notes.merged_other": "{{count}} are combined with what changed there.",
+  "worktree.notes.resolved_one": "The branch's agent already combined {{list}}: it stays as it is in the main folder.",
+  "worktree.notes.resolved_other": "The branch's agent already combined {{list}}: they stay as they are in the main folder.",
   "worktree.notes.returned_one": "{{count}} note went back to the main folder.",
   "worktree.notes.returned_other": "{{count}} notes went back to the main folder.",
   "worktree.notes.show": "show which",

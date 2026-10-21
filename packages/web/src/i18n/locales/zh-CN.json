@@ -1170,6 +1170,7 @@
   "worktree.notes.hide": "隐藏",
   "worktree.notes.mergedMark": "拼合",
   "worktree.notes.merged_other": "其中 {{count}} 条与那边的改动拼合。",
+  "worktree.notes.resolved_other": "分支的代理已经拼合了：{{list}}。主文件夹中保持原样。",
   "worktree.notes.returned_other": "{{count}} 条笔记已回到主文件夹。",
   "worktree.notes.show": "查看是哪些",
   "worktree.remove.askCommit_other": "请代理提交",

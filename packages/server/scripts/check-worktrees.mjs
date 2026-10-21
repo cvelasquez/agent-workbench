@@ -1248,6 +1248,57 @@ let reviewSession = '';
   check('H17 y git lo integra: la principal tiene la regla de la rama, sin aviso de notas',
     trackedOutcome.notes === undefined && (await readFile(path.join(team, 'CLAUDE.md'), 'utf8')).includes('una regla de la rama'));
   await notesService.remove(trackedRecord.id, false, () => {});
+
+  // "Pedirle al agente que las junte" (pedido del usuario el 21-10-2026): el agente junta editando, no copiando,
+  // y la rama guarda líneas que la principal ya no tiene. Antes la pregunta no se iba nunca.
+  await writeFile(path.join(team, 'docs', 'pedido.md'), '- [ ] tarea\n');
+  const asking = await notesService.create({ source: { kind: 'project', projectKey: 'equipo' }, branch: 'feat/pedido-h', base: 'main', mode: 'new', copyNotes: false });
+  const askingRecord = teamStore.byPath(asking.cwd);
+  const branchVersion = '- [x] tarea (de la rama)\n';
+  await writeFile(path.join(asking.cwd, 'docs', 'pedido.md'), branchVersion);
+  await writeFile(path.join(team, 'docs', 'pedido.md'), '- [ ] tarea (de la principal)\n');
+  plan = await notesService.planRemove(askingRecord.id);
+  const askedText = (await notesService.notesRequest(askingRecord.id)).text;
+  const savedAsk = parseWorktreesState(await readFile(path.join(root, 'appdata', 'worktrees-equipo.json'), 'utf8'))
+    .find((candidate) => candidate.id === askingRecord.id)?.notesAsked;
+  check('H18 al pedirle al agente que la junte, se anota cómo estaba en los dos lados, también en disco',
+    JSON.stringify(plan.conflicts) === JSON.stringify(['docs/pedido.md']) && askedText.includes('docs/pedido.md') &&
+      savedAsk?.length === 1 && savedAsk[0].path === 'docs/pedido.md' && savedAsk[0].branch === include.hashOf(Buffer.from(branchVersion)) &&
+      savedAsk[0].main === include.hashOf(Buffer.from('- [ ] tarea (de la principal)\n')),
+    JSON.stringify(savedAsk));
+  plan = await notesService.planRemove(askingRecord.id);
+  check('H19 mientras la principal no cambie, el agente no la juntó: se sigue preguntando',
+    JSON.stringify(plan.conflicts) === JSON.stringify(['docs/pedido.md']) && plan.resolved.length === 0 && ui.removeAction(plan) === 'ask-notes');
+  // Lo que hace el agente: la junta a su manera en la principal, sin copiar la línea de la rama tal cual.
+  const joinedByAgent = '- [x] tarea (de la rama, con lo de la principal)\n';
+  await writeFile(path.join(team, 'docs', 'pedido.md'), joinedByAgent);
+  plan = await notesService.planRemove(askingRecord.id);
+  check('H20 la principal cambió y la rama no: la juntó el agente, no frena y el botón quita',
+    plan.conflicts.length === 0 && JSON.stringify(plan.resolved) === JSON.stringify(['docs/pedido.md']) &&
+      !plan.returning.includes('docs/pedido.md') && ui.removeAction(plan) === 'remove' &&
+      shared.parseWorktreeRemovePlan(JSON.parse(JSON.stringify(plan)))?.resolved.length === 1,
+    JSON.stringify(plan));
+  await writeFile(path.join(asking.cwd, 'docs', 'pedido.md'), '- [x] tarea (la rama siguió)\n');
+  const branchMoved = await notesService.planRemove(askingRecord.id);
+  await writeFile(path.join(asking.cwd, 'docs', 'pedido.md'), branchVersion);
+  check('H21 si la rama la cambia después del pedido, se vuelve a preguntar',
+    JSON.stringify(branchMoved.conflicts) === JSON.stringify(['docs/pedido.md']) && branchMoved.resolved.length === 0);
+
+  // Integrar: la juntada no viaja ni "se queda", y su versión de la rama pasa a ser el origen.
+  await writeFile(path.join(asking.cwd, 'pedido.txt'), 'p\n');
+  git(asking.cwd, 'add', 'pedido.txt');
+  git(asking.cwd, 'commit', '-q', '-m', 'pedido');
+  const askPlan = await notesService.planIntegrate(askingRecord.id);
+  const askOutcome = await notesService.integrate(askingRecord.id, askPlan.branchCommit ?? undefined);
+  check('H22 integrar: la que juntó el agente no viaja ni se queda en la rama, y la principal queda como la dejó',
+    JSON.stringify(askPlan.notes?.resolved) === JSON.stringify(['docs/pedido.md']) && askPlan.notes?.conflicts.length === 0 &&
+      (askOutcome.notes?.stayed ?? []).length === 0 && (await readFile(path.join(team, 'docs', 'pedido.md'), 'utf8')) === joinedByAgent &&
+      teamStore.get(askingRecord.id)?.copied.find((entry) => entry.path === 'docs/pedido.md')?.hash === include.hashOf(Buffer.from(branchVersion)),
+    JSON.stringify({ notes: askPlan.notes, outcome: askOutcome }));
+  const askRemoval = await notesService.remove(askingRecord.id, false, () => {});
+  check('H23 quitada sin preguntar: la nota que juntó el agente queda como estaba',
+    askRemoval.discarded === 0 && (await readFile(path.join(team, 'docs', 'pedido.md'), 'utf8')) === joinedByAgent && !existsSync(asking.cwd),
+    JSON.stringify(askRemoval));
 }
 
 // ---------------------------------------------------------------------------
@@ -1445,6 +1496,11 @@ let reviewSession = '';
     include.noteVerdict(originHash, text('- [x] uno\n- dos\n'), text('- uno\n- dos\n- tres\n'), text('- uno\n- dos\n- tres\n')) === 'conflict');
   check('J14 si juntas dan la principal, no hay nada que traer',
     include.noteVerdict(originHash, text('- [x] uno\n- dos\n'), text('- [x] uno\n- dos\n- tres\n'), origin) === 'unchanged');
+  const asked = { branch: include.hashOf(text('- [x] rama\n')), main: include.hashOf(text('- principal\n')) };
+  check('J14b pedida al agente: si la principal cambió y la rama no, la juntó; si no, se sigue preguntando',
+    include.noteVerdict(originHash, text('- [x] rama\n'), text('- juntas\n'), null, asked) === 'resolved' &&
+      include.noteVerdict(originHash, text('- [x] rama\n'), text('- principal\n'), null, asked) === 'conflict' &&
+      include.noteVerdict(originHash, text('- [x] otra\n'), text('- juntas\n'), null, asked) === 'conflict');
   check('J15 se guarda la copia de una nota de texto, nunca de un .env, un binario ni algo enorme',
     keepsNoteBase('docs/a.md', text('a\n')) && keepsNoteBase('NOTAS.TXT', text('a\n')) && !keepsNoteBase('.env', text('A=1\n')) &&
       !keepsNoteBase('docs/clave.env', text('A=1\n')) && !keepsNoteBase('docs/a.md', Buffer.from([97, 0, 98])) &&
@@ -1522,7 +1578,7 @@ let reviewSession = '';
   check('D5 el plan de integrar sin notas (un servidor anterior) y con ellas',
     shared.parseWorktreeIntegratePlan(integratePlan)?.notes === null &&
       JSON.stringify(shared.parseWorktreeIntegratePlan({ ...integratePlan, notes: { returning: ['a.md'], conflicts: [] } })?.notes) ===
-        JSON.stringify({ returning: ['a.md'], merging: [], conflicts: [] }));
+        JSON.stringify({ returning: ['a.md'], merging: [], resolved: [], conflicts: [] }));
   check('D6 lo que integrar dice de las notas viaja, y sin ellas no aparece',
     shared.parseWorktreeIntegrateOutcome({ commits: 1, base: 'main' })?.notes === undefined &&
       JSON.stringify(shared.parseWorktreeIntegrateOutcome({ commits: 1, base: 'main', notes: { returned: 2, stayed: ['a.md'] } })?.notes) ===

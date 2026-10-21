@@ -1238,6 +1238,8 @@
   "worktree.notes.mergedMark": "juntada",
   "worktree.notes.merged_one": "{{count}} é juntada com o que mudou lá.",
   "worktree.notes.merged_other": "{{count}} são juntadas com o que mudou lá.",
+  "worktree.notes.resolved_one": "O agente do branch já juntou {{list}}: ela fica como está na pasta principal.",
+  "worktree.notes.resolved_other": "O agente do branch já juntou {{list}}: elas ficam como estão na pasta principal.",
   "worktree.notes.returned_one": "{{count}} nota voltou para a pasta principal.",
   "worktree.notes.returned_other": "{{count}} notas voltaram para a pasta principal.",
   "worktree.notes.show": "ver quais",

@@ -103,7 +103,9 @@ export function WorktreeIntegrateDialog({ dialog, agentLabel, onConfirm, onRemov
                 </p>
               )}
 
-              {plan.notes !== null && <WorktreeNotesLine returning={plan.notes.returning} merging={plan.notes.merging} />}
+              {plan.notes !== null && (
+                <WorktreeNotesLine returning={plan.notes.returning} merging={plan.notes.merging} resolved={plan.notes.resolved} />
+              )}
               {plan.notes !== null && plan.notes.conflicts.length > 0 && (
                 <p className="worktree-warning">{t('worktree.integrate.notesStay', { list: formatList(plan.notes.conflicts) })}</p>
               )}

@@ -58,6 +58,19 @@ export interface WorktreeReviewRecord {
   requestedAt: number;
 }
 
+/**
+ * Una nota que el usuario le pidió al agente de la rama que juntara (21-10-2026):
+ * cómo estaban los dos lados en ese momento. Si después la principal cambió y
+ * la rama no, el agente la juntó, y al quitar la rama ya no se pregunta.
+ */
+export interface NoteRequest {
+  path: string;
+  /** La huella de la nota en la rama al pedirlo. */
+  branch: string;
+  /** La huella en la principal al pedirlo; null si no estaba. */
+  main: string | null;
+}
+
 export interface WorktreeRecord {
   id: string;
   /** La carpeta principal del repo. */
@@ -97,6 +110,22 @@ export interface WorktreeRecord {
    * las de su autor al buscar dónde dejarle un pedido. Las más nuevas al final.
    */
   reviewSessions: string[];
+  /** Las notas que se le pidió al agente de la rama que juntara. Ausente en un registro anterior: ninguna. */
+  notesAsked: NoteRequest[];
+}
+
+function parseNoteRequest(value: unknown): NoteRequest | null {
+  const record = asRecord(value);
+  const file = asNonEmptyString(record?.['path']);
+  const branch = asNonEmptyString(record?.['branch']);
+  if (record === null || file === null || branch === null) return null;
+  return { path: file, branch, main: asNonEmptyString(record['main']) };
+}
+
+/** Las notas pedidas de ahora, en lugar de las anteriores de las mismas rutas. */
+export function withNoteRequests(current: readonly NoteRequest[], asked: readonly NoteRequest[]): NoteRequest[] {
+  const paths = new Set(asked.map((request) => request.path));
+  return [...current.filter((request) => !paths.has(request.path)), ...asked];
 }
 
 function parseCopied(value: unknown): CopiedFile | null {
@@ -175,6 +204,7 @@ export function parseWorktreeRecord(value: unknown): WorktreeRecord | null {
     // Ausentes en un registro del hito 48: sin revisión.
     review: parseReview(record['review']),
     reviewSessions: asStringArray(record['reviewSessions'])?.filter((id) => id.length > 0) ?? [],
+    notesAsked: asArrayFiltered(record['notesAsked'], parseNoteRequest) ?? [],
   };
 }
 

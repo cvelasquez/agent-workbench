@@ -103,12 +103,12 @@ import {
   uncommittedPaths,
   type WorktreeEntry,
 } from './git.js';
-import { copyToWorktree, hashOf, planCopy, returnNotes, reviewNotes, summarize, type CopyPlan } from './include.js';
+import { askedNotesNow, copyToWorktree, hashOf, notesIn, planCopy, returnNotes, reviewNotes, summarize, type CopyPlan } from './include.js';
 import { worktreeFolderFor, worktreesParentFor } from './names.js';
 import { NoteBases } from './note-bases.js';
 import { overlapsFor, pathsTouching, type BranchFiles } from './overlap.js';
 import { catchUpPrompt, commitPrompt, lastReplyText, readVerdict, reviewPrompt, sendBackPrompt } from './review.js';
-import { withReviewSession, type WorktreeRecord, type WorktreeStore } from './store.js';
+import { withNoteRequests, withReviewSession, type WorktreeRecord, type WorktreeStore } from './store.js';
 
 /** Un pedido de ramas aparte que no se pudo cumplir. El texto dice por qué (§6.23). */
 export class WorktreeError extends ServerTextError {}
@@ -364,6 +364,7 @@ export class WorktreeService extends EventEmitter {
       endCommit: null,
       review: null,
       reviewSessions: [],
+      notesAsked: [],
     });
     this.changed();
     return this.deps.registry.open({ cwd: folder, ...(request.agent !== undefined ? { agent: request.agent } : {}) });
@@ -549,7 +550,7 @@ export class WorktreeService extends EventEmitter {
       present ? uncommittedPaths(record.path) : Promise.resolve([]),
       present
         ? reviewNotes(record.mainRoot, record.path, record, this.loadNoteBase)
-        : Promise.resolve({ returning: [], merging: [], conflicts: [] }),
+        : Promise.resolve({ returning: [], merging: [], resolved: [], conflicts: [] }),
       record.createdBranch ? isIntegrated(record.mainRoot, record.branch, record.base) : Promise.resolve(false),
     ]);
     if (uncommitted === null) throw new WorktreeError(serverText('worktreeGitFailed', { detail: 'git status' }));
@@ -570,6 +571,7 @@ export class WorktreeService extends EventEmitter {
       tabs,
       returning: notes.returning,
       merging: notes.merging,
+      resolved: notes.resolved,
       conflicts: notes.conflicts,
       // Con pestañas de la app adentro, la prueba daría "en uso" por ellas mismas: se mira al confirmar.
       inUse: !present ? false : tabs.length > 0 ? null : await folderInUse(record.path),
@@ -611,6 +613,7 @@ export class WorktreeService extends EventEmitter {
           await returnNotes(record.mainRoot, record.path, plan.returning, bases, {
             loadBase: this.loadNoteBase,
             onWritten: (file, branch) => this.noteReturned(record.id, file, branch),
+            notesAsked: record.notesAsked,
           })
         ).returned.length;
       } catch (error) {
@@ -689,7 +692,8 @@ export class WorktreeService extends EventEmitter {
     const added = await addWorktree(record.mainRoot, record.path, record.branch, recreateAt);
     if (added.code !== 0) throw new WorktreeError(serverText('worktreeGitFailed', { detail: gitFailureText(added) }));
     const { copied, copiedDirs } = await this.copyInto(record.mainRoot, record.path, copy, record.copyNotes);
-    await this.deps.store.update(record.id, { copied, copiedDirs, removedAt: null });
+    // Las notas se copiaron de nuevo: un pedido al agente de antes ya no vale.
+    await this.deps.store.update(record.id, { copied, copiedDirs, removedAt: null, notesAsked: [] });
     this.changed();
     return this.deps.registry.open({ cwd: session.cwd, agent, resumeSessionId: sessionId });
   }
@@ -794,11 +798,18 @@ export class WorktreeService extends EventEmitter {
    * qué pestaña va: la de su autor (nunca la de un revisor, que no puede
    * editar), o la que se abre para eso (`authorTarget`). El texto queda en su
    * cuadro, sin mandar.
+   *
+   * Se anota cómo estaban esas notas en los dos lados (21-10-2026): cuando la
+   * principal cambie y la rama no, el agente las juntó, y quitar la rama ya no
+   * pregunta por ellas.
    */
   async notesRequest(id: string): Promise<{ terminal: TerminalDescriptor; opened: boolean; text: string }> {
     const record = this.recordOrThrow(id);
     const { conflicts } = await reviewNotes(record.mainRoot, record.path, record, this.loadNoteBase);
     if (conflicts.length === 0) throw new WorktreeError(serverText('worktreeNoConflicts'));
+    const asked = await askedNotesNow(record.mainRoot, record.path, conflicts);
+    const current = this.deps.store.get(record.id) ?? record;
+    await this.deps.store.update(record.id, { notesAsked: withNoteRequests(current.notesAsked, asked) });
     const text = notesConflictPrompt(record.mainRoot, conflicts);
     return { ...(await this.authorTarget(record)), text };
   }
@@ -1186,7 +1197,7 @@ export class WorktreeService extends EventEmitter {
       localConflicts: localConflicts.slice(0, WORKTREE_PLAN_PATHS_MAX),
       branchUncommitted: branchChanges?.length ?? 0,
       blocker,
-      notes: notes !== null && (notes.returning.length > 0 || notes.conflicts.length > 0) ? notes : null,
+      notes: notes !== null && (notes.returning.length > 0 || notes.conflicts.length > 0 || notes.resolved.length > 0) ? notes : null,
     };
     return { plan, target };
   }
@@ -1233,7 +1244,9 @@ export class WorktreeService extends EventEmitter {
   /**
    * Pasa a la carpeta principal las notas de la rama, después de integrar. Las
    * que no se pueden juntar se quedan en la rama: los commits ya entraron, y al
-   * quitarla se pregunta qué hacer con ellas.
+   * quitarla se pregunta qué hacer con ellas. Las que juntó el agente de la
+   * rama no se tocan, pero su versión de la rama pasa a ser el origen: lo que
+   * cambie después se junta sobre lo que el agente ya pasó.
    */
   private async syncNotes(record: WorktreeRecord, preview: WorktreeNotesPreview): Promise<{ returned: number; stayed: string[] }> {
     const bases = new Map(record.copied.map((file) => [file.path, file.hash]));
@@ -1241,8 +1254,10 @@ export class WorktreeService extends EventEmitter {
       loadBase: this.loadNoteBase,
       onConflict: 'skip',
       onWritten: (file, branch) => this.noteReturned(record.id, file, branch),
+      notesAsked: record.notesAsked,
     });
-    if (result.returned.length > 0) await this.pruneNoteBases();
+    for (const [file, branch] of await notesIn(record.path, preview.resolved)) await this.noteReturned(record.id, file, branch);
+    if (result.returned.length > 0 || preview.resolved.length > 0) await this.pruneNoteBases();
     return { returned: result.returned.length, stayed: [...preview.conflicts, ...result.conflicts].sort() };
   }
 

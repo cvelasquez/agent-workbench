@@ -1170,6 +1170,7 @@
   "worktree.notes.hide": "숨기기",
   "worktree.notes.mergedMark": "합침",
   "worktree.notes.merged_other": "그중 {{count}}개는 메인 폴더에서 바뀐 내용과 합칩니다.",
+  "worktree.notes.resolved_other": "브랜치의 에이전트가 이미 합쳤습니다: {{list}}. 메인 폴더에서는 그대로 둡니다.",
   "worktree.notes.returned_other": "메모 {{count}}개가 메인 폴더로 돌아갔습니다.",
   "worktree.notes.show": "목록 보기",
   "worktree.remove.askCommit_other": "에이전트에게 커밋해 달라고 요청",
