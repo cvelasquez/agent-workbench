@@ -86,6 +86,18 @@ export const ANTIGRAVITY_EFFORT_OPTIONS: readonly EffortOption[] = [
   { value: 'high', label: 'Alto' },
 ];
 
+/**
+ * El dialogo de confianza de una carpeta nueva, en la pantalla de la CLI.
+ *
+ * Medido con la 1.4.3 el 20-10-2026 (§12.14), tambien en la carpeta de una rama
+ * aparte: `Do you trust the contents of this project?` y las opciones
+ * `Yes, I trust this folder` (resaltada) y `No, exit`. Con el abierto, un
+ * mensaje pegado no llega y el Enter que lo sigue acepta la confianza. Se busca
+ * en la pantalla con los espacios normalizados: en una pty angosta la pregunta
+ * se parte en dos lineas.
+ */
+export const ANTIGRAVITY_TRUST_DIALOG = /Do you trust the contents of this project\?|Yes, I trust this folder/;
+
 /** El id de una conversacion: un uuid. Se valida antes de armar cualquier ruta. */
 export const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

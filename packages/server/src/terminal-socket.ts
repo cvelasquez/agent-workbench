@@ -79,6 +79,7 @@ import {
   buildInterruptKeys,
   buildSubmissionWrites,
   planModeChange,
+  screenShowsDialog,
   submissionPayload,
   submitRefusal,
   submitStartDelayMs,
@@ -1153,6 +1154,37 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               : undefined;
 
           const input = inputOf(terminalId);
+          /*
+            La CLI que pregunta algo al arrancar sin publicarlo (20-10-2026,
+            §12.14: la confianza de una carpeta nueva, con la status line muda
+            hasta que hay conversacion). Antes de la primera pieza de una pestana
+            sin conversacion se mira su pantalla; con el dialogo abierto no se
+            escribe nada, porque el Enter aparte lo aceptaria sin que nadie lo
+            vea, y el texto vuelve al cuadro. Despues de la primera pieza no
+            hace falta: el dialogo es del arranque.
+          */
+          const startupDialog = input.startupDialog;
+          const firstMessage = startupDialog !== undefined && (registry.get(terminalId)?.sessionId ?? '') === '';
+          let startupChecked = false;
+          let stoppedByDialog = false;
+          const pieceGuard =
+            firstMessage || approvalGuard !== undefined
+              ? async (): Promise<boolean> => {
+                  if (firstMessage && startupDialog !== undefined && !startupChecked) {
+                    startupChecked = true;
+                    const screen = registry.watchScreen(terminalId);
+                    if (screen !== null) {
+                      try {
+                        stoppedByDialog = screenShowsDialog(await screen.lines(), startupDialog);
+                      } finally {
+                        screen.dispose();
+                      }
+                      if (stoppedByDialog) return false;
+                    }
+                  }
+                  return approvalGuard === undefined ? true : approvalGuard();
+                }
+              : undefined;
           const interrupted = (): void =>
             sendError(socket, 'submit-failed', serverText('submitInterrupted'));
           void writeQueue.enqueue(
@@ -1222,7 +1254,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 pieces,
                 input.pieceGapMs,
                 pieceWriter(socket, terminalId),
-                approvalGuard,
+                pieceGuard,
                 { startAfterMs },
               );
               settle(outcome === 'written');
@@ -1254,6 +1286,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 );
               }
               if (outcome === 'interrupted') interrupted();
+              if (outcome === 'blocked' && stoppedByDialog) {
+                sendError(socket, 'submit-failed', serverText('submitStartupDialog', { label: submitting?.label ?? '' }));
+                // Lo que salio del cuadro vuelve a el; un comando de un combo no salio de ahi.
+                if (clearsDraft) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'not-ready' });
+                return;
+              }
               if (outcome === 'blocked') {
                 const waitingNow = blocksWhileWaiting && registry.activityOf(terminalId) === 'waiting';
                 sendError(
@@ -2619,8 +2657,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
         case 'worktree.status': {
           const { terminalId } = message;
-          void worktrees.rows(terminalId).then(
-            (rows) => send(socket, { type: 'worktree.rows', terminalId, rows }),
+          // Con las ramas guardadas (20-10-2026): las que creo la app, sin carpeta y todavia en el repo.
+          void Promise.all([worktrees.rows(terminalId), worktrees.keptBranches(terminalId)]).then(
+            ([rows, kept]) => send(socket, { type: 'worktree.rows', terminalId, rows, ...(kept.length > 0 ? { kept } : {}) }),
             (error: unknown) => sendWorktreeError(socket, error),
           );
           break;
@@ -2638,7 +2677,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'worktree.remove': {
           const { requestId, worktreeId, discardConflicts } = message;
           // Las pestanas de la rama se cierran como desde la barra, soltando todo lo que las seguia.
-          void worktrees.remove(worktreeId, discardConflicts, (terminalId) => void dropTab(terminalId)).then(
+          void worktrees.remove(worktreeId, discardConflicts, (terminalId) => void dropTab(terminalId), message.keepBranch === true).then(
             (outcome) => send(socket, { type: 'worktree.removed', requestId, worktreeId, outcome }),
             (error: unknown) => sendWorktreeError(socket, error, requestId),
           );
@@ -2777,6 +2816,25 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           const { requestId, worktreeId } = message;
           void worktrees.integrate(worktreeId, message.branchCommit).then(
             (outcome) => send(socket, { type: 'worktree.integrated', requestId, worktreeId, outcome }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        // Borrar una rama guardada (20-10-2026): primero el plan, y al confirmar el servidor lo rehace.
+        case 'worktree.planDeleteBranch': {
+          const { requestId, worktreeId } = message;
+          void worktrees.planDeleteBranch(worktreeId).then(
+            (plan) => send(socket, { type: 'worktree.deleteBranchPlan', requestId, plan }),
+            (error: unknown) => sendWorktreeError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'worktree.deleteBranch': {
+          const { requestId, worktreeId } = message;
+          void worktrees.deleteKeptBranch(worktreeId).then(
+            ({ branch }) => send(socket, { type: 'worktree.branchDeleted', requestId, worktreeId, branch }),
             (error: unknown) => sendWorktreeError(socket, error, requestId),
           );
           break;

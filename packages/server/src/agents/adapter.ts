@@ -811,6 +811,19 @@ export interface AgentInput {
    * elige por ella una forma que puede frenar a pedir permiso.
    */
   readonly transcriptReference: TranscriptReferenceStyle;
+  /**
+   * El dialogo que la CLI abre al arrancar, antes de su cuadro, y que se come lo
+   * que se le escriba (20-10-2026). Ausente: ninguno medido.
+   *
+   * Existe por la CLI que pregunta la confianza de cada carpeta nueva sin
+   * publicar nada (su status line calla hasta que hay conversacion): lo pegado
+   * no llega, y el Enter aparte acepta la opcion resaltada sin que el usuario la
+   * vea. Antes del primer mensaje de una pestana sin conversacion, el socket
+   * mira la pantalla (`registry.watchScreen`) y, si el dialogo esta, no escribe
+   * nada y devuelve el texto al cuadro. Si la CLI cambia el texto del dialogo,
+   * esto deja de frenar, pero nunca frena de mas.
+   */
+  readonly startupDialog?: RegExp;
 }
 
 /**

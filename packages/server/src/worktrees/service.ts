@@ -21,7 +21,9 @@
  *  5. las notas que cambiaron en la rama vuelven a la principal;
  *  6. `git worktree remove`; lo que quede (los enlaces de pnpm, que git no
  *     borra) se borra sin seguir enlaces y sólo dentro de esa carpeta;
- *  7. la rama, con `branch -d`, sólo si la creó la app y ya está integrada.
+ *  7. la rama, con `branch -d`, sólo si la creó la app, ya está integrada y el
+ *     usuario dejó marcado "Borrar también la rama" (sin ella, sus
+ *     conversaciones no se pueden volver a abrir).
  *
  * Integrar (hito 49) es un solo comando, `git merge --ff-only`, en la carpeta
  * donde está sacada la base, y sólo cuando no hace falta crear un commit. El
@@ -51,9 +53,11 @@ import {
   type WorktreeChangedFile,
   type WorktreeChanges,
   type WorktreeCreateMode,
+  type WorktreeDeleteBranchPlan,
   type WorktreeInspection,
   type WorktreeIntegrateOutcome,
   type WorktreeIntegratePlan,
+  type WorktreeKeptBranch,
   type WorktreeMerge,
   type WorktreeOpenTab,
   type WorktreeRemoveOutcome,
@@ -555,7 +559,12 @@ export class WorktreeService extends EventEmitter {
    * el principio del archivo). `closeTab` cierra una pestaña como lo hace el
    * socket, soltando todo lo que la seguía.
    */
-  async remove(id: string, discardConflicts: boolean, closeTab: (terminalId: TerminalId) => void): Promise<WorktreeRemoveOutcome> {
+  async remove(
+    id: string,
+    discardConflicts: boolean,
+    closeTab: (terminalId: TerminalId) => void,
+    keepBranch = false,
+  ): Promise<WorktreeRemoveOutcome> {
     const record = this.recordOrThrow(id);
     const plan = await this.planFor(record);
     if (plan.uncommittedCount > 0) {
@@ -583,7 +592,8 @@ export class WorktreeService extends EventEmitter {
       await this.removeLeftovers(record);
     }
 
-    const branchDeleted = plan.deletesBranch && (await deleteBranch(record.mainRoot, record.branch)).code === 0;
+    // Con "Borrar también la rama" desmarcado se queda: sus conversaciones se pueden volver a abrir (20-10-2026).
+    const branchDeleted = plan.deletesBranch && !keepBranch && (await deleteBranch(record.mainRoot, record.branch)).code === 0;
     await this.deps.store.update(id, { removedAt: this.now() });
     this.changed();
     return { branchDeleted, returned, discarded: discardConflicts ? plan.conflicts.length : 0 };
@@ -645,6 +655,83 @@ export class WorktreeService extends EventEmitter {
     await this.deps.store.update(record.id, { copied, copiedDirs, removedAt: null });
     this.changed();
     return this.deps.registry.open({ cwd: session.cwd, agent, resumeSessionId: sessionId });
+  }
+
+  /**
+   * Las ramas que creó la app, cuya carpeta se quitó y que siguen en el repo
+   * (20-10-2026): las que quedaron con "Borrar también la rama" desmarcado, o
+   * sin integrar. Una por rama, la del registro quitado más nuevo, y ninguna
+   * que esté sacada en alguna carpeta (se volvió a abrir, o la abrió otro).
+   */
+  async keptBranches(terminalId: TerminalId): Promise<WorktreeKeptBranch[]> {
+    const descriptor = this.deps.registry.get(terminalId);
+    if (descriptor === null || !(await exists(descriptor.cwd))) return [];
+    const layout = await repoLayout(descriptor.cwd);
+    if (layout === null || layout.mainRoot === null) return [];
+    const mainRoot = layout.mainRoot;
+    const candidates = this.keptRecords(mainRoot);
+    if (candidates.length === 0) return [];
+    const [tips, entries] = await Promise.all([branchTips(mainRoot), listWorktrees(mainRoot)]);
+    const checkedOut = new Set(entries.map((entry) => entry.branch));
+    const kept = candidates.filter((record) => tips.has(record.branch) && !checkedOut.has(record.branch));
+    return Promise.all(
+      kept.map(async (record) => ({
+        id: record.id,
+        branch: record.branch,
+        base: record.base,
+        ahead: tips.has(record.base) ? ((await aheadBehind(mainRoot, record.base, record.branch))?.ahead ?? null) : null,
+      })),
+    );
+  }
+
+  /** Los registros quitados de ramas que creó la app en ese repo: el más nuevo de cada rama. */
+  private keptRecords(mainRoot: string): WorktreeRecord[] {
+    const newest = new Map<string, WorktreeRecord>();
+    for (const record of this.deps.store.list()) {
+      if (record.removedAt === null || !record.createdBranch || !samePathShape(record.mainRoot, mainRoot)) continue;
+      const seen = newest.get(record.branch);
+      if (seen === undefined || (seen.removedAt ?? 0) < record.removedAt) newest.set(record.branch, record);
+    }
+    return [...newest.values()].sort((a, b) => a.branch.localeCompare(b.branch));
+  }
+
+  private keptRecordOrThrow(id: string): WorktreeRecord {
+    const record = this.deps.store.get(id);
+    if (record === null || record.removedAt === null || !record.createdBranch) throw new WorktreeError(serverText('worktreeUnknown'));
+    return record;
+  }
+
+  /**
+   * El plan de borrar una rama guardada. No cambia nada. Sólo `branch -d`: con
+   * commits que la base no tiene, o sin base contra la cual mirarlo, no se
+   * borra desde la app (se perderían), y tampoco una que está sacada.
+   */
+  async planDeleteBranch(id: string): Promise<WorktreeDeleteBranchPlan> {
+    const record = this.keptRecordOrThrow(id);
+    const [tips, entries] = await Promise.all([branchTips(record.mainRoot), listWorktrees(record.mainRoot)]);
+    if (!tips.has(record.branch)) throw new WorktreeError(serverText('worktreeBranchMissing', { branch: record.branch }));
+    const ahead = tips.has(record.base) ? ((await aheadBehind(record.mainRoot, record.base, record.branch))?.ahead ?? null) : null;
+    const checkedOut = entries.some((entry) => entry.branch === record.branch);
+    return {
+      id: record.id,
+      branch: record.branch,
+      base: record.base,
+      folder: record.mainRoot,
+      command: displayCommand(deleteBranchArgs(record.branch)),
+      ahead,
+      blocker: checkedOut ? 'checked-out' : ahead !== 0 ? 'not-integrated' : null,
+    };
+  }
+
+  /** Borra una rama guardada: rehace el plan y corre `git branch -d`, nada más. */
+  async deleteKeptBranch(id: string): Promise<{ branch: string }> {
+    const plan = await this.planDeleteBranch(id);
+    if (plan.blocker === 'checked-out') throw new WorktreeError(serverText('worktreeBranchInUse', { branch: plan.branch }));
+    if (plan.blocker === 'not-integrated') throw new WorktreeError(serverText('worktreeBranchNotIntegrated', { branch: plan.branch }));
+    const result = await deleteBranch(plan.folder, plan.branch);
+    if (result.code !== 0) throw new WorktreeError(serverText('worktreeGitFailed', { detail: gitFailureText(result) }));
+    this.changed();
+    return { branch: plan.branch };
   }
 
   private removedRecordAbove(cwd: string): WorktreeRecord | null {

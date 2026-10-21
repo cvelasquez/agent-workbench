@@ -636,3 +636,13 @@ export function submitStartDelayMs(launchedAt: number | null, now: number, ready
   if (launchedAt === null || readyAfterLaunchMs <= 0) return 0;
   return Math.min(readyAfterLaunchMs, Math.max(0, launchedAt + readyAfterLaunchMs - now));
 }
+
+/**
+ * Si la pantalla de la CLI muestra el dialogo de arranque que declara su
+ * adaptador (`AgentInput.startupDialog`, 20-10-2026). Las lineas se juntan con
+ * los espacios normalizados: en una pty angosta la TUI parte la pregunta, y
+ * una linea sola no la tendria entera.
+ */
+export function screenShowsDialog(lines: readonly string[], dialog: RegExp): boolean {
+  return dialog.test(lines.join(' ').replace(/\s+/g, ' '));
+}

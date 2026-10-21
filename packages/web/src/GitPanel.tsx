@@ -18,7 +18,7 @@
  * pedir una revision y los pedidos que quedan en el cuadro de su agente.
  */
 
-import type { AgentId, GitFileChange, GitStatus, TerminalId, WorktreeRow } from '@agent-workbench/shared';
+import type { AgentId, GitFileChange, GitStatus, TerminalId, WorktreeKeptBranch, WorktreeRow } from '@agent-workbench/shared';
 import { BranchIcon } from './BranchIcon.js';
 import { DiffView } from './DiffView.js';
 import { KIND_BADGE, KIND_TITLE, splitPath } from './git-kinds.js';
@@ -29,6 +29,7 @@ import type { GitView } from './useGit.js';
 import type { ChangesView } from './useWorktrees.js';
 import { WorktreeChanges } from './WorktreeChanges.js';
 import {
+  keptStatusText,
   reviewText,
   rowActions,
   rowIntegrateBlocker,
@@ -97,6 +98,9 @@ export interface GitPanelWorktrees {
   onIntegrate: (row: OwnRow) => void;
   /** El nombre de una CLI, para "Revision de Codex". */
   agentLabel: (agent: AgentId) => string;
+  /** 20-10-2026. Las ramas que creo la app, sin carpeta y todavia en el repo. */
+  kept: readonly WorktreeKeptBranch[];
+  onDeleteBranch: (branch: WorktreeKeptBranch) => void;
 }
 
 interface GitPanelProps {
@@ -206,6 +210,31 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
   );
 }
 
+/**
+ * Una rama guardada (20-10-2026): la creo la app, su carpeta se quito y sigue
+ * en el repo. Lo unico que se ofrece es borrarla; volver a abrirla es de sus
+ * conversaciones, en la barra.
+ */
+function KeptBranchItem({ kept, worktrees }: { kept: WorktreeKeptBranch; worktrees: GitPanelWorktrees }): JSX.Element {
+  const status = keptStatusText(kept);
+  return (
+    <li>
+      <div className="git-worktree" title={t('worktree.rows.keptTitle')}>
+        <span className="git-worktree-branch">
+          {kept.branch}
+          <span className="git-worktree-main">{t('worktree.rows.kept')}</span>
+        </span>
+        {status !== null && <span className="git-worktree-state">{status}</span>}
+        <span className="git-worktree-actions">
+          <button className="link-button" onClick={() => worktrees.onDeleteBranch(kept)} title={t('worktree.rows.deleteBranchTitle')}>
+            {t('worktree.rows.deleteBranch')}
+          </button>
+        </span>
+      </div>
+    </li>
+  );
+}
+
 export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
   const { status, diff, loadingDiff, openDiff, closeDiff, refresh } = view;
 
@@ -261,7 +290,8 @@ export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
     solo con alguna rama aparte: sin ellas, Cambios es el de siempre.
   */
   const otherWorktrees = sortedRows(worktrees.rows).filter((row) => !(row.isCurrent && row.isMain));
-  const anyLinked = otherWorktrees.some((row) => !row.isMain);
+  // Una rama guardada tambien la muestra: sin otra carpeta, es lo unico que queda de esa rama.
+  const anyLinked = otherWorktrees.some((row) => !row.isMain) || worktrees.kept.length > 0;
 
   return (
     <div className="panel-body">
@@ -359,11 +389,14 @@ export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
             */}
             <h3 className="git-group-title" title={t('worktree.rows.headingTitle')}>
               {t('worktree.rows.heading')}
-              <span className="git-group-count">{otherWorktrees.length}</span>
+              <span className="git-group-count">{otherWorktrees.length + worktrees.kept.length}</span>
             </h3>
             <ul className="git-list">
               {otherWorktrees.map((row) => (
                 <WorktreeItem key={row.path} row={row} worktrees={worktrees} />
+              ))}
+              {worktrees.kept.map((kept) => (
+                <KeptBranchItem key={kept.id} kept={kept} worktrees={worktrees} />
               ))}
             </ul>
           </section>

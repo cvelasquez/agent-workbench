@@ -419,6 +419,40 @@ export interface WorktreeIntegrateOutcome {
 }
 
 /**
+ * Una rama que creó la app, cuya carpeta se quitó y que sigue en el repo
+ * (20-10-2026): quedó con "Borrar también la rama" desmarcado, o sin integrar.
+ * Cambios la lista en "Ramas aparte" para poder borrarla después.
+ */
+export interface WorktreeKeptBranch {
+  /** El registro de la app: la acción la nombra por él, nunca por una ruta (§2.4). */
+  id: string;
+  branch: string;
+  base: string;
+  /** Commits que la base no tiene; null si no se pudo leer (la base ya no está). */
+  ahead: number | null;
+}
+
+export type WorktreeDeleteBranchBlocker = 'not-integrated' | 'checked-out';
+export const WORKTREE_DELETE_BRANCH_BLOCKERS: readonly WorktreeDeleteBranchBlocker[] = ['not-integrated', 'checked-out'];
+
+/**
+ * El plan de borrar una rama guardada: se muestra, se confirma y el servidor lo
+ * rehace. Sólo `git branch -d`: una rama con commits que la base no tiene no se
+ * borra desde la app, para no perderlos.
+ */
+export interface WorktreeDeleteBranchPlan {
+  id: string;
+  branch: string;
+  base: string;
+  /** La carpeta principal del repo: ahí corre el comando. */
+  folder: string;
+  /** `git branch -d <rama>`, para mostrar. */
+  command: string;
+  ahead: number | null;
+  blocker: WorktreeDeleteBranchBlocker | null;
+}
+
+/**
  * Quién revisa por defecto (decisión 4 del plan): otra CLI que la que trabajó
  * en la rama, si hay otra para elegir, y entre ellas la que mejor se protege
  * (`cli` antes que `tools`, y ésa antes que ninguna), en el orden de la lista.
@@ -705,6 +739,32 @@ export function parseWorktreeIntegrateOutcome(value: unknown): WorktreeIntegrate
   const commits = asFiniteNumber(record['commits']);
   const base = asNonEmptyString(record['base']);
   return commits === null || base === null ? null : { commits, base };
+}
+
+export function parseWorktreeKeptBranch(value: unknown): WorktreeKeptBranch | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const id = asNonEmptyString(record['id']);
+  const branch = asNonEmptyString(record['branch']);
+  const base = asNonEmptyString(record['base']);
+  if (id === null || branch === null || base === null) return null;
+  return { id, branch, base, ahead: asFiniteNumber(record['ahead']) };
+}
+
+export function parseWorktreeDeleteBranchPlan(value: unknown): WorktreeDeleteBranchPlan | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const id = asNonEmptyString(record['id']);
+  const branch = asNonEmptyString(record['branch']);
+  const base = asNonEmptyString(record['base']);
+  const folder = asNonEmptyString(record['folder']);
+  const command = asNonEmptyString(record['command']);
+  const rawBlocker = record['blocker'];
+  const blocker = rawBlocker === null ? null : asLiteral(rawBlocker, WORKTREE_DELETE_BRANCH_BLOCKERS);
+  if (id === null || branch === null || base === null || folder === null || command === null || (rawBlocker !== null && blocker === null)) {
+    return null;
+  }
+  return { id, branch, base, folder, command, ahead: asFiniteNumber(record['ahead']), blocker };
 }
 
 const OPEN_TAB_KINDS: readonly TerminalKind[] = ['agent', 'shell'];

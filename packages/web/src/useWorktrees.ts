@@ -18,9 +18,11 @@ import type {
   TerminalId,
   WorktreeChanges,
   WorktreeCreateMode,
+  WorktreeDeleteBranchPlan,
   WorktreeInspection,
   WorktreeIntegrateOutcome,
   WorktreeIntegratePlan,
+  WorktreeKeptBranch,
   WorktreeRemoveOutcome,
   WorktreeRemovePlan,
   WorktreeReviewPlan,
@@ -52,23 +54,35 @@ function answersRequest(message: Pick<ServerComposerPrefillMessage, 'reason' | '
   return message.reason === 'requested' && pending !== null && (message.requestId === undefined || message.requestId === pending);
 }
 
+/**
+ * "Ramas aparte" de la pestaña que se mira: las filas, y desde el 20-10-2026 las
+ * ramas guardadas (sin carpeta, todavía en el repo).
+ */
+export interface WorktreeRowsState {
+  rows: WorktreeRow[];
+  kept: WorktreeKeptBranch[];
+}
+
+const NO_ROWS: WorktreeRowsState = { rows: [], kept: [] };
+
 /** Las filas de "Ramas aparte" de la pestaña que se mira. Se vuelven a pedir con cada estado de git. */
 export function useWorktreeRows(
   connection: AgentConnection,
   terminalId: TerminalId | null,
   /** El `updatedAt` del último estado de git: cambia cuando el panel se refresca. */
   gitUpdatedAt: number,
-): WorktreeRow[] {
-  const [rows, setRows] = useState<WorktreeRow[]>([]);
+): WorktreeRowsState {
+  const [rows, setRows] = useState<WorktreeRowsState>(NO_ROWS);
 
   useEffect(() => {
-    setRows([]);
+    setRows(NO_ROWS);
     if (terminalId === null) return;
     const ask = (): void => {
       connection.send({ type: 'worktree.status', terminalId });
     };
     const offMessage = connection.onMessage((message) => {
-      if (message.type === 'worktree.rows' && message.terminalId === terminalId) setRows(message.rows);
+      // Un servidor anterior no manda las guardadas: ninguna.
+      if (message.type === 'worktree.rows' && message.terminalId === terminalId) setRows({ rows: message.rows, kept: message.kept ?? [] });
       if (message.type === 'worktree.changed') ask();
     });
     const offReopen = connection.onReopen(ask);
@@ -113,6 +127,20 @@ export interface RemoveDialog {
   state: RemoveDialogState;
 }
 
+export type DeleteBranchDialogState =
+  | { phase: 'loading' }
+  | { phase: 'ready'; plan: WorktreeDeleteBranchPlan }
+  | { phase: 'deleting'; plan: WorktreeDeleteBranchPlan }
+  | { phase: 'done' }
+  | { phase: 'failed'; plan: WorktreeDeleteBranchPlan | null; message: string };
+
+/** "Borrar la rama" de una rama guardada (20-10-2026). */
+export interface DeleteBranchDialog {
+  worktreeId: string;
+  branch: string;
+  state: DeleteBranchDialogState;
+}
+
 export interface WorktreeCreateChoice {
   branch: string;
   base: string;
@@ -131,12 +159,17 @@ export interface WorktreeDialogs {
   closeCreate: () => void;
   remove: RemoveDialog | null;
   openRemove: (worktreeId: string, branch: string) => void;
-  confirmRemove: (discardConflicts: boolean) => void;
+  /** `keepBranch`: "Borrar también la rama" desmarcado (20-10-2026). */
+  confirmRemove: (discardConflicts: boolean, keepBranch: boolean) => void;
   /** Deja en el cuadro del agente de la rama el pedido de pasar las notas que chocaron. */
   askNotes: () => void;
   closeRemove: () => void;
   /** Vuelve a abrir la rama quitada de una sesión de la barra. Su error va al aviso de arriba. */
   reopen: (agent: AgentId, sessionId: string, projectCwd: string, label: string) => void;
+  deleteBranch: DeleteBranchDialog | null;
+  openDeleteBranch: (worktreeId: string, branch: string) => void;
+  confirmDeleteBranch: () => void;
+  closeDeleteBranch: () => void;
 }
 
 export function useWorktreeDialogs(
@@ -146,10 +179,12 @@ export function useWorktreeDialogs(
 ): WorktreeDialogs {
   const [create, setCreate] = useState<CreateDialog | null>(null);
   const [remove, setRemove] = useState<RemoveDialog | null>(null);
+  const [deleteBranch, setDeleteBranch] = useState<DeleteBranchDialog | null>(null);
   /** El pedido en curso de cada diálogo: una respuesta de otro pedido no se aplica. */
   const createRequest = useRef<string | null>(null);
   const removeRequest = useRef<string | null>(null);
   const notesRequest = useRef<string | null>(null);
+  const deleteBranchRequest = useRef<string | null>(null);
 
   useEffect(
     () =>
@@ -174,6 +209,15 @@ export function useWorktreeDialogs(
             removeRequest.current = null;
             setRemove((current) => (current === null ? null : { ...current, state: { phase: 'done', outcome: message.outcome } }));
             break;
+          case 'worktree.deleteBranchPlan':
+            if (message.requestId !== deleteBranchRequest.current) break;
+            setDeleteBranch((current) => (current === null ? null : { ...current, state: { phase: 'ready', plan: message.plan } }));
+            break;
+          case 'worktree.branchDeleted':
+            if (message.requestId !== deleteBranchRequest.current) break;
+            deleteBranchRequest.current = null;
+            setDeleteBranch((current) => (current === null ? null : { ...current, state: { phase: 'done' } }));
+            break;
           case 'composer.prefill':
             // El pedido de las notas quedó en el cuadro de esa pestaña: se la muestra.
             if (answersRequest(message, notesRequest.current)) {
@@ -196,6 +240,14 @@ export function useWorktreeDialogs(
               setRemove((current) => {
                 if (current === null) return null;
                 const plan = current.state.phase === 'ready' || current.state.phase === 'removing' ? current.state.plan : null;
+                return { ...current, state: { phase: 'failed', plan, message: text } };
+              });
+            }
+            if (message.requestId !== undefined && message.requestId === deleteBranchRequest.current) {
+              deleteBranchRequest.current = null;
+              setDeleteBranch((current) => {
+                if (current === null) return null;
+                const plan = current.state.phase === 'ready' || current.state.phase === 'deleting' ? current.state.plan : null;
                 return { ...current, state: { phase: 'failed', plan, message: text } };
               });
             }
@@ -267,12 +319,18 @@ export function useWorktreeDialogs(
   );
 
   const confirmRemove = useCallback(
-    (discardConflicts: boolean) => {
+    (discardConflicts: boolean, keepBranch: boolean) => {
       if (remove === null || remove.state.phase !== 'ready') return;
       const requestId = claim();
       removeRequest.current = requestId;
       setRemove({ ...remove, state: { phase: 'removing', plan: remove.state.plan } });
-      connection.send({ type: 'worktree.remove', requestId, worktreeId: remove.worktreeId, discardConflicts });
+      connection.send({
+        type: 'worktree.remove',
+        requestId,
+        worktreeId: remove.worktreeId,
+        discardConflicts,
+        ...(keepBranch ? { keepBranch: true } : {}),
+      });
     },
     [connection, remove],
   );
@@ -301,7 +359,45 @@ export function useWorktreeDialogs(
     [connection, expectTab],
   );
 
-  return { create, openCreate, submitCreate, closeCreate, remove, openRemove, confirmRemove, askNotes, closeRemove, reopen };
+  const openDeleteBranch = useCallback(
+    (worktreeId: string, branch: string) => {
+      const requestId = claim();
+      deleteBranchRequest.current = requestId;
+      setDeleteBranch({ worktreeId, branch, state: { phase: 'loading' } });
+      connection.send({ type: 'worktree.planDeleteBranch', requestId, worktreeId });
+    },
+    [connection],
+  );
+
+  const confirmDeleteBranch = useCallback(() => {
+    if (deleteBranch === null || deleteBranch.state.phase !== 'ready' || deleteBranch.state.plan.blocker !== null) return;
+    const requestId = claim();
+    deleteBranchRequest.current = requestId;
+    setDeleteBranch({ ...deleteBranch, state: { phase: 'deleting', plan: deleteBranch.state.plan } });
+    connection.send({ type: 'worktree.deleteBranch', requestId, worktreeId: deleteBranch.worktreeId });
+  }, [connection, deleteBranch]);
+
+  const closeDeleteBranch = useCallback(() => {
+    deleteBranchRequest.current = null;
+    setDeleteBranch(null);
+  }, []);
+
+  return {
+    create,
+    openCreate,
+    submitCreate,
+    closeCreate,
+    remove,
+    openRemove,
+    confirmRemove,
+    askNotes,
+    closeRemove,
+    reopen,
+    deleteBranch,
+    openDeleteBranch,
+    confirmDeleteBranch,
+    closeDeleteBranch,
+  };
 }
 
 // ---------------------------------------------------------------------------

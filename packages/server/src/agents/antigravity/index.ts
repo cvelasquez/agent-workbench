@@ -42,6 +42,7 @@ import {
   ANTIGRAVITY_LAUNCH_MODE,
   ANTIGRAVITY_MODE_CYCLE,
   ANTIGRAVITY_MODEL_OPTIONS,
+  ANTIGRAVITY_TRUST_DIALOG,
   CONVERSATION_ID_PATTERN,
 } from './constants.js';
 import { LogWatcher } from './discovery.js';
@@ -147,6 +148,8 @@ export const ANTIGRAVITY_INPUT: AgentInput = {
   interruptPresses: 1,
   // `@ruta` no esta medido (M10): el transcript va entre comillas.
   transcriptReference: 'quoted-path',
+  // La confianza de una carpeta nueva, medida con la 1.4.3 (§12.14): con ella abierta, lo pegado se pierde.
+  startupDialog: ANTIGRAVITY_TRUST_DIALOG,
 };
 
 /** La ruta del log de un lanzamiento, o null si el token no es un uuid. */

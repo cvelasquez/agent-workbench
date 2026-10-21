@@ -148,9 +148,11 @@ import {
   WORKTREE_CREATE_MODES,
   asCommitId,
   parseWorktreeChanges,
+  parseWorktreeDeleteBranchPlan,
   parseWorktreeInspection,
   parseWorktreeIntegrateOutcome,
   parseWorktreeIntegratePlan,
+  parseWorktreeKeptBranch,
   parseWorktreeRemoveOutcome,
   parseWorktreeRemovePlan,
   parseWorktreeReviewPlan,
@@ -158,9 +160,11 @@ import {
   parseWorktreeSource,
   type WorktreeChanges,
   type WorktreeCreateMode,
+  type WorktreeDeleteBranchPlan,
   type WorktreeInspection,
   type WorktreeIntegrateOutcome,
   type WorktreeIntegratePlan,
+  type WorktreeKeptBranch,
   type WorktreeRemoveOutcome,
   type WorktreeRemovePlan,
   type WorktreeReviewPlan,
@@ -1170,6 +1174,12 @@ export interface ClientWorktreeRemoveMessage {
   worktreeId: string;
   /** "Quitar igual": se pierden las notas que cambiaron en los dos lados. */
   discardConflicts: boolean;
+  /**
+   * 20-10-2026. true si el usuario desmarco "Borrar tambien la rama": una rama
+   * integrada se queda, y sus conversaciones se pueden volver a abrir. Ausente
+   * (un cliente anterior) es false: se borra como siempre.
+   */
+  keepBranch?: boolean;
 }
 
 /** Vuelve a abrir la rama quitada de una sesion de la barra, y la reanuda. */
@@ -1272,6 +1282,24 @@ export interface ClientWorktreeIntegrateMessage {
   branchCommit?: string;
 }
 
+/**
+ * El plan de borrar una rama guardada: una que creo la app, cuya carpeta se
+ * quito y que sigue en el repo (20-10-2026). Contesta `worktree.deleteBranchPlan`.
+ * No cambia nada.
+ */
+export interface ClientWorktreePlanDeleteBranchMessage {
+  type: 'worktree.planDeleteBranch';
+  requestId: string;
+  worktreeId: string;
+}
+
+/** Borra esa rama: rehace el plan y corre `git branch -d`, nada mas. Contesta `worktree.branchDeleted`. */
+export interface ClientWorktreeDeleteBranchMessage {
+  type: 'worktree.deleteBranch';
+  requestId: string;
+  worktreeId: string;
+}
+
 export type ClientMessage =
   | ClientInputMessage
   | ClientSubmitMessage
@@ -1357,7 +1385,9 @@ export type ClientMessage =
   | ClientWorktreeSendReviewMessage
   | ClientWorktreeCatchUpMessage
   | ClientWorktreePlanIntegrateMessage
-  | ClientWorktreeIntegrateMessage;
+  | ClientWorktreeIntegrateMessage
+  | ClientWorktreePlanDeleteBranchMessage
+  | ClientWorktreeDeleteBranchMessage;
 
 export type ClientMessageType = ClientMessage['type'];
 
@@ -2208,6 +2238,11 @@ export interface ServerWorktreeRowsMessage {
   type: 'worktree.rows';
   terminalId: TerminalId;
   rows: WorktreeRow[];
+  /**
+   * 20-10-2026. Las ramas que creo la app, sin carpeta y todavia en el repo:
+   * Cambios ofrece borrarlas. Un servidor anterior no lo manda.
+   */
+  kept?: WorktreeKeptBranch[];
 }
 
 export interface ServerWorktreeRemovePlanMessage {
@@ -2263,6 +2298,19 @@ export interface ServerWorktreeIntegratedMessage {
   requestId: string;
   worktreeId: string;
   outcome: WorktreeIntegrateOutcome;
+}
+
+export interface ServerWorktreeDeleteBranchPlanMessage {
+  type: 'worktree.deleteBranchPlan';
+  requestId: string;
+  plan: WorktreeDeleteBranchPlan;
+}
+
+export interface ServerWorktreeBranchDeletedMessage {
+  type: 'worktree.branchDeleted';
+  requestId: string;
+  worktreeId: string;
+  branch: string;
 }
 
 export interface ServerErrorMessage {
@@ -2342,6 +2390,8 @@ export type ServerMessage =
   | ServerWorktreeReviewPlanMessage
   | ServerWorktreeIntegratePlanMessage
   | ServerWorktreeIntegratedMessage
+  | ServerWorktreeDeleteBranchPlanMessage
+  | ServerWorktreeBranchDeletedMessage
   | ServerErrorMessage;
 
 export type ServerMessageType = ServerMessage['type'];
@@ -2928,8 +2978,9 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const requestId = asNonEmptyString(record['requestId']);
       const worktreeId = asNonEmptyString(record['worktreeId']);
       const discardConflicts = asBoolean(record['discardConflicts']);
-      return requestId === null || worktreeId === null || discardConflicts === null
-        ? null
+      if (requestId === null || worktreeId === null || discardConflicts === null) return null;
+      return record['keepBranch'] === true
+        ? { type: 'worktree.remove', requestId, worktreeId, discardConflicts, keepBranch: true }
         : { type: 'worktree.remove', requestId, worktreeId, discardConflicts };
     }
     case 'worktree.reopen': {
@@ -2955,6 +3006,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return worktreeIdMessage(record, 'worktree.catchUp');
     case 'worktree.planIntegrate':
       return worktreeIdMessage(record, 'worktree.planIntegrate');
+    case 'worktree.planDeleteBranch':
+      return worktreeIdMessage(record, 'worktree.planDeleteBranch');
+    case 'worktree.deleteBranch':
+      return worktreeIdMessage(record, 'worktree.deleteBranch');
     case 'worktree.integrate': {
       const message = worktreeIdMessage(record, 'worktree.integrate');
       if (message === null || record['branchCommit'] === undefined) return message;
@@ -2994,7 +3049,9 @@ type WorktreeIdMessageType =
   | 'worktree.sendReview'
   | 'worktree.catchUp'
   | 'worktree.planIntegrate'
-  | 'worktree.integrate';
+  | 'worktree.integrate'
+  | 'worktree.planDeleteBranch'
+  | 'worktree.deleteBranch';
 
 function worktreeIdMessage<T extends WorktreeIdMessageType>(
   record: Record<string, unknown>,
@@ -3558,7 +3615,9 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       const terminalId = asNonEmptyString(record['terminalId']);
       // Filtrada: una fila que este lado no entiende no se lleva a las demas.
       const rows = asArrayFiltered(record['rows'], parseWorktreeRow);
-      return terminalId === null || rows === null ? null : { type: 'worktree.rows', terminalId, rows };
+      if (terminalId === null || rows === null) return null;
+      const kept = asArrayFiltered(record['kept'], parseWorktreeKeptBranch);
+      return kept === null ? { type: 'worktree.rows', terminalId, rows } : { type: 'worktree.rows', terminalId, rows, kept };
     }
     case 'worktree.removePlan': {
       const requestId = asNonEmptyString(record['requestId']);
@@ -3605,6 +3664,19 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return requestId === null || worktreeId === null || outcome === null
         ? null
         : { type: 'worktree.integrated', requestId, worktreeId, outcome };
+    }
+    case 'worktree.deleteBranchPlan': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const plan = parseWorktreeDeleteBranchPlan(record['plan']);
+      return requestId === null || plan === null ? null : { type: 'worktree.deleteBranchPlan', requestId, plan };
+    }
+    case 'worktree.branchDeleted': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const worktreeId = asNonEmptyString(record['worktreeId']);
+      const branch = asNonEmptyString(record['branch']);
+      return requestId === null || worktreeId === null || branch === null
+        ? null
+        : { type: 'worktree.branchDeleted', requestId, worktreeId, branch };
     }
     case 'error': {
       const text = parseServerText(record['text']);

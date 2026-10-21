@@ -757,6 +757,10 @@ const adapter = createClaudeCodeAdapter();
   const blocking = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.waitingBlocksSubmit !== false);
   check('29 waitingBlocksSubmit: true solo para opencode y pi, false para las demas CLIs registradas',
     sameShape(blocking, ['opencode', 'pi']) && appRegistry.adapter('opencode').capabilities.waitingBlocksSubmit === true, blocking.join(','));
+  // 20-10-2026 (§12.14): la CLI cuyo dialogo de arranque se come lo escrito sin publicarlo. Las demas, como siempre.
+  const startupDialogs = AGENT_IDS.filter((id) => appRegistry.adapter(id).input.startupDialog !== undefined);
+  check('S1 startupDialog: solo antigravity mira su pantalla antes del primer mensaje',
+    sameShape(startupDialogs, ['antigravity']), startupDialogs.join(','));
   /*
     Hito 45: forzar el envio, solo donde se midio una forma. La capacidad y la
     forma del adaptador dicen lo mismo, y la fuente de la cola es la medida.

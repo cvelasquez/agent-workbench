@@ -86,6 +86,7 @@ import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
 import { useWorktreeDialogs, useWorktreeRows, useWorktreeTeam } from './useWorktrees.js';
 import { WorktreeDialog } from './WorktreeDialog.js';
+import { WorktreeDeleteBranchDialog } from './WorktreeDeleteBranchDialog.js';
 import { WorktreeIntegrateDialog } from './WorktreeIntegrateDialog.js';
 import { WorktreeRemoveDialog } from './WorktreeRemoveDialog.js';
 import { WorktreeReviewDialog } from './WorktreeReviewDialog.js';
@@ -642,7 +643,9 @@ export function App(): JSX.Element {
   const folderNameOf = (cwd: string): string => cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? cwd;
   const agentLabelOf = (agent: AgentId): string => agents.find((info) => info.id === agent)?.label ?? agent;
   const gitWorktrees: GitPanelWorktrees = {
-    rows: worktreeRows,
+    rows: worktreeRows.rows,
+    kept: worktreeRows.kept,
+    onDeleteBranch: (kept) => worktreeDialogs.openDeleteBranch(kept.id, kept.branch),
     onNew: () => {
       if (activeTerminal === null) return;
       const projectCwd = tabColorCwd(activeTerminal);
@@ -1878,6 +1881,13 @@ export function App(): JSX.Element {
             if (done !== null) worktreeDialogs.openRemove(done.worktreeId, done.branch);
           }}
           onClose={worktreeTeam.closeIntegrate}
+        />
+      )}
+      {worktreeDialogs.deleteBranch !== null && (
+        <WorktreeDeleteBranchDialog
+          dialog={worktreeDialogs.deleteBranch}
+          onConfirm={worktreeDialogs.confirmDeleteBranch}
+          onClose={worktreeDialogs.closeDeleteBranch}
         />
       )}
 

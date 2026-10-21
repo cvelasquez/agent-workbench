@@ -12,23 +12,29 @@
  *  - otro programa con la carpeta abierta;
  *  - notas que cambiaron en los dos lados: el usuario elige entre pedirle al
  *    agente de la rama que las pase o quitarla igual, sabiendo qué se pierde.
+ *
+ * Una rama integrada se borra con la carpeta, salvo que el usuario desmarque
+ * "Borrar también la rama" (20-10-2026): sin la rama, sus conversaciones
+ * quedan en la barra pero no se pueden volver a abrir.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { formatList } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import type { RemoveDialog } from './useWorktrees.js';
-import { removeBlocker } from './worktree-ui.js';
+import { removeBlocker, removeCommandsShown } from './worktree-ui.js';
 
 interface WorktreeRemoveDialogProps {
   dialog: RemoveDialog;
-  onConfirm: (discardConflicts: boolean) => void;
+  onConfirm: (discardConflicts: boolean, keepBranch: boolean) => void;
   onAskNotes: () => void;
   onClose: () => void;
 }
 
 export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onClose }: WorktreeRemoveDialogProps): JSX.Element {
   const { state } = dialog;
+  const [deleteBranch, setDeleteBranch] = useState(true);
+  const [keptBranch, setKeptBranch] = useState(false);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -45,6 +51,11 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onClose }:
   const blocker = plan === null ? null : removeBlocker(plan);
   const busy = state.phase === 'removing';
   const title = t('worktree.remove.title', { branch: dialog.branch });
+  const confirm = (discardConflicts: boolean): void => {
+    const keep = plan !== null && plan.deletesBranch && !deleteBranch;
+    setKeptBranch(keep);
+    onConfirm(discardConflicts, keep);
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -69,6 +80,9 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onClose }:
                 <p className="modal-hint">{t('worktree.remove.doneDiscarded', { count: state.outcome.discarded })}</p>
               )}
               {state.outcome.branchDeleted && <p className="modal-hint">{t('worktree.remove.doneBranch')}</p>}
+              {keptBranch && !state.outcome.branchDeleted && (
+                <p className="modal-hint">{t('worktree.remove.keptBranch', { branch: dialog.branch })}</p>
+              )}
               <div className="worktree-actions">
                 <button className="primary-button" onClick={onClose}>
                   {t('common.close')}
@@ -106,7 +120,7 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onClose }:
                     </button>
                     <button
                       className="link-button"
-                      onClick={() => onConfirm(true)}
+                      onClick={() => confirm(true)}
                       title={t('worktree.remove.discardTitle')}
                       disabled={busy || plan.uncommittedCount > 0 || plan.inUse === true}
                     >
@@ -116,18 +130,35 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onClose }:
                 </div>
               )}
 
-              <p className="modal-hint">
-                {plan.deletesBranch
-                  ? plan.branchUnused
-                    ? t('worktree.remove.deletesUnusedBranch', { branch: plan.branch })
-                    : t('worktree.remove.deletesBranch', { branch: plan.branch })
-                  : t('worktree.remove.keepsBranch', { branch: plan.branch })}
-              </p>
+              {plan.deletesBranch ? (
+                <>
+                  <label className="worktree-check">
+                    <input
+                      type="checkbox"
+                      checked={deleteBranch}
+                      onChange={(event) => setDeleteBranch(event.target.checked)}
+                      disabled={busy}
+                    />
+                    <span>
+                      {plan.branchUnused
+                        ? t('worktree.remove.deleteBranchUnused', { branch: plan.branch })
+                        : t('worktree.remove.deleteBranchIntegrated', { branch: plan.branch })}
+                    </span>
+                  </label>
+                  <p className={deleteBranch ? 'worktree-warning' : 'modal-hint'}>
+                    {deleteBranch
+                      ? t('worktree.remove.deleteBranchWarning')
+                      : t('worktree.remove.keepBranchChosen', { branch: plan.branch })}
+                  </p>
+                </>
+              ) : (
+                <p className="modal-hint">{t('worktree.remove.keepsBranch', { branch: plan.branch })}</p>
+              )}
 
-              {plan.commands.length > 0 && (
+              {removeCommandsShown(plan, deleteBranch).length > 0 && (
                 <>
                   <h3 className="modal-section">{t('worktree.remove.commands')}</h3>
-                  <pre className="tool-pre worktree-command">{plan.commands.join('\n')}</pre>
+                  <pre className="tool-pre worktree-command">{removeCommandsShown(plan, deleteBranch).join('\n')}</pre>
                 </>
               )}
 
@@ -139,7 +170,7 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onClose }:
                 </button>
                 <button
                   className="primary-button"
-                  onClick={() => onConfirm(false)}
+                  onClick={() => confirm(false)}
                   disabled={busy || blocker !== null || state.phase === 'failed'}
                 >
                   {busy ? t('worktree.remove.removing') : t('worktree.remove.submit')}

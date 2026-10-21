@@ -204,6 +204,7 @@ const {
   ANTIGRAVITY_LAUNCH_MODE,
   ANTIGRAVITY_MODE_CYCLE,
   ANTIGRAVITY_MODEL_OPTIONS,
+  ANTIGRAVITY_TRUST_DIALOG,
   CONVERSATION_ID_PATTERN,
 } = constants;
 
@@ -1936,9 +1937,34 @@ const statusRecord = (id, over = {}) => ({
     same(shared.parseAgentCapabilities(JSON.parse(JSON.stringify(ANTIGRAVITY_STATUS_LINE_CAPABILITIES))), ANTIGRAVITY_STATUS_LINE_CAPABILITIES));
   check('9 el modo de arranque de la linea de comando es el punto de partida del ciclo',
     fresh.args[fresh.args.indexOf('--mode') + 1] === 'accept-edits' && adapter.capabilities.permissionCycle.launchMode === 'acceptEdits');
+  const { startupDialog, ...inputShape } = adapter.input;
   check('9 envio (P0-16): sin imagenes, marcadores, Enter aparte a 400 ms, un Esc',
-    same(adapter.input, { imageReference: null, pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1, transcriptReference: 'quoted-path' }) && adapter.input === ANTIGRAVITY_INPUT &&
+    same(inputShape, { imageReference: null, pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1, transcriptReference: 'quoted-path' }) && adapter.input === ANTIGRAVITY_INPUT &&
     adapter.input.imageReference === adapter.capabilities.imagesByPath);
+
+  // 20-10-2026 (§12.14): la confianza de una carpeta nueva se come lo pegado y su Enter la acepta. Pantallas medidas con la 1.4.3.
+  const { screenShowsDialog } = await import('../src/pty-input.ts');
+  const trustWide = [
+    'Accessing workspace:', '', 'D:\\aw-hito49\\rev\\proj.worktrees\\agy-a', '', 'Do you trust the contents of this project?', '',
+    'Antigravity CLI requires permission to read, edit, and execute files here.', '', '> Yes, I trust this folder', '  No, exit', '',
+    '  ↑/↓ Navigate · enter Confirm', `${' '.repeat(100)}accept-edits`,
+  ];
+  // En una pty angosta (el teléfono, §6.25) la TUI parte la pregunta y la opción.
+  const trustNarrow = ['Do you trust the contents of this', 'project?', '', '> Yes, I trust this', '  folder', '  No, exit'];
+  const ready = [
+    '      ▄▀▀▄        Antigravity CLI 1.4.3', '     ▀▀▀▀▀▀       x', '   ▄▀▀    ▀▀▄     D:/aw-hito49/rev/proj.worktrees/agy-a', '',
+    ' ┃ Verbosity now defaults to medium', '─'.repeat(120), '> Accept-edits mode: file edits auto-approved (shift+tab to cycle)', '─'.repeat(120),
+    `? for shortcuts${' '.repeat(60)}accept-edits · Gemini 3.8 Flash · high · AI: Out of credits`,
+  ];
+  const working = [
+    '> Bring this branch up to date with `main`: commit or stash what is not committed yet, run `git rebase main`, resolve',
+    '○ Thought for 19.9s (Considering whether to commit or stash the current changes before rebasing.)', '─'.repeat(120), '>', '─'.repeat(120),
+    `esc to cancel${' '.repeat(60)}accept-edits · Gemini 3.8 Flash · high`,
+  ];
+  check('S1 la confianza de una carpeta nueva frena el primer mensaje, también partida en una pty angosta',
+    startupDialog === ANTIGRAVITY_TRUST_DIALOG && screenShowsDialog(trustWide, startupDialog) && screenShowsDialog(trustNarrow, startupDialog));
+  check('S2 la pantalla lista y la de un turno no frenan nada',
+    !screenShowsDialog(ready, startupDialog) && !screenShowsDialog(working, startupDialog) && !screenShowsDialog([], startupDialog));
 
   // defaults (M11): la etiqueta entera y el esfuerzo.
   const settingsFile = agyPaths.settingsPath();

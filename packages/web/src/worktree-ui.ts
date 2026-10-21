@@ -22,8 +22,10 @@ import {
   type TerminalDescriptor,
   type WorktreeCopySummary,
   type WorktreeCreateMode,
+  type WorktreeDeleteBranchPlan,
   type WorktreeInspection,
   type WorktreeIntegratePlan,
+  type WorktreeKeptBranch,
   type WorktreeRemovePlan,
   type WorktreeReviewSummary,
   type WorktreeRow,
@@ -276,6 +278,35 @@ export function reviewCandidates(agents: readonly AgentInfo[]): { id: AgentId; g
   return agents
     .filter((info) => info.available)
     .map((info) => ({ id: info.id, guard: info.capabilities.readOnlyLaunch?.guard ?? null }));
+}
+
+/**
+ * Los comandos que muestra el plan de quitar, según la casilla "Borrar también
+ * la rama" (20-10-2026). El servidor pone el `branch -d` al final y sólo si la
+ * borraría: desmarcada, ese no se corre y no se muestra.
+ */
+export function removeCommandsShown(plan: WorktreeRemovePlan, deleteBranch: boolean): string[] {
+  return plan.deletesBranch && !deleteBranch ? plan.commands.slice(0, -1) : [...plan.commands];
+}
+
+/** Lo que dice la fila de una rama guardada de su base, o null si no se pudo leer (20-10-2026). */
+export function keptStatusText(kept: WorktreeKeptBranch): string | null {
+  if (kept.ahead === null) return null;
+  return kept.ahead === 0 ? t('worktree.rows.integrated') : t('worktree.rows.notIntegrated', { count: kept.ahead });
+}
+
+/** Por qué no se puede borrar una rama guardada, según el plan del servidor, o null. */
+export function deleteBranchBlockerText(plan: WorktreeDeleteBranchPlan): string | null {
+  switch (plan.blocker) {
+    case 'checked-out':
+      return t('worktree.deleteBranch.checkedOut', { branch: plan.branch });
+    case 'not-integrated':
+      return plan.ahead === null
+        ? t('worktree.deleteBranch.noBase', { base: plan.base })
+        : t('worktree.deleteBranch.notIntegrated', { count: plan.ahead, base: plan.base });
+    case null:
+      return null;
+  }
 }
 
 export type RemoveBlocker = 'uncommitted' | 'in-use' | 'conflicts';
