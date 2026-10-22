@@ -399,7 +399,7 @@ interface ConversationViewProps {
   planSetupState?: StatusLineState | null;
   /** Abre el dialogo de esa status line desde el medidor del plan. */
   onConfigurePlanLimits?: () => void;
-  /** "Compactar" debajo del medidor de contexto, o null si la CLI no tiene el comando. */
+  /** "Compactar" al lado del medidor de contexto, o null si la CLI no tiene el comando. */
   compactAction?: CompactAction | null;
 }
 
@@ -1029,7 +1029,7 @@ export function ConversationView({
         {/*
           Los limites del plan de la cuenta (hito 47), antes del de contexto:
           el de contexto queda en su lugar de siempre, al borde, con "Compactar"
-          colgando debajo. En el escritorio el envoltorio no existe para el
+          despues del numero. En el escritorio el envoltorio no existe para el
           layout; en la vista angosta es la linea propia de los medidores, y el
           del plan se achica segun lo que mide ella (§6.37).
         */}

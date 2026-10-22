@@ -3071,39 +3071,17 @@ kbd {
 }
 
 /*
-  "Compactar", colgado debajo del medidor de contexto con la ventana al 70 % o
-  mas (hito 47, §6.37). Flota sobre la esquina del hilo: si empujara la
-  conversacion, esta saltaria cada vez que el contexto cruza el umbral.
+  "Compactar", en la fila, despues del numero del medidor de contexto, con la
+  ventana al 70 % o mas (hito 47, §6.37). Es un `icon-button` con la letra de
+  "CLI": un boton mas de la fila. Hasta el 22-10-2026 colgaba debajo del
+  medidor, flotando sobre la esquina del hilo, y se veia fuera de sitio.
 */
-.meter-anchor {
-  position: relative;
-}
-
 .meter-compact-button {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 5;
-  padding: 2px 8px;
-  border: 1px solid var(--warning);
-  border-radius: 999px;
-  background: var(--chrome-alt);
-  color: var(--text);
-  font: inherit;
+  margin-left: 4px;
   font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   white-space: nowrap;
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-}
-
-.meter-compact-button:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.meter-compact-button:disabled {
-  opacity: 0.55;
-  cursor: default;
 }
 
 /*

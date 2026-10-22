@@ -16,6 +16,8 @@
  *  - **Lo que se esconde**: la solapa CLI no se esconde nunca, ni el chat del
  *    telefono; una escondida que estaba elegida muestra la CLI.
  *  - **Una ventana remota** no cambia los ajustes del servidor.
+ *  - **La consola y la barra de proyectos** (22-10-2026): una terminal solo si
+ *    se pide, y la barra se esconde al abrir una sesion nueva desde ella.
  *
  * Sobre una carpeta temporal propia: no toca la configuracion real, no lanza
  * ninguna consola ni ninguna CLI.
@@ -34,7 +36,7 @@ import { vaultOnlySessions } from '../src/session-index.ts';
 import { DEFAULT_HIDDEN_PANELS, HIDEABLE_PANELS, parseHiddenPanels, serializeHiddenPanels, withPanelVisible } from '../../web/src/panel-visibility.ts';
 import { effectivePanelTab, visiblePanelTabs } from '../../web/src/agent-ui.ts';
 import { narrowViews } from '../../web/src/narrow-layout.ts';
-import { autoOpenShell, withRequestedShell } from '../../web/src/console-shells.ts';
+import { shellToOpenOnUnfold } from '../../web/src/console-shells.ts';
 
 let failures = 0;
 const check = (label, ok, extra = '') => {
@@ -215,43 +217,53 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
       json(narrowViews({ hasTab: false, plansAvailable: true, hidden: new Set(['notes']) })) === json(['chat']));
 }
 
-// --- 7. La consola: abrir una sola, y cerrar la ultima (13-10-2026) ---------------------
+// --- 7. La consola: una terminal solo si se pide (22-10-2026) ---------------------------
 //
-// Con la consola a la vista y el proyecto activo sin ninguna, se abre una. Lo
-// que se rompe sin verse: que cerrar la ultima abra otra en el acto —era asi, y
-// la unica forma de quedarse sin terminal en un proyecto era esconder la consola
-// entera, que cierra las de todos—, o que nunca mas se abra una sola.
+// Hasta el 22-10-2026, con la consola a la vista, toda pestana de un proyecto sin
+// terminal abria una: abrir una sesion o pasar a otro proyecto dejaba andando un
+// proceso que nadie pidio. Lo que se rompe sin verse: que vuelva a abrirse una
+// sola, o que desplegar la consola en un proyecto sin ninguna deje de abrirla.
 {
   const A = 'D:\\proyectos\\uno';
   const B = 'D:\\proyectos\\dos';
-  const step = (requested, consoleShown, cwd, shellCwds) => autoOpenShell(requested, { consoleShown, cwd, shellCwds });
-  let state = step(new Set(), true, A, []);
-  check('7.1 con la consola a la vista y el proyecto sin ninguna, se abre una', state.open === A && state.requested.has(A));
-  check('7.2 mientras llega no se pide otra', step(state.requested, true, A, []).open === null);
-  state = step(state.requested, true, A, [A]);
-  check('7.3 cuando aparece, el pedido se da por cumplido', state.open === null && !state.requested.has(A));
+  const unfold = (cwd, shellCwds, shellAvailable = true) => shellToOpenOnUnfold({ cwd, shellCwds, shellAvailable });
+  check('7.1 desplegar la consola en un proyecto sin ninguna abre una, ahi, aunque otro proyecto tenga', unfold(A, []) === A && unfold(A, [B]) === A);
+  check('7.2 con una abierta en el proyecto, desplegarla no abre otra', unfold(A, [B, A]) === null);
+  check('7.3 sin pestana, o sin consola en el sistema, no se abre nada', unfold(null, []) === null && unfold(A, [], false) === null);
 
-  // El usuario cierra la unica con su ×.
-  let requested = withRequestedShell(state.requested, A);
-  state = step(requested, true, A, []);
-  check('7.4 cerrar la ultima de un proyecto la deja cerrada: no se abre otra sola', state.open === null && state.requested.has(A));
-  check('7.5 ir a otro proyecto abre la suya, y volver al primero sigue sin abrir nada',
-    step(state.requested, true, B, []).open === B && step(step(state.requested, true, B, [B]).requested, true, A, [B]).open === null);
+  // La pagina abre una terminal en dos sitios, los dos un clic: el `+` y el
+  // enlace del hueco (`openConsoleHere`), y desplegar la consola. Ninguno puede
+  // ser un efecto, que corre al cambiar de pestana sin que nadie lo pida.
+  const app = await readFile(new URL('../../web/src/App.tsx', import.meta.url), 'utf8');
+  const openers = [...app.matchAll(/\bopenShell\(/g)].map(({ index }) => {
+    const before = app.slice(0, index);
+    if (before.lastIndexOf('useEffect(') > before.lastIndexOf('= useCallback(')) return 'useEffect';
+    return [...before.matchAll(/const (\w+) = useCallback\(/g)].pop()?.[1] ?? '?';
+  });
+  check('7.4 ningun efecto abre una terminal: solo el `+`, el enlace y desplegar la consola',
+    json(openers.sort()) === json(['openConsoleHere', 'unfoldConsole']), json(openers));
+  check('7.5 la barra plegada despliega por `unfoldConsole`, y el ▾ solo pliega',
+    /className="strip-collapsed"\s+onClick=\{unfoldConsole\}/.test(app) && /onCollapse=\{narrow \? \(\) => changeNarrowView\('chat'\) : toggleConsole\}/.test(app));
+}
 
-  // Con dos abiertas, cerrar una no deja anotado nada que dure.
-  requested = withRequestedShell(new Set(), A);
-  state = step(requested, true, A, [A]);
-  check('7.6 cerrar una de dos no frena nada: queda otra, y el pedido se borra', state.open === null && !state.requested.has(A));
-
-  // Plegar o esconder la consola olvida todo: volver a mostrarla es pedirla de nuevo.
-  requested = withRequestedShell(new Set(), A);
-  const folded = step(requested, false, A, []);
-  check('7.7 plegada o escondida no se abre ninguna, y la lista se olvida', folded.open === null && folded.requested.size === 0);
-  check('7.8 al desplegarla, el proyecto que se habia quedado sin ninguna vuelve a tener una', step(folded.requested, true, A, []).open === A);
-  check('7.9 sin pestana activa no se abre nada', step(new Set(), true, null, []).open === null);
-  const same = new Set([A]);
-  check('7.10 lo que no cambia devuelve la misma lista: no hay nada que guardar',
-    step(same, true, A, []).requested === same && withRequestedShell(same, A) === same && step(new Set(), false, A, []).requested.size === 0);
+// --- 8. La barra de proyectos se esconde al abrir una sesion nueva desde ella (22-10-2026) --
+//
+// El `+` de un proyecto (y su menu), el de proyecto nuevo y la rama aparte la
+// esconden cuando llega la pestana; una sesion del historial no, para poder
+// mirar varias seguidas. Lo que se rompe sin verse: que uno de los tres caminos
+// deje de esconderla, o que el del historial empiece a hacerlo.
+{
+  const app = await readFile(new URL('../../web/src/App.tsx', import.meta.url), 'utf8');
+  const worktrees = await readFile(new URL('../../web/src/useWorktrees.ts', import.meta.url), 'utf8');
+  const handler = (prop) => app.match(new RegExp(`${prop}=\\{[\\s\\S]*?\\n      \\}\\}`))?.[0] ?? '';
+  check('8.1 el + de un proyecto y su menu la esconden cuando llega la pestana',
+    /openTerminal\(\{[\s\S]*?onOpened: hideSidebarAfterOpen \}\);/.test(handler('onOpenProject')));
+  check('8.2 la rama aparte tambien: el dialogo avisa cuando llega la pestana de la rama',
+    /hideSidebarAfterOpen,?\s*\);/.test(handler('onNewWorktree')) && /createOpened\.current = null;\s*opened\?\.\(\);/.test(worktrees));
+  check('8.3 proyecto nuevo tambien', /setPickerFor\(null\);\s*openTerminal\(\{ cwd, onOpened: hideSidebarAfterOpen \}\);/.test(app));
+  check('8.4 una sesion del historial no la esconde', handler('onOpenSession').length > 0 && !/hideSidebar/.test(handler('onOpenSession')));
+  check('8.5 en la vista angosta no la toca: ahi es un cajon, que ya se cierra al elegir',
+    /const hideSidebarAfterOpen = useCallback\(\(\) => \{\s*if \(narrow\) return;/.test(app));
 }
 
 await rm(workDir, { recursive: true, force: true });

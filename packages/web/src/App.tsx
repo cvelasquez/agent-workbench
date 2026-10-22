@@ -34,7 +34,7 @@ import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
 import { Composer, type ComposerInsert } from './Composer.js';
 import { ConsolePane } from './ConsolePane.js';
-import { autoOpenShell, withRequestedShell } from './console-shells.js';
+import { shellToOpenOnUnfold } from './console-shells.js';
 import { ConversationView } from './ConversationView.js';
 import type { CompactAction } from './ContextMeter.js';
 import { FolderPicker } from './FolderPicker.js';
@@ -862,6 +862,20 @@ export function App(): JSX.Element {
     });
   }, []);
 
+  /*
+    Una sesion nueva abierta desde la barra de proyectos la esconde cuando llega
+    la pestana (22-10-2026, pedido del usuario): asi la atencion queda en la
+    pestana nueva. Vale para el `+` de un proyecto, el de proyecto nuevo y la
+    rama aparte. Abrir una sesion del historial no la esconde, porque ahi uno
+    suele mirar varias seguidas; y si la pestana no se abre, la barra queda. En
+    la vista angosta la barra es un cajon, que ya se cierra al elegir.
+  */
+  const hideSidebarAfterOpen = useCallback(() => {
+    if (narrow) return;
+    setSidebarVisible(false);
+    writeStored(SIDEBAR_VISIBLE_KEY, 'false');
+  }, [narrow]);
+
   /**
    * Muestra u oculta la consola.
    *
@@ -999,7 +1013,7 @@ export function App(): JSX.Element {
   );
 
   /*
-    "Compactar" debajo del medidor de contexto, con la ventana al 70 % (hito
+    "Compactar" al lado del medidor de contexto, con la ventana al 70 % (hito
     47, §6.37). Es un comando de barra mas, por el mismo camino que los combos:
     el borrador del cuadro no se toca. Apagado sin CLI abierta, y con el agente
     trabajando o esperando: ahi el comando quedaria en la cola de la CLI, o
@@ -1025,50 +1039,23 @@ export function App(): JSX.Element {
   );
 
   /*
-    Apertura automatica de la consola.
-
-    Mostrar el panel y despues tener que apretar "abrir" seria un clic de mas
-    para lo unico que puede querer alguien que abre una consola. La lista de
-    pedidos evita el bucle: si la apertura falla —no hay consola en el sistema,
-    el directorio ya no existe— no se reintenta hasta que el usuario vuelva a
-    prender el interruptor. La regla entera esta en `console-shells.ts`;
-    escondida en Ajustes es como plegada, y no se abre ninguna sola.
+    Desplegar la consola desde su barra plegada. Es lo unico que abre una
+    terminal sin el `+` ni el enlace del hueco (22-10-2026, pedido del usuario):
+    la barra dice "Abrir PowerShell en …", y es lo que puede querer quien la
+    despliega en un proyecto sin ninguna. Abrir o cambiar de pestana con la
+    consola a la vista no abre nada, porque cada una es un proceso que ocupa
+    memoria; el hueco ofrece abrirla (`console-shells.ts`, §6.0.1).
   */
-  const requestedShells = useRef<ReadonlySet<string>>(new Set());
-
-  useEffect(() => {
-    const decision = autoOpenShell(requestedShells.current, {
-      consoleShown,
+  const unfoldConsole = useCallback(() => {
+    setConsoleVisible(true);
+    writeStored(CONSOLE_VISIBLE_KEY, 'true');
+    const cwd = shellToOpenOnUnfold({
       cwd: activeTerminal?.cwd ?? null,
       shellCwds: shells.map((shell) => shell.cwd),
+      shellAvailable: consoleShellName !== null,
     });
-    requestedShells.current = decision.requested;
-    if (decision.open !== null) openShell(decision.open);
-  }, [consoleShown, activeTerminal, shells, openShell]);
-
-  /**
-   * Cierra una consola: termina su proceso.
-   *
-   * No esconde el panel ni abre otra. Con varias abiertas, cerrar una es una
-   * operacion sobre esa y nada mas; el panel se pliega con su propio boton, que
-   * no mata nada.
-   *
-   * **Cerrar la ultima de un proyecto la deja cerrada** (pedido del usuario,
-   * 13-10-2026). Hasta entonces la apertura automatica abria otra en el acto,
-   * y la unica forma de quedarse sin terminal en un proyecto era esconder la
-   * consola entera, que cierra las de todos. El directorio queda anotado como
-   * pedido, que es lo que frena a la apertura automatica: el hueco ofrece
-   * abrir una, y plegar y desplegar la consola vuelve a abrirla sola
-   * (`console-shells.ts`, §6.0.1).
-   */
-  const closeShell = useCallback(
-    (terminalId: TerminalId) => {
-      const shell = consoleShells.find((entry) => entry.terminalId === terminalId);
-      if (shell !== undefined) requestedShells.current = withRequestedShell(requestedShells.current, shell.cwd);
-      closeTerminal(terminalId);
-    },
-    [consoleShells, closeTerminal],
-  );
+    if (cwd !== null) openShell(cwd);
+  }, [activeTerminal, shells, consoleShellName, openShell]);
 
   /*
     Esconder una seccion del pie desde su barra (Hito 41). La consola cierra
@@ -1099,8 +1086,8 @@ export function App(): JSX.Element {
     No se puede hacer en `openConsoleHere`: el servidor asigna el id y la
     respuesta no viene casada con el pedido —una consola no es la pestaña
     activa, asi que no lleva `requestId`—. Se detecta la aparicion, que ademas
-    cubre la apertura automatica: la primera consola de un directorio queda
-    activa sola.
+    cubre la que abre desplegar la consola: la primera consola de un
+    directorio queda activa sola.
   */
   const knownShells = useRef(new Set<TerminalId>());
 
@@ -1114,7 +1101,6 @@ export function App(): JSX.Element {
   /** Abre una consola mas en el directorio de la pestana activa. */
   const openConsoleHere = useCallback(() => {
     if (activeTerminal === null) return;
-    requestedShells.current = withRequestedShell(requestedShells.current, activeTerminal.cwd);
     openShell(activeTerminal.cwd);
   }, [activeTerminal, openShell]);
 
@@ -1342,7 +1328,7 @@ export function App(): JSX.Element {
       disabled={!cliAvailable}
       onOpenProject={(cwd, agent) => {
         leaveDrawer();
-        openTerminal({ cwd, ...(agent !== undefined ? { agent } : {}) });
+        openTerminal({ cwd, ...(agent !== undefined ? { agent } : {}), onOpened: hideSidebarAfterOpen });
       }}
       agents={agents}
       offerAgentChoice={offerAgentChoice}
@@ -1385,7 +1371,12 @@ export function App(): JSX.Element {
       lastExported={vault.lastExported}
       onNewWorktree={(project) => {
         leaveDrawer();
-        worktreeDialogs.openCreate({ kind: 'project', projectKey: project.key }, project.cwd, folderNameOf(project.cwd));
+        worktreeDialogs.openCreate(
+          { kind: 'project', projectKey: project.key },
+          project.cwd,
+          folderNameOf(project.cwd),
+          hideSidebarAfterOpen,
+        );
       }}
       onReopenWorktree={(session, project) => {
         leaveDrawer();
@@ -1643,7 +1634,8 @@ export function App(): JSX.Element {
         theme={terminalTheme.resolved}
         onSelect={setActiveShellId}
         onOpen={openConsoleHere}
-        onCloseShell={closeShell}
+        // Cerrar la ultima de un proyecto la deja cerrada: nada abre otra sola (§6.0.1).
+        onCloseShell={closeTerminal}
         onCollapse={narrow ? () => changeNarrowView('chat') : toggleConsole}
         onHide={narrow ? undefined : () => hidePanelFromBar('console')}
         hideCount={shells.length}
@@ -1715,12 +1707,14 @@ export function App(): JSX.Element {
             seccion que vive donde se la usa y se despliega de un clic, en
             vez de un interruptor lejos. Y como esta dentro de la columna
             derecha, con el panel escondido no estorba: ahi lo que se ve
-            es la pestañita vertical, y esta vuelve con ella.
+            es la pestañita vertical, y esta vuelve con ella. Desplegarla
+            en un proyecto sin terminal abre una, que es lo que dice su
+            titulo (`unfoldConsole`).
           */
           <div className="strip-collapsed-row">
             <button
               className="strip-collapsed"
-              onClick={toggleConsole}
+              onClick={unfoldConsole}
               title={
                 consoleShellName === null
                   ? t('console.openAnyIn', { cwd: activeTerminal.cwd })
@@ -1942,7 +1936,7 @@ export function App(): JSX.Element {
           confirmTitle={(path) => t('app.picker.project.confirmTitle', { path })}
           onChoose={(_pickerId, cwd) => {
             setPickerFor(null);
-            openTerminal({ cwd });
+            openTerminal({ cwd, onOpened: hideSidebarAfterOpen });
           }}
           onClose={() => setPickerFor(null)}
         />

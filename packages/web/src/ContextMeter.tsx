@@ -42,7 +42,7 @@ const WARN_RATIO = 0.75;
 const DANGER_RATIO = 0.9;
 
 /**
- * Desde aca se ofrece "Compactar" debajo del medidor (hito 47, §6.37). Pedido
+ * Desde aca se ofrece "Compactar" al lado del medidor (hito 47, §6.37). Pedido
  * por el usuario: antes de que la CLI compacte sola, o de que se llene. Era
  * 0.8 hasta el 20-10-2026, cuando el usuario lo pidio en 0.7.
  */
@@ -227,14 +227,16 @@ export function ContextMeter({
       .join(' · ');
 
     /*
-      "Compactar" cuelga debajo del medidor, sobre la esquina del hilo: en la
-      fila no hay sitio, y si empujara la conversacion, esta saltaria cada vez
-      que el contexto cruza el 70 %.
+      "Compactar" va en la fila, despues del numero, con la forma de los otros
+      botones de la fila (22-10-2026, pedido del usuario). Hasta entonces
+      colgaba debajo del medidor, sobre la esquina del hilo, y se veia fuera de
+      sitio. En la fila no empuja la conversacion: la fila no cambia de alto, y
+      lo unico que se mueve al aparecer es el medidor, hacia la izquierda.
     */
     const offerCompact = compactAction !== null && ratio !== null && ratio >= COMPACT_RATIO;
 
     return (
-      <div className={`meter meter-compact${offerCompact ? ' meter-anchor' : ''}`} title={detail}>
+      <div className="meter meter-compact" title={detail}>
         <span className="meter-label">{t('meter.label')}</span>
         {ratio !== null && (
           <span className="meter-bar meter-bar-inline">
@@ -250,7 +252,7 @@ export function ContextMeter({
         </span>
         {offerCompact && compactAction !== null && (
           <button
-            className="meter-compact-button"
+            className="icon-button meter-compact-button"
             onClick={compactAction.onCompact}
             disabled={compactAction.blockedReason !== null}
             title={compactAction.blockedReason ?? t('meter.compactTitle', { command: compactAction.command })}

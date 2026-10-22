@@ -154,7 +154,8 @@ export type ExpectTab = (requestId: string, pending: { cwd: string; label: strin
 
 export interface WorktreeDialogs {
   create: CreateDialog | null;
-  openCreate: (source: WorktreeSource, projectCwd: string, projectName: string) => void;
+  /** `onOpened`, si llega: se llama cuando la pestaña de la rama nueva ya está abierta. */
+  openCreate: (source: WorktreeSource, projectCwd: string, projectName: string, onOpened?: () => void) => void;
   submitCreate: (choice: WorktreeCreateChoice) => void;
   closeCreate: () => void;
   remove: RemoveDialog | null;
@@ -185,6 +186,8 @@ export function useWorktreeDialogs(
   const [deleteBranch, setDeleteBranch] = useState<DeleteBranchDialog | null>(null);
   /** El pedido en curso de cada diálogo: una respuesta de otro pedido no se aplica. */
   const createRequest = useRef<string | null>(null);
+  /** Lo que pidió quien abrió el diálogo de crear para cuando llegue la pestaña. */
+  const createOpened = useRef<(() => void) | null>(null);
   const removeRequest = useRef<string | null>(null);
   /** El pedido para el agente de la rama que salió del diálogo de quitar: juntar las notas o commitear. */
   const agentRequest = useRef<string | null>(null);
@@ -202,6 +205,9 @@ export function useWorktreeDialogs(
             if (message.requestId === createRequest.current) {
               createRequest.current = null;
               setCreate(null);
+              const opened = createOpened.current;
+              createOpened.current = null;
+              opened?.();
             }
             break;
           case 'worktree.removePlan':
@@ -267,9 +273,10 @@ export function useWorktreeDialogs(
   );
 
   const openCreate = useCallback(
-    (source: WorktreeSource, projectCwd: string, projectName: string) => {
+    (source: WorktreeSource, projectCwd: string, projectName: string, onOpened?: () => void) => {
       const requestId = claim();
       createRequest.current = requestId;
+      createOpened.current = onOpened ?? null;
       setCreate({ source, projectCwd, projectName, state: { phase: 'loading' } });
       connection.send({ type: 'worktree.inspect', requestId, source });
     },
@@ -301,7 +308,10 @@ export function useWorktreeDialogs(
 
   const closeCreate = useCallback(() => {
     // Lo que esté en camino sigue: si llega la pestaña, se abre igual.
-    if (create?.state.phase !== 'creating') createRequest.current = null;
+    if (create?.state.phase !== 'creating') {
+      createRequest.current = null;
+      createOpened.current = null;
+    }
     setCreate(null);
   }, [create]);
 

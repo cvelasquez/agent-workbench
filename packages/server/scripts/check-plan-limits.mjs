@@ -597,8 +597,12 @@ const limits = (fiveHour, sevenDay) => ({
   // lo que pide en espanol la prioritaria entera, y 566, las dos en el idioma mas largo.
   check('6.14 los cortes de la linea: a 393 px la prioritaria con palabra y barra, a 360 la forma corta, a 600 las dos',
     labelCut >= 342 && labelCut < 393 - 20 && extraCut >= 566 && extraCut < 600 - 20, JSON.stringify({ extraCut, labelCut }));
-  check('6.13 el numero en rojo y "Compactar" flotando debajo del medidor',
-    /\.plan-danger \{[^}]*color: var\(--danger\);/.test(css) && /\.meter-anchor \{\s*position: relative;/.test(css) && /\.meter-compact-button \{[^}]*position: absolute;/.test(css));
+  check('6.13 el numero en rojo', /\.plan-danger \{[^}]*color: var\(--danger\);/.test(css));
+  // Hasta el 22-10-2026 "Compactar" colgaba debajo del medidor, sobre el hilo, y se
+  // veia fuera de sitio: ahora es un boton mas de la fila, despues del numero.
+  check('6.13 "Compactar" va en la fila, despues del numero, con la forma de los botones de al lado, y no flota',
+    /<span className="meter-value">[\s\S]*?<\/span>\s*\{offerCompact && compactAction !== null && \(\s*<button\s+className="icon-button meter-compact-button"/.test(meterSource) &&
+    /\.meter-compact-button \{/.test(css) && !/\.meter-compact-button \{[^}]*position:/.test(css) && !/meter-anchor/.test(css + meterSource));
 }
 
 await rm(root, { recursive: true, force: true }).catch(() => undefined);
