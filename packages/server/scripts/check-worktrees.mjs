@@ -16,7 +16,7 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,7 +28,14 @@ const check = (label, ok, extra = '') => {
   if (!ok) failures++;
 };
 
-const root = await mkdtemp(path.join(os.tmpdir(), 'aw-worktrees-'));
+/*
+  Con la ruta larga de la temporal. En el CI de Windows viene con el nombre corto
+  8.3 del usuario (`C:\Users\RUNNER~1\...`) y git escribe la larga
+  (`runneradmin`): las dos formas no casan y fallaban 17 casos que no prueban eso
+  (23-10-2026). Un proyecto elegido en la app llega con la larga; el caso de uno
+  abierto con la corta quedó como deuda en CHECKLIST.md.
+*/
+const root = await mkdtemp(path.join(realpathSync.native(os.tmpdir()), 'aw-worktrees-'));
 // git aislado: sin configuración global ni de sistema, y sin subir a buscar un repo de afuera.
 const gitConfig = path.join(root, 'gitconfig');
 await writeFile(gitConfig, '');
