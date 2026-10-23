@@ -38,9 +38,9 @@ Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 | **Tabs** | Mehrere Agenten gleichzeitig, aus jeder CLI, jeder in seinem eigenen Ordner. Ein Punkt auf jedem Tab zeigt, ob der Agent arbeitet, bereit ist oder auf Sie wartet. Das Neuladen der Seite stoppt nichts: Die CLIs laufen auf dem Server, nicht im Browser. |
 | **Schneller Start** | Wenn Sie die App öffnen, kommen Ihre Tabs **schlafend** zurück: Sie können sie vollständig lesen, und keine CLI startet, bevor Sie auf **CLI öffnen** klicken. |
 | **Historie** | Ihre Projekte und früheren Unterhaltungen in der Seitenleiste, aus allen CLIs, mit Filter. Ein Klick auf eine Unterhaltung setzt sie dort fort, wo Sie aufgehört haben, mit ihrer CLI. Archivieren Sie alte Sitzungen oder ein ganzes Projekt, um aufzuräumen: Es wird nichts gelöscht, und es lässt sich rückgängig machen. |
-| **Unterhaltung** | Die Nachrichten als Karten, live, mit eingeklappten Tool-Aufrufen. Ältere Nachrichten werden beim Hochscrollen geladen. Sie können suchen, jede Nachricht und jeden Codeblock kopieren und zu Ihrer vorherigen Nachricht (↑) oder ans Ende (↓) springen. Eine Zeile unten zeigt, wann Ihre Nachricht bei der CLI angekommen ist und ob der Agent noch arbeitet. Je nach CLI können Sie die Fragen des Agenten direkt dort beantworten. Eine Datei des Projekts, die der Agent nennt, öffnet sich mit einem Klick im Tab „Dateien“. Mit Claude Code kommt eine Nachricht, die Sie anhalten, bevor der Agent beginnt, zum Korrigieren ins Eingabefeld zurück, und **↩** an einer Nachricht geht zurück vor sie: die Unterhaltung und, wenn Sie wollen, der Code. Eine Nachricht, die Sie senden, während der Agent arbeitet, wartet am Ende als eingereiht; je nach CLI lässt **Senden jetzt erzwingen** den Agenten sie sofort lesen. |
+| **Unterhaltung** | Die Nachrichten als Karten, live, mit eingeklappten Tool-Aufrufen. Ältere Nachrichten werden beim Hochscrollen geladen. Sie können suchen, jede Nachricht und jeden Codeblock kopieren und zu Ihrer vorherigen Nachricht (↑) oder ans Ende (↓) springen. Eine Zeile unten zeigt, wann Ihre Nachricht bei der CLI angekommen ist und ob der Agent noch arbeitet. Je nach CLI können Sie die Fragen des Agenten direkt dort beantworten. Eine Datei des Projekts, die der Agent nennt, öffnet sich mit einem Klick im Tab „Dateien“. Mit Claude Code kommt eine Nachricht, die Sie anhalten, bevor der Agent beginnt, zum Korrigieren ins Eingabefeld zurück, und **↩** an einer Nachricht geht zurück vor sie: die Unterhaltung und, wenn Sie wollen, der Code. Eine Nachricht, die Sie senden, während der Agent arbeitet, wartet am Ende als eingereiht; je nach CLI lässt **Senden jetzt erzwingen** den Agenten sie sofort lesen, und **Bearbeiten** (oder ↑ im leeren Feld) holt sie zum Korrigieren ins Eingabefeld zurück. |
 | **Eingabefeld** | Platz zum Schreiben, zum Einfügen von Bildern und zum Anhängen von Dateien; langer eingefügter Text wird zu einem übersichtlichen Chip. Was Sie gerade tippen, übersteht das Schließen der App und erscheint live in jedem offenen Fenster. Umschalt+Eingabe setzt eine nummerierte Liste oder eine Aufzählung fort. |
-| **Kontextanzeige** | Wie viel vom Kontextfenster des Modells die Unterhaltung belegt. Tokens, nie Geld. |
+| **Kontextanzeige** | Wie viel vom Kontextfenster des Modells die Unterhaltung belegt. Tokens, nie Geld. Ab 70 % bittet **Kompaktieren** die CLI, die Unterhaltung zu kompaktieren. Daneben steht bei Claude Code, Codex und Antigravity CLI, wie viel Sie von den Nutzungslimits Ihres Plans verbraucht haben und wann sie zurückgesetzt werden. |
 | **Änderungen** | Der Branch, die geänderten Dateien und ihr Diff. **Orchestriert Agenten parallel**: Öffnen Sie das Projekt in einem neuen Branch, in einem eigenen Ordner, und mehrere Agenten arbeiten gleichzeitig, ohne sich gegenseitig die Änderungen zu überschreiben. „Änderungen“ zeigt jeden Branch: was noch nicht committet ist, wie viele Commits er hat und ob er schon integriert ist. Eine andere CLI prüft einen Branch, ohne ihn zu ändern, und Sie integrieren ihn mit einem Klick in main. |
 | **Dateien** | Der Dateibaum des Projekts, mit Suche und einer Vorschau mit Syntaxhervorhebung. Öffnen Sie mehrere Dateien gleichzeitig, jede in ihrem eigenen Tab; Markdown-Dateien öffnen sich formatiert. Ein Klick fügt den Pfad einer Datei in Ihre Nachricht ein. Bearbeiten Sie eine Textdatei, etwa eine `.env`, und speichern Sie sie direkt dort: Hat der Agent sie inzwischen geändert, wird nichts überschrieben, und Sie übernehmen Ihre Änderungen in die neue Version. |
 | **Pläne** | Die Pläne und `.md`-Dokumente, die die Unterhaltung geschrieben hat, formatiert dargestellt. Ein Klick fügt den Pfad eines Dokuments in Ihre Nachricht ein. |
@@ -54,7 +54,8 @@ Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 
 Optional und standardmäßig ausgeschaltet: ein
 [gemeinsames Gedächtnis](#gemeinsames-gedächtnis-für-alle-clis) für alle CLIs,
-eine [Sicherung](#sicherung-ihrer-historie) Ihrer Historie,
+eine [Sicherung](#sicherung-ihrer-historie) Ihrer Historie, bei Claude Code die
+[Nutzungslimits Ihres Plans](#claude-code-nutzungslimits-ihres-plans),
 [Fernzugriff](#fernzugriff-über-ssh) von einem anderen Computer oder einem
 Telefon aus und eine [Android-App](#die-android-app).
 
@@ -245,12 +246,40 @@ Ohne diese Option sagen sie nur, was sie importieren würden.
 
 </details>
 
+### Claude Code: Nutzungslimits Ihres Plans
+
+Claude Code teilt nur über seine *Statuszeile* mit, wie viel Sie von den
+Nutzungslimits Ihres Plans verbraucht haben (das 5-Stunden-Fenster und die
+Woche). So sehen Sie sie neben der Kontextanzeige:
+
+1. Öffnen Sie einen Claude-Code-Tab und klicken Sie auf **Konfigurieren**,
+   neben der Kontextanzeige.
+2. Kopieren Sie die angezeigte Zeile und fügen Sie sie zu dem hinzu, was
+   `~/.claude/settings.json` bereits enthält. Die App ändert diese Datei nicht:
+   Sie bearbeiten sie selbst.
+3. Nach ein paar Sekunden oder mit **Prüfen** zeigt der Dialog **Konfiguriert**
+   an. Die Limits erscheinen mit der nächsten Antwort.
+
+Claude Code erlaubt nur eine Statuszeile, daher ersetzt diese jede andere, die
+Sie haben, und mit ihr zeigt die CLI einige Hinweise an ihrem unteren Rand nicht
+mehr an, etwa „esc to interrupt“. Die Zeile führt ein kleines Skript aus, das im
+eigenen Ordner der App liegt: Es speichert nur die beiden Limits und die ID der
+Sitzung und gibt sie als kurze Zeile am unteren Rand der CLI aus. Es läuft bei
+**jeder** `claude`-Sitzung, auch bei denen, die Sie außerhalb der App öffnen,
+und es braucht `node` im `PATH`. Claude Code veröffentlicht diese Limits nur bei
+einem Abonnement-Plan, nicht mit einem API-Schlüssel.
+
+Codex braucht nichts: Es schreibt die Limits in seine eigene Historie.
+Antigravity CLI teilt sie über ihre Statuszeile mit, wie unten beschrieben.
+OpenCode und Pi veröffentlichen sie nicht.
+
 ### Antigravity CLI: Status und Kontextanzeige
 
 Antigravity CLI teilt nur über ihre *Statuszeile* mit, ob sie arbeitet oder auf
-Sie wartet und wie viele Tokens sie verbraucht hat. Ohne Statuszeile
-funktionieren ihre Tabs normal, aber der Punkt auf dem Tab meldet einen
-unbekannten Status, und die Kontextanzeige bleibt leer. So schalten Sie sie ein:
+Sie wartet, wie viele Tokens sie verbraucht hat und wie viel von Ihrem
+Kontingent übrig ist. Ohne Statuszeile funktionieren ihre Tabs normal, aber der
+Punkt auf dem Tab meldet einen unbekannten Status, und die Anzeigen bleiben
+leer. So schalten Sie sie ein:
 
 1. Öffnen Sie einen Antigravity-Tab und klicken Sie auf **Konfigurieren**, neben
    der Kontextanzeige.
@@ -261,9 +290,10 @@ unbekannten Status, und die Kontextanzeige bleibt leer. So schalten Sie sie ein:
    an.
 
 Die Zeile führt ein kleines Skript aus, das im eigenen Ordner der App liegt. Es
-speichert nur Status, Modus, Modell und Tokens jeder Unterhaltung – nicht Ihre
-E-Mail-Adresse, Ihr Kontingent, Ihren Tarif oder die Kosten, die die CLI ihm
-ebenfalls übergibt – und gibt nichts aus, sodass die eigene Statuszeile der CLI
+speichert nur Status, Modus, Modell und Tokens jeder Unterhaltung und von Ihrem
+Kontingent nur, wie viel übrig ist und wann es zurückgesetzt wird. Ihre
+E-Mail-Adresse, Ihren Plan und die Kosten, die die CLI ihm ebenfalls übergibt,
+speichert es nicht. Es gibt nichts aus, sodass die eigene Statuszeile der CLI
 bleibt, wie sie war. Einmal eingetragen, läuft es bei **jeder** `agy`-Sitzung,
 auch bei denen, die Sie außerhalb der App öffnen, und es braucht `node` im
 `PATH`.
@@ -438,7 +468,7 @@ speichert und welche Berechtigungen sie anfordert, steht in
   Projekte: das gemeinsame Gedächtnis, nur wenn Sie es bestätigen; eine Datei,
   die Sie selbst im Tab „Dateien“ bearbeiten und speichern; und die eigenen
   Branches, die Sie öffnen, jeder in seinem Ordner neben dem Projekt, mit den
-  Notizen, die beim Entfernen in den Hauptordner zurückgehen.
+  Notizen, die beim Entfernen oder Integrieren in den Hauptordner zurückgehen.
 - **Der Server lauscht nur auf Ihrem Computer** (`127.0.0.1`), auf einem
   zufälligen Port, mit einem neuen zufälligen Token bei jedem Start, und er
   weist Anfragen ab, die von anderen Webseiten kommen. Der Fernzugriff ändert
@@ -454,7 +484,7 @@ speichert und welche Berechtigungen sie anfordert, steht in
 
 | CLI | Was die App liest | Was sie nie öffnet |
 |---|---|---|
-| Claude Code | Aus `~/.claude/`: `projects/` (die Historie und das Gedächtnis jedes Projekts, um es zu importieren), `sessions/` (ob die CLI auf Sie wartet) und `plans/`. Für den Tab „Pläne“ außerdem die `.md`-Dateien, die die Unterhaltung im Projekt oder im temporären Ordner dieser Sitzung geschrieben hat – **nur die, die in der Unterhaltung genannt werden, die Sie gerade ansehen**, ohne einen Ordner zu durchsuchen | `.credentials.json` oder irgendein Token |
+| Claude Code | Aus `~/.claude/`: `projects/` (die Historie und das Gedächtnis jedes Projekts, um es zu importieren), `sessions/` (ob die CLI auf Sie wartet) und `plans/`; aus `settings.json` nur das Modell und die Statuszeile. Für den Tab „Pläne“ außerdem die `.md`-Dateien, die die Unterhaltung im Projekt oder im temporären Ordner dieser Sitzung geschrieben hat – **nur die, die in der Unterhaltung genannt werden, die Sie gerade ansehen**, ohne einen Ordner zu durchsuchen | `.credentials.json` oder irgendein Token |
 | Codex | Aus `~/.codex/` (oder `CODEX_HOME`): `sessions/` und `archived_sessions/` | `auth.json`, `config.toml` oder die `*.sqlite`-Datenbanken |
 | OpenCode | Die Datenbank `opencode.db`, im Nur-Lese-Modus geöffnet, und daraus nur die Sitzungen, Nachrichten und Teile; dazu der Modellkatalog, für die Größe des Kontextfensters | `auth.json`, `opencode.json` oder die Tabellen für Konten, Zugangsdaten, Berechtigungen und geteilte Sitzungen |
 | Antigravity CLI | Aus `~/.gemini/antigravity-cli/`: die Transkripte jeder Unterhaltung, `history.jsonl`, die letzte Unterhaltung jedes Ordners, Modell und Statuszeile aus `settings.json` und eine temporäre **Kopie** ihres Unterhaltungsindex; aus `~/.gemini/config/projects/` der Ordner jedes Projekts | Die MCP-Konfiguration der CLI, ihr Eintrag im Schlüsselbund des Systems, der Inhalt von `conversations/` und `~/.gemini/antigravity/`, der Ordner ihrer IDE |
@@ -507,8 +537,11 @@ Umgebungsvariable `PI_TELEMETRY=0`.
 **Was die App schreibt:**
 
 - **In ihren eigenen Konfigurationsordner:** die offenen Tabs, den Index-Cache,
-  die Notizen, die archivierten Sitzungen, ungesendete Nachrichten, das
-  Statuszeilen-Skript für Antigravity und, wenn Sie sie einschalten, die
+  die Notizen, die archivierten Sitzungen, ungesendete Nachrichten, die
+  Statuszeilen-Skripte für Claude Code und Antigravity mit dem, was sie
+  speichern, die eigenen Branches, die die App erstellt hat, mit einer Kopie
+  jeder Textnotiz, die sie hineinkopiert hat (um die Notizen später
+  zusammenzuführen), und, wenn Sie sie einschalten, die
   Sicherung (oder in den Ordner, den Sie wählen). Bei eingeschaltetem
   Fernzugriff außerdem die Liste der gekoppelten Geräte: einen Namen, zwei
   Datumsangaben und einen Hash der Anmeldedaten jedes Geräts – nie die
@@ -518,14 +551,20 @@ Umgebungsvariable `PI_TELEMETRY=0`.
   für Sie lesbar ist und beim ersten Start gelöscht wird, nachdem es 24 Stunden
   alt geworden ist; und das Transkript einer Unterhaltung, die Sie mit einer
   anderen CLI fortsetzen, das gelöscht wird, wenn Sie diesen Tab schließen, oder
-  nach 24 Stunden.
-- **In Ihre Projekte zwei Dinge:** das gemeinsame Gedächtnis, nur wenn Sie
+  nach 24 Stunden. Um zu prüfen, ob ein eigener Branch Konflikte hätte, schreibt
+  git seine Objekte in einen temporären Ordner statt in Ihr Repository, und der
+  Ordner wird gleich danach gelöscht.
+- **In Ihre Projekte drei Dinge:** das gemeinsame Gedächtnis, nur wenn Sie
   bestätigen, beschränkt auf `.agents/memory/`, auf das, was in `AGENTS.md` und
   `CLAUDE.md` zwischen seinen Markierungen steht, und auf ein paar Zeilen am Ende
-  von `.gitignore`; und eine Datei, die Sie im Tab „Dateien“ bearbeiten, wenn
-  Sie sie speichern. Dabei wird nur der Inhalt einer vorhandenen Datei ersetzt:
-  Nichts wird angelegt, umbenannt oder gelöscht, und nichts wird in den Ordner
-  einer CLI geschrieben.
+  von `.gitignore`; eine Datei, die Sie im Tab „Dateien“ bearbeiten, wenn Sie
+  sie speichern, wobei nur der Inhalt einer vorhandenen Datei ersetzt wird
+  (nichts wird angelegt, umbenannt oder gelöscht, und nichts wird in den Ordner
+  einer CLI geschrieben); und die Notizen eines eigenen Branches, die in den
+  Hauptordner zurückgehen, wenn Sie den Branch entfernen oder integrieren. Hat
+  sich eine Notiz auf beiden Seiten geändert, werden die beiden Versionen so
+  zusammengeführt, wie git Code zusammenführt, und Sie entscheiden nur dort, wo
+  beide dieselben Zeilen geändert haben.
 
 </details>
 
@@ -567,6 +606,13 @@ OpenCode-Installation.
 **Ein OpenCode-Tab meldet, dass der Server beendet wurde.** **Neu starten** in
 derselben Leiste startet einen neuen Server und verbindet den Tab wieder mit
 derselben Sitzung.
+
+**Die Limits Ihres Plans erscheinen bei Claude Code nicht.** Bietet die Anzeige
+**Konfigurieren** an, folgen Sie
+[diesen Schritten](#claude-code-nutzungslimits-ihres-plans). Steht dort
+**keine Daten**, ist die Statuszeile konfiguriert, hat die Limits aber noch
+nicht veröffentlicht: Sie kommen mit der ersten Antwort jeder Sitzung und nur
+bei einem Abonnement-Plan.
 
 **Ein Antigravity-Tab zeigt weder seinen Status noch die Kontextanzeige.**
 Achten Sie beim Start der App auf den Eintrag `Status line` unter der CLI. Steht

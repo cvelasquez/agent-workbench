@@ -38,9 +38,9 @@ CLI.
 | **Tabs** | Several agents at once, from any CLI, each in its own folder. A dot on each tab tells you whether the agent is working, idle or waiting for you. Reloading the page doesn't stop anything: the CLIs run on the server, not in the browser. |
 | **Fast start** | When you open the app, your tabs come back **asleep**: you can read them in full, and no CLI starts until you click **Open CLI**. |
 | **History** | Your projects and past conversations in the sidebar, from every CLI, with a filter. Click one to pick it up where you left it, with its CLI. Archive old sessions or a whole project to tidy up: nothing is deleted, and it can be undone. |
-| **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. A file of the project that the agent names opens in the Files tab with one click. With Claude Code, a message you stop before the agent starts comes back to the box so you can fix it, and **↩** on a message goes back to before it: the conversation and, if you want, the code. A message you send while the agent works waits at the end, marked as queued; depending on the CLI, **Force send now** makes the agent read it right away. |
+| **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. A file of the project that the agent names opens in the Files tab with one click. With Claude Code, a message you stop before the agent starts comes back to the box so you can fix it, and **↩** on a message goes back to before it: the conversation and, if you want, the code. A message you send while the agent works waits at the end, marked as queued; depending on the CLI, **Force send now** makes the agent read it right away, and **Edit** (or ↑ in the empty box) brings it back to the box to fix it. |
 | **Message box** | Room to write, paste images, attach files, and long pasted text kept as a tidy chip. What you're typing survives closing the app, and shows up live in every open window. Shift+Enter continues a numbered or bulleted list. |
-| **Context meter** | How much of the model's context window the conversation is using. Tokens, never money. |
+| **Context meter** | How much of the model's context window the conversation is using. Tokens, never money. From 70%, **Compact** asks the CLI to compact the conversation. Next to it, with Claude Code, Codex and Antigravity CLI, how much of your plan's usage limits you've used and when they reset. |
 | **Changes** | The branch, the changed files and their diff. **Orchestrates agents in parallel**: open the project on a new branch, in its own folder, and several agents work at once without stepping on each other's changes. Changes shows every branch: what isn't committed yet, how many commits it has and whether it's merged. Another CLI reviews a branch without touching it, and you merge it into main with one click. |
 | **Files** | The project's file tree, with search and a preview with syntax highlighting. Open several files at once, each in its own tab; Markdown files open formatted. One click puts a file's path in your message. Edit a text file, a `.env` for instance, and save it right there: if the agent changed it while you were editing, nothing is overwritten, and you move your changes to the new version. |
 | **Plans** | The plans and `.md` documents the conversation wrote, rendered. One click puts a document's path in your message. |
@@ -53,7 +53,8 @@ CLI.
 | **Theme** | Light, dark or the system's. The terminal stays dark by default, so the CLIs' colors stay readable. |
 
 Optional, and off by default: [shared memory](#shared-memory-between-clis)
-between CLIs, a [backup](#backup-of-your-history) of your history,
+between CLIs, a [backup](#backup-of-your-history) of your history, Claude
+Code's [plan usage limits](#claude-code-plan-usage-limits),
 [remote access](#remote-access-over-ssh) from another computer or a phone, and
 an [Android app](#the-android-app).
 
@@ -235,12 +236,35 @@ run from the source code ([below](#from-source)) and **write nothing without
 
 </details>
 
+### Claude Code: plan usage limits
+
+Claude Code only tells how much of your plan's usage limits you've used (the
+5-hour window and the week) through its *status line*. To see them next to the
+context meter:
+
+1. Open a Claude Code tab and click **Configure**, next to the meter.
+2. Copy the line it shows and add it to what `~/.claude/settings.json` already
+   has. The app doesn't edit that file: you do.
+3. Within a couple of seconds, or with **Check**, the dialog says
+   **Configured**. The limits show up with the next response.
+
+Claude Code allows a single status line, so this one replaces any other you
+have, and with it the CLI stops showing some hints at its bottom, such as "esc
+to interrupt". The line runs a small script kept in the app's own folder: it
+saves only the two limits and the session's id, and prints them as a short line
+at the bottom of the CLI. It runs on **every** `claude` session, including the
+ones you open outside the app, and it needs `node` in the `PATH`. Claude Code
+publishes these limits only with a subscription plan, not with an API key.
+
+Codex needs nothing: it writes its limits in its own history. Antigravity CLI
+shows them with its status line, below. OpenCode and Pi don't publish them.
+
 ### Antigravity CLI: status and context meter
 
-Antigravity CLI only tells whether it's working or waiting for you, and how
-many tokens it has used, through its *status line*. Without it, its tabs work
-normally, but the tab's dot says the status is unknown and the meter stays
-empty. To turn it on:
+Antigravity CLI only tells whether it's working or waiting for you, how many
+tokens it has used and how much of your quota is left through its *status
+line*. Without it, its tabs work normally, but the tab's dot says the status is
+unknown and the meters stay empty. To turn it on:
 
 1. Open an Antigravity tab and click **Configure**, next to the meter.
 2. Copy the line it shows and add it to what
@@ -250,9 +274,10 @@ empty. To turn it on:
    **Configured**.
 
 The line runs a small script kept in the app's own folder. It saves only each
-conversation's status, mode, model and tokens —not your email, quota, plan or
-cost, which the CLI also passes to it— and prints nothing, so the CLI's own
-status line stays as it was. Once set, it runs on **every** `agy` session,
+conversation's status, mode, model and tokens, and from your quota only how
+much is left and when it resets. It doesn't save your email, plan or cost,
+which the CLI also passes to it, and it prints nothing, so the CLI's own status
+line stays as it was. Once set, it runs on **every** `agy` session,
 including the ones you open outside the app, and it needs `node` in the
 `PATH`.
 
@@ -409,7 +434,7 @@ app keeps on the phone and the permissions it asks for are in
   the shared memory, only if you confirm it; a file you edit and save yourself
   in the Files tab; and the separate branches you open, each in its own folder
   next to the project, with the notes that go back to the main folder when you
-  remove one.
+  remove or merge one.
 - **The server listens only on your computer** (`127.0.0.1`), on a random port,
   with a new random token on every start, and it rejects requests coming from
   other web pages. Remote access doesn't change that: the port becomes a fixed
@@ -425,7 +450,7 @@ app keeps on the phone and the permissions it asks for are in
 
 | CLI | What it reads | What it never opens |
 |---|---|---|
-| Claude Code | From `~/.claude/`: `projects/` (the history, and each project's memory, to import it), `sessions/` (whether the CLI is waiting for you) and `plans/`. For the Plans tab, also the `.md` files the conversation wrote in the project or in that session's temp folder — **only the ones named by the conversation you're viewing**, without browsing any folder | `.credentials.json` or any token |
+| Claude Code | From `~/.claude/`: `projects/` (the history, and each project's memory, to import it), `sessions/` (whether the CLI is waiting for you) and `plans/`; from `settings.json`, only the model and the status line. For the Plans tab, also the `.md` files the conversation wrote in the project or in that session's temp folder — **only the ones named by the conversation you're viewing**, without browsing any folder | `.credentials.json` or any token |
 | Codex | From `~/.codex/` (or `CODEX_HOME`): `sessions/` and `archived_sessions/` | `auth.json`, `config.toml` or its `*.sqlite` databases |
 | OpenCode | Its `opencode.db` database, opened read-only, and from it only the sessions, messages and parts; and its model catalog, for the context window size | `auth.json`, `opencode.json`, or the accounts, credentials, permissions and shared-sessions tables |
 | Antigravity CLI | From `~/.gemini/antigravity-cli/`: each conversation's transcripts, `history.jsonl`, the last conversation of each folder, the model and status line from `settings.json`, and a temporary **copy** of its conversation index; from `~/.gemini/config/projects/`, each project's folder | Its MCP configuration, its entry in the system keychain, the contents of `conversations/`, and `~/.gemini/antigravity/`, which is its IDE |
@@ -472,21 +497,29 @@ Pi's settings, or the `PI_TELEMETRY=0` environment variable.
 **What the app writes:**
 
 - **In its own configuration folder:** the open tabs, the index cache, the
-  notes, the archived sessions, unsent messages, the Antigravity status line
-  script and, if you turn it on, the backup (or in the folder you choose). With
+  notes, the archived sessions, unsent messages, the status line scripts of
+  Claude Code and Antigravity with what they save, the separate branches it
+  created with a copy of each text note it copied into them (to merge the
+  notes later) and, if you turn it on, the backup (or in the folder you
+  choose). With
   remote access on, also the list of paired devices: a name, two dates and a
   hash of each one's credential — never the credential itself.
 - **In the temp folder:** the images and files you paste or attach; each
   Antigravity tab's log, which contains your messages, readable only by you and
   deleted on the first start after it's 24 hours old; and the transcript of a
   conversation you continue with another CLI, deleted when you close that tab
-  or after 24 hours.
-- **In your projects, two things only:** the shared memory, only if you
+  or after 24 hours. To check whether a separate branch would conflict, git
+  writes its objects in a temporary folder instead of your repository, and the
+  folder is deleted right after.
+- **In your projects, three things only:** the shared memory, only if you
   confirm, limited to `.agents/memory/`, to what's between its markers in
   `AGENTS.md` and `CLAUDE.md`, and to a few lines at the end of `.gitignore`;
-  and a file you edit in the Files tab, when you save it. That only replaces the
-  contents of a file that already exists: nothing is created, renamed or
-  deleted, and nothing is written in a CLI's folder.
+  a file you edit in the Files tab, when you save it, which only replaces the
+  contents of a file that already exists (nothing is created, renamed or
+  deleted, and nothing is written in a CLI's folder); and the notes of a
+  separate branch, which go back to the main folder when you remove or merge
+  the branch. If a note changed on both sides, the two versions are merged the
+  way git merges code, and you only choose where both changed the same lines.
 
 </details>
 
@@ -524,6 +557,11 @@ if it doesn't start there either, the problem is that OpenCode installation.
 
 **An OpenCode tab says the server closed.** **Relaunch**, in the same bar,
 starts another server and reconnects the tab to the same session.
+
+**Claude Code's plan limits don't show.** If the meter offers **Configure**,
+follow [these steps](#claude-code-plan-usage-limits). If it says **no data**,
+the status line is set but hasn't published them yet: they come with each
+session's first response, and only with a subscription plan.
 
 **An Antigravity tab doesn't show its status or the meter.** Look at the
 `Status line` entry when the app starts, under the CLI. If it says it isn't

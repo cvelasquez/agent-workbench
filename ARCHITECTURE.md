@@ -149,6 +149,9 @@ packages/
       memory-hub.ts           shared memory, the other write inside a project
       worktrees/              separate branches (git worktrees): the only git commands that write
       queued-submits.ts       messages a CLI hands back to its editor on interrupt
+      app-prompt-queue.ts     the queue the app keeps for a CLI that doesn't write one
+      live-question.ts        a question read from the CLI's screen, before its history has it
+      plan-limits-board.ts    the account's plan limits, from every CLI that publishes them
       handoff/                continue a conversation with another CLI
       global-search.ts        search across the text of every conversation
       vault/                  the app's own copy of the history
@@ -232,6 +235,9 @@ and the socket talk only to that interface.
 | whether the process is working, idle or waiting | `status`, or null |
 | how a question card is answered | `questions`, or absent |
 | which sent messages the CLI handed back to its own editor on interrupt | `queuedSubmits`, or absent |
+| how its queue is taken back to the message box to edit it | `queueEdit`, or absent |
+| a question that is still only on its screen | `screenQuestions`, or absent |
+| the account's plan limits it publishes | `planLimits`, or absent |
 | which folders the folder picker must never list | `protectedDirs()` |
 
 Rules the interface can't enforce by itself, and that every adapter follows:
@@ -243,6 +249,10 @@ Rules the interface can't enforce by itself, and that every adapter follows:
   after an interrupt: with a CLI that returns queued messages to its editor
   (Pi), the app clears that editor and gives the text back to the message box
   (`queued-submits.ts`), only when the session's history shows the turn ended.
+  Three declared exceptions drive a CLI's own menus, and read the emulated
+  screen before every key: the answer to Claude Code's resume dialog, its
+  rewind menu, and taking a CLI's queue back to the message box
+  (`queue-edit.ts` in each adapter that can).
 - **A capability is a measurement, not a promise.**
 
 ### 3.5 Capabilities
@@ -274,7 +284,7 @@ itself. Nothing is ever **written** in any CLI's folder.
 
 | CLI | Read | Never opened |
 |---|---|---|
-| **Claude Code** (`~/.claude`) | `projects/*.jsonl` (history) and `projects/<slug>/memory/*.md`; `sessions/<pid>.json` (live status); `plans/*.md` and session `.md` files, **only** when the conversation being viewed named them. The folder is never walked | `.credentials.json` |
+| **Claude Code** (`~/.claude`) | `projects/*.jsonl` (history) and `projects/<slug>/memory/*.md`; `sessions/<pid>.json` (live status); `plans/*.md` and session `.md` files, **only** when the conversation being viewed named them; from `settings.json`, only `model`, `modelSettings` and `statusLine` (it can carry `env` with keys, and the parsed object never leaves the function that reads it). The folder is never walked | `.credentials.json` |
 | **Codex** (`CODEX_HOME` or `~/.codex`) | `sessions/**/rollout-*.jsonl`, `archived_sessions/`. `CODEX_HOME` itself is never listed | `auth.json`, `cap_sid`, `.sandbox-secrets/`, `config.toml` (MCP server environments can carry secrets), the `*.sqlite` files |
 | **OpenCode** (xdg-basedir folders) | the SQLite database, read-only: named columns of `session`, `message` and `part`, always filtered by id; the models catalog. From the app's own `opencode serve`, over loopback with basic auth: a fixed list of seven endpoints | `auth.json`, `account.json`, `mcp-auth.json`; the `account`, `credential`, `session_share` and `permission` tables; response headers and bodies stored in error records; `opencode.json` (can carry API keys) |
 | **Antigravity CLI** (`~/.gemini/antigravity-cli`) | `brain/<id>/…/transcript*.jsonl`, `history.jsonl`, two fields of `settings.json`, and a **copy** of the conversations index (see below). `~/.gemini` is never walked | `mcp/`, MCP config files, the OS keychain, the contents of `conversations/*`, the whole IDE folder `~/.gemini/antigravity/`, the browser profile, and everything of Gemini CLI (`oauth_creds.json`, `google_accounts.json`, `.env`) |
@@ -309,8 +319,12 @@ touch credentials.
 
 - Its own configuration directory: tabs, index cache, notes, archived
   sessions, settings, the paired devices of remote access (hashes only), the
-  separate branches it created (`worktrees.json`), and the history copy (or the
-  folder the user picks).
+  separate branches it created (`worktrees.json`) with a copy of each text
+  note copied into them (`worktree-notes/`, to merge it later), the status line
+  scripts of Claude Code and Antigravity CLI (`integrations/`) and what they
+  publish (`agent-status/`), and the history copy (or the folder the user
+  picks). The user pastes each status line into the CLI's settings; the app
+  only shows the snippet.
 - The system temp folder: pasted images and attachments, per-tab CLI logs,
   temporary database copies, and the object folder of a branch's conflict
   check (`git merge-tree` writes its objects there instead of the repository,
@@ -339,9 +353,12 @@ touch credentials.
   `git worktree remove`, never with `--force`), with the ignored notes copied
   from the main folder (never a CLI's configuration). When one is removed, the
   notes that changed only in the branch go back to the main folder with an
-  atomic write; one that changed on both sides blocks the removal until the
-  user decides. `git branch -d` (never `-D`) deletes a branch only if the app
-  created it and it's already merged. Merging a branch into its base is
+  atomic write; one that changed on both sides is merged against the copy kept
+  when it was copied, the way git merges code, and only the lines both sides
+  changed wait for the user. Merging a branch whose base is the main folder
+  brings its notes back the same way. `git branch -d` (never `-D`) deletes a
+  branch only if the app created it and it's already merged. Merging a branch
+  into its base is
   `git merge --ff-only`, run in the folder where the base is checked out: it
   creates no commit, git refuses if the base moved on, and it refuses again if
   that folder has uncommitted changes in a file the branch touches (the plan
@@ -373,8 +390,11 @@ the repository, reviews, merging only by fast-forward, and no git write or
 rebase outside its module),
 the shared memory bridge, every adapter's event mapping, the history copy, handoff, global
 search, remote access (pairing codes, device credentials, what a paired device
-is refused, and that with it off nothing of it is accepted) and the nine locale
-files. The Android app has its own tests, on the JVM (section 7).
+is refused, and that with it off nothing of it is accepted), the plan limits
+(which reading wins, and the Claude Code status line script run through Git
+Bash and PowerShell), the question read from the screen and the queue taken
+back to the message box (against measured screens of each CLI), and the nine
+locale files. The Android app has its own tests, on the JVM (section 7).
 
 Two rules for writing one:
 

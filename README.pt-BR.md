@@ -39,9 +39,9 @@ CLI.
 | **Abas** | Vários agentes ao mesmo tempo, de qualquer CLI, cada um na sua pasta. Um ponto em cada aba mostra se o agente está trabalhando, ocioso ou esperando por você. Recarregar a página não interrompe nada: as CLIs rodam no servidor, não no navegador. |
 | **Início rápido** | Ao abrir o app, as suas abas voltam **suspensas**: dá para lê-las por inteiro, e nenhuma CLI é iniciada até você clicar em **Abrir CLI**. |
 | **Histórico** | Os seus projetos e conversas anteriores na barra lateral, de todas as CLIs, com um filtro. Clique em uma para retomá-la de onde você parou, com a CLI dela. Arquive sessões antigas ou um projeto inteiro para organizar: nada é excluído, e dá para desfazer. |
-| **Conversa** | As mensagens como cartões, ao vivo, com as chamadas de ferramentas recolhidas. As mensagens mais antigas carregam conforme você rola para cima. Busque, copie qualquer mensagem ou bloco de código, e vá para a sua mensagem anterior (↑) ou para o final (↓). Uma linha embaixo mostra quando a sua mensagem chegou à CLI e se o agente ainda está trabalhando. Dependendo da CLI, você pode responder às perguntas do agente ali mesmo. Um arquivo do projeto que o agente menciona abre na aba Arquivos com um clique. Com o Claude Code, uma mensagem que você interrompe antes de o agente começar volta para a caixa para você corrigir, e **↩** em uma mensagem volta para antes dela: a conversa e, se você quiser, o código. Uma mensagem enviada com o agente trabalhando espera no final, marcada na fila; dependendo da CLI, **Forçar envio agora** faz o agente lê-la na hora. |
+| **Conversa** | As mensagens como cartões, ao vivo, com as chamadas de ferramentas recolhidas. As mensagens mais antigas carregam conforme você rola para cima. Busque, copie qualquer mensagem ou bloco de código, e vá para a sua mensagem anterior (↑) ou para o final (↓). Uma linha embaixo mostra quando a sua mensagem chegou à CLI e se o agente ainda está trabalhando. Dependendo da CLI, você pode responder às perguntas do agente ali mesmo. Um arquivo do projeto que o agente menciona abre na aba Arquivos com um clique. Com o Claude Code, uma mensagem que você interrompe antes de o agente começar volta para a caixa para você corrigir, e **↩** em uma mensagem volta para antes dela: a conversa e, se você quiser, o código. Uma mensagem enviada com o agente trabalhando espera no final, marcada na fila; dependendo da CLI, **Forçar envio agora** faz o agente lê-la na hora, e **Editar** (ou ↑ com a caixa vazia) a traz de volta para a caixa para você corrigir. |
 | **Caixa de mensagem** | Espaço para escrever, colar imagens e anexar arquivos; um texto longo colado vira um chip compacto. O que você está digitando não se perde ao fechar o app e aparece ao vivo em todas as janelas abertas. Shift+Enter continua uma lista numerada ou com marcadores. |
-| **Medidor de contexto** | Quanto da janela de contexto do modelo a conversa está usando. Tokens, nunca dinheiro. |
+| **Medidor de contexto** | Quanto da janela de contexto do modelo a conversa está usando. Tokens, nunca dinheiro. A partir de 70%, **Compactar** pede à CLI que compacte a conversa. Ao lado dele, com o Claude Code, o Codex e o Antigravity CLI, quanto você já usou dos limites de uso do seu plano e quando eles renovam. |
 | **Alterações** | O branch, os arquivos alterados e o diff deles. **Orquestra agentes em paralelo**: abra o projeto em um branch novo, na sua própria pasta, e vários agentes trabalham ao mesmo tempo sem pisar nas alterações uns dos outros. Alterações mostra cada branch: o que falta fazer commit, quantos commits ele tem e se já está integrado. Outra CLI revisa um branch sem mexer nele, e você o integra no main com um clique. |
 | **Arquivos** | A árvore de arquivos do projeto, com busca e pré-visualização com realce de sintaxe. Abra vários arquivos ao mesmo tempo, cada um na sua aba; os arquivos Markdown abrem formatados. Um clique coloca o caminho de um arquivo na sua mensagem. Edite um arquivo de texto, um `.env` por exemplo, e salve ali mesmo: se o agente o alterou enquanto você editava, nada é sobrescrito, e você passa suas alterações para a versão nova. |
 | **Planos** | Os planos e os documentos `.md` que a conversa escreveu, renderizados. Um clique coloca o caminho de um documento na sua mensagem. |
@@ -54,7 +54,8 @@ CLI.
 | **Tema** | Claro, escuro ou o do sistema. O terminal fica escuro por padrão, para que as cores das CLIs continuem legíveis. |
 
 Opcionais, e desativados por padrão: [memória compartilhada](#memória-compartilhada-entre-clis)
-entre CLIs, um [backup](#backup-do-seu-histórico) do seu histórico,
+entre CLIs, um [backup](#backup-do-seu-histórico) do seu histórico, os
+[limites de uso do plano](#claude-code-limites-de-uso-do-plano) do Claude Code,
 [acesso remoto](#acesso-remoto-via-ssh) de outro computador ou de um celular, e
 um [app de Android](#o-app-de-android).
 
@@ -235,12 +236,36 @@ lê. Eles rodam a partir do código-fonte ([abaixo](#a-partir-do-código-fonte))
 
 </details>
 
+### Claude Code: limites de uso do plano
+
+O Claude Code só informa quanto você já usou dos limites de uso do seu plano (a
+janela de 5 horas e a semana) pela *status line* dele. Para vê-los ao lado do
+medidor de contexto:
+
+1. Abra uma aba do Claude Code e clique em **Configurar**, ao lado do medidor.
+2. Copie a linha que aparece e adicione-a ao que `~/.claude/settings.json` já
+   tem. O app não edita esse arquivo: quem edita é você.
+3. Em alguns segundos, ou com **Verificar**, o diálogo mostra **Configurada**.
+   Os limites aparecem com a próxima resposta.
+
+O Claude Code aceita uma só status line, então esta substitui qualquer outra que
+você tenha, e com ela a CLI deixa de mostrar algumas dicas no rodapé, como "esc
+to interrupt". A linha executa um pequeno script guardado na pasta do próprio
+app: ele salva só os dois limites e o id da sessão, e os imprime numa linha
+curta no rodapé da CLI. Ela roda em **toda** sessão do `claude`, inclusive nas
+que você abre fora do app, e precisa do `node` no `PATH`. O Claude Code só
+publica esses limites com um plano de assinatura, não com uma chave de API.
+
+O Codex não precisa de nada: ele grava os limites no próprio histórico. O
+Antigravity CLI os mostra com a status line dele, descrita abaixo. O OpenCode e
+o Pi não os publicam.
+
 ### Antigravity CLI: status e medidor de contexto
 
-O Antigravity CLI só informa se está trabalhando ou esperando por você, e
-quantos tokens já usou, pela sua *status line*. Sem ela, as abas dele funcionam
-normalmente, mas o ponto da aba diz que o status é desconhecido e o medidor fica
-vazio. Para ativá-la:
+O Antigravity CLI só informa se está trabalhando ou esperando por você, quantos
+tokens já usou e quanto resta da sua cota, pela *status line* dele. Sem ela, as
+abas dele funcionam normalmente, mas o ponto da aba diz que o status é
+desconhecido e os medidores ficam vazios. Para ativá-la:
 
 1. Abra uma aba do Antigravity e clique em **Configurar**, ao lado do medidor.
 2. Copie a linha que aparece e adicione-a ao que
@@ -249,11 +274,12 @@ vazio. Para ativá-la:
 3. Em alguns segundos, ou com **Verificar**, o diálogo mostra **Configurada**.
 
 A linha executa um pequeno script guardado na pasta do próprio app. Ele salva só
-o status, o modo, o modelo e os tokens de cada conversa — não o seu e-mail, a sua
-cota, o seu plano nem o custo, que a CLI também passa para ele — e não imprime
-nada, então a status line da própria CLI continua como estava. Uma vez
-configurada, ela roda em **toda** sessão do `agy`, inclusive nas que você abre
-fora do app, e precisa do `node` no `PATH`.
+o status, o modo, o modelo e os tokens de cada conversa, e da sua cota só quanto
+resta e quando ela renova. Ele não salva o seu e-mail, o seu plano nem o custo,
+que a CLI também passa para ele, e não imprime nada, então a status line da
+própria CLI continua como estava. Uma vez configurada, ela roda em **toda**
+sessão do `agy`, inclusive nas que você abre fora do app, e precisa do `node` no
+`PATH`.
 
 ### Acesso remoto via SSH
 
@@ -414,7 +440,7 @@ no celular e as permissões que ele pede estão em [`PRIVACY.md`](PRIVACY.md).
   memória compartilhada, só se você confirmar; um arquivo que você mesmo edita
   e salva na aba Arquivos; e os branches separados que você abre, cada um na
   sua pasta ao lado do projeto, com as notas que voltam para a pasta principal
-  quando você o remove.
+  quando você o remove ou integra.
 - **O servidor só escuta no seu computador** (`127.0.0.1`), em uma porta
   aleatória, com um token aleatório novo a cada inicialização, e rejeita
   requisições vindas de outras páginas da web. O acesso remoto não muda isso: a
@@ -430,7 +456,7 @@ no celular e as permissões que ele pede estão em [`PRIVACY.md`](PRIVACY.md).
 
 | CLI | O que ele lê | O que ele nunca abre |
 |---|---|---|
-| Claude Code | De `~/.claude/`: `projects/` (o histórico, e a memória de cada projeto, para importá-la), `sessions/` (se a CLI está esperando por você) e `plans/`. Para a aba Planos, também os arquivos `.md` que a conversa escreveu no projeto ou na pasta temporária dessa sessão — **só os que a conversa que você está vendo menciona**, sem percorrer nenhuma pasta | `.credentials.json` ou qualquer token |
+| Claude Code | De `~/.claude/`: `projects/` (o histórico, e a memória de cada projeto, para importá-la), `sessions/` (se a CLI está esperando por você) e `plans/`; do `settings.json`, só o modelo e a status line. Para a aba Planos, também os arquivos `.md` que a conversa escreveu no projeto ou na pasta temporária dessa sessão — **só os que a conversa que você está vendo menciona**, sem percorrer nenhuma pasta | `.credentials.json` ou qualquer token |
 | Codex | De `~/.codex/` (ou `CODEX_HOME`): `sessions/` e `archived_sessions/` | `auth.json`, `config.toml` ou os bancos `*.sqlite` dele |
 | OpenCode | O banco `opencode.db`, aberto em modo somente leitura, e dele só as sessões, as mensagens e as partes; e o catálogo de modelos da CLI, para o tamanho da janela de contexto | `auth.json`, `opencode.json` ou as tabelas de contas, credenciais, permissões e sessões compartilhadas |
 | Antigravity CLI | De `~/.gemini/antigravity-cli/`: as transcrições de cada conversa, `history.jsonl`, a última conversa de cada pasta, o modelo e a status line do `settings.json`, e uma **cópia** temporária do índice de conversas; de `~/.gemini/config/projects/`, a pasta de cada projeto | A configuração de MCP dele, a entrada no chaveiro do sistema, o conteúdo de `conversations/` e `~/.gemini/antigravity/`, que é o IDE dele |
@@ -479,22 +505,29 @@ ambiente `PI_TELEMETRY=0`.
 **O que o app grava:**
 
 - **Na própria pasta de configuração:** as abas abertas, o cache do índice, as
-  notas, as sessões arquivadas, as mensagens não enviadas, o script da status
-  line do Antigravity e, se você o ativar, o backup (ou na pasta que você
-  escolher). Com o acesso remoto ativado, também a lista de dispositivos
+  notas, as sessões arquivadas, as mensagens não enviadas, os scripts da status
+  line do Claude Code e do Antigravity com o que eles salvam, os branches
+  separados que o app criou com uma cópia de cada nota de texto copiada para
+  eles (para juntar as notas depois) e, se você o ativar, o backup (ou na pasta
+  que você escolher). Com o acesso remoto ativado, também a lista de dispositivos
   pareados: um nome, duas datas e um hash da credencial de cada um — nunca a
   credencial em si.
 - **Na pasta temporária:** as imagens e os arquivos que você cola ou anexa; o
   log de cada aba do Antigravity, que contém as suas mensagens, só pode ser lido
   por você e é apagado na primeira inicialização depois de completar 24 horas; e
   a transcrição de uma conversa que você continua com outra CLI, apagada quando
-  você fecha essa aba ou depois de 24 horas.
-- **Nos seus projetos, duas coisas:** a memória compartilhada, só se você
+  você fecha essa aba ou depois de 24 horas. Para verificar se um branch
+  separado entraria em conflito, o git grava os objetos que cria em uma pasta
+  temporária em vez de no seu repositório, e a pasta é apagada logo em seguida.
+- **Nos seus projetos, três coisas:** a memória compartilhada, só se você
   confirmar, limitada a `.agents/memory/`, ao que está entre os marcadores dela
-  em `AGENTS.md` e `CLAUDE.md`, e a algumas linhas no final do `.gitignore`; e
-  um arquivo que você edita na aba Arquivos, quando o salva. Isso só substitui o
-  conteúdo de um arquivo que já existe: nada é criado, renomeado nem excluído, e
-  nada é gravado dentro da pasta de uma CLI.
+  em `AGENTS.md` e `CLAUDE.md`, e a algumas linhas no final do `.gitignore`; um
+  arquivo que você edita na aba Arquivos, quando o salva, o que só substitui o
+  conteúdo de um arquivo que já existe (nada é criado, renomeado nem excluído, e
+  nada é gravado dentro da pasta de uma CLI); e as notas de um branch separado,
+  que voltam para a pasta principal quando você remove ou integra o branch. Se
+  uma nota mudou dos dois lados, as duas versões são juntadas como o git junta o
+  código, e você só escolhe onde os dois lados mudaram as mesmas linhas.
 
 </details>
 
@@ -533,6 +566,12 @@ OpenCode.
 
 **Uma aba do OpenCode diz que o servidor foi encerrado.** **Reiniciar**, na
 mesma barra, inicia outro servidor e reconecta a aba à mesma sessão.
+
+**Os limites do plano do Claude Code não aparecem.** Se o medidor oferece
+**Configurar**, siga [estes passos](#claude-code-limites-de-uso-do-plano). Se ele
+diz **sem dados**, a status line está configurada, mas ainda não os publicou:
+eles chegam com a primeira resposta de cada sessão, e só com um plano de
+assinatura.
 
 **Uma aba do Antigravity não mostra o status nem o medidor.** Olhe a entrada
 `Status line` quando o app inicia, abaixo da CLI. Se ela diz que não está

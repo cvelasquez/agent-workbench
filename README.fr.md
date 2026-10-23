@@ -38,9 +38,9 @@ Le terminal reste le terminal : tout ce que vous tapez va directement à la CLI.
 | **Onglets** | Plusieurs agents à la fois, de n'importe quelle CLI, chacun dans son dossier. Un point sur chaque onglet indique si l'agent travaille, s'il est au repos ou s'il vous attend. Recharger la page n'arrête rien : les CLI tournent sur le serveur, pas dans le navigateur. |
 | **Démarrage rapide** | Quand vous ouvrez l'application, vos onglets reviennent **en veille** : vous pouvez les lire en entier, et aucune CLI ne démarre tant que vous ne cliquez pas sur **Ouvrir la CLI**. |
 | **Historique** | Vos projets et vos conversations passées dans la barre latérale, de toutes les CLI, avec un filtre. Cliquez sur une conversation pour la reprendre là où vous l'aviez laissée, avec sa CLI. Archivez les anciennes sessions ou un projet entier pour faire le ménage : rien n'est supprimé, et c'est réversible. |
-| **Conversation** | Les messages sous forme de cartes, en direct, avec les appels d'outils repliés. Les messages plus anciens se chargent quand vous remontez. Recherchez, copiez n'importe quel message ou bloc de code, et revenez à votre message précédent (↑) ou allez à la fin (↓). Une ligne en bas indique quand votre message a été remis à la CLI et si l'agent travaille encore. Selon la CLI, vous pouvez répondre aux questions de l'agent directement dans la conversation. Un fichier du projet que l'agent mentionne s'ouvre dans l'onglet Fichiers en un clic. Avec Claude Code, un message que vous arrêtez avant que l'agent commence revient dans la zone de saisie pour le corriger, et **↩** sur un message revient avant lui : la conversation et, si vous le voulez, le code. Un message envoyé pendant que l'agent travaille attend à la fin, marqué en file d'attente ; selon la CLI, **Forcer l'envoi maintenant** le fait lire tout de suite à l'agent. |
+| **Conversation** | Les messages sous forme de cartes, en direct, avec les appels d'outils repliés. Les messages plus anciens se chargent quand vous remontez. Recherchez, copiez n'importe quel message ou bloc de code, et revenez à votre message précédent (↑) ou allez à la fin (↓). Une ligne en bas indique quand votre message a été remis à la CLI et si l'agent travaille encore. Selon la CLI, vous pouvez répondre aux questions de l'agent directement dans la conversation. Un fichier du projet que l'agent mentionne s'ouvre dans l'onglet Fichiers en un clic. Avec Claude Code, un message que vous arrêtez avant que l'agent commence revient dans la zone de saisie pour le corriger, et **↩** sur un message revient avant lui : la conversation et, si vous le voulez, le code. Un message envoyé pendant que l'agent travaille attend à la fin, marqué en file d'attente ; selon la CLI, **Forcer l'envoi maintenant** le fait lire tout de suite à l'agent, et **Modifier** (ou ↑ dans la zone de saisie vide) le ramène dans la zone de saisie pour le corriger. |
 | **Zone de saisie** | De la place pour écrire, coller des images, joindre des fichiers, et les longs textes collés rangés dans une pastille compacte. Ce que vous êtes en train d'écrire survit à la fermeture de l'application et s'affiche en direct dans toutes les fenêtres ouvertes. Maj+Entrée continue une liste numérotée ou à puces. |
-| **Jauge de contexte** | La part de la fenêtre de contexte du modèle qu'occupe la conversation. En tokens, jamais en argent. |
+| **Jauge de contexte** | La part de la fenêtre de contexte du modèle qu'occupe la conversation. En tokens, jamais en argent. À partir de 70 %, **Compacter** demande à la CLI de compacter la conversation. À côté, avec Claude Code, Codex et Antigravity CLI, la part des limites d'utilisation de votre forfait que vous avez consommée et quand elles se réinitialisent. |
 | **Modifications** | La branche, les fichiers modifiés et leur diff. **Orchestre des agents en parallèle** : ouvrez le projet sur une nouvelle branche, dans son propre dossier, et plusieurs agents travaillent en même temps sans se marcher sur leurs modifications. Modifications montre chaque branche : ce qui n'est pas encore commité, combien de commits elle a et si elle est déjà intégrée. Une autre CLI relit une branche sans la toucher, et vous l'intégrez dans main en un clic. |
 | **Fichiers** | L'arborescence du projet, avec une recherche et un aperçu avec coloration syntaxique. Ouvrez plusieurs fichiers à la fois, chacun dans son onglet ; les fichiers Markdown s'ouvrent mis en forme. Un clic place le chemin d'un fichier dans votre message. Modifiez un fichier texte, un `.env` par exemple, et enregistrez-le sur place : si l'agent l'a changé pendant que vous le modifiiez, rien n'est écrasé, et vous reportez vos modifications dans la nouvelle version. |
 | **Plans** | Les plans et les documents `.md` que la conversation a écrits, mis en forme. Un clic place le chemin d'un document dans votre message. |
@@ -54,7 +54,8 @@ Le terminal reste le terminal : tout ce que vous tapez va directement à la CLI.
 
 En option, et désactivés par défaut : une [mémoire partagée](#mémoire-partagée-entre-les-cli)
 entre les CLI, une [sauvegarde](#sauvegarde-de-votre-historique) de votre
-historique, l'[accès à distance](#accès-à-distance-par-ssh) depuis un autre
+historique, les [limites d'utilisation du forfait](#limites-dutilisation-du-forfait-de-claude-code)
+de Claude Code, l'[accès à distance](#accès-à-distance-par-ssh) depuis un autre
 ordinateur ou un téléphone, et une [application Android](#lapplication-android).
 
 <p>
@@ -244,12 +245,40 @@ sans cette option, ils vous disent seulement ce qu'ils importeraient.
 
 </details>
 
+### Limites d'utilisation du forfait de Claude Code
+
+Claude Code n'indique que par sa *status line* quelle part des limites
+d'utilisation de votre forfait vous avez consommée (la fenêtre de 5 heures et
+la semaine). Pour les voir à côté de la jauge de contexte :
+
+1. Ouvrez un onglet Claude Code et cliquez sur **Configurer**, à côté de la
+   jauge.
+2. Copiez la ligne affichée et ajoutez-la à ce que contient déjà
+   `~/.claude/settings.json`. L'application ne touche pas à ce fichier : c'est
+   vous qui le modifiez.
+3. En quelques secondes, ou avec **Vérifier**, la boîte de dialogue indique
+   **Configurée**. Les limites apparaissent avec la réponse suivante.
+
+Claude Code n'accepte qu'une seule status line : celle-ci remplace donc toute
+autre que vous auriez, et avec elle la CLI n'affiche plus certaines aides en bas
+de son écran, comme « esc to interrupt ». La ligne exécute un petit script rangé
+dans le dossier de l'application : il n'enregistre que les deux limites et
+l'identifiant de la session, et les affiche sur une ligne courte en bas de la
+CLI. Le script s'exécute dans **chaque** session `claude`, y compris celles que
+vous ouvrez hors de l'application, et il a besoin de `node` dans le `PATH`.
+Claude Code ne publie ces limites qu'avec un forfait d'abonnement, pas avec une
+clé d'API.
+
+Codex n'a besoin de rien : il écrit ses limites dans son propre historique.
+Antigravity CLI les indique par sa status line, décrite ci-dessous. OpenCode et
+Pi ne les publient pas.
+
 ### État et jauge de contexte d'Antigravity CLI
 
-Antigravity CLI n'indique si elle travaille ou vous attend, et combien de
-tokens elle a utilisés, que par sa *status line*. Sans elle, ses onglets
-fonctionnent normalement, mais le point de l'onglet indique un état inconnu et
-la jauge reste vide. Pour l'activer :
+Antigravity CLI n'indique si elle travaille ou vous attend, combien de tokens
+elle a utilisés et ce qu'il reste de votre quota, que par sa *status line*. Sans
+elle, ses onglets fonctionnent normalement, mais le point de l'onglet indique un
+état inconnu et les jauges restent vides. Pour l'activer :
 
 1. Ouvrez un onglet Antigravity et cliquez sur **Configurer**, à côté de la
    jauge.
@@ -261,9 +290,10 @@ la jauge reste vide. Pour l'activer :
 
 La ligne exécute un petit script rangé dans le dossier de l'application. Il
 n'enregistre que l'état, le mode, le modèle et les tokens de chaque
-conversation — ni votre e-mail, ni votre quota, ni votre forfait, ni le coût,
-que la CLI lui transmet aussi — et n'affiche rien : la status line propre à la
-CLI reste donc telle quelle. Une fois en place, elle s'exécute dans **chaque**
+conversation et, de votre quota, ce qu'il en reste et quand il se
+réinitialise. Il n'enregistre ni votre e-mail, ni votre forfait, ni le coût,
+que la CLI lui transmet aussi, et il n'affiche rien : la status line propre à
+la CLI reste donc telle quelle. Une fois en place, elle s'exécute dans **chaque**
 session `agy`, y compris celles que vous ouvrez hors de l'application, et elle
 a besoin de `node` dans le `PATH`.
 
@@ -440,7 +470,8 @@ décrits dans [`PRIVACY.md`](PRIVACY.md).
   projets : la mémoire partagée, seulement si vous le confirmez ; un fichier que
   vous modifiez et enregistrez vous-même dans l'onglet Fichiers ; et les
   branches à part que vous ouvrez, chacune dans son dossier à côté du projet,
-  avec les notes qui reviennent au dossier principal quand vous la retirez.
+  avec les notes qui reviennent au dossier principal quand vous la retirez ou
+  l'intégrez.
 - **Le serveur n'écoute que sur votre ordinateur** (`127.0.0.1`), sur un port
   aléatoire, avec un nouveau jeton aléatoire à chaque démarrage, et il rejette
   les requêtes venant d'autres pages web. L'accès à distance n'y change rien :
@@ -457,7 +488,7 @@ décrits dans [`PRIVACY.md`](PRIVACY.md).
 
 | CLI | Ce qui est lu | Ce qui n'est jamais ouvert |
 |---|---|---|
-| Claude Code | Dans `~/.claude/` : `projects/` (l'historique, et la mémoire de chaque projet, pour l'importer), `sessions/` (si la CLI vous attend) et `plans/`. Pour l'onglet Plans, aussi les fichiers `.md` que la conversation a écrits dans le projet ou dans le dossier temporaire de cette session — **seulement ceux que nomme la conversation que vous regardez**, sans parcourir aucun dossier | `.credentials.json` ou tout autre jeton |
+| Claude Code | Dans `~/.claude/` : `projects/` (l'historique, et la mémoire de chaque projet, pour l'importer), `sessions/` (si la CLI vous attend) et `plans/` ; de `settings.json`, seulement le modèle et la status line. Pour l'onglet Plans, aussi les fichiers `.md` que la conversation a écrits dans le projet ou dans le dossier temporaire de cette session — **seulement ceux que nomme la conversation que vous regardez**, sans parcourir aucun dossier | `.credentials.json` ou tout autre jeton |
 | Codex | Dans `~/.codex/` (ou `CODEX_HOME`) : `sessions/` et `archived_sessions/` | `auth.json`, `config.toml` ou ses bases `*.sqlite` |
 | OpenCode | Sa base `opencode.db`, ouverte en lecture seule, et, dans celle-ci, seulement les sessions, les messages et leurs parties ; et son catalogue de modèles, pour la taille de la fenêtre de contexte | `auth.json`, `opencode.json`, ou les tables des comptes, des identifiants, des autorisations et des sessions partagées |
 | Antigravity CLI | Dans `~/.gemini/antigravity-cli/` : les transcriptions de chaque conversation, `history.jsonl`, la dernière conversation de chaque dossier, le modèle et la status line de `settings.json`, et une **copie** temporaire de son index des conversations ; dans `~/.gemini/config/projects/`, le dossier de chaque projet | Sa configuration MCP, son entrée dans le trousseau du système, le contenu de `conversations/`, et `~/.gemini/antigravity/`, qui est son IDE |
@@ -512,8 +543,11 @@ variable d'environnement `PI_TELEMETRY=0`.
 **Ce que l'application écrit :**
 
 - **Dans son propre dossier de configuration :** les onglets ouverts, le cache
-  de l'index, les notes, les sessions archivées, les messages non envoyés, le
-  script de la status line d'Antigravity et, si vous l'activez, la sauvegarde
+  de l'index, les notes, les sessions archivées, les messages non envoyés, les
+  scripts des status lines de Claude Code et d'Antigravity avec ce qu'ils
+  enregistrent, les branches à part qu'elle a créées avec une copie de chaque
+  note texte qu'elle y a copiée (pour combiner les notes plus tard) et, si vous
+  l'activez, la sauvegarde
   (ou dans le dossier de votre choix). Avec l'accès à distance activé, aussi la
   liste des appareils associés : un nom, deux dates et un hash des identifiants
   de chacun — jamais les identifiants eux-mêmes.
@@ -522,14 +556,19 @@ variable d'environnement `PI_TELEMETRY=0`.
   lisible par vous seul et supprimé au premier démarrage une fois qu'il a plus
   de 24 heures ; et la transcription d'une conversation que vous poursuivez
   avec une autre CLI, supprimée quand vous fermez cet onglet ou au bout de
-  24 heures.
-- **Dans vos projets, deux choses :** la mémoire partagée, seulement si vous
+  24 heures. Pour vérifier si une branche à part entrerait en conflit, git écrit
+  ses objets dans un dossier temporaire au lieu de votre dépôt, et ce dossier
+  est supprimé juste après.
+- **Dans vos projets, trois choses :** la mémoire partagée, seulement si vous
   confirmez, limitée à `.agents/memory/`, à ce qui se trouve entre ses marqueurs
   dans `AGENTS.md` et `CLAUDE.md`, et à quelques lignes à la fin de
-  `.gitignore` ; et un fichier que vous modifiez dans l'onglet Fichiers, quand
-  vous l'enregistrez. Cela ne remplace que le contenu d'un fichier qui existe
-  déjà : rien n'est créé, renommé ni supprimé, et rien n'est écrit dans le
-  dossier d'une CLI.
+  `.gitignore` ; un fichier que vous modifiez dans l'onglet Fichiers, quand vous
+  l'enregistrez, ce qui ne remplace que le contenu d'un fichier qui existe déjà
+  (rien n'est créé, renommé ni supprimé, et rien n'est écrit dans le dossier
+  d'une CLI) ; et les notes d'une branche à part, qui reviennent au dossier
+  principal quand vous retirez ou intégrez la branche. Si une note a changé des
+  deux côtés, les deux versions sont combinées comme git fusionne le code, et
+  vous n'avez à choisir que là où les deux côtés ont modifié les mêmes lignes.
 
 </details>
 
@@ -573,6 +612,12 @@ problème vient de cette installation d'OpenCode.
 **Un onglet OpenCode indique que le serveur s'est arrêté.** **Relancer**, dans
 la même barre, démarre un autre serveur et reconnecte l'onglet à la même
 session.
+
+**Les limites du forfait de Claude Code n'apparaissent pas.** Si la jauge
+propose **Configurer**, suivez [ces étapes](#limites-dutilisation-du-forfait-de-claude-code).
+Si elle indique **aucune donnée**, la status line est en place mais ne les a
+pas encore publiées : elles arrivent avec la première réponse de chaque
+session, et seulement avec un forfait d'abonnement.
 
 **Un onglet Antigravity n'affiche ni son état ni la jauge.** Regardez la ligne
 `Status line` au démarrage de l'application, sous la CLI. Si elle indique
