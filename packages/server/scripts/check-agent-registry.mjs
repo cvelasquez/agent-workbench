@@ -1539,7 +1539,7 @@ const adapter = createClaudeCodeAdapter();
   const writeState = (state) => writeFile(stateFile, JSON.stringify({ sessionId, ...state }));
 
   const seen = [];
-  await writeState({ status: 'shell' });
+  await writeState({ status: 'algo-nuevo' });
   const stop = statusAdapter.status.subscribe(sessionId, (status) => seen.push(status));
   check('un estado nativo desconocido se lee como ocupada',
     await waitFor(() => seen.length >= 1) && sameShape(seen[0], { activity: 'busy', waitingFor: null }), JSON.stringify(seen));
@@ -1548,13 +1548,20 @@ const adapter = createClaudeCodeAdapter();
   check('esperando trae su etiqueta cruda',
     await waitFor(() => seen.length >= 2) && sameShape(seen[1], { activity: 'waiting', waitingFor: 'permission prompt' }), JSON.stringify(seen));
 
+  // `shell` es libre con un comando de consola en segundo plano (§4.13): con
+  // un servidor de desarrollo abierto, la pestana quedaba "trabajando" horas.
+  await writeState({ status: 'shell' });
+  check('libre con un comando en segundo plano (`shell`) se lee como libre',
+    await waitFor(() => seen.length >= 3) && sameShape(seen[2], { activity: 'idle', waitingFor: null }), JSON.stringify(seen));
+  check('waitUntilReady con un comando en segundo plano', (await statusAdapter.status.waitUntilReady(sessionId, 2000)) === true);
+
   await writeState({ status: 'idle', waitingFor: 'sobra' });
   check('libre no arrastra etiqueta',
-    await waitFor(() => seen.length >= 3) && sameShape(seen[2], { activity: 'idle', waitingFor: null }), JSON.stringify(seen));
+    await waitFor(() => seen.length >= 4) && sameShape(seen[3], { activity: 'idle', waitingFor: null }), JSON.stringify(seen));
   check('waitUntilReady con la CLI libre', (await statusAdapter.status.waitUntilReady(sessionId, 2000)) === true);
 
   await rm(stateFile);
-  check('sin archivo, el listener recibe null', await waitFor(() => seen.length >= 4) && seen[3] === null, JSON.stringify(seen));
+  check('sin archivo, el listener recibe null', await waitFor(() => seen.length >= 5) && seen[4] === null, JSON.stringify(seen));
   stop();
   statusAdapter.dispose();
 }

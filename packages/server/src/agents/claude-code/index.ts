@@ -37,7 +37,7 @@ import type {
 import { commandNotFoundMessage, locateCommand } from '../locate.js';
 import { PlanLimitsRecordDir, removeStalePlanRecords } from '../plan-limits.js';
 import { readAgentDefaults } from './agent-defaults.js';
-import { CliStatusWatcher } from './cli-status.js';
+import { CliStatusWatcher, isIdleStatus } from './cli-status.js';
 import { CLAUDE_CODE_COMMAND, CLAUDE_CODE_INSTALL_URL } from './constants.js';
 import { claudeCodeEnvironment } from './environment.js';
 import { createClaudeCodeHistory } from './history.js';
@@ -117,13 +117,15 @@ export const CLAUDE_CODE_INPUT: AgentInput = {
 /**
  * El estado que publica la CLI, traducido a lo que dibuja la barra de pestanas.
  *
- * Los tres conocidos salen tal cual; cualquier otro se trata como trabajando.
+ * Los libres (`idle`, y `shell` con un comando en segundo plano) son libre;
+ * `busy` y `waiting` salen tal cual, y cualquier otro se trata como trabajando.
  * Es la eleccion conservadora: un estado que no conocemos significa que la CLI
  * esta en algo, y mostrarlo como parado invitaria a escribirle justo cuando no
  * corresponde. Sin archivo no hay proceso: eso lo pinta el registro.
  */
 function toActivity(status: string): AgentStatus['activity'] {
-  if (status === 'idle' || status === 'busy' || status === 'waiting') return status;
+  if (isIdleStatus(status)) return 'idle';
+  if (status === 'busy' || status === 'waiting') return status;
   return 'busy';
 }
 

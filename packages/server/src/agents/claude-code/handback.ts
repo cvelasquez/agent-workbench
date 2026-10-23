@@ -33,7 +33,7 @@ import { stat } from 'node:fs/promises';
 import { debugLog } from '../../debug.js';
 import { parseJsonlLine, readTailLines } from '../../jsonl-reader.js';
 import type { QueuedSubmission, QueuedSubmitSource } from '../adapter.js';
-import type { CliSessionStatus } from './cli-status.js';
+import { isIdleStatus, type CliSessionStatus } from './cli-status.js';
 import { cleanUserText, readTimestamp } from './jsonl-events.js';
 
 /**
@@ -185,7 +185,7 @@ async function readLastTurns(file: string): Promise<string[]> {
 
 /** (3) La CLI dijo que esta libre despues del Esc. */
 export function settledAfter(status: CliSessionStatus | null, interruptedAt: number, now: number): boolean {
-  if (status === null || status.status !== 'idle') return false;
+  if (status === null || !isIdleStatus(status.status)) return false;
   if (status.statusUpdatedAt !== null) return status.statusUpdatedAt >= interruptedAt;
   return now - interruptedAt >= SETTLE_WITHOUT_STAMP_MS;
 }

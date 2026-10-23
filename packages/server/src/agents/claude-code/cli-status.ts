@@ -54,8 +54,9 @@ const POLL_INTERVAL_MS = 700;
  *
  * `status` sale tal cual del archivo. Los valores vistos son `idle`, `busy`,
  * `waiting` y `shell`; se guarda como string y no como union cerrada porque
- * una version futura puede agregar uno y eso no tiene que romper nada — la
- * unica pregunta que se le hace es si vale `waiting`.
+ * una version futura puede agregar uno y eso no tiene que romper nada. Las
+ * preguntas que se le hacen son si vale `waiting` y si esta libre
+ * (`isIdleStatus`).
  */
 export interface CliSessionStatus {
   status: string;
@@ -78,6 +79,19 @@ interface Subscription {
   listener: CliStatusListener;
   /** Lo ultimo que se le entrego, para no repetir. */
   last: string | null;
+}
+
+/**
+ * Si la CLI esta libre para recibir un mensaje.
+ *
+ * `shell` es libre con un comando de consola en segundo plano todavia abierto
+ * (un servidor de desarrollo, un bucle de espera): la 2.1.308 lo escribe en
+ * lugar de `idle`, y su pie dice "1 shell still running". Leido como
+ * trabajando, la pestana quedaba asi mientras viviera el comando, horas
+ * (§4.13).
+ */
+export function isIdleStatus(status: string): boolean {
+  return status === 'idle' || status === 'shell';
 }
 
 function readStatus(value: unknown): CliSessionStatus | null {
@@ -137,12 +151,12 @@ export class CliStatusWatcher {
   /**
    * Espera a que la CLI este lista para recibir un mensaje.
    *
-   * "Lista" es `status: "idle"`, y eso cubre dos cosas de una: que la TUI ya
-   * arranco, y que **no** esta parada en un dialogo. Lo segundo importa mas de
-   * lo que parece — medido, la CLI no se registra en `sessions/` hasta despues
-   * de que se acepta el dialogo de confianza en la carpeta, asi que esperar a
-   * que aparezca ya descarta el caso en el que un pegado terminaria contestando
-   * ese menu.
+   * "Lista" es `status: "idle"` (o `shell`, `isIdleStatus`), y eso cubre dos
+   * cosas de una: que la TUI ya arranco, y que **no** esta parada en un
+   * dialogo. Lo segundo importa mas de lo que parece — medido, la CLI no se
+   * registra en `sessions/` hasta despues de que se acepta el dialogo de
+   * confianza en la carpeta, asi que esperar a que aparezca ya descarta el caso
+   * en el que un pegado terminaria contestando ese menu.
    *
    * Devuelve false si se acabo el plazo. Quien llama no escribe nada entonces:
    * mandarle un pegado a una pty que no sabemos en que estado esta es
@@ -152,7 +166,7 @@ export class CliStatusWatcher {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const status = await this.read(sessionId);
-      if (status !== null && status.status === 'idle') return true;
+      if (status !== null && isIdleStatus(status.status)) return true;
       if (Date.now() >= deadline) return false;
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }

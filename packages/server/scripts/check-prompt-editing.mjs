@@ -270,6 +270,8 @@ async function visibleOf(records) {
   check('C7 libre despues del Esc: si', settledAfter({ status: 'idle', waitingFor: null, statusUpdatedAt: interruptedAt + 300 }, interruptedAt, interruptedAt + 400));
   check('C7 libre pero de antes del Esc: no', !settledAfter({ status: 'idle', waitingFor: null, statusUpdatedAt: interruptedAt - 300 }, interruptedAt, interruptedAt + 400));
   check('C7 trabajando: no', !settledAfter({ status: 'busy', waitingFor: null, statusUpdatedAt: interruptedAt + 300 }, interruptedAt, interruptedAt + 400));
+  check('C7 libre con un comando en segundo plano (`shell`): si',
+    settledAfter({ status: 'shell', waitingFor: null, statusUpdatedAt: interruptedAt + 300 }, interruptedAt, interruptedAt + 400));
   check('C7 sin fecha en el estado: despues de un rato',
     !settledAfter({ status: 'idle', waitingFor: null, statusUpdatedAt: null }, interruptedAt, interruptedAt + 100) &&
       settledAfter({ status: 'idle', waitingFor: null, statusUpdatedAt: null }, interruptedAt, interruptedAt + 1_000));
