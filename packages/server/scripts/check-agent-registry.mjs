@@ -157,6 +157,13 @@ check('45 forceSend que no es true cae a false; true se lee',
   parseAgentCapabilities({ forceSend: 'true' }).forceSend === false &&
   parseAgentCapabilities({ forceSend: 1 }).forceSend === false &&
   parseAgentCapabilities({ forceSend: true }).forceSend === true);
+// §6.35.1: un servidor anterior no la manda, y sin ella no hay Editar en la cola.
+check('E1 editQueue ausente es false, y NO_CAPABILITIES la declara en false',
+  parseAgentCapabilities({ forceSend: true }).editQueue === false && NO_CAPABILITIES.editQueue === false);
+check('E1 editQueue que no es true cae a false; true se lee',
+  parseAgentCapabilities({ editQueue: 'true' }).editQueue === false &&
+  parseAgentCapabilities({ editQueue: 1 }).editQueue === false &&
+  parseAgentCapabilities({ editQueue: true }).editQueue === true);
 // Hito 49: un servidor anterior no la manda, y sin ella ninguna CLI se ofrece en solo lectura.
 check('49 readOnlyLaunch ausente es null, y NO_CAPABILITIES la declara null',
   parseAgentCapabilities({ statusSource: true }).readOnlyLaunch === null && NO_CAPABILITIES.readOnlyLaunch === null);
@@ -655,6 +662,7 @@ const adapter = createClaudeCodeAdapter();
     plans: true,
     waitingBlocksSubmit: false,
     forceSend: true,
+    editQueue: true,
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };
   check('capacidades de claude-code iguales al literal', sameShape(adapter.capabilities, expected), JSON.stringify(adapter.capabilities));
@@ -782,6 +790,23 @@ const adapter = createClaudeCodeAdapter();
       antigravity: { source: 'app', forceSend: 'alt-m' },
       pi: { source: 'app', forceSend: 'interrupt-and-resend' },
     }), JSON.stringify(queues));
+  /*
+    §6.35.1: sacar la cola para editarla, solo donde se midio. Pi solo en
+    Windows: fuera, su tecla es otra y no esta medida. La capacidad y el driver
+    dicen lo mismo, y solo la tiene una CLI que hace cola.
+  */
+  const editing = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.editQueue);
+  const expectedEditing = process.platform === 'win32' ? ['claude-code', 'antigravity', 'pi'] : ['claude-code', 'antigravity'];
+  check('E2 editQueue: claude-code, antigravity y pi (en Windows); ni codex ni opencode',
+    sameShape(editing, expectedEditing), editing.join(','));
+  check('E2 la capacidad y el driver del adaptador coinciden, y solo en una CLI con cola',
+    AGENT_IDS.every((id) => {
+      const registered = appRegistry.adapter(id);
+      const driver = registered.queueEdit !== undefined;
+      // Pi fuera de Windows tiene el driver y no la capacidad: su tecla ahi no se midio.
+      if (!registered.capabilities.editQueue) return !driver || (id === 'pi' && process.platform !== 'win32');
+      return driver && registered.promptQueue !== undefined;
+    }));
   appRegistry.disposeAll();
 }
 
@@ -1090,7 +1115,7 @@ const adapter = createClaudeCodeAdapter();
     controls.efforts !== null && JSON.stringify(controls.efforts) === JSON.stringify(EFFORT_OPTIONS));
   check('claude-code: imagenes, volver aqui, preguntas, @ruta, planes y nota, todo encendido',
     controls.imagesAllowed && controls.rewind && controls.questionsAnswerable && controls.fileMentions &&
-    controls.plansAvailable && controls.noteSendable && controls.forceSend, JSON.stringify(controls));
+    controls.plansAvailable && controls.noteSendable && controls.forceSend && controls.editQueue, JSON.stringify(controls));
   check('claude-code: el medidor mide con variantes', controls.contextWindowSource === 'usage-with-variants');
 
   // Hito 49: una pestana de revision arranco en plan, y el combo cuenta desde ahi.
@@ -1106,13 +1131,14 @@ const adapter = createClaudeCodeAdapter();
     none.modeCycle === null && none.models === null && none.efforts === null, JSON.stringify(none));
   check('sin capacidades: sin imagenes, volver aqui, preguntas, @ruta, planes, nota ni medidor',
     !none.imagesAllowed && !none.rewind && !none.questionsAnswerable && !none.fileMentions &&
-    !none.plansAvailable && !none.noteSendable && !none.forceSend && none.contextWindowSource === null, JSON.stringify(none));
+    !none.plansAvailable && !none.noteSendable && !none.forceSend && !none.editQueue && none.contextWindowSource === null, JSON.stringify(none));
 
   // --- Cada capacidad apaga su control y ninguno mas ---
   const controlOf = {
     permissionCycle: 'modeCycle', models: 'models', efforts: 'efforts', imagesByPath: 'imagesAllowed',
     rewind: 'rewind', questionCards: 'questionsAnswerable', fileMentions: 'fileMentions', plans: 'plansAvailable',
     contextWindowSource: 'contextWindowSource', readySignal: 'noteSendable', forceSend: 'forceSend',
+    editQueue: 'editQueue',
   };
   for (const [capability, control] of Object.entries(controlOf)) {
     const without = ui.controlsFor({ ...claude.capabilities, [capability]: NO_CAPABILITIES[capability] });

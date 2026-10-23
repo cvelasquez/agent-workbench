@@ -79,7 +79,7 @@ export interface HandoffNotice {
   /** `sending`: el servidor la esta mandando sola. `prefilled`: quedo en el cuadro. */
   delivery: HandoffDelivery;
   /** Por que quedo en el cuadro, si quedo; null mientras se manda sola. */
-  prefillReason: Exclude<ComposerPrefillReason, ReturnedReason | 'rewound' | 'requested'> | null;
+  prefillReason: Exclude<ComposerPrefillReason, ReturnedReason | 'rewound' | 'requested' | 'queue-edit'> | null;
 }
 
 /**
@@ -97,6 +97,8 @@ export interface ComposerPrefill {
   text: string;
   /** Hito 49. Los que van como fichas de texto pegado, con su marca al final del texto. */
   pasted: readonly string[];
+  /** El cuadro toma el foco: el usuario lo trajo para editarlo (§6.35.1). */
+  focus: boolean;
 }
 
 export interface Workspace {
@@ -476,7 +478,13 @@ export function useWorkspace(): Workspace {
           nextPrefillId.current += 1;
           setPrefills((current) => [
             ...current,
-            { id, terminalId: message.terminalId, text: message.text, pasted: message.pasted ?? [] },
+            {
+              id,
+              terminalId: message.terminalId,
+              text: message.text,
+              pasted: message.pasted ?? [],
+              focus: message.reason === 'queue-edit',
+            },
           ]);
           const { reason } = message;
           /*
@@ -489,9 +497,10 @@ export function useWorkspace(): Workspace {
             );
             break;
           }
-          // El mensaje antes del que se volvio (hito 44), o el pedido de las notas de
-          // una rama aparte (hito 48): los pidio el usuario en su dialogo, sin aviso.
-          if (reason === 'rewound' || reason === 'requested') break;
+          // El mensaje antes del que se volvio (hito 44), el pedido de las notas de
+          // una rama aparte (hito 48) o la cola que se saco para editarla (§6.35.1):
+          // los pidio el usuario, sin aviso.
+          if (reason === 'rewound' || reason === 'requested' || reason === 'queue-edit') break;
           setHandoffs((current) => {
             const notice = current.get(message.terminalId);
             if (notice === undefined) return current;

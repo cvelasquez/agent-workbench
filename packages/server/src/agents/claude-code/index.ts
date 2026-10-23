@@ -45,6 +45,7 @@ import { ModelVariantRegistry } from './model-variants.js';
 import { autoAnswerResumeDialog } from './resume-dialog.js';
 import { createClaudeCodeHandback } from './handback.js';
 import { sessionFilePath } from './paths.js';
+import { createClaudeCodeQueueEdit } from './queue-edit.js';
 import { createClaudeCodeRewind } from './rewind-menu.js';
 import { createClaudeCodeScreenQuestions } from './question-screen.js';
 import {
@@ -91,6 +92,8 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: false,
   // Su tecla de "enviar ya", Ctrl+X Ctrl+S, medida con la 2.1.301 (hito 45, §4.4.3).
   forceSend: true,
+  // La flecha arriba saca la cola a su caja, y Ctrl+U Ctrl+K la vacian sin cortar el turno (2.1.309, §6.35.1).
+  editQueue: true,
   /*
     Hito 49: `--permission-mode plan`. Medido con la 2.1.304 y el pedido de
     revision: corrio git log, diff y status sin pedir permiso, no ofrecio salir
@@ -273,6 +276,9 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
 
     // La cola la dice el JSONL (hito 45, §4.4.3), y "enviar ya" es su tecla.
     promptQueue: { source: 'session', forceSend: 'ctrl-x-ctrl-s' },
+
+    // Sacar la cola para editarla en el cuadro (§6.35.1): lo que salio lo dice el JSONL.
+    queueEdit: createClaudeCodeQueueEdit(),
 
     defaults: (cwd, sessionModel) => readAgentDefaults(cwd, sessionModel ?? null),
 

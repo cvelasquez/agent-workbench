@@ -74,6 +74,7 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: false,
   // No hace cola: un mensaje con el agente trabajando le llega al modelo en el acto (hito 45).
   forceSend: false,
+  editQueue: false,
   /*
     Hito 49: `--sandbox read-only`, al abrir y al reanudar. Medido con la 0.162.1
     y un proveedor falso: con la sandbox de Windows del usuario, escribir fallo

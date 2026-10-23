@@ -1432,6 +1432,8 @@ export function App(): JSX.Element {
           rewindBlocked={activeActivity !== 'idle'}
           // Forzar el envio de lo que espera en la cola le escribe a la CLI: sin proceso, no se ofrece (hito 45).
           forceSendAvailable={activeControls.forceSend && activeTerminal?.alive === true}
+          // Sacar la cola para editarla tambien le escribe a la CLI (§6.35.1).
+          queueEditAvailable={activeControls.editQueue && activeTerminal?.alive === true}
           questionsAnswerable={activeControls.questionsAnswerable}
           contextWindowSource={activeControls.contextWindowSource}
           instructionsFile={instructionsFileFor(activeAgent)}
@@ -1533,6 +1535,21 @@ export function App(): JSX.Element {
           }}
           fontSize={threadFont.size}
           insertRef={composerInsertRef}
+          /*
+            La flecha arriba con el cuadro vacio saca la cola, como en la CLI
+            (§6.35.1): solo si hay algo que sacar y se puede. Si no, la flecha
+            hace lo de siempre.
+          */
+          onEditQueue={
+            activeControls.editQueue &&
+            activeTerminal.alive &&
+            conversation.queue.length > 0 &&
+            conversation.queue.every((prompt) => prompt.forced !== true) &&
+            conversation.waitingFor === null &&
+            !conversation.editingQueue
+              ? conversation.editQueue
+              : undefined
+          }
           leading={
             activeControls.modeCycle === null ? undefined : (
               <ModeControl

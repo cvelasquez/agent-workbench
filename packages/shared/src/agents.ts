@@ -281,6 +281,13 @@ export interface AgentCapabilities {
    */
   forceSend: boolean;
   /**
+   * Editar lo que espera en la cola (§6.35.1): la app sabe sacarlo de la cola
+   * de la CLI y traerlo al cuadro, con la tecla de la CLI (la flecha arriba, o
+   * la de Pi) y comprobando en su pantalla que salio y que su caja quedo vacia.
+   * Medido por CLI; como, lo decide el servidor (`AgentAdapter.queueEdit`).
+   */
+  editQueue: boolean;
+  /**
    * Hito 49. Como arranca la CLI que revisa una rama aparte sin tocarla, o null
    * si no tiene un modo medido para eso: ahi la pestana de revision arranca
    * como cualquier otra, y el dialogo lo dice antes de pedir nada.
@@ -325,6 +332,7 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   plans: false,
   waitingBlocksSubmit: false,
   forceSend: false,
+  editQueue: false,
   readOnlyLaunch: null,
 };
 
@@ -515,6 +523,7 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     plans: record['plans'] === true,
     waitingBlocksSubmit: record['waitingBlocksSubmit'] === true,
     forceSend: record['forceSend'] === true,
+    editQueue: record['editQueue'] === true,
     // Ausente en un servidor anterior al hito 49: ninguna CLI se ofrece en solo lectura.
     readOnlyLaunch: parseReadOnlyLaunch(record['readOnlyLaunch']),
   };

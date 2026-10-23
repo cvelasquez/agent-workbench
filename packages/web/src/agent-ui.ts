@@ -435,6 +435,8 @@ export interface AgentControlsView {
   noteSendable: boolean;
   /** "Forzar envio ahora" en los mensajes en cola (hito 45). */
   forceSend: boolean;
+  /** "Editar" en los mensajes en cola, y la flecha arriba en el cuadro vacio (§6.35.1). */
+  editQueue: boolean;
 }
 
 export function controlsFor(capabilities: AgentCapabilities, review = false): AgentControlsView {
@@ -458,6 +460,7 @@ export function controlsFor(capabilities: AgentCapabilities, review = false): Ag
     // de pegar: sin esa senal, la pestana se abriria para nada.
     noteSendable: capabilities.readySignal,
     forceSend: capabilities.forceSend,
+    editQueue: capabilities.editQueue,
   };
 }
 

@@ -2549,6 +2549,7 @@ const throwsOn = (run) => {
     plans: false,
     waitingBlocksSubmit: false,
     forceSend: false,
+    editQueue: false,
     // Hito 49: la sandbox de solo lectura, medida con la 0.162.1 (§10.15).
     readOnlyLaunch: { mode: null, guard: 'cli' },
   }), show(adapter.capabilities));

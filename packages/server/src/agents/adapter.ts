@@ -652,6 +652,55 @@ export interface PromptQueueSupport {
   readonly forceSend: ForceSendMethod | null;
 }
 
+// ---- Sacar la cola para editarla (§6.35.1) --------------------------------------
+
+/** Lo que el socket le da al driver que saca la cola de la CLI. */
+export interface QueueEditContext {
+  /** La sesion de la pestana: Claude Code lee ahi lo que la CLI saco. null si no tiene. */
+  target: { cwd: string; sessionId: string } | null;
+  /**
+   * Lo que la app lleva en cola (`PromptQueueSupport.source` `app`), en orden y
+   * entero: es lo que vuelve al cuadro. Vacio si la cola la dice el historial.
+   */
+  queued: readonly string[];
+  /** Epoch ms de la ultima tecla de vaciar que paso por esa pty (`queued-submits.ts`), o null. */
+  lastClearKeyAt: number | null;
+}
+
+/**
+ * Por que no se pudo. Salvo `not-cleared`, el mensaje no quedo en la caja de
+ * la CLI: sigue en la cola, o la CLI ya lo habia entregado.
+ *
+ *  - `editor-busy`: la caja de la CLI tiene texto. No se escribio nada.
+ *  - `no-queue-on-screen`: la CLI no muestra nada en cola. No se escribio nada.
+ *  - `not-restored`: la tecla no saco nada a la caja.
+ *  - `delivered`: la CLI ya lo habia entregado; lo que la tecla trajo (el
+ *    mensaje anterior del historial) se vacio.
+ *  - `not-cleared`: salio de la cola, pero la caja no quedo vacia: esta ahi.
+ *  - `gone`: la terminal ya no estaba.
+ */
+export type QueueEditFailure = 'editor-busy' | 'no-queue-on-screen' | 'not-restored' | 'delivered' | 'not-cleared' | 'gone';
+
+export type QueueEditOutcome =
+  | {
+      kind: 'done';
+      /** Lo que salio de la cola, en orden. Vacio: lo que la app llevaba (`QueueEditContext.queued`). */
+      texts: readonly string[];
+    }
+  | { kind: 'failed'; reason: QueueEditFailure };
+
+/**
+ * Presente en la CLI cuya cola la app sabe sacar para editarla (§6.35.1): la
+ * tecla con que la CLI la devuelve a su caja, la comprobacion en pantalla de
+ * que salio, y vaciar esa caja sin cortar el turno. Solo con la capacidad
+ * `editQueue`. Como el menu de rewind (§4.16), es una excepcion declarada a
+ * que un adaptador no teclee en la pty, y por la misma razon: cada paso depende
+ * de lo que muestra la pantalla. `io.screen` es la pantalla emulada de la pestana.
+ */
+export interface QueueEditDriver {
+  run(io: RewindIo, context: QueueEditContext): Promise<QueueEditOutcome>;
+}
+
 // ---- Volver a antes de un mensaje (hito 44) ------------------------------------
 
 /** Lo que el socket le pide al menu de rewind de la CLI. */
@@ -954,6 +1003,11 @@ export interface AgentAdapter {
    * acto) o no esta medida.
    */
   readonly promptQueue?: PromptQueueSupport;
+  /**
+   * Presente si la app sabe sacar la cola de la CLI para editarla (§6.35.1).
+   * Solo con la capacidad `editQueue`. Ver `QueueEditDriver`.
+   */
+  readonly queueEdit?: QueueEditDriver;
   /**
    * Presente si la app puede manejar el menu de rewind de la CLI (hito 44).
    * Solo con la capacidad `rewind`. Ver `RewindDriver`.

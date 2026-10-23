@@ -727,6 +727,20 @@ export class ConversationHub extends EventEmitter {
     return this.computeQueue(terminalId).length > 0;
   }
 
+  /** La cola de ahora, sin tocar lo avisado. La mira el socket antes de sacarla para editarla (§6.35.1). */
+  queueSnapshot(terminalId: TerminalId): QueuedPrompt[] {
+    return this.computeQueue(terminalId);
+  }
+
+  /**
+   * Los textos enteros de lo que la app lleva en cola (`source: 'app'`), en
+   * orden: lo que vuelve al cuadro al sacarla para editarla. Vacio si la cola la
+   * dice el historial.
+   */
+  appQueueTexts(terminalId: TerminalId): string[] {
+    return this.appQueue.texts(terminalId);
+  }
+
   /**
    * La app termino de escribirle un mensaje a una CLI cuya cola no queda
    * escrita (`source: 'app'`), con el agente trabajando: queda en cola hasta
@@ -737,7 +751,7 @@ export class ConversationHub extends EventEmitter {
     this.refreshQueue(terminalId);
   }
 
-  /** Lo que la app llevaba en cola ya no esta ahi: Detener se lo devolvio al cuadro. */
+  /** Lo que la app llevaba en cola ya no esta ahi: Detener se lo devolvio al cuadro, o se saco para editarlo. */
   clearQueued(terminalId: TerminalId): void {
     if (this.appQueue.clear(terminalId)) this.refreshQueue(terminalId);
   }

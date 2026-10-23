@@ -393,6 +393,11 @@ interface ConversationViewProps {
    * cola y esta abierta (hito 45, §6.35). Sin eso la cola se ve, sin boton.
    */
   forceSendAvailable?: boolean;
+  /**
+   * true si la CLI de la pestana sabe sacar su cola para editarla y esta
+   * abierta (§6.35.1). Sin eso, las burbujas en cola no ofrecen Editar.
+   */
+  queueEditAvailable?: boolean;
   /** Los limites del plan de la cuenta de la CLI de la pestana (hito 47, §6.37); [] si nada. */
   planWindows?: readonly PlanLimitWindow[];
   /** Como esta la status line que publica esos limites, o null si la CLI no tiene una aparte. */
@@ -439,6 +444,7 @@ export function ConversationView({
   clock = null,
   fileLinks = null,
   forceSendAvailable = false,
+  queueEditAvailable = false,
   planWindows = [],
   planSetupState = null,
   onConfigurePlanLimits,
@@ -454,6 +460,8 @@ export function ConversationView({
     queue,
     forceSend,
     forcing,
+    editQueue,
+    editingQueue,
     hasMore,
     loadingMore,
     loadMore,
@@ -1178,6 +1186,10 @@ export function ConversationView({
               forceBlocked={waitingFor !== null}
               forcing={forcing}
               onForce={forceSend}
+              // Lo forzado ya se le esta pasando al agente: no queda nada que sacar.
+              canEdit={queueEditAvailable && queue.every((prompt) => prompt.forced !== true)}
+              editing={editingQueue}
+              onEdit={editQueue}
             />
           )}
         </div>
@@ -1594,6 +1606,9 @@ function QueuedPrompts({
   forceBlocked,
   forcing,
   onForce,
+  canEdit,
+  editing,
+  onEdit,
 }: {
   queue: readonly QueuedPrompt[];
   canForce: boolean;
@@ -1601,6 +1616,10 @@ function QueuedPrompts({
   forceBlocked: boolean;
   forcing: boolean;
   onForce: () => void;
+  /** Editar en cada burbuja (§6.35.1): saca toda la cola, porque la CLI no saca una sola. */
+  canEdit: boolean;
+  editing: boolean;
+  onEdit: () => void;
 }): JSX.Element {
   return (
     <div className="queued-prompts">
@@ -1619,6 +1638,17 @@ function QueuedPrompts({
             >
               {prompt.forced === true ? t('thread.queue.forced') : t('thread.queue.label')}
             </span>
+            {canEdit && (
+              <button
+                className="queued-edit"
+                onClick={onEdit}
+                disabled={editing || forcing || forceBlocked}
+                aria-busy={editing}
+                title={forceBlocked ? t('thread.queue.forceBlocked') : t('thread.queue.editTitle', { count: queue.length })}
+              >
+                {editing ? t('thread.queue.editing') : t('thread.queue.edit')}
+              </button>
+            )}
           </div>
         </article>
       ))}
@@ -1627,7 +1657,7 @@ function QueuedPrompts({
           <button
             className="queued-force"
             onClick={onForce}
-            disabled={forcing || forceBlocked}
+            disabled={forcing || forceBlocked || editing}
             aria-busy={forcing}
             title={forceBlocked ? t('thread.queue.forceBlocked') : t('thread.queue.forceSendTitle')}
           >

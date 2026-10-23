@@ -12,11 +12,12 @@
  *  - cuando su mensaje aparece en el hilo: un mensaje del usuario de despues de
  *    mandarlo, con su texto (`settle`);
  *  - cuando la pestana queda sin proceso, o libre un rato (lo decide el hub);
- *  - cuando Detener le devuelve el texto al cuadro (Pi, hito 43).
+ *  - cuando Detener le devuelve el texto al cuadro (Pi, hito 43), o cuando el
+ *    usuario la saca para editarla desde el hilo (§6.35.1).
  *
- * Lo que se escribe en la solapa CLI no pasa por aca, y la flecha arriba de la
- * CLI —que devuelve la cola a su editor— no deja rastro: la burbuja sigue hasta
- * que la CLI queda libre. Son los dos limites de esta fuente.
+ * Lo que se escribe en la solapa CLI no pasa por aca, y la flecha arriba
+ * tecleada ahi —que devuelve la cola a su editor— no deja rastro: la burbuja
+ * sigue hasta que la CLI queda libre. Son los dos limites de esta fuente.
  *
  * Puro: lo prueba `check-pi-adapter.mjs` sin pty.
  */
@@ -121,6 +122,11 @@ export class AppPromptQueue {
     const had = (this.byTerminal.get(terminalId)?.length ?? 0) > 0;
     this.byTerminal.delete(terminalId);
     return had;
+  }
+
+  /** Los textos enteros, en orden: lo que vuelve al cuadro al sacar la cola para editarla (§6.35.1). */
+  texts(terminalId: TerminalId): string[] {
+    return (this.byTerminal.get(terminalId) ?? []).map((entry) => entry.text.trim()).filter((text) => text.length > 0);
   }
 
   list(terminalId: TerminalId): QueuedPrompt[] {

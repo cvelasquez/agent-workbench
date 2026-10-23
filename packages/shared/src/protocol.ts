@@ -71,7 +71,11 @@
  * y, opcional, dentro del `conversation.append` que la cambio; y el pedido
  * `agent.forceSend` con su respuesta `agent.forceSent` y el error
  * `force-send-failed`. Un servidor anterior no manda cola ni contesta el pedido,
- * y la web no ofrece el boton sin la capacidad `forceSend`.
+ * y la web no ofrece el boton sin la capacidad `forceSend`. Despues, tambien sin
+ * subirla (§6.35.1): `agent.editQueue` con su respuesta `agent.queueEdited`, el
+ * error `queue-edit-failed` y el motivo `queue-edit` de `composer.prefill`. Un
+ * servidor anterior no contesta el pedido, y la web no ofrece editar la cola
+ * sin la capacidad `editQueue`.
  *
  * Y el hito 47, sin subir la version (§6.37): `plan.limits`, los limites del
  * plan de cada CLI, y `planLimitsSetup` en `AgentInfo`. Un servidor anterior no
@@ -434,6 +438,22 @@ export interface ClientInterruptMessage {
  */
 export interface ClientForceSendMessage {
   type: 'agent.forceSend';
+  terminalId: TerminalId;
+  requestId: string;
+}
+
+/**
+ * Sacar de la cola de la CLI lo que espera, para editarlo en el cuadro
+ * (§6.35.1), como la flecha arriba de la CLI. Salen **todos** los mensajes en
+ * cola, juntos: la CLI no saca uno solo. Viaja el pedido y no las teclas: las
+ * de cada CLI, y como se comprueba en su pantalla que salieron, las decide el
+ * servidor. Solo con la capacidad `editQueue`, algo en cola y la CLI sin
+ * esperar al usuario. El texto llega en un `composer.prefill` con `queue-edit`,
+ * y despues `agent.queueEdited`, una sola vez, con un `error` antes si no se
+ * hizo.
+ */
+export interface ClientEditQueueMessage {
+  type: 'agent.editQueue';
   terminalId: TerminalId;
   requestId: string;
 }
@@ -1320,6 +1340,7 @@ export type ClientMessage =
   | ClientArchiveSessionsMessage
   | ClientInterruptMessage
   | ClientForceSendMessage
+  | ClientEditQueueMessage
   | ClientRewindMessage
   | ClientResizeMessage
   | ClientOpenTerminalMessage
@@ -1660,6 +1681,18 @@ export interface ServerAgentForceSentMessage {
   terminalId: TerminalId;
   requestId: string;
   sent: boolean;
+}
+
+/**
+ * Como termino un `agent.editQueue` (§6.35.1). Solo al socket que lo pidio, y
+ * una sola vez. `edited`: la cola salio de la CLI y su texto ya llego en un
+ * `composer.prefill`; false, el motivo ya llego en su `error`.
+ */
+export interface ServerAgentQueueEditedMessage {
+  type: 'agent.queueEdited';
+  terminalId: TerminalId;
+  requestId: string;
+  edited: boolean;
 }
 
 /**
@@ -2097,7 +2130,9 @@ export type ComposerPrefillReason =
   | 'stopped-early'
   | 'rewound'
   /** Hito 48: lo pidio el usuario en un dialogo de la app (las notas de una rama aparte). Sin aviso. */
-  | 'requested';
+  | 'requested'
+  /** §6.35.1: lo que esperaba en la cola de la CLI, que el usuario saco para editarlo. */
+  | 'queue-edit';
 export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
   'no-delivery',
   'not-ready',
@@ -2106,6 +2141,7 @@ export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
   'stopped-early',
   'rewound',
   'requested',
+  'queue-edit',
 ];
 
 /**
@@ -2217,6 +2253,11 @@ export type ServerErrorCode =
   | 'rewind-failed'
   /** Un `agent.forceSend` que no se hizo (hito 45). No se escribio nada en la pty. */
   | 'force-send-failed'
+  /**
+   * Un `agent.editQueue` que no se hizo (§6.35.1). El texto dice por que y
+   * donde quedo el mensaje: en la cola, en la caja de la CLI o ya entregado.
+   */
+  | 'queue-edit-failed'
   /** Un `files.write` que no se pudo hacer (Hito 46). El archivo quedo como estaba. */
   | 'write-failed'
   /** Un pedido `worktree.*` que no se pudo cumplir (hito 48). El texto dice por que. */
@@ -2256,6 +2297,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'settings-failed',
   'rewind-failed',
   'force-send-failed',
+  'queue-edit-failed',
   'write-failed',
   'worktree-failed',
   'remote-refused',
@@ -2383,6 +2425,7 @@ export type ServerMessage =
   | ServerConversationLiveQuestionMessage
   | ServerAgentSubmittedMessage
   | ServerAgentForceSentMessage
+  | ServerAgentQueueEditedMessage
   | ServerAgentRewoundMessage
   | ServerConversationPageMessage
   | ServerConversationStateMessage
@@ -2566,6 +2609,11 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const terminalId = asNonEmptyString(record['terminalId']);
       const requestId = asNonEmptyString(record['requestId']);
       return terminalId === null || requestId === null ? null : { type: 'agent.forceSend', terminalId, requestId };
+    }
+    case 'agent.editQueue': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      return terminalId === null || requestId === null ? null : { type: 'agent.editQueue', terminalId, requestId };
     }
     case 'agent.rewind': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -3315,6 +3363,14 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || requestId === null || sent === null
         ? null
         : { type: 'agent.forceSent', terminalId, requestId, sent };
+    }
+    case 'agent.queueEdited': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const edited = asBoolean(record['edited']);
+      return terminalId === null || requestId === null || edited === null
+        ? null
+        : { type: 'agent.queueEdited', terminalId, requestId, edited };
     }
     case 'agent.submitted': {
       const terminalId = asNonEmptyString(record['terminalId']);

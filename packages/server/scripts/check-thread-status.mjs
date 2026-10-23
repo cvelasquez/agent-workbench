@@ -1053,6 +1053,290 @@ const humanQueued = (uuid, prompt, seconds) => ({
   check('10.61 Antigravity: Alt+M, Esc pegado a la letra', buildForceSendKeys('alt-m') === '\x1bm');
 }
 
+// --- 11. Sacar la cola para editarla (§6.35.1) ------------------------------------
+//
+// Las pantallas son las medidas el 23-10-2026 (Claude Code 2.1.309, Pi 1.3.0 y
+// Antigravity 1.4.4, `c13` a `c15`, `s15`, `a16` y `a17`). Cada CLI de mentira
+// cambia su pantalla con las teclas que se midieron, y nada mas.
+
+const RULE = '─'.repeat(60);
+const UP = '\x1b[A';
+const CLEAR_LINE = '\x15\x0b';
+
+/** Una CLI de mentira: la pantalla cambia con cada write segun `onWrite`. Reloj propio. */
+function fakeCli(lines, onWrite, startAt = Date.parse('2026-10-23T15:36:05.000Z')) {
+  const state = { lines, writes: [], clock: startAt, jsonl: [] };
+  const io = {
+    write: (data) => {
+      state.writes.push(data);
+      onWrite(data, state);
+      return true;
+    },
+    screen: async () => state.lines,
+    wait: async (ms) => {
+      state.clock += ms;
+    },
+    now: () => state.clock,
+  };
+  return { io, state };
+}
+
+/** Cuantas veces dos teclas de borrar (Ctrl+U Ctrl+K) van en un write. */
+const clearPairs = (data) => (data.length > 0 && data.replaceAll(CLEAR_LINE, '').length === 0 ? data.length / CLEAR_LINE.length : 0);
+
+// Claude Code: la caja va entre dos reglas, con la marca y un espacio duro.
+{
+  const { readClaudeCodeBox, poppedPromptsIn, runClaudeCodeQueueEdit } = await import('../src/agents/claude-code/queue-edit.ts');
+  const NB = '\u00a0';
+  const screen = (box, top = RULE) => [
+    '✻ Moonwalking… (8s · ↓ 122 tokens)',
+    '',
+    top,
+    ...box.map((line, index) => (index === 0 ? `❯${NB}${line}`.trimEnd() : `  ${line}`)),
+    RULE,
+    '  5h 12% (3h 23m) · week 23% (3d 0h)',
+    '  paste again to expand',
+  ];
+  const HINT = ['Press up to edit queued messages'];
+  const POPPED = ['Mensaje B en cola', '[Pasted text #1 +4 lines]'];
+  const B = 'Mensaje B en cola';
+  const C = 'Mensaje C en cola\nsegunda linea\ntercera linea\ncuarta linea\nquinta linea';
+  const popAll = (content, clock) => JSON.stringify({ type: 'queue-operation', operation: 'popAll', timestamp: new Date(clock).toISOString(), sessionId: 's', content });
+  const target = { cwd: 'D:\\p', sessionId: 's' };
+  const context = { target, queued: [], lastClearKeyAt: null };
+  const deps = (state) => ({ popped: async (_target, since) => poppedPromptsIn(state.jsonl, since) });
+  const timing = { step: { timeoutMs: 500, pollMs: 50 }, popTimeoutMs: 500 };
+
+  check('11.1 la caja medida: lo de la cola, el texto que volvio, vacia, y el historial',
+    json(readClaudeCodeBox(screen(HINT))) === json(HINT) &&
+      json(readClaudeCodeBox(screen(POPPED))) === json(POPPED) &&
+      json(readClaudeCodeBox(screen(['']))) === json(['']) &&
+      json(readClaudeCodeBox(screen(['Usa una herramienta…', 'solo con la palabra LISTO.'], `─── History 94/94 ${RULE}`))) ===
+        json(['Usa una herramienta…', 'solo con la palabra LISTO.']));
+
+  /*
+    La de mentira: la flecha saca la cola a la caja y escribe un popAll por
+    mensaje; Ctrl+U Ctrl+K borran de a una linea; Ctrl+C con el agente
+    trabajando cortaria el turno, y aca deja marca.
+  */
+  const cli = ({ queue = [B, `<pasted_content id="ae90">\n${C}\n</pasted_content id="ae90">`], box = HINT, history = null, upWorks = true, clearWorks = true } = {}) =>
+    fakeCli(screen(box), (data, state) => {
+      if (data === UP && upWorks) {
+        if (queue.length > 0) {
+          for (const content of queue) state.jsonl.push(popAll(content, state.clock + 140));
+          state.lines = screen(POPPED);
+          queue = [];
+        } else if (history !== null) {
+          state.lines = screen(history, `─── History 94/94 ${RULE}`);
+        }
+        return;
+      }
+      if (data.includes('\x03')) state.interrupted = true;
+      const pairs = clearPairs(data);
+      if (pairs > 0 && clearWorks) {
+        const current = readClaudeCodeBox(state.lines) ?? [''];
+        const left = current.slice(0, Math.max(0, current.length - pairs));
+        state.lines = screen(left.length === 0 ? [''] : left);
+      }
+    });
+
+  {
+    const { io, state } = cli();
+    const outcome = await runClaudeCodeQueueEdit(io, context, deps(state), timing);
+    check('11.2 la cola sale con la flecha y vuelve entera, sin el envoltorio de lo pegado',
+      outcome.kind === 'done' && json(outcome.texts) === json([B, C]), json(outcome));
+    check('11.3 la primera tecla es la flecha, despues solo Ctrl+U Ctrl+K, y nunca un Ctrl+C (corta el turno, c13)',
+      state.writes[0] === UP && state.writes.slice(1).every((data) => clearPairs(data) > 0) && state.interrupted !== true,
+      json(state.writes));
+    check('11.4 la caja queda vacia', json(readClaudeCodeBox(state.lines)) === json(['']));
+  }
+  {
+    const { io, state } = cli({ box: ['algo que tecleo en la solapa CLI'] });
+    const outcome = await runClaudeCodeQueueEdit(io, context, deps(state), timing);
+    check('11.5 con texto en la caja no se escribe nada', outcome.kind === 'failed' && outcome.reason === 'editor-busy' && state.writes.length === 0, json(outcome));
+  }
+  {
+    const { io, state } = cli({ box: [''] });
+    const outcome = await runClaudeCodeQueueEdit(io, context, deps(state), timing);
+    check('11.6 sin lo de la cola en la caja no se escribe nada', outcome.kind === 'failed' && outcome.reason === 'no-queue-on-screen' && state.writes.length === 0, json(outcome));
+  }
+  {
+    // La CLI lo entrego justo antes: la flecha trae el historial, sin popAll.
+    const { io, state } = cli({ queue: [], history: ['Mensaje B en cola'] });
+    const outcome = await runClaudeCodeQueueEdit(io, context, deps(state), timing);
+    check('11.7 sin popAll, lo que trajo la flecha es el historial: se vacia y no vuelve nada',
+      outcome.kind === 'failed' && outcome.reason === 'delivered' && json(readClaudeCodeBox(state.lines)) === json(['']), json(outcome));
+  }
+  {
+    const { io, state } = cli({ upWorks: false });
+    const outcome = await runClaudeCodeQueueEdit(io, context, deps(state), timing);
+    check('11.8 si la flecha no saca nada, no se borra nada', outcome.kind === 'failed' && outcome.reason === 'not-restored' && state.writes.length === 1, json(state.writes));
+  }
+  {
+    const { io, state } = cli({ clearWorks: false });
+    const outcome = await runClaudeCodeQueueEdit(io, context, deps(state), timing);
+    check('11.9 si la caja no se vacia, no vuelve nada al cuadro: el texto sigue en la CLI',
+      outcome.kind === 'failed' && outcome.reason === 'not-cleared', json(outcome));
+  }
+  {
+    const since = Date.parse('2026-10-23T15:36:05.000Z');
+    const lines = [
+      popAll('de antes, sacado a mano en la solapa CLI', since - 60_000),
+      popAll('<task-notification>\n<status>completed</status>\n</task-notification>', since + 100),
+      popAll(`mira esto @"${path.join(root, 'temporal', 'agent-workbench', 'pasted', 't1', 'pegada-1-0a1b2c3d.png')}"`, since + 100),
+      '{"type":"queue-operation","operation":"enqueue","timestamp":"2026-10-23T15:36:05.200Z","content":"otro"}',
+      'no es json',
+    ];
+    check('11.10 poppedPromptsIn: solo los de despues de la flecha, del usuario, y sin las imagenes',
+      json(poppedPromptsIn(lines, since)) === json(['mira esto']), json(poppedPromptsIn(lines, since)));
+  }
+}
+
+// Pi: Alt+Q devuelve la cola al editor, Ctrl+C lo vacia.
+{
+  const { readPiQueueScreen, runPiQueueEdit, piDequeueKeys } = await import('../src/agents/pi/queue-edit.ts');
+  const screen = ({ above = [' Steering: Mensaje B en cola', ' ↳ Alt+Q to edit all queued messages'], editor = [''] } = {}) => [
+    ' Elapsed 4.2s',
+    ...above,
+    '',
+    `── ⠸ Working ${'─'.repeat(50)}`,
+    ...editor,
+    RULE,
+    'D:\\pi-fase0\\proyecto',
+    '↑1.2k ↓50 $0.003 (sub) 0.4%/272k (auto)        gpt-5.6-terra • low',
+  ];
+  const timing = { step: { timeoutMs: 500, pollMs: 50 }, clearGapMs: 750 };
+  const ALT_Q = piDequeueKeys('win32');
+  const restored = ['Mensaje B en cola', '', 'Mensaje C en cola', 'segunda linea'];
+  const cli = ({ lines = screen(), dequeue = 'restore' } = {}) =>
+    fakeCli(lines, (data, state) => {
+      if (data === ALT_Q) {
+        if (dequeue === 'restore') state.lines = screen({ above: [' Restored 2 queued messages to editor'], editor: restored });
+        if (dequeue === 'nothing') state.lines = screen({ above: [' No queued messages to restore'] });
+        return;
+      }
+      if (data === '\x03') {
+        state.clearedAt = state.clock;
+        state.lines = screen({ above: [' Restored 2 queued messages to editor'] });
+      }
+    });
+
+  check('11.20 Alt+Q en Windows, un solo write; fuera, Alt+Up (sin medir)', ALT_Q === '\x1bq' && piDequeueKeys('linux') === '\x1b[1;3A');
+  const measured = readPiQueueScreen(screen());
+  const after = readPiQueueScreen(screen({ above: [' Restored 2 queued messages to editor'], editor: restored }));
+  check('11.21 la pantalla medida: algo en cola con el editor vacio, y despues el editor con la cola',
+    measured?.queued === true && json(measured.editor) === '[]' && after?.queued === false && json(after.editor) === json(restored), json([measured, after]));
+  {
+    const { io, state } = cli();
+    const outcome = await runPiQueueEdit(io, { target: null, queued: ['Mensaje B en cola'], lastClearKeyAt: state.clock - 100 }, ALT_Q, timing);
+    check('11.22 Alt+Q y Ctrl+C: vuelve lo que la app llevaba (texts vacio) y el editor queda vacio',
+      outcome.kind === 'done' && outcome.texts.length === 0 && json(state.writes) === json([ALT_Q, '\x03']), json([outcome, state.writes]));
+    check('11.23 el Ctrl+C espera lo que falta desde el anterior: dos seguidos cierran Pi',
+      state.clearedAt !== undefined && state.clearedAt - (Date.parse('2026-10-23T15:36:05.000Z') - 100) >= 750);
+  }
+  {
+    const { io, state } = cli({ dequeue: 'nothing' });
+    const outcome = await runPiQueueEdit(io, { target: null, queued: ['x'], lastClearKeyAt: null }, ALT_Q, timing);
+    check('11.24 "No queued messages": ya lo entrego, y no se manda ningun Ctrl+C',
+      outcome.kind === 'failed' && outcome.reason === 'delivered' && json(state.writes) === json([ALT_Q]), json([outcome, state.writes]));
+  }
+  {
+    const { io, state } = cli({ lines: screen({ editor: ['algo a medio escribir'] }) });
+    const outcome = await runPiQueueEdit(io, { target: null, queued: ['x'], lastClearKeyAt: null }, ALT_Q, timing);
+    check('11.25 con texto en el editor no se escribe nada: el Ctrl+C se lo llevaria',
+      outcome.kind === 'failed' && outcome.reason === 'editor-busy' && state.writes.length === 0, json(outcome));
+  }
+}
+
+// Antigravity: la flecha devuelve la cola al editor, Ctrl+U Ctrl+K lo vacian.
+{
+  const { readAntigravityQueueScreen, runAntigravityQueueEdit } = await import('../src/agents/antigravity/queue-edit.ts');
+  const screen = ({ editor = [''], footer = '  Press up to edit queued messages                 accept-edits · Gemini 3.8 Flash · high' } = {}) => [
+    '⣯  Generating...',
+    '└ Tip: Use /cs to search in your codebase.',
+    '▸ Mensaje B en cola',
+    '▸ Mensaje C en cola... (alt+m to send immediately)',
+    RULE,
+    ...editor.map((line, index) => (index === 0 ? `> ${line}`.trimEnd() : `  ${line}`)),
+    RULE,
+    footer,
+  ];
+  const BUSY = 'esc to cancel                                      accept-edits · Gemini 3.8 Flash · high';
+  const queued = ['Mensaje B en cola', 'Mensaje C en cola\nsegunda linea\ntercera linea'];
+  const cli = ({ lines = screen(), shows = ['Mensaje B en cola', 'Mensaje C en cola', 'segunda linea', 'tercera linea'] } = {}) =>
+    fakeCli(lines, (data, state) => {
+      if (data === UP) {
+        state.lines = screen({ editor: shows, footer: BUSY });
+        return;
+      }
+      if (data.includes('\x03')) state.interrupted = true;
+      const pairs = clearPairs(data);
+      if (pairs > 0) {
+        const current = readAntigravityQueueScreen(state.lines)?.editor ?? [];
+        const left = current.slice(0, Math.max(0, current.length - pairs));
+        state.lines = screen({ editor: left.length === 0 ? [''] : left, footer: BUSY });
+      }
+    });
+  const timing = { timeoutMs: 500, pollMs: 50 };
+
+  const measured = readAntigravityQueueScreen(screen());
+  check('11.30 la pantalla medida: el editor vacio y lo de la cola en el pie',
+    measured?.queued === true && json(measured.editor) === '[]', json(measured));
+  {
+    const { io, state } = cli();
+    const outcome = await runAntigravityQueueEdit(io, { target: null, queued, lastClearKeyAt: null }, timing);
+    check('11.31 la flecha y Ctrl+U Ctrl+K: vuelve lo que la app llevaba, sin Ctrl+C',
+      outcome.kind === 'done' && state.writes[0] === UP && state.interrupted !== true &&
+        json(readAntigravityQueueScreen(state.lines)?.editor) === '[]', json([outcome, state.writes]));
+  }
+  {
+    // La entrego al terminar el turno: la flecha trae el ultimo mandado, que no es el primero de la cola.
+    const { io, state } = cli({ shows: ['Mensaje C en cola', 'segunda linea', 'tercera linea'] });
+    const outcome = await runAntigravityQueueEdit(io, { target: null, queued, lastClearKeyAt: null }, timing);
+    check('11.32 si el editor no empieza con el primero de la cola, era el historial: se vacia y no vuelve',
+      outcome.kind === 'failed' && outcome.reason === 'delivered' && json(readAntigravityQueueScreen(state.lines)?.editor) === '[]', json(outcome));
+  }
+  {
+    const { io, state } = cli({ lines: screen({ footer: BUSY }) });
+    const outcome = await runAntigravityQueueEdit(io, { target: null, queued, lastClearKeyAt: null }, timing);
+    check('11.33 sin "Press up to edit queued messages" no se escribe nada',
+      outcome.kind === 'failed' && outcome.reason === 'no-queue-on-screen' && state.writes.length === 0, json(outcome));
+  }
+  {
+    const long = `${'palabra '.repeat(30)}fin`;
+    // La pantalla corta donde cae: en un espacio (que se pierde al recortar) o en medio de una palabra.
+    const { io } = cli({ shows: ['palabra palabra', 'palabra palabra pal', 'abra palabra palabra'] });
+    const outcome = await runAntigravityQueueEdit(io, { target: null, queued: [long], lastClearKeyAt: null }, timing);
+    check('11.34 un mensaje largo cortado en un espacio o en medio de una palabra se reconoce igual', outcome.kind === 'done', json(outcome));
+  }
+}
+
+// La cola de la app da los textos enteros, y el protocolo.
+{
+  const { AppPromptQueue } = await import('../src/app-prompt-queue.ts');
+  const queue = new AppPromptQueue();
+  const long = 'x'.repeat(shared.MAX_QUEUED_PROMPT_CHARS + 50);
+  queue.note('t1', { text: '  uno  ', images: 0, at: 1 });
+  queue.note('t1', { text: long, images: 0, at: 2 });
+  queue.note('t1', { text: '', images: 1, at: 3 });
+  check('11.40 los textos de la cola de la app van enteros, en orden y sin los vacios',
+    json(queue.texts('t1')) === json(['uno', long]) && queue.list('t1')[1].truncated === true);
+
+  const { parseClientMessage, parseServerMessage } = shared;
+  const ask = parseClientMessage(JSON.stringify({ type: 'agent.editQueue', terminalId: 't1', requestId: 'r1' }));
+  check('11.41 agent.editQueue con su requestId; sin el, no se lee',
+    ask?.type === 'agent.editQueue' && ask.requestId === 'r1' &&
+      parseClientMessage(JSON.stringify({ type: 'agent.editQueue', terminalId: 't1' })) === null);
+  const answer = parseServerMessage(JSON.stringify({ type: 'agent.queueEdited', terminalId: 't1', requestId: 'r1', edited: true }));
+  check('11.42 agent.queueEdited, hecho o no; sin edited no se lee',
+    answer?.type === 'agent.queueEdited' && answer.edited === true &&
+      parseServerMessage(JSON.stringify({ type: 'agent.queueEdited', terminalId: 't1', requestId: 'r1' })) === null);
+  const failed = parseServerMessage(JSON.stringify({ type: 'error', code: 'queue-edit-failed', text: { key: 'queueEditDelivered' }, requestId: 'r1' }));
+  check('11.43 queue-edit-failed es un codigo de error y no cae a internal', failed?.code === 'queue-edit-failed', json(failed));
+  const prefill = parseServerMessage(JSON.stringify({ type: 'composer.prefill', terminalId: 't1', text: 'B', reason: 'queue-edit' }));
+  check('11.44 composer.prefill con queue-edit se lee', prefill?.type === 'composer.prefill' && prefill.reason === 'queue-edit', json(prefill));
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

@@ -50,6 +50,7 @@ import { createAntigravityHistory } from './history.js';
 import { toCliMode } from './mode-names.js';
 import { splitModelLabel } from './model-label.js';
 import { geminiHome, settingsPath } from './paths.js';
+import { createAntigravityQueueEdit } from './queue-edit.js';
 import { readAntigravitySettings } from './settings.js';
 import { AntigravityStatusSource, AntigravityStatusStore, createFollowerStatusLine } from './status.js';
 import { installStatusLineScript, statusLineFragment, statusLineScriptPath } from './statusline-script.js';
@@ -118,6 +119,8 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: false,
   // Su tecla de "send immediately", Alt+M (hito 45, §12.13). Sin status line no hay cola que forzar.
   forceSend: true,
+  // La flecha arriba saca la cola al editor, y Ctrl+U Ctrl+K lo vacian sin cortar el turno (1.4.4, §6.35.1).
+  editQueue: true,
   /*
     Hito 49: `--mode plan`. Medido con la 1.4.0 al lanzar: arranca en "Plan
     mode: research & plan only" y el ciclo sigue desde ahi. Que hace con
@@ -371,6 +374,9 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
       es lo que la app le mando con el agente trabajando. "Enviar ya" es Alt+M.
     */
     promptQueue: { source: 'app', forceSend: 'alt-m' },
+
+    // Sacar la cola para editarla en el cuadro (§6.35.1): vuelve lo que la app le mando.
+    queueEdit: createAntigravityQueueEdit(),
 
     /**
      * El modelo de `settings.json`, provisional hasta la primera respuesta. La

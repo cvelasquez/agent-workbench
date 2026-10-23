@@ -1978,6 +1978,8 @@ const statusRecord = (id, over = {}) => ({
     plans: false,
     waitingBlocksSubmit: false,
     forceSend: true,
+    // §6.35.1: la flecha arriba y Ctrl+U Ctrl+K, medidos con la 1.4.4.
+    editQueue: true,
     // Hito 49: `--mode plan`, medido al lanzar con la 1.4.0 (§12.14).
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };

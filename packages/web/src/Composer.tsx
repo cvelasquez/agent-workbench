@@ -161,6 +161,12 @@ interface ComposerProps {
    * archivos **dentro de su clic** (ver `insertPath`).
    */
   insertRef?: React.MutableRefObject<ComposerInsert | null>;
+  /**
+   * Sacar de la cola de la CLI lo que espera, para editarlo (§6.35.1): la
+   * flecha arriba con el cuadro vacio, como en la CLI. Ausente si no hay nada
+   * que sacar o no se puede: la flecha hace lo de siempre.
+   */
+  onEditQueue?: () => void;
 }
 
 /** Donde esta el cursor del cuadro y hasta donde se desplazo, para volver ahi (`DraftView`). */
@@ -192,6 +198,7 @@ export function Composer({
   onSubmitted,
   fontSize,
   insertRef,
+  onEditQueue,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -412,6 +419,7 @@ export function Composer({
       appliedPrefills.current.add(prefill.id);
       if (prefill.terminalId === shown.current && prefill.pasted.length === 0) {
         setText((current) => mergePrefill(current, prefill.text));
+        if (prefill.focus) textareaRef.current?.focus();
       } else if (prefill.terminalId === shown.current) {
         // Con fichas (hito 49): el texto y las fichas juntos, como un borrador entero.
         const merged = mergePrefillDraft({ text: textRef.current, items: itemsRef.current }, prefill, () => crypto.randomUUID());
@@ -512,9 +520,25 @@ export function Composer({
       if (event.key === 'Escape') {
         event.preventDefault();
         interrupt();
+        return;
+      }
+      // Con el cuadro vacio no hay linea a la que subir: la flecha saca la cola, como en la CLI.
+      if (
+        event.key === 'ArrowUp' &&
+        onEditQueue !== undefined &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.nativeEvent.isComposing &&
+        event.currentTarget.value.length === 0 &&
+        attachments.items.length === 0
+      ) {
+        event.preventDefault();
+        onEditQueue();
       }
     },
-    [submit, interrupt, touch, applyListEdit],
+    [submit, interrupt, touch, applyListEdit, onEditQueue, attachments.items.length],
   );
 
   /*

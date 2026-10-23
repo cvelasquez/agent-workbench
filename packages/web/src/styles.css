@@ -2495,6 +2495,24 @@ kbd {
 }
 
 /*
+  Editar, en la fila de cada burbuja (§6.35.1): saca toda la cola al cuadro,
+  porque la CLI no saca un mensaje solo. Tan discreto como la fila.
+*/
+.queued-edit {
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  color: var(--text-dim);
+}
+
+.queued-edit:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/*
   Un aviso del hilo: compactacion, interrupcion o error del proveedor. Una linea
   centrada entre dos bordes punteados, que se lee como un corte y no como algo
   que alguien escribio.

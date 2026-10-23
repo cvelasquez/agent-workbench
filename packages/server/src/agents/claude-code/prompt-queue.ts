@@ -48,17 +48,28 @@ interface Queued {
   at: number;
 }
 
+/**
+ * El texto entero de un mensaje en cola, como lo escribio el usuario: sin el
+ * envoltorio de lo pegado y sin las imagenes, que se cuentan aparte. null si no
+ * es suyo (un aviso del agente).
+ */
+export function queuedUserText(content: string): { text: string; images: number } | null {
+  if (AGENT_NOTICE.test(content)) return null;
+  const { text, images } = takePastedImages(cleanUserText(content));
+  return { text: text.trim(), images: images.length };
+}
+
 /** El texto de un mensaje en cola tal como lo ve el usuario, o null si no es suyo. */
 export function queuedPromptOf(content: string, id: string, at: number): QueuedPrompt | null {
-  if (AGENT_NOTICE.test(content)) return null;
-  const { text: withoutImages, images } = takePastedImages(cleanUserText(content));
-  const text = withoutImages.trim();
-  if (text.length === 0 && images.length === 0) return null;
+  const user = queuedUserText(content);
+  if (user === null) return null;
+  const { text, images } = user;
+  if (text.length === 0 && images === 0) return null;
   return {
     id,
     text: text.slice(0, MAX_QUEUED_PROMPT_CHARS),
     truncated: text.length > MAX_QUEUED_PROMPT_CHARS,
-    images: images.length,
+    images,
     at,
   };
 }

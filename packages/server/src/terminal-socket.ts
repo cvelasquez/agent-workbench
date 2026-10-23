@@ -42,7 +42,14 @@ import {
   type TerminalOfflineReason,
   type TerminalId,
 } from '@agent-workbench/shared';
-import type { AgentAdapter, AgentInput, PartsUpdate, RewindOutcome } from './agents/adapter.js';
+import type {
+  AgentAdapter,
+  AgentInput,
+  PartsUpdate,
+  QueueEditFailure,
+  QueueEditOutcome,
+  RewindOutcome,
+} from './agents/adapter.js';
 import type { AgentRegistry } from './agents/registry.js';
 import type { ArchivedSessions } from './archived-sessions.js';
 import { DirectoryPickerError, DirectoryPickers } from './directory-picker.js';
@@ -116,6 +123,24 @@ const NOTE_SEND_TIMEOUT_MS = 15_000;
  * hilo: la CLI puede listar alguno que el hilo no muestra (hito 44).
  */
 const REWIND_EXTRA_STEPS = 30;
+
+/** Lo que se le dice al usuario cuando no se pudo sacar la cola (§6.35.1): por que, y donde quedo. */
+function queueEditFailureText(reason: QueueEditFailure): ServerText {
+  switch (reason) {
+    case 'editor-busy':
+      return serverText('queueEditBusyEditor');
+    case 'no-queue-on-screen':
+      return serverText('queueEditNotOnScreen');
+    case 'not-restored':
+      return serverText('queueEditFailed');
+    case 'delivered':
+      return serverText('queueEditDelivered');
+    case 'not-cleared':
+      return serverText('queueEditNotCleared');
+    case 'gone':
+      return serverText('queueEditNoCli');
+  }
+}
 
 /** Lo que se anuncia cuando no hay configuracion que leer. */
 const NO_DEFAULTS: AgentDefaults = { model: null, effort: null, contextWindow: null };
@@ -1654,6 +1679,110 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 debugLog('write', `force send to ${terminalId.slice(0, 8)}: ${method}, ${outcome}`);
                 if (outcome === 'written') reply(true);
                 else refuse('force-send-failed', serverText('forceSendFailed'));
+              },
+              { interruptible: false },
+            )
+            .then(() => reply(false));
+          break;
+        }
+
+        /*
+          Sacar la cola de la CLI para editarla en el cuadro (§6.35.1), como la
+          flecha arriba de la CLI. Se comprueba todo lo que se puede antes de
+          escribir nada; despues, cada paso lo comprueba el driver en la
+          pantalla. Por la fila de la pestana y sin dejarse cortar: un envio que
+          llegara en el medio caeria en la caja de la CLI con lo que salio.
+        */
+        case 'agent.editQueue': {
+          const { terminalId, requestId } = message;
+          let replied = false;
+          const reply = (edited: boolean): void => {
+            if (replied) return;
+            replied = true;
+            send(socket, { type: 'agent.queueEdited', terminalId, requestId, edited });
+          };
+          const refuse = (code: ServerErrorCode, text: ServerText, detail?: string): void => {
+            sendError(socket, code, text, detail, requestId);
+            reply(false);
+          };
+          const adapter = adapterOf(terminalId);
+          const driver = adapter !== null && adapter.capabilities.editQueue ? (adapter.queueEdit ?? null) : null;
+          if (adapter === null || driver === null) {
+            refuse('agent-unsupported', serverText('queueEditUnsupported'));
+            break;
+          }
+          const tab = registry.get(terminalId);
+          if (tab === null || !tab.alive) {
+            refuse('queue-edit-failed', serverText('queueEditNoCli'));
+            break;
+          }
+          // Con un permiso o una pregunta abiertos, la flecha moveria ese menu.
+          if (registry.activityOf(terminalId) === 'waiting') {
+            refuse('queue-edit-failed', serverText('queueEditWaiting'));
+            break;
+          }
+          const queue = conversations.queueSnapshot(terminalId);
+          if (queue.length === 0) {
+            refuse('queue-edit-failed', serverText('queueEditNothing'));
+            break;
+          }
+          // Forzado, ya se le esta pasando al agente: no queda nada que sacar.
+          if (queue.some((prompt) => prompt.forced === true)) {
+            refuse('queue-edit-failed', serverText('queueEditForced'));
+            break;
+          }
+          const fromApp = adapter.promptQueue?.source === 'app';
+          const queued = fromApp ? conversations.appQueueTexts(terminalId) : [];
+          void writeQueue
+            .enqueue(
+              terminalId,
+              async () => {
+                const screen = registry.watchScreen(terminalId);
+                if (screen === null) {
+                  refuse('queue-edit-failed', serverText('queueEditNoCli'));
+                  return;
+                }
+                let outcome: QueueEditOutcome;
+                try {
+                  outcome = await driver.run(
+                    {
+                      // La tecla de vaciar se anota como las demas: dos seguidas cierran Pi.
+                      write: (data) => {
+                        const written = registry.write(terminalId, data);
+                        if (written && data.includes(CLEAR_EDITOR)) queuedSubmits.noteClearKey(terminalId, Date.now());
+                        return written;
+                      },
+                      screen: () => screen.lines(),
+                      wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                      now: Date.now,
+                    },
+                    {
+                      target: tab.sessionId.length === 0 ? null : { cwd: tab.cwd, sessionId: tab.sessionId },
+                      queued,
+                      lastClearKeyAt: queuedSubmits.lastClearKeyAt(terminalId),
+                    },
+                  );
+                } catch (error) {
+                  console.warn(`[queue-edit] ${terminalId.slice(0, 8)}:`, error);
+                  outcome = { kind: 'failed', reason: 'gone' };
+                } finally {
+                  screen.dispose();
+                }
+                debugLog('write', `queue edit of ${terminalId.slice(0, 8)}: ${JSON.stringify(outcome)}`);
+                // Lo que la app llevaba en cola ya no esta en la CLI: salio, o quedo en su caja.
+                if (fromApp && (outcome.kind === 'done' || outcome.reason === 'not-cleared')) {
+                  conversations.clearQueued(terminalId);
+                  // Y Detener ya no tiene nada que recuperar de su editor (Pi, hito 43).
+                  if (adapter.queuedSubmits !== undefined) queuedSubmits.forget(terminalId);
+                }
+                if (outcome.kind === 'failed') {
+                  refuse('queue-edit-failed', queueEditFailureText(outcome.reason), outcome.reason);
+                  return;
+                }
+                const texts = outcome.texts.length > 0 ? outcome.texts : queued;
+                const text = texts.filter((each) => each.trim().length > 0).join('\n\n');
+                if (text.length > 0) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'queue-edit' });
+                reply(true);
               },
               { interruptible: false },
             )

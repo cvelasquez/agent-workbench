@@ -44,6 +44,7 @@ import { createPiHistory } from './history.js';
 import { PiLiveSessions, PiStatusSource, type PiLiveDeps } from './live.js';
 import { locatePi, type LocatePiDeps } from './locate.js';
 import { piAgentDir, piModelsStorePath } from './paths.js';
+import { createPiQueueEdit } from './queue-edit.js';
 import { PiTabWatch } from './tab-watch.js';
 
 /** Cada cuanto se mira `models-store.json` mientras alguien quiere enterarse de cambios. */
@@ -84,6 +85,11 @@ export const PI_BASE_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: true,
   // Sin tecla de "enviar ya": se detiene y se vuelve a mandar lo que tenia en cola (hito 45, §16.18).
   forceSend: true,
+  /*
+    Alt+Q devuelve la cola a su editor sin cortar el turno, y Ctrl+C lo vacia
+    (§6.35.1). Medido en Windows; fuera, la tecla es Alt+Up y no esta medida.
+  */
+  editQueue: process.platform === 'win32',
   // Hito 49: sin `edit` ni `write` (`PI_REVIEW_TOOLS`), pero su consola puede escribir: a medias (§16.19).
   readOnlyLaunch: { mode: null, guard: 'tools' },
 };
@@ -222,6 +228,9 @@ export function createPiAdapter(options: PiAdapterOptions = {}): AgentAdapter {
       a mandar lo que devolvio a su editor (hito 45, §16.18).
     */
     promptQueue: { source: 'app', forceSend: 'interrupt-and-resend' },
+
+    // Sacar la cola para editarla en el cuadro (§6.35.1): vuelve lo que la app le mando.
+    queueEdit: createPiQueueEdit(),
 
     // `settings.json` no se abre: sin modelo por defecto que anunciar. Al reanudar,
     // el modelo y el nivel salen de la propia sesion.

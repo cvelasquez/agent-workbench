@@ -60,6 +60,12 @@ const NO_QUEUE: QueuedPrompt[] = [];
  */
 const FORCE_SEND_HOLD_MS = 15_000;
 
+/**
+ * Lo mismo para sacar la cola y editarla (§6.35.1): el servidor contesta
+ * siempre, en unos segundos; esto es por si la respuesta no llega.
+ */
+const QUEUE_EDIT_HOLD_MS = 20_000;
+
 export interface ConversationFeed {
   events: ConversationEvent[];
   usage: ContextUsage;
@@ -105,6 +111,10 @@ export interface ConversationFeed {
   forceSend: () => void;
   /** true desde el clic hasta que la cola cambia, el servidor dice que no, o pasa un rato. */
   forcing: boolean;
+  /** Saca de la cola de la CLI todo lo que espera y lo trae al cuadro, para editarlo (§6.35.1). */
+  editQueue: () => void;
+  /** true desde el pedido hasta su respuesta, o hasta que pasa un rato. */
+  editingQueue: boolean;
   /**
    * Lo que la configuracion anuncia, para cuando el archivo todavia no dijo
    * nada. Es provisional: en cuanto llega una respuesta manda lo observado.
@@ -207,12 +217,23 @@ export function useConversation(
   /** El `requestId` del ultimo "forzar envio", hasta su respuesta. */
   const forceRequest = useRef<string | null>(null);
   const forceTimer = useRef<number | null>(null);
+  const [editingQueue, setEditingQueue] = useState(false);
+  /** El `requestId` del ultimo pedido de editar la cola, hasta su respuesta. */
+  const editRequest = useRef<string | null>(null);
+  const editTimer = useRef<number | null>(null);
 
   const stopForcing = useCallback(() => {
     forceRequest.current = null;
     if (forceTimer.current !== null) window.clearTimeout(forceTimer.current);
     forceTimer.current = null;
     setForcing(false);
+  }, []);
+
+  const stopEditing = useCallback(() => {
+    editRequest.current = null;
+    if (editTimer.current !== null) window.clearTimeout(editTimer.current);
+    editTimer.current = null;
+    setEditingQueue(false);
   }, []);
 
   /*
@@ -412,6 +433,7 @@ export function useConversation(
     // La del `reset` que pide la suscripcion trae la de esta pestana.
     setLiveQuestion(null);
     stopForcing();
+    stopEditing();
     requested.current.clear();
     oldestEventId.current = null;
 
@@ -588,6 +610,11 @@ export function useConversation(
           if (message.requestId === forceRequest.current && !message.sent) stopForcing();
           break;
 
+        // Sacar la cola termino: el texto ya llego al cuadro, o el motivo en su `error`.
+        case 'agent.queueEdited':
+          if (message.requestId === editRequest.current) stopEditing();
+          break;
+
         /*
           El servidor rechazo una respuesta.
 
@@ -600,6 +627,10 @@ export function useConversation(
         case 'error': {
           if (message.requestId !== undefined && message.requestId === forceRequest.current) {
             stopForcing();
+            break;
+          }
+          if (message.requestId !== undefined && message.requestId === editRequest.current) {
+            stopEditing();
             break;
           }
           if (message.code !== 'answer-failed') break;
@@ -640,7 +671,7 @@ export function useConversation(
       offReopen();
       connection.send({ type: 'conversation.unsubscribe', terminalId });
     };
-  }, [connection, terminalId, fail, stopForcing]);
+  }, [connection, terminalId, fail, stopForcing, stopEditing]);
 
   /*
     El boton deja de decir "Enviando…" cuando ya no queda nada sin forzar: la
@@ -654,6 +685,7 @@ export function useConversation(
   useEffect(
     () => () => {
       if (forceTimer.current !== null) window.clearTimeout(forceTimer.current);
+      if (editTimer.current !== null) window.clearTimeout(editTimer.current);
     },
     [],
   );
@@ -667,6 +699,16 @@ export function useConversation(
     forceTimer.current = window.setTimeout(stopForcing, FORCE_SEND_HOLD_MS);
     connection.send({ type: 'agent.forceSend', terminalId, requestId });
   }, [connection, terminalId, stopForcing]);
+
+  const editQueue = useCallback(() => {
+    if (terminalId === null || editRequest.current !== null) return;
+    const requestId = crypto.randomUUID();
+    editRequest.current = requestId;
+    setEditingQueue(true);
+    if (editTimer.current !== null) window.clearTimeout(editTimer.current);
+    editTimer.current = window.setTimeout(stopEditing, QUEUE_EDIT_HOLD_MS);
+    connection.send({ type: 'agent.editQueue', terminalId, requestId });
+  }, [connection, terminalId, stopEditing]);
 
   const loadMore = useCallback(() => {
     const before = oldestEventId.current;
@@ -732,6 +774,8 @@ export function useConversation(
     queue,
     forceSend,
     forcing,
+    editQueue,
+    editingQueue,
     hasMore,
     loadingMore,
     loadMore,
