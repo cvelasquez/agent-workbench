@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The work lands on develop; main only moves when a version is published.
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
   # publish.yml runs this whole workflow as its gate before uploading anything.
