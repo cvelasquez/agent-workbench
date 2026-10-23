@@ -1496,6 +1496,7 @@ export function App(): JSX.Element {
           activity={activeActivity}
           receipt={activeTerminalId === null ? null : (threadSignals.receipts.get(activeTerminalId) ?? null)}
           clock={activeTerminalId === null ? null : (threadSignals.clocks.get(activeTerminalId) ?? null)}
+          takeNotice={sound.takeNotice}
           planWindows={activePlanWindows}
           planSetupState={activePlanSetup?.state ?? null}
           onConfigurePlanLimits={activePlanSetup === null ? undefined : () => setPlanLimitsDialogVisible(true)}

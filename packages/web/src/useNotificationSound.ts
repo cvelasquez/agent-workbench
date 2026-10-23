@@ -86,6 +86,12 @@ export interface NotificationSoundState {
    * frenarse a esperar. La barra de pestañas las pinta (`tab-attention`).
    */
   attention: ReadonlySet<TerminalId>;
+  /**
+   * true si la pestaña avisó desde la última vez que se preguntó por ella, y
+   * lo olvida. El hilo pregunta al entrar y al salir: la que avisó mientras se
+   * miraba otra abre al final (23-10-2026).
+   */
+  takeNotice: (terminalId: TerminalId) => boolean;
 }
 
 export function useNotificationSound(
@@ -138,7 +144,11 @@ export function useNotificationSound(
   */
   const [attention, setAttention] = useState<ReadonlySet<TerminalId>>(() => new Set());
   const pulseTimersRef = useRef<Map<TerminalId, number>>(new Map());
+  // Lo que avisó y todavía nadie preguntó: a diferencia del pulso, no se apaga solo.
+  const noticesRef = useRef<Set<TerminalId>>(new Set());
+  const takeNotice = useCallback((terminalId: TerminalId): boolean => noticesRef.current.delete(terminalId), []);
   const pulseTab = useCallback((terminalId: TerminalId): void => {
+    noticesRef.current.add(terminalId);
     const pulses = pulseTimersRef.current;
     const running = pulses.get(terminalId);
     if (running !== undefined) window.clearTimeout(running);
@@ -317,5 +327,5 @@ export function useNotificationSound(
 
   const phoneChime = insideApp ? { source: chimeSource, setSource: setChimeSource } : null;
 
-  return { enabled, toggle, volume, setVolume, previewVolume, notify, phoneChime, attention };
+  return { enabled, toggle, volume, setVolume, previewVolume, notify, phoneChime, attention, takeNotice };
 }

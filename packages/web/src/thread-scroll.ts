@@ -283,6 +283,45 @@ export function arrivedSince(ids: readonly string[], lastId: string | null): num
 }
 
 /*
+  Pegado al final (23-10-2026). Pedido del usuario: al cambiar de pestana el
+  hilo quedaba arriba del final sin que el hubiera movido el scroll. Medido:
+  una pestana cuyos ultimos mensajes traen una captura abria 286 px arriba del
+  final, con "Ir al final" encendido. La miniatura llega despues de bajar al
+  final y pasa de 36 a 180 px; la vista no la seguia, y el siguiente aviso de
+  scroll (el navegador corriendo la vista porque cargo otra imagen de mas
+  arriba) se tomaba como "subio a leer". Desde ahi la pestana recordaba esa
+  vista y la reponia al volver.
+
+  Dos reglas:
+
+   - **Solo subir suelta el final.** Un aviso de scroll que no subio no es el
+     usuario yendose a leer, aunque el final haya quedado lejos: es el
+     navegador acomodando la vista porque algo crecio.
+   - **Lo que crece despues de dibujar se sigue**: una imagen que termina de
+     cargar, el hilo que se achica porque crecio el cuadro de escritura. Eso
+     vive en `ConversationView`, que tiene el DOM.
+*/
+
+/** A cuantos px del final todavia se esta al final. */
+export const STICK_TO_BOTTOM_PX = 80;
+
+export interface EndScrollState {
+  /** La vista seguia el final antes de este aviso. */
+  wasAtEnd: boolean;
+  /** `scrollHeight - scrollTop - clientHeight`. */
+  distanceFromEnd: number;
+  scrollTop: number;
+  /** El `scrollTop` del aviso o del dibujo anterior: dice si se subio. */
+  previousScrollTop: number;
+}
+
+/** true si la vista sigue el final despues de un aviso de scroll: esta cerca, o lo seguia y no subio. */
+export function staysAtEnd(state: EndScrollState): boolean {
+  if (state.distanceFromEnd <= STICK_TO_BOTTOM_PX) return true;
+  return state.wasAtEnd && state.scrollTop >= state.previousScrollTop;
+}
+
+/*
   Los botones de un mensaje debajo de una flecha flotante (13-10-2026, pedido
   del usuario: "se sobrepone el boton copiar a la flecha hacia arriba").
 

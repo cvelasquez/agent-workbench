@@ -71,6 +71,8 @@ import {
   scrollTopForAnchor,
   scrollTopForOwn,
   shouldLoadEarlier,
+  staysAtEnd,
+  STICK_TO_BOTTOM_PX,
   threadAnchorOf,
   turnActionsShift,
   wheelAsksEarlier,
@@ -99,9 +101,6 @@ import { toolCategory, toolRunSummary } from './tool-categories.js';
 import { imageKey, type ConversationFeed } from './useConversation.js';
 import type { FileLinks } from './useFileLinks.js';
 import { isPromptEvent } from './rewind-ui.js';
-
-/** Margen para decidir si el usuario estaba mirando el final. */
-const STICK_TO_BOTTOM_PX = 80;
 
 /** true si el final del hilo no esta a la vista. */
 function awayFromEndOf(container: HTMLElement): boolean {
@@ -384,6 +383,11 @@ interface ConversationViewProps {
   /** Cuando trabajo la CLI de esta pestana, o null si no se sabe nada (§6.30). */
   clock?: BusyClock | null;
   /**
+   * true si el agente de esa pestana aviso que termino o que espera (§6.20)
+   * mientras se miraba otra, y lo olvida. Ausente: ninguna avisa.
+   */
+  takeNotice?: (terminalId: TerminalId) => boolean;
+  /**
    * Los archivos del proyecto que el agente nombro y se pueden abrir desde el
    * hilo (§6.33). null o ausente: las menciones quedan como texto.
    */
@@ -442,6 +446,7 @@ export function ConversationView({
   activity = null,
   receipt = null,
   clock = null,
+  takeNotice,
   fileLinks = null,
   forceSendAvailable = false,
   queueEditAvailable = false,
@@ -515,6 +520,9 @@ export function ConversationView({
   const shownTerminal = useRef<TerminalId | null>(terminalId);
   const savedViews = useRef(new Map<TerminalId, ThreadAnchor>());
   const pendingRestore = useRef<ThreadAnchor | null>(null);
+  // Por ref: el efecto del cambio de pestana corre solo cuando cambia la pestana.
+  const takeNoticeRef = useRef(takeNotice);
+  takeNoticeRef.current = takeNotice;
   const [jumpHint, setJumpHint] = useState(false);
   const jumpHintTimer = useRef<number | null>(null);
 
@@ -647,13 +655,25 @@ export function ConversationView({
     const previous = shownTerminal.current;
     shownTerminal.current = terminalId;
     const container = scrollRef.current;
-    if (previous !== null && previous !== terminalId && pendingRestore.current === null) {
-      const anchor =
-        container === null || stickToBottom.current
-          ? null
-          : threadAnchorOf(cardIdsRef.current, spanIn(container));
-      if (anchor === null) savedViews.current.delete(previous);
-      else savedViews.current.set(previous, anchor);
+    if (previous !== null && previous !== terminalId) {
+      if (pendingRestore.current === null) {
+        const anchor =
+          container === null || stickToBottom.current
+            ? null
+            : threadAnchorOf(cardIdsRef.current, spanIn(container));
+        if (anchor === null) savedViews.current.delete(previous);
+        else savedViews.current.set(previous, anchor);
+      }
+      // Lo que aviso mientras se la miraba ya se vio.
+      takeNoticeRef.current?.(previous);
+    }
+    /*
+      La pestana cuyo agente termino o pregunto mientras se miraba otra (§6.20)
+      abre al final aunque se hubiera subido a leer: lo nuevo esta ahi (pedido
+      del usuario, 23-10-2026).
+    */
+    if (terminalId !== null && previous !== terminalId && takeNoticeRef.current?.(terminalId) === true) {
+      savedViews.current.delete(terminalId);
     }
     pendingRestore.current = terminalId === null ? null : (savedViews.current.get(terminalId) ?? null);
 
@@ -765,9 +785,38 @@ export function ConversationView({
     }
     // Lo nuevo puede haber empujado el final fuera de la vista sin que nadie desplazara.
     measureEnd();
+    // Cualquier cambio de las tarjetas, no solo una mas: la duracion de un turno, una
+    // imagen que se le suma a un mensaje o el resultado de una herramienta tambien crecen.
     // La cola va al final: una burbuja nueva baja la vista como un mensaje (hito 45).
     // La pregunta leida de la pantalla tambien (§5.5.4).
-  }, [cards.length, queue.length, liveQuestion?.toolUseId, needle, measureEnd, spanIn]);
+  }, [cards, queue.length, liveQuestion?.toolUseId, needle, measureEnd, spanIn]);
+
+  /*
+    Lo que crece despues de dibujar, con la vista siguiendo el final
+    (23-10-2026, `thread-scroll.ts`): una miniatura que termina de cargar (de
+    36 a 180 px) y el hilo que se achica porque crecio el cuadro de escritura o
+    la fila de estado. No espera a la proxima tarjeta. Lo que el usuario abre a
+    mano, una tanda o un mensaje plegado, no cambia el alto del marco ni carga
+    nada: queda donde lo abrio.
+  */
+  const followEnd = useCallback(() => {
+    const container = scrollRef.current;
+    if (container === null || !stickToBottom.current || needle.length > 0) return;
+    container.scrollTop = container.scrollHeight;
+    measureEnd();
+  }, [needle, measureEnd]);
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (container === null) return;
+    // `load` no burbujea: se escucha en la captura, una vez para todas las imagenes.
+    container.addEventListener('load', followEnd, true);
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(followEnd);
+    resize?.observe(container);
+    return () => {
+      container.removeEventListener('load', followEnd, true);
+      resize?.disconnect();
+    };
+  }, [followEnd]);
 
   /*
     Un clic en "Ir a tu mensaje anterior" sin ningun mensaje propio cargado por
@@ -879,8 +928,13 @@ export function ConversationView({
   const onScroll = useCallback(() => {
     const container = scrollRef.current;
     if (container === null) return;
-    const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
-    stickToBottom.current = distance <= STICK_TO_BOTTOM_PX;
+    // Solo subir suelta el final: el navegador corre la vista solo cuando algo crece arriba.
+    stickToBottom.current = staysAtEnd({
+      wasAtEnd: stickToBottom.current,
+      distanceFromEnd: container.scrollHeight - container.scrollTop - container.clientHeight,
+      scrollTop: container.scrollTop,
+      previousScrollTop: lastScrollTop.current,
+    });
     measureEnd();
     measureOwn();
     measureActionShift();

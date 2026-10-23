@@ -1337,6 +1337,27 @@ const clearPairs = (data) => (data.length > 0 && data.replaceAll(CLEAR_LINE, '')
   check('11.44 composer.prefill con queue-edit se lee', prefill?.type === 'composer.prefill' && prefill.reason === 'queue-edit', json(prefill));
 }
 
+// --- 12. El hilo sigue pegado al final (23-10-2026) -----------------------------------
+//
+// Una pestana cuyos ultimos mensajes traian una captura abria 286 px arriba del
+// final: la miniatura cargaba despues de bajar, y el siguiente aviso de scroll
+// (el navegador corriendo la vista por otra imagen de arriba) se tomaba como
+// "el usuario subio a leer". Solo subir suelta el final.
+{
+  const { STICK_TO_BOTTOM_PX, staysAtEnd } = await import('../../web/src/thread-scroll.ts');
+  const at = (state) => staysAtEnd({ wasAtEnd: true, distanceFromEnd: 300, scrollTop: 1_000, previousScrollTop: 1_000, ...state });
+
+  check('12.1 cerca del final se esta al final, se venga de donde se venga',
+    at({ wasAtEnd: false, distanceFromEnd: STICK_TO_BOTTOM_PX, scrollTop: 900 }) &&
+      at({ wasAtEnd: false, distanceFromEnd: 0, scrollTop: 1_200 }));
+  check('12.2 lejos del final porque algo crecio y el navegador corrio la vista hacia abajo: sigue al final',
+    at({ scrollTop: 1_143 }));
+  check('12.3 lejos del final sin que la vista se moviera: sigue al final', at({}));
+  check('12.4 el usuario subio: suelta el final', !at({ scrollTop: 999 }) && !at({ scrollTop: 0 }));
+  check('12.5 si ya se habia soltado, bajar sin llegar al final no lo vuelve a pegar',
+    !at({ wasAtEnd: false, scrollTop: 1_100 }) && !at({ wasAtEnd: false, distanceFromEnd: STICK_TO_BOTTOM_PX + 1, scrollTop: 1_000 }));
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);
