@@ -4,6 +4,103 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## 0.8.0 - 2026-10-23
+
+### Added
+
+- **Separate branches: several agents on one project without stepping on each
+  other.** **New session on a separate branch**, from a git project in the
+  sidebar or from the Changes panel, opens the project on a new branch (or an
+  existing one) in its own folder next to it, `<project>.worktrees/`, with its
+  own tab. The dialog shows the folder and the git command before creating
+  anything. It's optional: nothing changes until you open one.
+  - The ignored files the branch needs are copied in: what the project's
+    `.worktreeinclude` asks for and, with a box ticked by default, the ignored
+    instructions and memory (`CLAUDE.md`, `AGENTS.md`, `.agents/memory/`).
+    Never a CLI's configuration.
+  - Its sessions show inside its project in the sidebar, and its tab is marked
+    with the branch.
+  - The Changes panel lists every branch: what isn't committed yet, how many
+    commits aren't merged, and whether it's merged.
+  - **Remove** takes its folder away with `git worktree remove`, never with
+    `--force`. The notes that changed in the branch go back to the main folder;
+    if a note changed on both sides, the two versions are merged the way git
+    merges code, and you only choose where both changed the same lines. The
+    dialog has a single main button: when something is in the way, the button
+    is what clears it.
+  - A removed branch's conversation can be reopened (**Reopen the branch**
+    opens it again in its own folder, and creates the branch again at its last
+    commit if it was deleted) or continued in the main folder, with the same
+    CLI or another one.
+  - A branch the app created whose folder was removed stays listed, with
+    **Delete branch** (`git branch -d`, so only once it's merged).
+- **Working as a team on those branches.** For each branch, Changes says how
+  far its base has moved on, whether merging it would conflict, and which other
+  branch touches the same files.
+  - **See changes** shows its commits and files against the base.
+  - **Ask for a review** opens another CLI in the branch's folder, read-only
+    when that CLI has a way to be (Claude Code's plan mode, Codex's read-only
+    sandbox, Antigravity's plan mode, Pi without its edit tools), and the row
+    shows its verdict. **Send to the branch** and **Catch up** leave the request
+    in the branch agent's message box, without sending it.
+  - **Merge into** the base runs `git merge --ff-only` in the base's folder:
+    no commit is created, and git refuses if the base has moved on. Merging
+    into the main folder brings the branch's notes back too.
+- **Your plan's usage limits, next to the context meter.** How much of each
+  window you've used (5 hours, the week, or the month on Codex's free plan) and
+  when each one resets, in red from 90%. Codex needs nothing; Claude Code and
+  Antigravity CLI publish them through their status line. For Claude Code,
+  **Configure** gives you the line to paste into `~/.claude/settings.json`, and
+  it only works with a subscription plan. OpenCode and Pi don't publish their
+  limits.
+- **Compact.** From 70% of the context, a button in the meter's row sends
+  `/compact` to the CLI, without touching what you're writing.
+- **Edit a queued message.** Each queued message has **Edit**, and ↑ in the
+  empty message box does the same, as in the CLI: the queue comes out of the
+  CLI and back to the box to fix, and it's queued again when you send it. All
+  queued messages come out together, because no CLI takes out just one. With
+  Claude Code, Antigravity CLI and, on Windows, Pi; OpenCode has already stored
+  the message by then.
+- **The agent's question shows up before you answer it.** Claude Code often
+  writes a question to its history only once it's answered, so the card didn't
+  show until then. Now the app reads the menu from the CLI's screen while it
+  waits, and you answer it from the conversation. Before sending any answer,
+  also from a card further up, the screen is read again: if the question
+  changed or the menu was touched in the CLI tab, nothing is written and the
+  card says so.
+
+### Changed
+
+- **The app now runs git commands that write, only for separate branches:**
+  `git worktree add`, `git worktree remove`, `git branch -d` (only for a branch
+  the app created and that is merged) and `git merge --ff-only`, each after a
+  dialog that shows it. It still never commits, pushes or rewrites history.
+- "Continue with…" in the conversation is now an icon of two arrows, with "CLI"
+  next to it.
+- Opening a new session from the projects sidebar (the +, a new project or a
+  separate branch) hides the sidebar; opening one from the history doesn't.
+- The console at the bottom no longer opens a terminal by itself when you open
+  or switch tabs: only when you expand it, or with its + and its link.
+- Checked with the CLIs' latest versions: Claude Code 2.1.309, Codex 0.164,
+  OpenCode 1.19.4, Antigravity CLI 1.4.6 and Pi 1.4.0.
+
+### Fixed
+
+- **After compacting**, from the button or from the CLI's terminal, the meter
+  says "not measured" until the next response, instead of the size from before
+  compacting (or 0 with Codex). Claude Code 2.1.305 and Antigravity CLI 1.4.3
+  write `/compact` as one of your messages: it no longer shows as a card, and
+  "Context compacted" shows in its place.
+- A Claude Code session that is idle while a command keeps running in the
+  background (a dev server, a watch loop) no longer shows as working, and no
+  longer holds back the notification that it finished.
+- In Antigravity CLI, a first message sent while the CLI asks whether to trust
+  the folder is no longer lost: nothing is written, the app says why, and the
+  text goes back to the box.
+- In a multiple-choice question, a typed answer is turned down with a notice
+  instead of being sent: the CLI took it as ticking a box, and another option
+  got picked.
+
 ## 0.7.0 - 2026-10-16
 
 ### Added
