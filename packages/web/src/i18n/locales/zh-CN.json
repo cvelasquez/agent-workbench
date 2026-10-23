@@ -4,6 +4,7 @@
   "agent.continue.noConversation": "此标签页还没有可继续的对话。",
   "agent.continue.noMessages": "此对话还没有可继续的消息。",
   "agent.continue.title": "用另一个 CLI 继续此对话",
+  "agent.continue.titleMain": "在主文件夹中继续此对话",
   "agent.dot.idle": "就绪，没有正在进行的任务",
   "agent.dot.noStatus": "此 CLI 不提供状态信息",
   "agent.dot.open": "CLI 已打开",

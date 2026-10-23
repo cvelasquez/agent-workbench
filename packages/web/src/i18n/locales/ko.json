@@ -4,6 +4,7 @@
   "agent.continue.noConversation": "이 탭에는 아직 계속할 대화가 없습니다.",
   "agent.continue.noMessages": "이 대화에는 아직 계속할 메시지가 없습니다.",
   "agent.continue.title": "다른 CLI에서 이 대화 계속",
+  "agent.continue.titleMain": "메인 폴더에서 이 대화 계속",
   "agent.dot.idle": "준비됨, 진행 중인 작업 없음",
   "agent.dot.noStatus": "이 CLI는 상태 정보를 제공하지 않습니다",
   "agent.dot.open": "CLI 열림",

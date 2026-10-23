@@ -4,6 +4,7 @@
   "agent.continue.noConversation": "В этой вкладке пока нет диалога для продолжения.",
   "agent.continue.noMessages": "В этом диалоге пока нет сообщений для продолжения.",
   "agent.continue.title": "Продолжить этот диалог в другом CLI",
+  "agent.continue.titleMain": "Продолжить этот диалог в основной папке",
   "agent.dot.idle": "Готов, ничего не выполняется",
   "agent.dot.noStatus": "Этот CLI не сообщает свой статус",
   "agent.dot.open": "CLI открыт",

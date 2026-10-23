@@ -33,6 +33,7 @@ import { BranchIcon } from './BranchIcon.js';
 import { LongPressButton } from './LongPressButton.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import {
+  continueButtonTitle,
   continueTargets,
   resumableSession,
   sessionAgentLabel,
@@ -1121,14 +1122,16 @@ export function Sidebar({
                           varias CLIs.
 
                           En la de una rama quitada, el servidor abre la pestana
-                          en la carpeta principal (20-10-2026). Va antes del
+                          en la carpeta principal (20-10-2026), y se ofrece
+                          tambien la misma CLI (23-10-2026). Va antes del
                           boton de volver a abrir: con su margen negativo lo
                           tapaba.
                         */}
                         <ContinueButton
-                          targets={continueTargets(agents, session.agent, session.partial)}
+                          targets={continueTargets(agents, session.agent, session.partial, branchGone)}
                           className="icon-button session-continue"
                           text="↪"
+                          title={continueButtonTitle(branchGone)}
                           onPick={(target) => onContinueSession(session, target)}
                         />
 

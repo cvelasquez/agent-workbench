@@ -974,19 +974,27 @@ export function scrollClosesMenu(
  * (D21): quien usa una sola CLI no ve nada nuevo. Tambien con una sesion
  * `partial`: el rescate del IDE (hito 28) no trae ningun mensaje, y el servidor
  * la rechazaria igual con "no tiene mensajes que continuar" (B9).
+ *
+ * La de una rama aparte quitada (`branchGone`) ofrece todas las instaladas,
+ * tambien la de origen y aunque sea la unica: reanudarla desde su fila la abre
+ * en la rama, y seguirla en la carpeta principal no tenia otro camino
+ * (23-10-2026).
  */
 export function continueTargets(
   agents: readonly AgentInfo[],
   source: SessionAgentId | null,
   partial = false,
+  branchGone = false,
 ): AgentInfo[] {
-  if (source === null || partial || !shouldOfferAgentChoice(agents)) return [];
+  if (source === null || partial) return [];
+  if (branchGone) return menuAgents(agents);
+  if (!shouldOfferAgentChoice(agents)) return [];
   return menuAgents(agents).filter((agent) => agent.id !== source);
 }
 
-/** Titulo del `↪`, en la fila y en el medidor. */
-export function continueButtonTitle(): string {
-  return t('agent.continue.title');
+/** Titulo del `↪`, en la fila y en el medidor. El de una rama quitada dice adonde va. */
+export function continueButtonTitle(branchGone = false): string {
+  return branchGone ? t('agent.continue.titleMain') : t('agent.continue.title');
 }
 
 /**

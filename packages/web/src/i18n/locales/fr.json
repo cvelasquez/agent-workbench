@@ -4,6 +4,7 @@
   "agent.continue.noConversation": "Cet onglet n'a pas encore de conversation à continuer.",
   "agent.continue.noMessages": "Cette conversation n'a pas encore de messages à continuer.",
   "agent.continue.title": "Continuer cette conversation avec une autre CLI",
+  "agent.continue.titleMain": "Continuer cette conversation dans le dossier principal",
   "agent.dot.idle": "CLI prête, rien en cours",
   "agent.dot.noStatus": "Cette CLI ne publie pas son état",
   "agent.dot.open": "CLI ouverte",

@@ -4,6 +4,7 @@
   "agent.continue.noConversation": "Esta aba ainda não tem uma conversa para continuar.",
   "agent.continue.noMessages": "Esta conversa ainda não tem mensagens para continuar.",
   "agent.continue.title": "Continuar esta conversa com outra CLI",
+  "agent.continue.titleMain": "Continuar esta conversa na pasta principal",
   "agent.dot.idle": "Pronta, nada em andamento",
   "agent.dot.noStatus": "Esta CLI não publica seu status",
   "agent.dot.open": "CLI aberta",

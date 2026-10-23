@@ -4,6 +4,7 @@
   "agent.continue.noConversation": "This tab doesn't have a conversation to continue yet.",
   "agent.continue.noMessages": "This conversation doesn't have any messages to continue yet.",
   "agent.continue.title": "Continue this conversation with another CLI",
+  "agent.continue.titleMain": "Continue this conversation in the main folder",
   "agent.dot.idle": "Ready, nothing in progress",
   "agent.dot.noStatus": "This CLI doesn't publish its status",
   "agent.dot.open": "CLI open",

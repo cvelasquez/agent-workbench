@@ -5,7 +5,8 @@
  * Un boton que abre el mismo menu que el `+` partido (`AgentMenu`), con las
  * CLIs que puede usar: las instaladas salvo la de la conversacion
  * (`continueTargets`). Quien lo monta decide si hay algo que ofrecer: con una
- * sola CLI instalada no se dibuja, y quien usa solo esa no ve nada nuevo (D21).
+ * sola CLI instalada no se dibuja, y quien usa solo esa no ve nada nuevo (D21),
+ * salvo en la fila de una rama quitada, que sigue en la carpeta principal.
  *
  * Elegir no escribe nada en ninguna terminal: el servidor arma el transcript,
  * abre la pestana y decide si el mensaje se manda solo o queda en el cuadro.
@@ -47,6 +48,8 @@ interface ContinueButtonProps {
   label?: string;
   /** Por que no se puede ahora, o null. Apagado, el titulo lo dice. */
   blockedReason?: string | null;
+  /** El titulo, si no es el de siempre (la fila de una rama quitada). */
+  title?: string;
   onPick: (target: AgentId) => void;
 }
 
@@ -56,6 +59,7 @@ export function ContinueButton({
   text,
   label,
   blockedReason = null,
+  title = continueButtonTitle(),
   onPick,
 }: ContinueButtonProps): JSX.Element | null {
   const [open, setOpen] = useState(false);
@@ -81,7 +85,7 @@ export function ContinueButton({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={label}
-        title={blockedReason ?? continueButtonTitle()}
+        title={blockedReason ?? title}
       >
         {text}
       </button>

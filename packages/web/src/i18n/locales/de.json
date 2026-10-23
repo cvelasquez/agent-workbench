@@ -4,6 +4,7 @@
   "agent.continue.noConversation": "Dieser Tab hat noch keine Unterhaltung, die sich fortsetzen ließe.",
   "agent.continue.noMessages": "Diese Unterhaltung hat noch keine Nachrichten, die sich fortsetzen ließen.",
   "agent.continue.title": "Diese Unterhaltung mit einer anderen CLI fortsetzen",
+  "agent.continue.titleMain": "Diese Unterhaltung im Hauptordner fortsetzen",
   "agent.dot.idle": "Bereit, nichts in Arbeit",
   "agent.dot.noStatus": "Diese CLI veröffentlicht ihren Status nicht",
   "agent.dot.open": "CLI geöffnet",

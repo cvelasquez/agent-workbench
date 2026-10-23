@@ -199,7 +199,7 @@ export async function continueSession(
     ...(detail !== undefined ? { detail } : {}),
   });
 
-  // 1. La CLI que continua: registrada, instalada y otra que la de origen.
+  // 1. La CLI que continua: registrada e instalada.
   const target = deps.agents.get(request.target);
   if (target === null) {
     return { ok: false, code: 'agent-unsupported', text: serverText('agentUnknown'), detail: request.target };
@@ -207,16 +207,21 @@ export async function continueSession(
   if (target.location === null) {
     return { ok: false, code: 'cli-not-found', text: serverText('cliNotInstalled', { label: target.adapter.label }) };
   }
-  if (request.agent === request.target) {
-    // Continuar con la misma CLI no entra en el hito (§16): reanudarla es abrir su fila.
-    return failed(serverText('continueSameCli'));
-  }
 
   // 2. La sesion, como la lista la barra. Su `cwd` es el de reanudar (M4).
   const summary = deps.index.find(request.agent, request.sessionId);
   // Una sesion recien empezada puede tardar en indexarse (Codex en Windows, §10.10).
   if (summary === null) return failed(serverText('continueNotInHistory'));
   if (summary.cwd.length === 0) return failed(serverText('continueNoFolder'));
+
+  // La de una rama aparte quitada sigue en la carpeta principal: la suya ya no
+  // esta, y abrir ahi terminaba en "la carpeta no existe" (20-10-2026).
+  const link = deps.index.linkOf?.(summary.cwd) ?? null;
+  const moved = link !== null && !link.worktree.exists ? { cwd: link.mainCwd, branch: link.worktree.branch } : null;
+
+  // Con la misma CLI, reanudarla es abrir su fila. Salvo la de una rama quitada:
+  // su fila la reabre en la rama, y seguirla en la principal no tenia otro camino (23-10-2026).
+  if (request.agent === request.target && moved === null) return failed(serverText('continueSameCli'));
 
   // 3. Los eventos: la copia si sirve, si no el seguidor de la CLI de origen.
   let source: (SourceEvents & { partial: boolean }) | null;
@@ -226,11 +231,6 @@ export async function continueSession(
     return failed(serverText('continueReadFailed'), messageOf(error));
   }
   if (source === null) return failed(serverText('continueHistoryMissing'));
-
-  // La de una rama aparte quitada sigue en la carpeta principal: la suya ya no
-  // esta, y abrir ahi terminaba en "la carpeta no existe" (20-10-2026).
-  const link = deps.index.linkOf?.(summary.cwd) ?? null;
-  const moved = link !== null && !link.worktree.exists ? { cwd: link.mainCwd, branch: link.worktree.branch } : null;
 
   // 4. El transcript, antes de abrir nada: sin turnos no hay continuacion (H5).
   const sourceLabel = isAgentId(request.agent)

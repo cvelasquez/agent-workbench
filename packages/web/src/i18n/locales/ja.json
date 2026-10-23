@@ -4,6 +4,7 @@
   "agent.continue.noConversation": "このタブには、続けられる会話がまだありません。",
   "agent.continue.noMessages": "この会話には、続けられるメッセージがまだありません。",
   "agent.continue.title": "この会話を別の CLI で続ける",
+  "agent.continue.titleMain": "この会話をメインのフォルダーで続ける",
   "agent.dot.idle": "準備完了（実行中の処理はありません）",
   "agent.dot.noStatus": "この CLI は状態を公開しません",
   "agent.dot.open": "CLI 起動中",

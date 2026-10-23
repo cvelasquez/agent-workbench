@@ -618,6 +618,19 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   check('H6 la de una rama que sigue, en su carpeta y sin esa linea',
     liveOutcome.ok && live.registry.opened[0]?.cwd === HANDOFF_CWD && !liveMarkdown.includes('separate checkout'), show(live.registry.opened));
 
+  // 23-10-2026: con la rama quitada, tambien la misma CLI. Reanudarla desde su
+  // fila la abre en la carpeta de la rama, y seguirla en la principal no tenia otro camino.
+  const sameGone = continueDeps({ linkOf: branchLink(false) });
+  const sameGoneOutcome = await continueSession(sameGone.deps, request({ target: 'opencode' }));
+  check('H6 la de una rama quitada se continua tambien con su misma CLI, en la carpeta principal',
+    sameGoneOutcome.ok && sameGone.registry.opened.length === 1 && sameGone.registry.opened[0].cwd === MAIN_CWD &&
+    sameGone.registry.opened[0].agent === 'opencode', show(sameGoneOutcome));
+  const sameLive = continueDeps({ linkOf: branchLink(true) });
+  const sameLiveOutcome = await continueSession(sameLive.deps, request({ target: 'opencode' }));
+  check('H6 con la rama todavia sacada, la misma CLI se sigue rechazando: se reanuda desde su fila',
+    sameLiveOutcome.ok === false && sameLiveOutcome.code === 'continue-failed' && es(sameLiveOutcome.text).includes('ya es de esa CLI') &&
+    sameLive.registry.opened.length === 0, show(sameLiveOutcome));
+
   check('H6 la etiqueta corta el titulo a 40 con "…", y sin titulo dice solo Continuacion',
     continuationLabel('x'.repeat(60)) === `Continuación: ${'x'.repeat(40)}…` && continuationLabel('Corto') === 'Continuación: Corto' &&
     continuationLabel('  ') === 'Continuación');
@@ -915,6 +928,12 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
     ids(ui.continueTargets(all, 'gemini-cli')) === 'claude-code,codex,opencode,antigravity' &&
     ui.continueTargets(all, 'antigravity-ide', true).length === 0 && ui.continueTargets(all, null).length === 0);
   check('H10 antes del hello (sin CLIs) no se ofrece nada', ui.continueTargets([], 'claude-code').length === 0);
+  check('H10 la de una rama quitada ofrece tambien la de origen, aunque sea la unica instalada (23-10-2026)',
+    ids(ui.continueTargets(onlyClaude, 'claude-code', false, true)) === 'claude-code' &&
+    ids(ui.continueTargets(onlyClaude, 'codex', false, true)) === 'claude-code' &&
+    ids(ui.continueTargets(all, 'opencode', false, true)) === 'claude-code,codex,opencode,antigravity' &&
+    ui.continueTargets(all, 'claude-code', true, true).length === 0 && ui.continueTargets([], 'claude-code', false, true).length === 0,
+    ids(ui.continueTargets(onlyClaude, 'claude-code', false, true)));
 
   const sendable = {
     'claude-code': ui.controlsFor(CLAUDE_CODE_CAPABILITIES).noteSendable,
