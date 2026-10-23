@@ -10,6 +10,7 @@
  */
 
 import {
+  WORKTREE_UNTRACKED_MAX_FILES,
   branchNameProblem,
   normalizeCwdKey,
   projectCwdOf,
@@ -29,6 +30,7 @@ import {
   type WorktreeRemovePlan,
   type WorktreeReviewSummary,
   type WorktreeRow,
+  type WorktreeUntrackedBlock,
   type WorktreeVerdict,
 } from '@agent-workbench/shared';
 import { formatBytes, formatList } from './i18n/format.js';
@@ -303,11 +305,22 @@ export function deleteBranchBlockerText(plan: WorktreeDeleteBranchPlan): string 
 export type RemoveBlocker = 'uncommitted' | 'in-use' | 'conflicts';
 
 /**
+ * true si el usuario ya eligió perder los archivos nuevos de este plan
+ * (23-10-2026): `accepted` es la huella de los que vio, y tiene que ser la
+ * misma. Un plan nuevo con otros archivos vuelve a preguntar.
+ */
+export function filesAccepted(plan: WorktreeRemovePlan, accepted: string | null): boolean {
+  return plan.untracked?.stamp != null && accepted !== null && plan.untracked.stamp === accepted;
+}
+
+/**
  * Por qué no se puede quitar todavía, o null. Las notas que no se pueden
  * juntar no bloquean del todo: el usuario puede elegir perder lo de la rama.
+ * Los archivos nuevos tampoco (23-10-2026): dejan de frenar cuando eligió
+ * perderlos.
  */
-export function removeBlocker(plan: WorktreeRemovePlan): RemoveBlocker | null {
-  if (plan.uncommittedCount > 0) return 'uncommitted';
+export function removeBlocker(plan: WorktreeRemovePlan, accepted: string | null = null): RemoveBlocker | null {
+  if (plan.uncommittedCount > 0 && !filesAccepted(plan, accepted)) return 'uncommitted';
   if (plan.inUse === true) return 'in-use';
   if (plan.conflicts.length > 0) return 'conflicts';
   return null;
@@ -321,8 +334,8 @@ export function removeBlocker(plan: WorktreeRemovePlan): RemoveBlocker | null {
  */
 export type RemoveAction = 'remove' | 'ask-commit' | 'retry' | 'ask-notes';
 
-export function removeAction(plan: WorktreeRemovePlan): RemoveAction {
-  switch (removeBlocker(plan)) {
+export function removeAction(plan: WorktreeRemovePlan, accepted: string | null = null): RemoveAction {
+  switch (removeBlocker(plan, accepted)) {
     case 'uncommitted':
       return 'ask-commit';
     case 'in-use':
@@ -332,6 +345,41 @@ export function removeAction(plan: WorktreeRemovePlan): RemoveAction {
     case null:
       return 'remove';
   }
+}
+
+/**
+ * true si el diálogo ofrece "Quitar y perder estos archivos" (23-10-2026): todo
+ * lo que no está commiteado es nuevo, nada impide perderlo, y todavía no se
+ * eligió. Con un archivo versionado que cambió, no: eso es trabajo, y lo
+ * commitea el agente.
+ */
+export function offersDiscardFiles(plan: WorktreeRemovePlan, accepted: string | null): boolean {
+  return plan.uncommittedCount > 0 && plan.untracked?.stamp != null && !filesAccepted(plan, accepted);
+}
+
+const UNTRACKED_BLOCK_KEYS: Readonly<Record<WorktreeUntrackedBlock, MessageKey>> = {
+  'nested-repo': 'worktree.remove.untrackedNestedRepo',
+  'too-many': 'worktree.remove.untrackedTooMany',
+  copied: 'worktree.remove.untrackedCopied',
+};
+
+/**
+ * Lo que dice el diálogo de los archivos nuevos, antes de su lista: cuántos
+ * archivos tienen y cuánto pesan (una carpeta nueva no es "1 archivo"), que se
+ * pierden, si ya se eligió, o por qué no se pueden perder desde acá. null si no
+ * todo lo que falta commitear es nuevo.
+ */
+export function untrackedText(plan: WorktreeRemovePlan, accepted: string | null): string | null {
+  const untracked = plan.untracked;
+  if (plan.uncommittedCount === 0 || untracked === null) return null;
+  if (untracked.blocked !== null) return t(UNTRACKED_BLOCK_KEYS[untracked.blocked], { max: WORKTREE_UNTRACKED_MAX_FILES });
+  if (filesAccepted(plan, accepted)) return t('worktree.remove.untrackedAccepted');
+  return t('worktree.remove.untracked', { count: untracked.files, size: formatBytes(untracked.bytes) });
+}
+
+/** Las rutas sin commit para una línea, con "…" si había más. */
+export function uncommittedListText(plan: WorktreeRemovePlan): string {
+  return `${formatList(plan.uncommitted)}${plan.uncommittedCount > plan.uncommitted.length ? '…' : ''}`;
 }
 
 /** Qué pasa con la carpeta y con la rama al quitarla, en una línea. */

@@ -223,6 +223,7 @@ export const SERVER_TEXTS = {
   worktreeBranchMoved: ['branch'],
   worktreeBranchNotIntegrated: ['branch'],
   worktreeDiffEmpty: [],
+  worktreeDiscardFailed: ['detail'],
   worktreeFailed: [],
   worktreeFileNotInBranch: [],
   worktreeFolderExists: ['folder'],
@@ -241,6 +242,7 @@ export const SERVER_TEXTS = {
   worktreeReviewUnread: [],
   worktreeUncommitted: ['count'],
   worktreeUnknown: [],
+  worktreeUntrackedChanged: [],
   worktreeUpToDate: ['base'],
 } as const satisfies Readonly<Record<string, readonly string[]>>;
 

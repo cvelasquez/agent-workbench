@@ -158,6 +158,7 @@ import { parseGitDiff, parseGitStatus, type GitDiff, type GitStatus } from './gi
 import {
   WORKTREE_CREATE_MODES,
   asCommitId,
+  asUntrackedStamp,
   parseWorktreeChanges,
   parseWorktreeDeleteBranchPlan,
   parseWorktreeInspection,
@@ -1201,6 +1202,12 @@ export interface ClientWorktreeRemoveMessage {
   worktreeId: string;
   /** "Quitar y perder esos cambios": se pierde lo que la rama cambio en las notas que no se pueden juntar. */
   discardConflicts: boolean;
+  /**
+   * "Quitar y perder estos archivos" (23-10-2026): la huella de los archivos
+   * nuevos que mostro el plan (`WorktreeRemovePlan.untracked`). Si ya no es la
+   * misma, el servidor no borra nada; una mal formada cuenta como ausente.
+   */
+  discardUntracked?: string;
 }
 
 /** Vuelve a abrir la rama quitada de una sesion de la barra, y la reanuda. */
@@ -3064,9 +3071,15 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const requestId = asNonEmptyString(record['requestId']);
       const worktreeId = asNonEmptyString(record['worktreeId']);
       const discardConflicts = asBoolean(record['discardConflicts']);
-      return requestId === null || worktreeId === null || discardConflicts === null
-        ? null
-        : { type: 'worktree.remove', requestId, worktreeId, discardConflicts };
+      if (requestId === null || worktreeId === null || discardConflicts === null) return null;
+      const message: ClientWorktreeRemoveMessage = { type: 'worktree.remove', requestId, worktreeId, discardConflicts };
+      /*
+        Una huella que no es una huella cuenta como ausente: sin ella el servidor
+        no borra nada y se niega con este `requestId`. Invalidar el pedido entero
+        dejaria al dialogo en "Quitando..." (el `bad-message` no lo lleva).
+      */
+      const discardUntracked = asUntrackedStamp(record['discardUntracked']);
+      return discardUntracked === null ? message : { ...message, discardUntracked };
     }
     case 'worktree.reopen': {
       const requestId = asNonEmptyString(record['requestId']);

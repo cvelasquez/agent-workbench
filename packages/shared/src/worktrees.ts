@@ -231,6 +231,13 @@ export interface WorktreeRemovePlan {
   /** Archivos sin commit (con tope). Con alguno no se quita: nunca `--force`. */
   uncommitted: string[];
   uncommittedCount: number;
+  /**
+   * Lo que se pierde con "Quitar y perder estos archivos" (23-10-2026): sólo
+   * cuando todo lo que no está commiteado son archivos nuevos que git no sigue.
+   * null si no hay nada sin commit, si algún archivo versionado cambió o con un
+   * servidor anterior: no se ofrece.
+   */
+  untracked: WorktreeUntracked | null;
   /** Lo que se cierra al confirmar. */
   tabs: WorktreeOpenTab[];
   /** Notas ignoradas que cambiaron en la rama y vuelven a la carpeta principal, tal cual o juntas. */
@@ -278,16 +285,44 @@ export interface WorktreeNotesPreview {
   conflicts: string[];
 }
 
+/**
+ * Por qué no se ofrece perder los archivos nuevos aunque todo lo que falta
+ * commitear sea nuevo: hay un repositorio de git adentro, son más de
+ * `WORKTREE_UNTRACKED_MAX_FILES`, o hay algo que la app copió de la carpeta
+ * principal y la rama no ignora.
+ */
+export const WORKTREE_UNTRACKED_BLOCKS = ['nested-repo', 'too-many', 'copied'] as const;
+export type WorktreeUntrackedBlock = (typeof WORKTREE_UNTRACKED_BLOCKS)[number];
+
+/**
+ * Los archivos nuevos que git no sigue en una rama aparte, que se pueden perder
+ * al quitarla (23-10-2026). Una carpeta nueva cuenta con todo lo que tiene.
+ */
+export interface WorktreeUntracked {
+  files: number;
+  bytes: number;
+  /**
+   * La huella de lo que se mostró, o null si no se ofrece (`blocked`). Quitar
+   * la manda de vuelta, y si ya no es la misma no se borra nada.
+   */
+  stamp: string | null;
+  blocked: WorktreeUntrackedBlock | null;
+}
+
 export interface WorktreeRemoveOutcome {
   branchDeleted: boolean;
   /** Notas que volvieron a la carpeta principal. */
   returned: number;
   /** Notas que se perdieron con "quitar igual". */
   discarded: number;
+  /** Archivos nuevos que se perdieron con "Quitar y perder estos archivos" (23-10-2026). */
+  discardedFiles: number;
 }
 
 /** Cuántas rutas sin commit viajan en el plan. */
 export const WORKTREE_PLAN_PATHS_MAX = 20;
+/** Cuántos archivos nuevos se recorren, como mucho, para ofrecer perderlos (unos 3 s con 20 000, medido). */
+export const WORKTREE_UNTRACKED_MAX_FILES = 20_000;
 
 // ---------------------------------------------------------------------------
 // Hito 49: revisar, ponerse al día e integrar
@@ -519,6 +554,26 @@ export function defaultReviewer(
 /** El id entero de un commit (40 hex con SHA-1, 64 con SHA-256), o null. */
 export function asCommitId(value: unknown): string | null {
   return typeof value === 'string' && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value) ? value : null;
+}
+
+/** La huella de los archivos nuevos de un plan de quitar (un sha256 en hex), o null. */
+export function asUntrackedStamp(value: unknown): string | null {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? value : null;
+}
+
+/** Con `blocked` no viaja huella; sin él, tiene que venir una. Lo que no cuadra no se ofrece. */
+function parseWorktreeUntracked(value: unknown): WorktreeUntracked | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const files = asFiniteNumber(record['files']);
+  const bytes = asFiniteNumber(record['bytes']);
+  if (files === null || bytes === null) return null;
+  if (record['blocked'] !== null && record['blocked'] !== undefined) {
+    const blocked = asLiteral(record['blocked'], WORKTREE_UNTRACKED_BLOCKS);
+    return blocked === null ? null : { files, bytes, stamp: null, blocked };
+  }
+  const stamp = asUntrackedStamp(record['stamp']);
+  return stamp === null ? null : { files, bytes, stamp, blocked: null };
 }
 
 export function parseTabWorktree(value: unknown): TabWorktree | null {
@@ -869,6 +924,8 @@ export function parseWorktreeRemovePlan(value: unknown): WorktreeRemovePlan | nu
     commands,
     uncommitted,
     uncommittedCount,
+    // Ausente en un servidor anterior: no se ofrece perder los archivos nuevos.
+    untracked: uncommittedCount > 0 ? parseWorktreeUntracked(record['untracked']) : null,
     tabs,
     returning,
     // Ausentes en un servidor anterior: ninguna se junta, y la rama la creó la app.
@@ -889,7 +946,7 @@ export function parseWorktreeRemoveOutcome(value: unknown): WorktreeRemoveOutcom
   const returned = asFiniteNumber(record['returned']);
   const discarded = asFiniteNumber(record['discarded']);
   if (branchDeleted === null || returned === null || discarded === null) return null;
-  return { branchDeleted, returned, discarded };
+  return { branchDeleted, returned, discarded, discardedFiles: asFiniteNumber(record['discardedFiles']) ?? 0 };
 }
 
 /** El `agent` de un pedido: ausente, o una CLI que este lado conoce. `false` si vino otra cosa. */

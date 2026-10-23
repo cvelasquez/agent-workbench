@@ -31,6 +31,7 @@ import type {
 } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
 import { serverTextMessage } from './i18n/server-text.js';
+import { filesAccepted, removeAction } from './worktree-ui.js';
 
 /** Los pedidos de los diálogos: su error lo explica el diálogo. Como los del panel de memoria. */
 const dialogRequests = new Set<string>();
@@ -125,6 +126,12 @@ export interface RemoveDialog {
   worktreeId: string;
   branch: string;
   state: RemoveDialogState;
+  /**
+   * La huella de los archivos nuevos que el usuario eligió perder (23-10-2026),
+   * o null. Sobrevive a "Volver a intentar"; si el plan nuevo trae otros, ya no
+   * vale y se vuelve a preguntar.
+   */
+  acceptedFiles: string | null;
 }
 
 export type DeleteBranchDialogState =
@@ -161,6 +168,11 @@ export interface WorktreeDialogs {
   remove: RemoveDialog | null;
   openRemove: (worktreeId: string, branch: string) => void;
   confirmRemove: (discardConflicts: boolean) => void;
+  /**
+   * "Quitar y perder estos archivos" (23-10-2026). Sin nada más que frene, quita;
+   * si no, el diálogo pasa a lo que sigue (otro programa, notas que chocan).
+   */
+  discardFiles: () => void;
   /** Deja en el cuadro del agente de la rama el pedido de juntar las notas que no se pudieron juntar solas. */
   askNotes: () => void;
   /** Deja en el cuadro del agente de la rama el pedido de commitear lo que no deja quitarla (21-10-2026). */
@@ -326,22 +338,47 @@ export function useWorktreeDialogs(
 
   const openRemove = useCallback(
     (worktreeId: string, branch: string) => {
-      setRemove({ worktreeId, branch, state: { phase: 'loading' } });
+      setRemove({ worktreeId, branch, state: { phase: 'loading' }, acceptedFiles: null });
       planRemove(worktreeId);
     },
     [planRemove],
   );
 
+  /** Manda quitar el plan a la vista, con los archivos nuevos si el usuario eligió perder justo ésos. */
+  const sendRemove = useCallback(
+    (dialog: RemoveDialog, plan: WorktreeRemovePlan, discardConflicts: boolean, accepted: string | null) => {
+      const requestId = claim();
+      removeRequest.current = requestId;
+      setRemove({ ...dialog, acceptedFiles: accepted, state: { phase: 'removing', plan } });
+      const discardUntracked = filesAccepted(plan, accepted) ? accepted : null;
+      connection.send({
+        type: 'worktree.remove',
+        requestId,
+        worktreeId: dialog.worktreeId,
+        discardConflicts,
+        ...(discardUntracked !== null ? { discardUntracked } : {}),
+      });
+    },
+    [connection],
+  );
+
   const confirmRemove = useCallback(
     (discardConflicts: boolean) => {
       if (remove === null || remove.state.phase !== 'ready') return;
-      const requestId = claim();
-      removeRequest.current = requestId;
-      setRemove({ ...remove, state: { phase: 'removing', plan: remove.state.plan } });
-      connection.send({ type: 'worktree.remove', requestId, worktreeId: remove.worktreeId, discardConflicts });
+      sendRemove(remove, remove.state.plan, discardConflicts, remove.acceptedFiles);
     },
-    [connection, remove],
+    [remove, sendRemove],
   );
+
+  const discardFiles = useCallback(() => {
+    if (remove === null || remove.state.phase !== 'ready') return;
+    const { plan } = remove.state;
+    const accepted = plan.untracked?.stamp ?? null;
+    if (accepted === null) return;
+    // Como "Quitar y perder esos cambios": si ya no queda nada que frene, quita con el mismo clic.
+    if (removeAction(plan, accepted) === 'remove') sendRemove(remove, plan, false, accepted);
+    else setRemove({ ...remove, acceptedFiles: accepted });
+  }, [remove, sendRemove]);
 
   const askAgent = useCallback(
     (type: 'worktree.askNotes' | 'worktree.askCommit') => {
@@ -361,8 +398,11 @@ export function useWorktreeDialogs(
   const askCommit = useCallback(() => askAgent('worktree.askCommit'), [askAgent]);
 
   const retryRemove = useCallback(() => {
-    if (remove !== null) openRemove(remove.worktreeId, remove.branch);
-  }, [openRemove, remove]);
+    if (remove === null) return;
+    // Lo que el usuario ya eligió perder se conserva: vale mientras el plan nuevo traiga los mismos archivos.
+    setRemove({ ...remove, state: { phase: 'loading' } });
+    planRemove(remove.worktreeId);
+  }, [planRemove, remove]);
 
   const closeRemove = useCallback(() => {
     removeRequest.current = null;
@@ -409,6 +449,7 @@ export function useWorktreeDialogs(
     remove,
     openRemove,
     confirmRemove,
+    discardFiles,
     askNotes,
     askCommit,
     retryRemove,

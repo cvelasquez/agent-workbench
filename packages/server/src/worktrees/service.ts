@@ -12,7 +12,10 @@
  * Quitar es lo delicado, y va en este orden, deteniéndose en el primer "no":
  *
  *  1. trabajo sin commit: no se quita; git se negaría sin `--force`, y
- *     `--force` no se usa;
+ *     `--force` no se usa. Si todo son archivos nuevos que git no sigue, el
+ *     usuario puede elegir perderlos (23-10-2026, `untracked.ts`): se borran
+ *     después del paso 5, sólo si siguen siendo los que vio, y nunca si git se
+ *     va a negar igual;
  *  2. notas que cambiaron en los dos lados y no se pueden juntar: no se
  *     quita, salvo que el usuario elija perder lo de la rama;
  *  3. otro programa con la carpeta abierta: no se quita (Windows dejaría a git
@@ -91,6 +94,8 @@ import {
   fastForward,
   fastForwardArgs,
   gitFailureText,
+  hasLoadedSubmodule,
+  ignoredAmong,
   isIntegrated,
   listWorktrees,
   localBranches,
@@ -100,7 +105,9 @@ import {
   removeWorktree,
   removeWorktreeArgs,
   repoLayout,
+  uncommittedChanges,
   uncommittedPaths,
+  type UncommittedChanges,
   type WorktreeEntry,
 } from './git.js';
 import { askedNotesNow, copyToWorktree, hashOf, notesIn, planCopy, returnNotes, reviewNotes, summarize, type CopyPlan } from './include.js';
@@ -109,6 +116,7 @@ import { NoteBases } from './note-bases.js';
 import { overlapsFor, pathsTouching, type BranchFiles } from './overlap.js';
 import { catchUpPrompt, commitPrompt, lastReplyText, readVerdict, reviewPrompt, sendBackPrompt } from './review.js';
 import { withNoteRequests, withReviewSession, type WorktreeRecord, type WorktreeStore } from './store.js';
+import { deleteUntracked, scanUntracked, type UntrackedScan } from './untracked.js';
 
 /** Un pedido de ramas aparte que no se pudo cumplir. El texto dice por qué (§6.23). */
 export class WorktreeError extends ServerTextError {}
@@ -544,16 +552,68 @@ export class WorktreeService extends EventEmitter {
     });
   }
 
+  /**
+   * Los archivos nuevos que se pueden perder al quitar la rama (23-10-2026):
+   * sólo si todo lo que no está commiteado es nuevo y git lo listó entero. null
+   * si no; si git se va a negar a quitarla igual, bloqueada o con un submódulo
+   * cargado (no se borra nada antes de saberlo); o si una entrada no se puede
+   * borrar sin salir de la carpeta. Con algo adentro que la app copió de la
+   * principal y la rama no ignora, no se ofrece (`copied`): no vuelve como una
+   * nota, y se perdería lo que la rama le cambió.
+   */
+  private async untrackedIn(record: WorktreeRecord, changes: UncommittedChanges): Promise<UntrackedScan | null> {
+    const onlyNew = changes.complete && changes.paths.length > 0 && changes.untracked.length === changes.paths.length;
+    if (!onlyNew) return null;
+    const [entries, submodule] = await Promise.all([listWorktrees(record.mainRoot), hasLoadedSubmodule(record.path)]);
+    if (submodule !== false || entries.some((entry) => entry.locked && samePathShape(entry.path, record.path))) return null;
+    const entryOf = (file: string): boolean =>
+      changes.untracked.some((entry) => {
+        const clean = entry.replace(/\/+$/, '').toLowerCase();
+        return file.toLowerCase() === clean || file.toLowerCase().startsWith(`${clean}/`);
+      });
+    const copied: string[] = [];
+    for (const file of record.copied) {
+      if (entryOf(file.path) && (await exists(path.join(record.path, file.path)))) copied.push(file.path);
+    }
+    if (copied.length > 0) {
+      const ignored = await ignoredAmong(record.path, copied);
+      if (ignored === null || copied.some((file) => !ignored.has(file))) return { files: 0, bytes: 0, stamp: null, blocked: 'copied', targets: [] };
+    }
+    return scanUntracked(record.path, changes.untracked);
+  }
+
+  /**
+   * Borra los archivos nuevos que el usuario eligió perder, si siguen siendo
+   * los que vio: se mira justo antes, con las pestañas de la rama cerradas y
+   * las notas ya de vuelta. Si desaparecieron solos, no hay nada que borrar.
+   * Devuelve cuántos archivos se perdieron.
+   */
+  private async discardNew(record: WorktreeRecord, stamp: string | null): Promise<number> {
+    const changes = await uncommittedChanges(record.path);
+    if (changes === null) throw new WorktreeError(serverText('worktreeGitFailed', { detail: 'git status' }));
+    if (changes.paths.length === 0) return 0;
+    const scan = await this.untrackedIn(record, changes);
+    if (scan === null || scan.stamp === null || scan.stamp !== stamp) throw new WorktreeError(serverText('worktreeUntrackedChanged'));
+    try {
+      await deleteUntracked(scan.targets);
+    } catch (error) {
+      throw new WorktreeError(serverText('worktreeDiscardFailed', { detail: error instanceof Error ? error.message : String(error) }));
+    }
+    return scan.files;
+  }
+
   private async planFor(record: WorktreeRecord): Promise<WorktreeRemovePlan> {
     const present = await exists(record.path);
-    const [uncommitted, notes, integrated] = await Promise.all([
-      present ? uncommittedPaths(record.path) : Promise.resolve([]),
+    const [changes, notes, integrated] = await Promise.all([
+      present ? uncommittedChanges(record.path) : Promise.resolve({ paths: [], untracked: [], complete: true }),
       present
         ? reviewNotes(record.mainRoot, record.path, record, this.loadNoteBase)
         : Promise.resolve({ returning: [], merging: [], resolved: [], conflicts: [] }),
       record.createdBranch ? isIntegrated(record.mainRoot, record.branch, record.base) : Promise.resolve(false),
     ]);
-    if (uncommitted === null) throw new WorktreeError(serverText('worktreeGitFailed', { detail: 'git status' }));
+    if (changes === null) throw new WorktreeError(serverText('worktreeGitFailed', { detail: 'git status' }));
+    const uncommitted = changes.paths;
+    const untracked = await this.untrackedIn(record, changes);
     const tabs = this.tabsIn(record.path);
     const deletesBranch = integrated === true;
     // Se borra igual (no tiene nada que perder), pero el diálogo no la llama integrada.
@@ -568,6 +628,11 @@ export class WorktreeService extends EventEmitter {
       ],
       uncommitted: uncommitted.slice(0, WORKTREE_PLAN_PATHS_MAX),
       uncommittedCount: uncommitted.length,
+      // Sin las rutas absolutas de `targets`: al cliente le basta con lo que muestra y la huella.
+      untracked:
+        untracked === null
+          ? null
+          : { files: untracked.files, bytes: untracked.bytes, stamp: untracked.stamp, blocked: untracked.blocked },
       tabs,
       returning: notes.returning,
       merging: notes.merging,
@@ -589,13 +654,23 @@ export class WorktreeService extends EventEmitter {
   /**
    * Quita la rama aparte. Rehace el plan y se detiene en el primer "no" (ver
    * el principio del archivo). `closeTab` cierra una pestaña como lo hace el
-   * socket, soltando todo lo que la seguía.
+   * socket, soltando todo lo que la seguía. `discardUntracked` es la huella de
+   * los archivos nuevos que el usuario eligió perder (23-10-2026).
    */
-  async remove(id: string, discardConflicts: boolean, closeTab: (terminalId: TerminalId) => void): Promise<WorktreeRemoveOutcome> {
+  async remove(
+    id: string,
+    discardConflicts: boolean,
+    closeTab: (terminalId: TerminalId) => void,
+    discardUntracked: string | null = null,
+  ): Promise<WorktreeRemoveOutcome> {
     const record = this.recordOrThrow(id);
     const plan = await this.planFor(record);
     if (plan.uncommittedCount > 0) {
-      throw new WorktreeError(serverText('worktreeUncommitted', { count: plan.uncommittedCount }));
+      if (plan.untracked === null || plan.untracked.stamp === null || discardUntracked === null) {
+        throw new WorktreeError(serverText('worktreeUncommitted', { count: plan.uncommittedCount }));
+      }
+      // Antes de cerrar nada: con otra huella, las pestañas de la rama siguen abiertas.
+      if (plan.untracked.stamp !== discardUntracked) throw new WorktreeError(serverText('worktreeUntrackedChanged'));
     }
     if (plan.conflicts.length > 0 && !discardConflicts) {
       throw new WorktreeError(serverText('worktreeNotesConflict', { count: plan.conflicts.length }));
@@ -603,6 +678,7 @@ export class WorktreeService extends EventEmitter {
     if (plan.inUse === true) throw new WorktreeError(serverText('worktreeInUse'));
 
     let returned = 0;
+    let discardedFiles = 0;
     if (await exists(record.path)) {
       for (const tab of plan.tabs) closeTab(tab.terminalId);
       if (!(await this.waitUntilFree(record.path))) throw new WorktreeError(serverText('worktreeInUse'));
@@ -620,6 +696,9 @@ export class WorktreeService extends EventEmitter {
         throw new WorktreeError(serverText('worktreeNotesFailed', { detail: error instanceof Error ? error.message : String(error) }));
       }
 
+      // Después de las notas: una carpeta nueva puede tener adentro una nota que vuelve.
+      if (plan.uncommittedCount > 0) discardedFiles = await this.discardNew(record, discardUntracked);
+
       const removed = await removeWorktree(record.mainRoot, record.path);
       if (removed.code !== 0) throw new WorktreeError(serverText('worktreeGitFailed', { detail: gitFailureText(removed) }));
       await this.removeLeftovers(record);
@@ -632,7 +711,7 @@ export class WorktreeService extends EventEmitter {
     // Sus copias de origen ya no hacen falta: volver a abrirla copia las notas otra vez.
     await this.pruneNoteBases();
     this.changed();
-    return { branchDeleted, returned, discarded: discardConflicts ? plan.conflicts.length : 0 };
+    return { branchDeleted, returned, discarded: discardConflicts ? plan.conflicts.length : 0, discardedFiles };
   }
 
   /** Espera, con tope, a que ningún proceso tenga la carpeta. */

@@ -18,7 +18,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -150,13 +150,65 @@ export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
   return result.code === 0 ? parseWorktreeListZ(result.stdout) : [];
 }
 
-/** Las rutas con cambios sin commit (sin lo ignorado), sin repetir. null si git falló. */
-export async function uncommittedPaths(cwd: string): Promise<string[] | null> {
+export interface UncommittedChanges {
+  /** Las rutas con cambios sin commit (sin lo ignorado), sin repetir. */
+  paths: string[];
+  /** De ésas, las que git no sigue: un archivo nuevo, o una carpeta nueva entera (`.scratch/`). */
+  untracked: string[];
+  /** false si git listó más de lo que se lee: no se sabe si todo es nuevo. */
+  complete: boolean;
+}
+
+/**
+ * Lo que no está commiteado, separando lo que git no sigue (23-10-2026): con
+ * sólo eso, quitar la rama puede ofrecer perderlo. null si git falló.
+ */
+export async function uncommittedChanges(cwd: string): Promise<UncommittedChanges | null> {
   const result = await read(cwd, ['status', '--porcelain=v2', '-z', '--untracked-files=normal']);
   if (result.code !== 0) return null;
+  const parsed = parsePorcelainV2(result.stdout);
   const seen = new Set<string>();
-  for (const change of parsePorcelainV2(result.stdout).changes) seen.add(change.path);
-  return [...seen];
+  const untracked: string[] = [];
+  for (const change of parsed.changes) {
+    seen.add(change.path);
+    if (change.kind === 'untracked') untracked.push(change.path);
+  }
+  return { paths: [...seen], untracked, complete: !parsed.truncated };
+}
+
+/** Las rutas con cambios sin commit (sin lo ignorado), sin repetir. null si git falló. */
+export async function uncommittedPaths(cwd: string): Promise<string[] | null> {
+  return (await uncommittedChanges(cwd))?.paths ?? null;
+}
+
+/**
+ * true si la carpeta tiene un submódulo cargado: `git worktree remove` sin
+ * `--force` se niega igual ("working trees containing submodules cannot be
+ * moved or removed", medido con git 2.55), así que no se borra nada antes de
+ * intentarlo. Lo mismo que mira git: la carpeta `modules` de la rama aparte, o
+ * un submódulo del índice con su `.git`. null si git no contestó.
+ */
+export async function hasLoadedSubmodule(cwd: string): Promise<boolean | null> {
+  const [modules, staged] = await Promise.all([read(cwd, ['rev-parse', '--git-path', 'modules']), read(cwd, ['ls-files', '--stage', '-z'])]);
+  if (modules.code !== 0 || staged.code !== 0) return null;
+  if (await isDirectory(path.resolve(cwd, modules.stdout.trim()))) return true;
+  // `160000 <hash> <etapa>\t<ruta>`: la entrada de un submódulo.
+  const submodules = staged.stdout
+    .split('\0')
+    .filter((line) => line.startsWith('160000 '))
+    .map((line) => line.slice(line.indexOf('\t') + 1));
+  for (const submodule of submodules) {
+    if (await exists(path.join(cwd, submodule, '.git'))) return true;
+  }
+  return false;
+}
+
+async function isDirectory(candidate: string): Promise<boolean> {
+  return (await stat(candidate).catch(() => null))?.isDirectory() === true;
+}
+
+async function exists(candidate: string): Promise<boolean> {
+  return (await stat(candidate).catch(() => null)) !== null;
 }
 
 /** Commits de `branch` que `base` no tiene. null si git no pudo contestar. */
@@ -491,7 +543,9 @@ export function addWorktree(mainRoot: string, folder: string, branch: string, ba
 /**
  * Quita la carpeta de una rama aparte. **Sin `--force`**: con algo sin commit,
  * git se niega, y eso es lo que tiene que pasar. Ojo: lo ignorado lo borra sin
- * avisar (medido), y por eso las notas vuelven antes (`include.ts`).
+ * avisar (medido), y por eso las notas vuelven antes (`include.ts`). Los
+ * archivos nuevos que el usuario eligió perder los borra antes la app
+ * (`untracked.ts`): si apareció otro, git se sigue negando.
  */
 export function removeWorktree(mainRoot: string, folder: string): Promise<GitRun> {
   return run(mainRoot, removeWorktreeArgs(folder), { write: true });

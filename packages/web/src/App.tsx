@@ -1869,6 +1869,7 @@ export function App(): JSX.Element {
         <WorktreeRemoveDialog
           dialog={worktreeDialogs.remove}
           onConfirm={worktreeDialogs.confirmRemove}
+          onDiscardFiles={worktreeDialogs.discardFiles}
           onAskNotes={worktreeDialogs.askNotes}
           onAskCommit={worktreeDialogs.askCommit}
           onRetry={worktreeDialogs.retryRemove}

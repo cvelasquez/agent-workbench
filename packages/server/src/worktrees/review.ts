@@ -61,13 +61,15 @@ export function catchUpPrompt(base: string, conflicts: readonly string[], uncomm
  * "Pedirle al agente que los commitee" (21-10-2026): lo que la rama tiene sin
  * commit no deja quitarla, y el que sabe qué es cada cambio es su agente. Puede
  * contestar que algo sobra: descartarlo lo decide el usuario, y subir la rama
- * también.
+ * también. Desde el 23-10-2026 le pide que deje como está lo que no va al
+ * repo: perder los archivos nuevos lo ofrece el diálogo de quitar, y lo decide
+ * el usuario.
  */
 export function commitPrompt(files: readonly string[], count: number): string {
   const more = count > files.length ? ` and ${count - files.length} more` : '';
   return (
     `This branch folder has uncommitted changes: ${files.join(', ')}${more}. ` +
-    "Commit them with a clear message, or tell me first if any of them should be discarded instead. Don't push."
+    "Commit them with a clear message. If any of them shouldn't be committed, leave it as it is and tell me which and why. Don't push."
   );
 }
 

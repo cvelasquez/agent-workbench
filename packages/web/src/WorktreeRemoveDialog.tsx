@@ -12,7 +12,9 @@
  * (`removeAction`):
  *
  *  - trabajo sin commit: pedirle al agente de la rama que lo commitee (nunca
- *    `--force`);
+ *    `--force`). Si todo son archivos nuevos, también quitarla perdiéndolos,
+ *    con un botón que lo dice y cuántos son (23-10-2026); si después frena
+ *    otra cosa, el diálogo pasa a esa;
  *  - otro programa con la carpeta abierta: volver a intentar, después de
  *    cerrarlo;
  *  - notas que cambiaron en los dos lados y no se pueden juntar solas:
@@ -29,19 +31,35 @@ import { formatList } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import type { RemoveDialog } from './useWorktrees.js';
 import { WorktreeNotesLine } from './WorktreeNotesLine.js';
-import { removeAction, removeFateText } from './worktree-ui.js';
+import {
+  filesAccepted,
+  offersDiscardFiles,
+  removeAction,
+  removeFateText,
+  uncommittedListText,
+  untrackedText,
+} from './worktree-ui.js';
 
 interface WorktreeRemoveDialogProps {
   dialog: RemoveDialog;
   onConfirm: (discardConflicts: boolean) => void;
+  onDiscardFiles: () => void;
   onAskNotes: () => void;
   onAskCommit: () => void;
   onRetry: () => void;
   onClose: () => void;
 }
 
-export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onAskCommit, onRetry, onClose }: WorktreeRemoveDialogProps): JSX.Element {
-  const { state } = dialog;
+export function WorktreeRemoveDialog({
+  dialog,
+  onConfirm,
+  onDiscardFiles,
+  onAskNotes,
+  onAskCommit,
+  onRetry,
+  onClose,
+}: WorktreeRemoveDialogProps): JSX.Element {
+  const { state, acceptedFiles } = dialog;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -57,13 +75,22 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onAskCommi
   const plan = state.phase === 'ready' || state.phase === 'removing' || state.phase === 'failed' ? state.plan : null;
   const busy = state.phase === 'removing';
   const failed = state.phase === 'failed';
-  const action = plan === null || failed ? null : removeAction(plan);
+  const action = plan === null || failed ? null : removeAction(plan, acceptedFiles);
+  const discardFiles = plan !== null && !failed && offersDiscardFiles(plan, acceptedFiles);
+  const newFiles = plan === null ? null : untrackedText(plan, acceptedFiles);
   const title = t('worktree.remove.title', { branch: dialog.branch });
 
   const primary = failed
     ? { label: t('worktree.remove.retry'), hint: undefined, run: onRetry }
     : action === 'ask-commit' && plan !== null
-      ? { label: t('worktree.remove.askCommit', { count: plan.uncommittedCount }), hint: t('worktree.remove.askTitle'), run: onAskCommit }
+      ? {
+          // Una carpeta nueva con 37 archivos es "los", no "lo". Sin huella, el recorrido se cortó y no se sabe cuántos.
+          label: t('worktree.remove.askCommit', {
+            count: plan.untracked?.stamp != null && plan.untracked.files > 0 ? plan.untracked.files : plan.uncommittedCount,
+          }),
+          hint: t('worktree.remove.askTitle'),
+          run: onAskCommit,
+        }
       : action === 'retry'
         ? { label: t('worktree.remove.retry'), hint: undefined, run: onRetry }
         : action === 'ask-notes'
@@ -92,6 +119,9 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onAskCommi
               {state.outcome.discarded > 0 && (
                 <p className="modal-hint">{t('worktree.remove.doneDiscarded', { count: state.outcome.discarded })}</p>
               )}
+              {state.outcome.discardedFiles > 0 && (
+                <p className="modal-hint">{t('worktree.remove.doneDiscardedFiles', { count: state.outcome.discardedFiles })}</p>
+              )}
               {state.outcome.branchDeleted && <p className="modal-hint">{t('worktree.remove.doneBranch')}</p>}
               <div className="worktree-actions">
                 <button className="primary-button" onClick={onClose}>
@@ -104,11 +134,9 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onAskCommi
           {plan !== null && state.phase !== 'done' && (
             <>
               {plan.uncommittedCount > 0 && (
-                <p className="worktree-problem">
-                  {t('worktree.remove.uncommitted', { count: plan.uncommittedCount })}{' '}
-                  <span className="worktree-files">
-                    {`${formatList(plan.uncommitted)}${plan.uncommittedCount > plan.uncommitted.length ? '…' : ''}`}
-                  </span>
+                <p className={filesAccepted(plan, acceptedFiles) ? 'worktree-warning' : 'worktree-problem'}>
+                  {newFiles ?? t('worktree.remove.uncommitted', { count: plan.uncommittedCount })}{' '}
+                  <span className="worktree-files">{uncommittedListText(plan)}</span>
                 </p>
               )}
               {plan.inUse === true && <p className="worktree-problem">{t('worktree.remove.inUse')}</p>}
@@ -138,6 +166,11 @@ export function WorktreeRemoveDialog({ dialog, onConfirm, onAskNotes, onAskCommi
               <button className="link-button" onClick={onClose}>
                 {t('common.cancel')}
               </button>
+              {discardFiles && (
+                <button className="link-button" onClick={onDiscardFiles} disabled={busy}>
+                  {t('worktree.remove.discardFiles')}
+                </button>
+              )}
               {action === 'ask-notes' && (
                 <button className="link-button" onClick={() => onConfirm(true)} disabled={busy}>
                   {t('worktree.remove.discard')}

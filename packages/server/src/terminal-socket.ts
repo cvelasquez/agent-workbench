@@ -2868,7 +2868,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'worktree.remove': {
           const { requestId, worktreeId, discardConflicts } = message;
           // Las pestanas de la rama se cierran como desde la barra, soltando todo lo que las seguia.
-          void worktrees.remove(worktreeId, discardConflicts, (terminalId) => void dropTab(terminalId)).then(
+          const closeTab = (terminalId: TerminalId): void => void dropTab(terminalId);
+          void worktrees.remove(worktreeId, discardConflicts, closeTab, message.discardUntracked ?? null).then(
             (outcome) => send(socket, { type: 'worktree.removed', requestId, worktreeId, outcome }),
             (error: unknown) => sendWorktreeError(socket, error, requestId),
           );

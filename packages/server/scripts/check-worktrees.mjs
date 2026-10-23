@@ -16,8 +16,8 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { existsSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,6 +64,7 @@ const overlap = await import('../src/worktrees/overlap.ts');
 const review = await import('../src/worktrees/review.ts');
 const mergeNotes = await import('../src/worktrees/merge-notes.ts');
 const { NoteBases, keepsNoteBase, NOTE_BASE_MAX_BYTES } = await import('../src/worktrees/note-bases.ts');
+const { scanUntracked } = await import('../src/worktrees/untracked.ts');
 const { reviewPrompt, catchUpPrompt, sendBackPrompt } = review;
 const { buildProjects } = await import('../src/session-index.ts');
 const { setLocale } = await import('../../web/src/i18n/index.ts');
@@ -1309,6 +1310,209 @@ let reviewSession = '';
 }
 
 // ---------------------------------------------------------------------------
+// X. Quitar perdiendo los archivos nuevos que git no sigue (23-10-2026)
+// ---------------------------------------------------------------------------
+
+{
+  // Su propio repo y su propio registro: lo que se crea acá no mueve los casos de las otras secciones.
+  const nuevos = await makeRepo('nuevos');
+  // Una nota ignorada dentro de una carpeta que no se ignora: en la rama, con un archivo nuevo al
+  // lado, git lista la carpeta entera como nueva, y la nota tiene que volver antes de borrarla.
+  await appendFile(path.join(nuevos, '.gitignore'), 'tools/notas.md\n');
+  await appendFile(path.join(nuevos, '.worktreeinclude'), 'tools/notas.md\n');
+  git(nuevos, 'add', '.gitignore', '.worktreeinclude');
+  git(nuevos, 'commit', '-q', '-m', 'notas de tools');
+  await mkdir(path.join(nuevos, 'tools'), { recursive: true });
+  await writeFile(path.join(nuevos, 'tools', 'notas.md'), 'una nota\n');
+  // El destino de los enlaces, con dos archivos: si el conteo entrara a un enlace, no daría lo mismo.
+  const outsideX = path.join(root, 'afuera-x');
+  await mkdir(outsideX, { recursive: true });
+  await writeFile(path.join(outsideX, 'uno.txt'), 'no me borres\n');
+  await writeFile(path.join(outsideX, 'dos.txt'), 'a mí tampoco\n');
+  const xStore = new WorktreeStore(path.join(root, 'appdata-nuevos', 'worktrees.json'));
+  await xStore.load();
+  const xService = new WorktreeService({
+    store: xStore,
+    registry: fakeRegistry(),
+    projectCwd: (key) => (key === 'nuevos' ? nuevos : null),
+    findSession: () => null,
+    noteBases: new NoteBases(path.join(root, 'copias-nuevos'), { graceMs: 0 }),
+  });
+  const opened = await xService.create({ source: { kind: 'project', projectKey: 'nuevos' }, branch: 'feat/pruebas', base: 'main', mode: 'new', copyNotes: true });
+  const X = xStore.byPath(opened.cwd);
+  const wt = opened.cwd;
+
+  // Lo que deja un agente al probar: una carpeta con una subcarpeta y un archivo de sólo lectura, un
+  // archivo suelto y, en Windows, una junction hacia afuera adentro y otra suelta (git las lista como
+  // carpetas nuevas, medido). Y dos notas que cambiaron en la rama, una de ellas en `tools/`, al lado
+  // de un archivo nuevo: tienen que volver igual.
+  await mkdir(path.join(wt, '.scratch', 'capturas'), { recursive: true });
+  await writeFile(path.join(wt, '.scratch', 'test-user.json'), '{"password":"de prueba"}\n');
+  await writeFile(path.join(wt, '.scratch', 'capturas', 'consola.png'), Buffer.alloc(3000));
+  await writeFile(path.join(wt, '.scratch', 'solo-lectura.txt'), 'r\n');
+  await chmod(path.join(wt, '.scratch', 'solo-lectura.txt'), 0o444);
+  await writeFile(path.join(wt, 'extra.txt'), 'suelto\n');
+  if (windows) {
+    await symlink(outsideX, path.join(wt, '.scratch', 'enlace'), 'junction');
+    await symlink(outsideX, path.join(wt, 'enlace-suelto'), 'junction');
+  }
+  await writeFile(path.join(wt, 'CLAUDE.md'), '# Notas\nuna regla\nla regla de la rama\n');
+  check('X0 la nota de tools/ llegó a la rama', (await readFile(path.join(wt, 'tools', 'notas.md'), 'utf8')) === 'una nota\n');
+  await writeFile(path.join(wt, 'tools', 'notas.md'), 'una nota\nlo que anotó la rama\n');
+  await writeFile(path.join(wt, 'tools', 'correr.sh'), 'echo hola\n');
+  // test-user.json, consola.png, solo-lectura.txt, extra.txt y los dos de tools/; en Windows, también los dos enlaces.
+  const expectedFiles = windows ? 8 : 6;
+  const untouched = () =>
+    existsSync(path.join(wt, '.scratch', 'test-user.json')) && existsSync(path.join(wt, '.scratch', 'solo-lectura.txt')) && existsSync(path.join(wt, 'extra.txt'));
+
+  let plan = await xService.planRemove(X.id);
+  check('X1 sólo archivos nuevos: el plan dice cuántos archivos son de verdad y cuánto pesan, no "1 archivo"',
+    plan.uncommitted.includes('.scratch/') && plan.uncommitted.includes('extra.txt') && plan.uncommitted.includes('tools/') &&
+      plan.untracked !== null && plan.untracked.files === expectedFiles && plan.untracked.bytes >= 3000 &&
+      plan.untracked.blocked === null && plan.untracked.stamp !== null &&
+      plan.returning.includes('tools/notas.md'),
+    JSON.stringify({ uncommitted: plan.uncommitted, untracked: plan.untracked, returning: plan.returning }));
+  const wire = JSON.parse(JSON.stringify(plan));
+  check('X2 viaja la huella, y ninguna ruta de lo que se borra',
+    shared.parseWorktreeRemovePlan(wire)?.untracked?.stamp === plan.untracked?.stamp && !('targets' in wire.untracked) &&
+      !JSON.stringify(wire).includes('test-user.json'));
+  const stamp = plan.untracked.stamp;
+  check('X3 sin elegir perderlos no se quita, como antes', (await errorKey(() => xService.remove(X.id, false, () => {}))) === 'worktreeUncommitted' && untouched());
+  const closedEarly = [];
+  check('X4 con otra huella no se borra nada, y ni se cierran las pestañas',
+    (await errorKey(() => xService.remove(X.id, false, (terminalId) => closedEarly.push(terminalId), 'f'.repeat(64)))) === 'worktreeUntrackedChanged' &&
+      untouched() && closedEarly.length === 0);
+
+  // Algo cambió adentro de una carpeta que ya se mostró.
+  await appendFile(path.join(wt, '.scratch', 'test-user.json'), '\n');
+  check('X5 si un archivo cambió después de mirar, no se borra nada',
+    (await errorKey(() => xService.remove(X.id, false, () => {}, stamp))) === 'worktreeUntrackedChanged' && untouched());
+  plan = await xService.planRemove(X.id);
+  check('X5b el plan nuevo trae otra huella', plan.untracked !== null && plan.untracked.stamp !== stamp);
+
+  // Un archivo versionado que cambió es trabajo: no se ofrece perder nada.
+  await writeFile(path.join(wt, 'README.md'), '# prueba\ncambio de la rama\n');
+  const tracked = await xService.planRemove(X.id);
+  check('X6 con un archivo versionado cambiado no se ofrece, y quitar se niega aunque venga la huella',
+    tracked.untracked === null && tracked.uncommittedCount === plan.uncommittedCount + 1 &&
+      (await errorKey(() => xService.remove(X.id, false, () => {}, plan.untracked.stamp))) === 'worktreeUncommitted' && untouched(),
+    JSON.stringify(tracked.uncommitted));
+  git(wt, 'checkout', '--', 'README.md');
+
+  // Un repositorio adentro, o el `.git` de otra rama aparte: puede tener commits que no están en otro lado.
+  await mkdir(path.join(wt, '.scratch', 'clon'), { recursive: true });
+  git(path.join(wt, '.scratch', 'clon'), 'init', '-q');
+  const nested = await xService.planRemove(X.id);
+  check('X6b con un repositorio de git adentro no se ofrece, dice por qué, y quitar se niega con la huella de antes',
+    nested.untracked?.blocked === 'nested-repo' && nested.untracked.stamp === null &&
+      (await errorKey(() => xService.remove(X.id, false, () => {}, plan.untracked.stamp))) === 'worktreeUncommitted' && untouched(),
+    JSON.stringify(nested.untracked));
+  await rm(path.join(wt, '.scratch', 'clon'), { recursive: true, force: true });
+  await mkdir(path.join(wt, '.scratch', 'otra-rama'), { recursive: true });
+  await writeFile(path.join(wt, '.scratch', 'otra-rama', '.GIT'), 'gitdir: ../no-existe\n');
+  check('X6c tampoco con el archivo .git de otra rama aparte, en mayúsculas', (await xService.planRemove(X.id)).untracked?.blocked === 'nested-repo');
+  await rm(path.join(wt, '.scratch', 'otra-rama'), { recursive: true, force: true });
+
+  // Algo nuevo que aparece mientras se cierran las pestañas de la rama: el agente escribió a último momento.
+  const closed = [];
+  const late = await errorKey(() =>
+    xService.remove(
+      X.id,
+      false,
+      (terminalId) => {
+        closed.push(terminalId);
+        writeFileSync(path.join(wt, 'tarde.txt'), 'tarde\n');
+      },
+      plan.untracked.stamp,
+    ),
+  );
+  check('X7 lo que aparece al cerrar las pestañas también frena, y no se borra nada',
+    late === 'worktreeUntrackedChanged' && closed.length === 1 && untouched() && existsSync(path.join(wt, 'tarde.txt')), late);
+  await rm(path.join(wt, 'tarde.txt'));
+
+  const capped = await scanUntracked(wt, ['.scratch/'], 2);
+  check('X8 con más archivos que el tope no se ofrece: la huella ya no cubriría lo que cambia', capped?.blocked === 'too-many' && capped.stamp === null && capped.targets.length === 0,
+    JSON.stringify({ files: capped?.files, blocked: capped?.blocked }));
+  if (windows) {
+    await symlink(outside, path.join(wt, 'fuera'), 'junction');
+    check('X9 una entrada debajo de un enlace hacia afuera no se ofrece', (await scanUntracked(wt, ['fuera/testigo.txt'])) === null);
+    await rm(path.join(wt, 'fuera'), { recursive: true });
+  }
+  const odd = ['../afuera/', '..', '.', './', 'src/..', 'a//b', '.git/', '.GIT/config', 'a\\b', '/'];
+  const offered = [];
+  for (const entry of odd) if ((await scanUntracked(wt, [entry])) !== null) offered.push(entry);
+  check('X9b ninguna ruta rara: .., ., partes vacías, la carpeta de git, barras invertidas', offered.length === 0, offered.join(' '));
+
+  // Ahora sí, con la huella de lo que se mostró.
+  plan = await xService.planRemove(X.id);
+  const outcome = await xService.remove(X.id, false, () => {}, plan.untracked?.stamp ?? null);
+  check('X10 quitada: la carpeta no está, git no la tiene y dice cuántos archivos se perdieron',
+    !existsSync(wt) && !git(nuevos, 'worktree', 'list', '--porcelain').includes('feat-pruebas') && outcome.discardedFiles === expectedFiles,
+    JSON.stringify(outcome));
+  check('X11 los enlaces se borraron sin seguirlos: lo de afuera sigue', existsSync(path.join(outsideX, 'uno.txt')) && existsSync(path.join(outsideX, 'dos.txt')));
+  // Las notas vuelven antes de mirar por última vez: ya volvieron en el intento de X7.
+  check('X12 las notas que cambiaron en la rama están en la principal, también la de la carpeta nueva, y lo nuevo de al lado no',
+    (await readFile(path.join(nuevos, 'CLAUDE.md'), 'utf8')).includes('la regla de la rama') &&
+      (await readFile(path.join(nuevos, 'tools', 'notas.md'), 'utf8')) === 'una nota\nlo que anotó la rama\n' &&
+      !existsSync(path.join(nuevos, 'tools', 'correr.sh')),
+    JSON.stringify(outcome));
+  check('X13 sin commits propios, la rama también se borró', outcome.branchDeleted === true && git(nuevos, 'branch', '--list', 'feat/pruebas').trim() === '');
+
+  // Algo que la app copió y la rama no ignora: la principal lo ignora con un `.gitignore` sin commitear.
+  const before = { ignore: await readFile(path.join(nuevos, '.gitignore'), 'utf8'), include: await readFile(path.join(nuevos, '.worktreeinclude'), 'utf8') };
+  await appendFile(path.join(nuevos, '.gitignore'), 'copia.md\n');
+  await appendFile(path.join(nuevos, '.worktreeinclude'), 'copia.md\n');
+  await writeFile(path.join(nuevos, 'copia.md'), 'copiada\n');
+  const copyTab = await xService.create({ source: { kind: 'project', projectKey: 'nuevos' }, branch: 'feat/copia', base: 'main', mode: 'new', copyNotes: false });
+  await writeFile(path.join(nuevos, '.gitignore'), before.ignore);
+  await writeFile(path.join(nuevos, '.worktreeinclude'), before.include);
+  await rm(path.join(nuevos, 'copia.md'));
+  const copyRecord = xStore.byPath(copyTab.cwd);
+  await writeFile(path.join(copyTab.cwd, 'nuevo.txt'), 'nuevo\n');
+  let other = await xService.planRemove(copyRecord.id);
+  check('X14 algo que la app copió y la rama no ignora: no se ofrece, y dice por qué',
+    copyRecord.copied.some((file) => file.path === 'copia.md') && other.uncommitted.includes('copia.md') &&
+      other.untracked?.blocked === 'copied' && other.untracked.stamp === null,
+    JSON.stringify({ uncommitted: other.uncommitted, untracked: other.untracked }));
+  await rm(path.join(copyTab.cwd, 'copia.md'));
+  other = await xService.planRemove(copyRecord.id);
+  check('X15 sin eso, sí se ofrece', other.untracked?.blocked === null && other.untracked.stamp !== null, JSON.stringify(other.untracked));
+
+  // Lo que git no deja quitar sin --force aunque la carpeta esté limpia: no se borra nada antes de intentarlo.
+  git(nuevos, 'worktree', 'lock', copyTab.cwd);
+  other = await xService.planRemove(copyRecord.id);
+  check('X16 bloqueada (git worktree lock): no se ofrece', other.uncommittedCount === 1 && other.untracked === null);
+  git(nuevos, 'worktree', 'unlock', copyTab.cwd);
+  const subRepo = path.join(root, 'sub-x');
+  await mkdir(subRepo, { recursive: true });
+  git(subRepo, 'init', '-q', '-b', 'main');
+  await writeFile(path.join(subRepo, 's.txt'), 's\n');
+  git(subRepo, 'add', '.');
+  git(subRepo, 'commit', '-q', '-m', 's');
+  git(nuevos, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', subRepo, 'libs/sub');
+  git(nuevos, 'commit', '-q', '-m', 'submodulo');
+  const subTab = await xService.create({ source: { kind: 'project', projectKey: 'nuevos' }, branch: 'feat/sub', base: 'main', mode: 'new', copyNotes: false });
+  const subRecord = xStore.byPath(subTab.cwd);
+  await writeFile(path.join(subTab.cwd, 'nuevo.txt'), 'nuevo\n');
+  const unloaded = await xService.planRemove(subRecord.id);
+  git(subTab.cwd, '-c', 'protocol.file.allow=always', 'submodule', 'update', '--init', '-q');
+  const loaded = await xService.planRemove(subRecord.id);
+  check('X17 con un submódulo sin cargar se ofrece; cargado, git se negaría y no se ofrece',
+    unloaded.untracked?.stamp != null && loaded.uncommittedCount === 1 && loaded.untracked === null && (await wtGit.hasLoadedSubmodule(subTab.cwd)) === true,
+    JSON.stringify({ unloaded: unloaded.untracked, loaded: loaded.untracked }));
+
+  // Lo que desaparece solo mientras se cierran las pestañas no frena: ya no hay nada que perder.
+  const vanishing = await xService.planRemove(copyRecord.id);
+  let vanished = null;
+  const vanishedError = await errorKey(async () => {
+    vanished = await xService.remove(copyRecord.id, false, () => rmSync(path.join(copyTab.cwd, 'nuevo.txt')), vanishing.untracked?.stamp ?? null);
+  });
+  check('X18 si los archivos nuevos desaparecieron solos al cerrar las pestañas, se quita sin perder nada',
+    vanishedError === 'no falló' && vanishing.untracked?.stamp != null && !existsSync(copyTab.cwd) && vanished?.discardedFiles === 0,
+    `${vanishedError} ${JSON.stringify(vanished)}`);
+}
+
+// ---------------------------------------------------------------------------
 // M. Las piezas puras del hito 49
 // ---------------------------------------------------------------------------
 
@@ -1559,7 +1763,7 @@ let reviewSession = '';
 
 {
   const plan = {
-    id: 'w', branch: 'fix/comp', path: 'D:\\x', commands: [], uncommitted: [], uncommittedCount: 0, tabs: [],
+    id: 'w', branch: 'fix/comp', path: 'D:\\x', commands: [], uncommitted: [], uncommittedCount: 0, untracked: null, tabs: [],
     returning: [], merging: [], conflicts: [], inUse: false, deletesBranch: true, branchUnused: false, createdBranch: true,
   };
   check('D1 sin nada que frene, el botón quita', ui.removeAction(plan) === 'remove');
@@ -1590,9 +1794,47 @@ let reviewSession = '';
     shared.parseWorktreeIntegrateOutcome({ commits: 1, base: 'main' })?.notes === undefined &&
       JSON.stringify(shared.parseWorktreeIntegrateOutcome({ commits: 1, base: 'main', notes: { returned: 2, stayed: ['a.md'] } })?.notes) ===
         JSON.stringify({ returned: 2, stayed: ['a.md'] }));
-  check('D7 el pedido de commitear nombra los archivos y cuántos más hay, y no sube nada',
+  check('D7 el pedido de commitear nombra los archivos y cuántos más hay, no sube nada y deja como está lo que sobra (23-10-2026)',
     review.commitPrompt(['a.ts', 'b.ts'], 5).includes('a.ts, b.ts and 3 more') && review.commitPrompt(['a.ts'], 1).includes("Don't push") &&
-      !review.commitPrompt(['a.ts'], 1).includes('more'));
+      !review.commitPrompt(['a.ts'], 1).includes('more') && review.commitPrompt(['a.ts'], 1).includes('leave it as it is') &&
+      !review.commitPrompt(['a.ts'], 1).includes('discarded'));
+
+  // Los archivos nuevos que se pueden perder (23-10-2026).
+  const stampA = 'a'.repeat(64);
+  const fresh = { ...plan, uncommitted: ['.scratch/'], uncommittedCount: 1, untracked: { files: 37, bytes: 95_700_000, stamp: stampA, blocked: null } };
+  const blockedBy = (blocked) => ({ ...fresh, untracked: { files: 0, bytes: 0, stamp: null, blocked } });
+  check('D8 sólo archivos nuevos: el botón sigue siendo commitearlos, y al lado se ofrece perderlos; con un versionado o algo que lo impide, no',
+    ui.removeAction(fresh) === 'ask-commit' && ui.offersDiscardFiles(fresh, null) &&
+      !ui.offersDiscardFiles({ ...fresh, untracked: null }, null) && !ui.offersDiscardFiles(plan, null) &&
+      !ui.offersDiscardFiles(blockedBy('nested-repo'), null) && ui.removeAction(blockedBy('too-many')) === 'ask-commit');
+  check('D9 elegido perderlos, sigue lo que falta: quitar, otro programa o las notas; con otra huella, se vuelve a preguntar',
+    ui.removeAction(fresh, stampA) === 'remove' && !ui.offersDiscardFiles(fresh, stampA) &&
+      ui.removeAction({ ...fresh, inUse: true }, stampA) === 'retry' &&
+      ui.removeAction({ ...fresh, conflicts: ['CHECKLIST.md'] }, stampA) === 'ask-notes' &&
+      ui.removeAction(fresh, 'b'.repeat(64)) === 'ask-commit' && ui.offersDiscardFiles(fresh, 'b'.repeat(64)));
+  const one = { ...fresh, untracked: { ...fresh.untracked, files: 1, bytes: 12 } };
+  check('D10 lo que dice de los archivos nuevos: cuántos y cuánto pesan, que se pierden, o por qué no se pueden perder desde acá',
+    ui.untrackedText(fresh, null) ===
+      'Tiene 37 archivos nuevos sin commit (91.3 MB). Si son trabajo, pídele al agente que los commitee; si no, puedes quitar la rama y perderlos:' &&
+      ui.untrackedText(one, null).startsWith('Tiene 1 archivo nuevo sin commit (12 B). Si es trabajo') &&
+      ui.untrackedText(fresh, stampA) === 'Se pierden con la rama:' && ui.untrackedText({ ...fresh, untracked: null }, null) === null &&
+      ui.untrackedText(blockedBy('too-many'), null).startsWith('Tiene más de 20000 archivos nuevos sin commit: demasiados') &&
+      ui.untrackedText(blockedBy('nested-repo'), null).includes('adentro hay un repositorio de git') &&
+      ui.untrackedText(blockedBy('copied'), null).includes('se copió de la carpeta principal'),
+    `${ui.untrackedText(fresh, null)} / ${ui.untrackedText(one, null)} / ${ui.untrackedText(blockedBy('too-many'), null)}`);
+  check('D11 el plan: lo de los archivos nuevos viaja; de un servidor anterior, mal formado o sin nada sin commit, no se ofrece',
+    shared.parseWorktreeRemovePlan(JSON.parse(JSON.stringify(fresh)))?.untracked?.stamp === stampA &&
+      shared.parseWorktreeRemovePlan({ ...fresh, untracked: undefined })?.untracked === null &&
+      shared.parseWorktreeRemovePlan({ ...fresh, untracked: { ...fresh.untracked, stamp: 'main' } })?.untracked === null &&
+      shared.parseWorktreeRemovePlan({ ...fresh, uncommitted: [], uncommittedCount: 0 })?.untracked === null);
+  const parsedBlock = shared.parseWorktreeRemovePlan(JSON.parse(JSON.stringify(blockedBy('nested-repo'))))?.untracked;
+  check('D11b lo que impide perderlos viaja sin huella; uno que no se conoce no se ofrece',
+    parsedBlock?.blocked === 'nested-repo' && parsedBlock.stamp === null &&
+      shared.parseWorktreeRemovePlan({ ...fresh, untracked: { files: 0, bytes: 0, stamp: stampA, blocked: 'otro' } })?.untracked === null &&
+      shared.parseWorktreeRemovePlan({ ...fresh, untracked: { files: 0, bytes: 0, stamp: stampA, blocked: 'copied' } })?.untracked?.stamp === null);
+  check('D12 cuántos archivos se perdieron viaja, y un servidor anterior no lo manda: 0',
+    shared.parseWorktreeRemoveOutcome({ branchDeleted: true, returned: 0, discarded: 0 })?.discardedFiles === 0 &&
+      shared.parseWorktreeRemoveOutcome({ branchDeleted: true, returned: 0, discarded: 0, discardedFiles: 6 })?.discardedFiles === 6);
 }
 
 // ---------------------------------------------------------------------------
@@ -1640,6 +1882,13 @@ let reviewSession = '';
   });
   check('E12 el prellenado dice a qué pedido contesta, y el plan de un servidor anterior no trae la punta',
     answered?.type === 'composer.prefill' && answered.requestId === 'r' && oldPlan !== null && oldPlan.branchCommit === null);
+  const removeMessage = (extra) =>
+    shared.parseClientMessage(JSON.stringify({ type: 'worktree.remove', requestId: 'r', worktreeId: 'w', discardConflicts: false, ...extra }));
+  const malformed = [removeMessage({ discardUntracked: 'main' }), removeMessage({ discardUntracked: 1 })];
+  check('E13 quitar lleva la huella de los archivos nuevos que vio el plan; una que no es una huella cuenta como ausente (23-10-2026)',
+    removeMessage({ discardUntracked: 'c'.repeat(64) })?.discardUntracked === 'c'.repeat(64) &&
+      removeMessage({})?.type === 'worktree.remove' && !('discardUntracked' in removeMessage({})) &&
+      malformed.every((message) => message?.type === 'worktree.remove' && message.requestId === 'r' && !('discardUntracked' in message)));
 }
 
 // ---------------------------------------------------------------------------
