@@ -432,13 +432,18 @@ check(
   JSON.stringify(libreUltima),
 );
 
-// Una pregunta de opcion multiple sigue necesitando su Tab: el texto confirma
-// la opcion, no cierra la pregunta.
+// En una de opcion multiple, con la 2.1.309, el numero de `Type something`
+// solo marca su casilla: el texto se pierde y el Enter marca la opcion del
+// cursor (§5.5.4). Sin secuencia medida no se manda nada.
 const libreMultiple = buildAnswerKeys(variasOpciones, [{ kind: 'free', text: 'x' }]);
 check(
-  'en una de opcion multiple, el texto no reemplaza al Tab',
-  libreMultiple?.includes('\t') === true,
+  'en una de opcion multiple, la respuesta escrita no se manda',
+  libreMultiple === null,
   JSON.stringify(libreMultiple),
+);
+check(
+  'tampoco si la de opcion multiple va con otra',
+  buildAnswerKeys(mixta, [{ kind: 'free', text: 'x' }, [1]]) === null,
 );
 
 // El texto entra a un pegado, asi que se sanea igual que un mensaje: un

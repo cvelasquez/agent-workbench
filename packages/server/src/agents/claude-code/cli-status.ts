@@ -21,7 +21,9 @@
  * unico rastro que queda es el resultado, y solo si se deniega. La alternativa
  * seria leer la pantalla de la terminal, que es la heuristica sobre texto con
  * secuencias de escape que el proyecto ya descarto dos veces (CLAUDE.md 5.5.1
- * y el punto de aviso de la solapa CLI, §6).
+ * y el punto de aviso de la solapa CLI, §6). Con el emulador de pantalla del
+ * hito 44 eso cambio para la pregunta de eleccion: desde el 23-10-2026, con
+ * `input needed`, se lee su menu (§5.5.4). Un permiso sigue sin leerse.
  *
  * **Lo que NO trae, y por eso no hay botones de Allow/Deny en la
  * conversacion:** el contenido. Dice *que* espera y *de que clase*, nunca que

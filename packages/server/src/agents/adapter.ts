@@ -28,6 +28,7 @@ import type {
   ConversationEvent,
   ConversationImageSource,
   ConversationPart,
+  ConversationQuestionItem,
   ConversationState,
   ConversationSubagent,
   EnvironmentNoticeId,
@@ -684,6 +685,49 @@ export interface RewindIo {
  */
 export type RewindFailure = 'menu-not-open' | 'message-not-found' | 'option-missing' | 'not-confirmed' | 'gone';
 
+// ---- La pregunta leida de la pantalla (23-10-2026) -----------------------------
+
+/**
+ * Una pregunta de eleccion leida del menu que la CLI dibuja mientras espera la
+ * respuesta (§5.5.4). Lo justo para la tarjeta del hilo y para contestarla con
+ * las teclas de siempre (`buildAnswerKeys`).
+ */
+export interface ScreenQuestion {
+  /** La pregunta, con la forma del hilo. Una sola: el menu de varias no se lee. */
+  readonly item: ConversationQuestionItem;
+  /**
+   * Lo que la identifica: encabezado, texto y opciones, sin la marca del
+   * cursor. Dos lecturas con la misma clave son la misma pregunta aunque el
+   * usuario haya movido el cursor en la solapa CLI, que a las teclas no les
+   * importa: el numero elige la opcion este donde este la marca.
+   */
+  readonly key: string;
+  /**
+   * true si el menu esta como lo abrio la CLI en lo que importa a las teclas:
+   * sin la respuesta escrita a medias y sin casillas marcadas. Con false no se
+   * contesta desde el hilo: los numeros caerian dentro del texto, o
+   * desmarcarian lo que el usuario marco en la solapa CLI.
+   */
+  readonly untouched: boolean;
+}
+
+/**
+ * Presente en la CLI cuya pregunta de eleccion la app sabe leer de la pantalla
+ * mientras espera respuesta (23-10-2026, §5.5.4). Solo aporta datos: la
+ * pantalla la emula el registro (`watchScreen`) y las teclas las sigue armando
+ * `pty-input.ts`.
+ */
+export interface ScreenQuestionReader {
+  /** La etiqueta de `waitingFor` con la que la CLI dice que espera la respuesta a una pregunta. */
+  readonly waitingFor: string;
+  /**
+   * Lee la pantalla emulada, de arriba abajo. null si no hay una pregunta que
+   * se pueda contestar desde el hilo: ningun menu, uno de varias preguntas, o
+   * uno que no tiene la forma medida.
+   */
+  read(lines: readonly string[]): ScreenQuestion | null;
+}
+
 // ---- Los limites del plan -------------------------------------------------------
 
 /**
@@ -891,6 +935,13 @@ export interface AgentAdapter {
    * la pty.
    */
   readonly questions?: QuestionChannel;
+  /**
+   * Presente si la app sabe leer de la pantalla la pregunta que la CLI tiene
+   * abierta (23-10-2026, §5.5.4): la CLI que no escribe la pregunta en su
+   * historial hasta que se contesta. Solo con `questionCards`. Ausente: la
+   * tarjeta sale solo del historial.
+   */
+  readonly screenQuestions?: ScreenQuestionReader;
   /**
    * Presente si la CLI devuelve a su editor los mensajes en cola al interrumpir
    * (hito 43). Ver `QueuedSubmitSource`. Ausente: interrumpir es solo la tecla.

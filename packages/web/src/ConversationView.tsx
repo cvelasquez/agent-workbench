@@ -462,6 +462,7 @@ export function ConversationView({
     answer,
     answered,
     answerFailed,
+    liveQuestion,
   } = view;
 
   const locale = useLocale();
@@ -757,7 +758,8 @@ export function ConversationView({
     // Lo nuevo puede haber empujado el final fuera de la vista sin que nadie desplazara.
     measureEnd();
     // La cola va al final: una burbuja nueva baja la vista como un mensaje (hito 45).
-  }, [cards.length, queue.length, needle, measureEnd, spanIn]);
+    // La pregunta leida de la pantalla tambien (§5.5.4).
+  }, [cards.length, queue.length, liveQuestion?.toolUseId, needle, measureEnd, spanIn]);
 
   /*
     Un clic en "Ir a tu mensaje anterior" sin ningun mensaje propio cargado por
@@ -1146,6 +1148,25 @@ export function ConversationView({
           })}
 
           {/*
+            La pregunta que la CLI tiene abierta, leida de su pantalla (§5.5.4):
+            la CLI no la escribe en su historial hasta que se contesta. Es la
+            misma tarjeta de siempre, al final; al contestarla la CLI la escribe
+            y aparece en su lugar, como respondida.
+          */}
+          {cliPresence === 'live' && liveQuestion !== null && (
+            <article className="turn turn-assistant turn-live-question">
+              <QuestionCard
+                part={liveQuestion}
+                answeredAt={answered[liveQuestion.toolUseId] ?? null}
+                failure={answerFailed[liveQuestion.toolUseId] ?? null}
+                answerable={questionsAnswerable}
+                onAnswer={answer}
+                needle={needle}
+              />
+            </article>
+          )}
+
+          {/*
             Los mensajes que esperan en la cola de la CLI (hito 45, §6.35), al
             final, hasta que la CLI los entrega. Sin CLI no queda ninguno: la
             cola vivia en su proceso.
@@ -1208,7 +1229,12 @@ export function ConversationView({
         waitingFor === null && toolCallNotice !== null ? (
           <ToolCallBar notice={toolCallNotice} onGoToCli={onGoToCli} />
         ) : (
-          <WaitingBar waitingFor={waitingFor} questionsAnswerable={questionsAnswerable} onGoToCli={onGoToCli} />
+          <WaitingBar
+            waitingFor={waitingFor}
+            questionsAnswerable={questionsAnswerable}
+            liveQuestion={liveQuestion !== null}
+            onGoToCli={onGoToCli}
+          />
         )
       ) : (
         <WakeBar presence={cliPresence} exitCode={exitCode} waking={waking} onWake={onWakeCli} />
@@ -1381,28 +1407,32 @@ function ServerClosedBar({
  * Va al pie, entre el hilo y el cuadro de escritura, porque es ahi donde uno
  * mira cuando esta esperando que pase algo.
  *
- * **No dibuja los botones de la pregunta, y no es por falta de ganas.** Lo que
+ * **No dibuja los botones de un permiso, y no es por falta de ganas.** Lo que
  * llega es que la CLI espera y de que clase; el contenido —que herramienta
  * pidio permiso, con que opciones— no esta en ningun archivo mientras el
  * dialogo esta abierto. Un boton "Permitir" que en realidad manda una tecla a
  * ciegas a un menu que no vimos es peor que un cartel que dice donde esta el
- * menu de verdad.
+ * menu de verdad. La pregunta de eleccion si se dibuja desde el 23-10-2026: se
+ * lee de la pantalla y se relee antes de contestar (§5.5.4).
  */
 function WaitingBar({
   waitingFor,
   questionsAnswerable,
+  liveQuestion,
   onGoToCli,
 }: {
   waitingFor: string | null;
   questionsAnswerable: boolean;
+  /** true si el hilo muestra la pregunta abierta, leida de la pantalla. */
+  liveQuestion: boolean;
   onGoToCli: () => void;
 }): JSX.Element | null {
   if (waitingFor === null) return null;
 
   // Las etiquetas que se traducen son las que dicen algo accionable. El resto
   // se agrupa: que espera se sabe, de que se trata no. Una pregunta que se
-  // contesta desde el hilo lo dice (hito 29, B6).
-  const text = waitingBarText(waitingFor, questionsAnswerable);
+  // contesta desde el hilo lo dice (hito 29, B6), y la leida de la pantalla tambien.
+  const text = liveQuestion && questionsAnswerable ? t('agent.waiting.question') : waitingBarText(waitingFor, questionsAnswerable);
 
   return (
     <div className="conversation-waiting" role="status">

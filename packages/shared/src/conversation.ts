@@ -109,6 +109,39 @@ export interface ConversationQuestionPart {
   questions: ConversationQuestionItem[];
 }
 
+/** Sin marcas de formato ni espacios de mas: como se comparan la pantalla y el historial. */
+function comparableQuestionText(text: string): string {
+  return text
+    .replace(/[`*_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * true si dos preguntas son la misma: el texto, el tipo y las etiquetas, sin el
+ * formato ni los saltos de linea, que la pantalla junta y el historial
+ * conserva. Una etiqueta puede ser el principio de la otra: en una terminal
+ * angosta la CLI la parte y el resto queda debajo, como si fuera descripcion.
+ *
+ * Casa la pregunta leida de la pantalla de la CLI (§5.5.4) con la del
+ * historial: el servidor, para no mostrarla dos veces si la linea llego antes
+ * de contestarla y para releer antes de contestar la del historial; la web,
+ * para marcar en la tarjeta del historial lo que se eligio en la leida.
+ */
+export function sameQuestionItem(a: ConversationQuestionItem, b: ConversationQuestionItem): boolean {
+  return (
+    comparableQuestionText(a.question) === comparableQuestionText(b.question) &&
+    a.multiSelect === b.multiSelect &&
+    a.options.length === b.options.length &&
+    a.options.every((option, index) => {
+      const left = comparableQuestionText(option.label);
+      const right = comparableQuestionText(b.options[index]?.label ?? '');
+      return left.length > 0 && right.length > 0 && (left.startsWith(right) || right.startsWith(left));
+    })
+  );
+}
+
 /**
  * De donde salen los bytes de una imagen del usuario.
  *

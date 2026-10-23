@@ -22,8 +22,10 @@ import { asRecord, asString } from './validation.js';
 
 export const SERVER_TEXTS = {
   agentUnknown: [],
+  answerFreeTextMulti: [],
   answerInterrupted: [],
   answerInvalid: [],
+  answerMenuChanged: [],
   answerNoFreeText: [],
   answerNotPending: [],
   answerSendFailed: [],

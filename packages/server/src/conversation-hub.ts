@@ -23,6 +23,7 @@ import {
   EMPTY_CONTEXT_USAGE,
   blindToApprovals,
   launchModeFor,
+  sameQuestionItem,
   type AgentId,
   type ContextUsage,
   type ConversationEvent,
@@ -49,6 +50,7 @@ import type {
 import type { AgentRegistry } from './agents/registry.js';
 import { AppPromptQueue } from './app-prompt-queue.js';
 import { debugLog } from './debug.js';
+import { LiveQuestionWatch, type LiveQuestionCheck } from './live-question.js';
 import { rewindTargetFrom, type RewindTarget } from './rewind-target.js';
 import type { TerminalRegistry } from './terminal-registry.js';
 
@@ -116,6 +118,8 @@ export interface ConversationSnapshot {
   subagents: ConversationSubagent[];
   /** Planes que esta conversacion escribio, los mas nuevos primero. */
   plans: SessionPlan[];
+  /** Ver `Entry.liveShown`. */
+  liveQuestion: ConversationQuestionPart | null;
 }
 
 /** true si las dos listas dicen lo mismo: los mismos, en el mismo orden y modo. */
@@ -222,6 +226,18 @@ interface Entry {
   primed: boolean;
   /** Corta la suscripcion al vigilante de estado al soltar la pestana. */
   stopWatchingStatus: (() => void) | null;
+  /**
+   * Quien lee de la pantalla la pregunta abierta (§5.5.4), mientras la CLI dice
+   * que espera la respuesta a una. null el resto del tiempo, o con una CLI sin
+   * lector.
+   */
+  live: LiveQuestionWatch | null;
+  /**
+   * La pregunta leida de la pantalla que se aviso, o null. Es la que se lee
+   * menos la que el historial ya tiene abierta: si la linea llego antes de
+   * contestar, gana la tarjeta de siempre.
+   */
+  liveShown: ConversationQuestionPart | null;
   /** La relectura periodica de una CLI que la pide (`history.followPollMs`), o null. */
   followTicker: NodeJS.Timeout | null;
   /** El aviso pendiente de que la sesion crecio (`historyGrew`), o null. */
@@ -247,6 +263,8 @@ export interface ConversationHubEvents {
   toolCall: (terminalId: TerminalId, open: boolean) => void;
   /** Cambiaron los subagentes que siguen trabajando. Va la lista entera. */
   subagents: (terminalId: TerminalId, subagents: ConversationSubagent[]) => void;
+  /** La pregunta leida de la pantalla aparecio, cambio o se fue (§5.5.4). */
+  liveQuestion: (terminalId: TerminalId, question: ConversationQuestionPart | null) => void;
   /**
    * Mensajes nuevos. `queue`, la cola de la CLI si cambio con ellos (hito 45):
    * la CLI entrego uno que esperaba, y la burbuja se va con el mismo aviso.
@@ -399,6 +417,7 @@ export class ConversationHub extends EventEmitter {
         openToolCall: false,
         subagents: [],
         plans: [],
+        liveQuestion: null,
       };
     }
 
@@ -452,6 +471,7 @@ export class ConversationHub extends EventEmitter {
               { cwd: entry.cwd, sessionId: entry.sessionId },
               entry.follower.getPlanFiles(),
             ),
+      liveQuestion: entry.liveShown,
     };
   }
 
@@ -486,7 +506,56 @@ export class ConversationHub extends EventEmitter {
       if (next === entry.waitingFor) return;
       entry.waitingFor = next;
       this.emit('waiting', terminalId, next);
+      this.syncLiveQuestion(terminalId, entry);
     });
+  }
+
+  /**
+   * Prende o apaga la lectura de la pregunta en pantalla (§5.5.4) segun lo que
+   * la CLI dice que espera. Solo con una CLI que tiene lector y tarjetas de
+   * pregunta, y solo mientras espera la respuesta a una pregunta: un permiso o
+   * un dialogo no se leen.
+   */
+  private syncLiveQuestion(terminalId: TerminalId, entry: Entry): void {
+    const reader = entry.adapter.screenQuestions;
+    if (reader === undefined || !entry.adapter.capabilities.questionCards) return;
+    if (entry.waitingFor === reader.waitingFor) {
+      if (entry.live !== null) return;
+      const watch = new LiveQuestionWatch({
+        openScreen: () => this.registry.watchScreen(terminalId),
+        reader,
+        onChange: () => this.refreshLiveQuestion(terminalId, entry),
+      });
+      entry.live = watch;
+      watch.start();
+      return;
+    }
+    this.stopLiveQuestion(entry);
+    this.refreshLiveQuestion(terminalId, entry);
+  }
+
+  private stopLiveQuestion(entry: Entry): void {
+    entry.live?.stop();
+    entry.live = null;
+  }
+
+  /**
+   * Avisa la pregunta leida de la pantalla si cambio. No se avisa la que el
+   * historial ya tiene abierta: esa tarjeta ya esta en el hilo, con el id de la
+   * CLI, y verla dos veces seria peor que no verla.
+   */
+  private refreshLiveQuestion(terminalId: TerminalId, entry: Entry): void {
+    if (this.entries.get(terminalId) !== entry) return;
+    const read = entry.live?.current()?.part ?? null;
+    const pending = read === null ? null : this.pendingQuestionOf(entry);
+    const item = read?.questions[0];
+    const shown =
+      read !== null && item !== undefined && !(pending?.questions.some((each) => sameQuestionItem(each, item)) ?? false)
+        ? read
+        : null;
+    if (shown?.toolUseId === entry.liveShown?.toolUseId) return;
+    entry.liveShown = shown;
+    this.emit('liveQuestion', terminalId, shown);
   }
 
   /**
@@ -520,6 +589,8 @@ export class ConversationHub extends EventEmitter {
       subagents: [],
       primed: false,
       stopWatchingStatus: null,
+      live: null,
+      liveShown: null,
       followTicker: null,
       growthTimer: null,
     };
@@ -731,6 +802,7 @@ export class ConversationHub extends EventEmitter {
     entry.stopWatchingStatus?.();
     entry.stopWatchingStatus = null;
     this.stopFollowTicker(entry);
+    this.stopLiveQuestion(entry);
 
     // La misma pty sigue en el modo en que estaba (ver `modeLaunchedAt`).
     const launchedAt = this.registry.launchedAtOf(terminalId);
@@ -841,6 +913,7 @@ export class ConversationHub extends EventEmitter {
     this.stopFollowTicker(entry);
     entry.stopWatchingStatus?.();
     entry.stopWatchingStatus = null;
+    this.stopLiveQuestion(entry);
     this.entries.delete(terminalId);
   }
 
@@ -987,6 +1060,7 @@ export class ConversationHub extends EventEmitter {
       // Este snapshot es sincronico y describir un plan pide el disco. Quien
       // necesita los planes usa `subscribe`, que si puede esperar.
       plans: [],
+      liveQuestion: entry.liveShown,
     };
   }
 
@@ -1077,8 +1151,44 @@ export class ConversationHub extends EventEmitter {
    */
   getPendingQuestion(terminalId: TerminalId): ConversationQuestionPart | null {
     const entry = this.entries.get(terminalId);
-    if (entry === undefined) return null;
+    return entry === undefined ? null : this.pendingQuestionOf(entry);
+  }
 
+  /**
+   * La pregunta leida de la pantalla que el hilo esta mostrando (§5.5.4), o
+   * null. Es la que contesta un `agent.answer` con su id.
+   */
+  getLiveQuestion(terminalId: TerminalId): ConversationQuestionPart | null {
+    return this.entries.get(terminalId)?.liveShown ?? null;
+  }
+
+  /**
+   * Relee la pantalla antes de contestar la pregunta `id` (§5.5.4). `gone` si
+   * nadie sigue la pestana o la pregunta ya no es la que se muestra.
+   */
+  async verifyLiveQuestion(terminalId: TerminalId, id: string): Promise<LiveQuestionCheck> {
+    const entry = this.entries.get(terminalId);
+    if (entry === undefined || entry.live === null || entry.liveShown?.toolUseId !== id) return 'gone';
+    return entry.live.verify(id);
+  }
+
+  /**
+   * Relee la pantalla antes de contestar una pregunta del historial (§5.5.4):
+   * la que la CLI escribio antes de que se contestara. `unknown` si nadie la
+   * lee (otra CLI, la pestana sin seguir, una pregunta que no se puede leer):
+   * ahi se contesta como siempre. Solo con una pregunta por llamada.
+   */
+  async checkHistoryQuestion(
+    terminalId: TerminalId,
+    question: ConversationQuestionPart,
+  ): Promise<LiveQuestionCheck | 'unknown'> {
+    const entry = this.entries.get(terminalId);
+    const item = question.questions.length === 1 ? question.questions[0] : undefined;
+    if (entry === undefined || entry.live === null || item === undefined) return 'unknown';
+    return entry.live.check(item);
+  }
+
+  private pendingQuestionOf(entry: Entry): ConversationQuestionPart | null {
     const { events } = entry.follower.getTail(PENDING_QUESTION_LOOKBACK);
     const answered = new Set<string>();
     for (const event of events) {
@@ -1120,6 +1230,7 @@ export class ConversationHub extends EventEmitter {
       if (entry.timer !== null) clearTimeout(entry.timer);
       this.stopFollowTicker(entry);
       entry.stopWatchingStatus?.();
+      this.stopLiveQuestion(entry);
     }
     this.entries.clear();
     for (const timer of this.idleTimers.values()) clearTimeout(timer);
@@ -1231,6 +1342,8 @@ export class ConversationHub extends EventEmitter {
       } else if (queue !== null) {
         this.emit('queue', terminalId, queue);
       }
+      // La pregunta que llego al historial antes de contestarse deja de ir sola (§5.5.4).
+      if (result.added.length > 0 && entry.liveShown !== null) this.refreshLiveQuestion(terminalId, entry);
       if (result.turns.length > 0) this.emit('turns', terminalId, result.turns);
       // Un plan nuevo: la solapa lo muestra sin que nadie tenga que recargar.
       const plans = entry.adapter.history.plans;

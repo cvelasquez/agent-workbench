@@ -17,6 +17,7 @@ import {
   type ContextUsage,
   type ConversationEvent,
   type ConversationImageSource,
+  type ConversationQuestionPart,
   type ConversationState,
   type ConversationSubagent,
   type AnswerSelection,
@@ -27,6 +28,7 @@ import {
 import type { AgentConnection } from './connection.js';
 import { t } from './i18n/index.js';
 import { serverTextMessage } from './i18n/server-text.js';
+import { liveCarryOvers, type LiveAnswerRecord } from './live-question-ui.js';
 
 /** Sin configuracion leida todavia. El combo muestra "sin datos". */
 const NO_DEFAULTS: AgentDefaults = { model: null, effort: null, contextWindow: null };
@@ -147,6 +149,12 @@ export interface ConversationFeed {
    * Aca la tarjeta vuelve a aceptar clics y lo dice.
    */
   answerFailed: Record<string, string>;
+  /**
+   * La pregunta que la CLI tiene abierta, leida de su pantalla (§5.5.4), o
+   * null. Va al final del hilo: la CLI todavia no la escribio en su historial,
+   * y al contestarla la escribe y aparece en su lugar.
+   */
+  liveQuestion: ConversationQuestionPart | null;
 }
 
 /**
@@ -180,6 +188,21 @@ export function useConversation(
   const [openToolCall, setOpenToolCall] = useState(false);
   const [subagents, setSubagents] = useState<ConversationSubagent[]>(NO_SUBAGENTS);
   const [queue, setQueue] = useState<QueuedPrompt[]>(NO_QUEUE);
+  const [liveQuestion, setLiveQuestion] = useState<ConversationQuestionPart | null>(null);
+  /**
+   * La pregunta leida de la pantalla que tiene abierta cada pestana, por su id.
+   * De todas, no solo de la que se mira: el plazo de una respuesta puede vencer
+   * con otra pestana a la vista, y tiene que saber si la pregunta se fue.
+   */
+  const liveIds = useRef(new Map<TerminalId, string>());
+  /**
+   * Lo que se mando en una pregunta leida de la pantalla, hasta que la CLI la
+   * escribe en el historial. Ahi la tarjeta de verdad hereda lo que tenia la
+   * leida: lo elegido, con su plazo, o el rechazo, con su aviso. La CLI puede
+   * escribirla en cualquier momento, tambien entre el clic y la respuesta del
+   * servidor (medido el 23-10-2026), y la tarjeta leida se va en ese instante.
+   */
+  const liveAnswers = useRef(new Map<string, LiveAnswerRecord>());
   const [forcing, setForcing] = useState(false);
   /** El `requestId` del ultimo "forzar envio", hasta su respuesta. */
   const forceRequest = useRef<string | null>(null);
@@ -259,6 +282,44 @@ export function useConversation(
   }, []);
 
   /*
+    El plazo de una respuesta mandada desde una tarjeta.
+
+    Responder escribe teclas en un menu (§5.5): si la CLI estaba ocupada, o el
+    menu ya no estaba donde lo dejamos, la secuencia se queda a mitad y **no pasa
+    nada mas**. Sin esto la tarjeta se queda diciendo "Respondida" para siempre
+    y el usuario espera algo que no va a llegar. Pasado el plazo sin que aparezca
+    el `tool_result` en el archivo, la tarjeta lo dice y vuelve a aceptar clics;
+    un reintento tardio que la CLI ya no espera lo rechaza el servidor, que mira
+    si la pregunta sigue abierta antes de escribir nada.
+
+    `live`: la pregunta era la leida de la pantalla (§5.5.4). Esa no tiene
+    `tool_result` con su id: la CLI la escribe con el suyo. Si al vencer ya no
+    esta en pantalla, se contesto, o la reemplazo la del historial, que tiene su
+    propio plazo; si sigue, las teclas no hicieron nada.
+  */
+  const armConfirmTimer = useCallback(
+    (forTerminal: TerminalId, toolUseId: string, live: boolean) => {
+      const previous = timers.current.get(toolUseId);
+      if (previous !== undefined) window.clearTimeout(previous);
+      const timer = window.setTimeout(() => {
+        timers.current.delete(toolUseId);
+        if (resolved.current.has(toolUseId)) return;
+        if (live && liveIds.current.get(forTerminal) !== toolUseId) return;
+        setAnsweredByTerminal((current) => {
+          const forThis = current[forTerminal];
+          if (forThis === undefined || !(toolUseId in forThis)) return current;
+          const rest = { ...forThis };
+          delete rest[toolUseId];
+          return { ...current, [forTerminal]: rest };
+        });
+        fail(forTerminal, toolUseId, t('conversation.answerUnconfirmed'));
+      }, ANSWER_CONFIRM_MS);
+      timers.current.set(toolUseId, timer);
+    },
+    [fail],
+  );
+
+  /*
     Que preguntas ya tienen su `tool_result` en el archivo.
 
     Es lo que cancela el plazo de una respuesta: si el resultado llego, se
@@ -286,6 +347,29 @@ export function useConversation(
       }
     }
   }, [events, forgetResolved]);
+
+  /*
+    Una pregunta que se mando leida de la pantalla (§5.5.4) llega al historial
+    con el id de la CLI, antes o despues de contestarse. Su tarjeta hereda lo
+    de la leida: lo elegido y su plazo (sin esto aceptaria un segundo clic, o
+    diria "Respondida" sin decir que), o el rechazo y su aviso (sin esto diria
+    "Respondida" con la CLI esperando).
+  */
+  useEffect(() => {
+    if (terminalId === null || liveAnswers.current.size === 0) return;
+    for (const { liveId, toolUseId, selections, failure } of liveCarryOvers(events, liveAnswers.current, terminalId)) {
+      liveAnswers.current.delete(liveId);
+      if (selections !== null) {
+        setAnsweredByTerminal((current) => {
+          const forTerminal = current[terminalId] ?? {};
+          if (toolUseId in forTerminal) return current;
+          return { ...current, [terminalId]: { ...forTerminal, [toolUseId]: selections } };
+        });
+        if (!resolved.current.has(toolUseId)) armConfirmTimer(terminalId, toolUseId, false);
+      }
+      if (failure !== null) fail(terminalId, toolUseId, failure);
+    }
+  }, [events, terminalId, armConfirmTimer, fail]);
 
   // Los plazos son de esta pantalla: al desmontar no queda ninguno corriendo.
   useEffect(() => {
@@ -325,14 +409,24 @@ export function useConversation(
     setOpenToolCall(false);
     setSubagents(NO_SUBAGENTS);
     setQueue(NO_QUEUE);
+    // La del `reset` que pide la suscripcion trae la de esta pestana.
+    setLiveQuestion(null);
     stopForcing();
     requested.current.clear();
     oldestEventId.current = null;
 
     const offMessage = connection.onMessage((message) => {
+      // La pregunta leida de la pantalla de cada pestana, aunque no sea esta (ver `liveIds`).
+      if (message.type === 'conversation.reset' || message.type === 'conversation.liveQuestion') {
+        const question = message.type === 'conversation.reset' ? message.liveQuestion : message.question;
+        if (question === null) liveIds.current.delete(message.terminalId);
+        else liveIds.current.set(message.terminalId, question.toolUseId);
+      }
+
       switch (message.type) {
         case 'conversation.reset':
           if (message.terminalId !== terminalId) break;
+          setLiveQuestion(message.liveQuestion);
           setEvents(message.events);
           setUsage(message.usage);
           setDefaults(message.defaults);
@@ -480,6 +574,15 @@ export function useConversation(
           setQueue(message.queue);
           break;
 
+        /*
+          La pregunta que la CLI tiene abierta, leida de su pantalla (§5.5.4):
+          aparecio, cambio o se fue. Llega sola: la CLI todavia no escribio nada.
+        */
+        case 'conversation.liveQuestion':
+          if (message.terminalId !== terminalId) break;
+          setLiveQuestion(message.question);
+          break;
+
         // Forzar el envio no se hizo: el motivo llega en su `error`, y el boton vuelve.
         case 'agent.forceSent':
           if (message.requestId === forceRequest.current && !message.sent) stopForcing();
@@ -501,6 +604,7 @@ export function useConversation(
           }
           if (message.code !== 'answer-failed') break;
           if (terminalId === null) break;
+          const reason = serverTextMessage(message.text);
           for (const [toolUseId, timer] of timers.current) {
             window.clearTimeout(timer);
             timers.current.delete(toolUseId);
@@ -511,7 +615,10 @@ export function useConversation(
               delete rest[toolUseId];
               return { ...current, [terminalId]: rest };
             });
-            fail(terminalId, toolUseId, serverTextMessage(message.text));
+            fail(terminalId, toolUseId, reason);
+            // La leida que todavia no llego al historial: su tarjeta de verdad hereda el rechazo.
+            const record = liveAnswers.current.get(toolUseId);
+            if (record !== undefined) liveAnswers.current.set(toolUseId, { ...record, selections: null, failure: reason });
           }
           break;
         }
@@ -595,34 +702,14 @@ export function useConversation(
         return { ...current, [terminalId]: { ...forTerminal, [toolUseId]: selections } };
       });
       forget(terminalId, toolUseId);
+      // La leida de la pantalla: se anota para que la tarjeta de verdad herede lo que pase.
+      const live = liveQuestion?.toolUseId === toolUseId ? liveQuestion.questions[0] : undefined;
+      if (live !== undefined) liveAnswers.current.set(toolUseId, { terminalId, item: live, selections, failure: null });
       connection.send({ type: 'agent.answer', terminalId, toolUseId, selections });
-
-      /*
-        Y se le pone un plazo.
-
-        Responder escribe teclas a ciegas en un menu (§5.5): si la CLI estaba
-        ocupada, o el menu ya no estaba donde lo dejamos, la secuencia se queda
-        a mitad y **no pasa nada mas**. Sin esto la tarjeta se queda diciendo
-        "Respondida" para siempre y el usuario espera algo que no va a llegar.
-        Pasado el plazo sin que aparezca el `tool_result` en el archivo, la
-        tarjeta lo dice y vuelve a aceptar clics; un reintento tardio que la
-        CLI ya no espera lo rechaza el servidor, que mira si la pregunta sigue
-        abierta antes de escribir nada.
-      */
-      const timer = window.setTimeout(() => {
-        if (resolved.current.has(toolUseId)) return;
-        setAnsweredByTerminal((current) => {
-          const forTerminal = current[terminalId];
-          if (forTerminal === undefined || !(toolUseId in forTerminal)) return current;
-          const rest = { ...forTerminal };
-          delete rest[toolUseId];
-          return { ...current, [terminalId]: rest };
-        });
-        fail(terminalId, toolUseId, t('conversation.answerUnconfirmed'));
-      }, ANSWER_CONFIRM_MS);
-      timers.current.set(toolUseId, timer);
+      // Y se le pone un plazo (ver `armConfirmTimer`).
+      armConfirmTimer(terminalId, toolUseId, live !== undefined);
     },
-    [connection, terminalId, fail, forget],
+    [connection, terminalId, forget, liveQuestion, armConfirmTimer],
   );
 
   const setPermissionMode = useCallback(
@@ -654,5 +741,6 @@ export function useConversation(
     answered,
     answerFailed,
     setPermissionMode,
+    liveQuestion,
   };
 }

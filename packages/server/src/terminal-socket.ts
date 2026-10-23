@@ -24,6 +24,7 @@ import {
   type ContextUsage,
   type PermissionMode,
   type ConversationEvent,
+  type ConversationQuestionPart,
   type ConversationState,
   type ConversationSubagent,
   type GitStatus,
@@ -68,12 +69,14 @@ import {
   MAX_FILES_PER_SUBMIT,
   MAX_IMAGES_PER_SUBMIT,
 } from './paste-store.js';
+import { LIVE_QUESTION_ID_PREFIX } from './live-question.js';
 import {
-  ANSWER_INVALID_TEXT,
   ANSWER_KEY_INTERVAL_MS,
+  ANSWER_MENU_CHANGED_TEXT,
   ANSWER_NOT_PENDING_TEXT,
   CLEAR_EDITOR,
   answerFailureText,
+  answerKeysRefusal,
   buildAnswerKeys,
   buildForceSendKeys,
   buildInterruptKeys,
@@ -465,6 +468,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     broadcast({ type: 'conversation.subagents', terminalId, subagents });
 
   /*
+    La pregunta que la CLI tiene abierta, leida de su pantalla (§5.5.4):
+    aparecio, cambio o se fue. El hilo la dibuja como una tarjeta mas.
+  */
+  const onConversationLiveQuestion = (terminalId: TerminalId, question: ConversationQuestionPart | null): void =>
+    broadcast({ type: 'conversation.liveQuestion', terminalId, question });
+
+  /*
     La cola de la CLI cambio sin mensajes nuevos (hito 45, §6.35): se mando uno
     con el agente trabajando, se forzo el envio, o la CLI quedo libre o sin
     proceso. Cuando la cambia un mensaje que llega, va dentro de su `append`.
@@ -703,6 +713,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         openToolCall: conversations.isToolCallOpen(terminalId),
         subagents: conversations.getSubagents(terminalId),
         queue: conversations.getQueue(terminalId),
+        liveQuestion: conversations.getLiveQuestion(terminalId),
       });
     });
   };
@@ -719,6 +730,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('waiting', onConversationWaiting);
   conversations.on('toolCall', onConversationToolCall);
   conversations.on('subagents', onConversationSubagents);
+  conversations.on('liveQuestion', onConversationLiveQuestion);
   conversations.on('queue', onConversationQueue);
   conversations.on('turns', onConversationTurns);
   conversations.on('plans', onConversationPlans);
@@ -1376,6 +1388,46 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
           const interruptedAnswer = (): void =>
             sendError(socket, 'answer-failed', serverText('answerInterrupted'));
+
+          /*
+            La pregunta leida de la pantalla (§5.5.4). La CLI todavia no la
+            escribio en el historial, asi que su id es de la app. Se contesta
+            con las teclas de siempre, pero antes, dentro del turno de la fila,
+            se relee la pantalla: si la pregunta ya no es esa, o el menu esta
+            tocado en la solapa CLI, no se escribe nada. Leer bien no alcanza:
+            lo que la hace segura es releer.
+          */
+          if (message.toolUseId.startsWith(LIVE_QUESTION_ID_PREFIX)) {
+            void writeQueue.enqueue(
+              message.terminalId,
+              async (lane) => {
+                const live = conversations.getLiveQuestion(message.terminalId);
+                if (live === null || live.toolUseId !== message.toolUseId) {
+                  sendError(socket, 'answer-failed', ANSWER_NOT_PENDING_TEXT);
+                  return;
+                }
+                const shape = live.questions.map((question) => ({
+                  multiSelect: question.multiSelect,
+                  optionCount: question.options.length,
+                }));
+                const keys = buildAnswerKeys(shape, message.selections);
+                if (keys === null) {
+                  sendError(socket, 'answer-failed', answerKeysRefusal(shape, message.selections));
+                  return;
+                }
+                const check = await conversations.verifyLiveQuestion(message.terminalId, message.toolUseId);
+                if (check !== 'ok') {
+                  sendError(socket, 'answer-failed', check === 'gone' ? ANSWER_NOT_PENDING_TEXT : ANSWER_MENU_CHANGED_TEXT);
+                  return;
+                }
+                const outcome = await lane.writePieces(keys, ANSWER_KEY_INTERVAL_MS, pieceWriter(socket, message.terminalId));
+                if (outcome === 'interrupted') interruptedAnswer();
+              },
+              { onDropped: interruptedAnswer },
+            );
+            break;
+          }
+
           /*
             La comprobacion va dentro del turno de la fila, justo antes de
             escribir: si habia algo mandandose delante, la pregunta pudo
@@ -1390,15 +1442,24 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 return;
               }
 
-              const keys = buildAnswerKeys(
-                pending.questions.map((question) => ({
-                  multiSelect: question.multiSelect,
-                  optionCount: question.options.length,
-                })),
-                message.selections,
-              );
+              const shape = pending.questions.map((question) => ({
+                multiSelect: question.multiSelect,
+                optionCount: question.options.length,
+              }));
+              const keys = buildAnswerKeys(shape, message.selections);
               if (keys === null) {
-                sendError(socket, 'answer-failed', ANSWER_INVALID_TEXT);
+                sendError(socket, 'answer-failed', answerKeysRefusal(shape, message.selections));
+                return;
+              }
+              /*
+                Si la pantalla se puede leer, tambien se relee (§5.5.4): la CLI
+                a veces escribe la pregunta antes de que se conteste, y el menu
+                pudo tocarse en la solapa CLI. Lo que no se puede leer (varias
+                preguntas) se contesta como siempre.
+              */
+              const screen = await conversations.checkHistoryQuestion(message.terminalId, pending);
+              if (screen === 'changed' || screen === 'touched' || screen === 'gone') {
+                sendError(socket, 'answer-failed', ANSWER_MENU_CHANGED_TEXT);
                 return;
               }
               /*
@@ -1869,6 +1930,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               openToolCall: conversations.isToolCallOpen(message.terminalId),
               subagents: conversations.getSubagents(message.terminalId),
               queue: conversations.getQueue(message.terminalId),
+              liveQuestion: conversations.getLiveQuestion(message.terminalId),
             });
             // Los planes van en su propio mensaje y no dentro del reset: la
             // conversacion se rehace muchas veces —cada `conversation.reset`—
@@ -2988,6 +3050,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('waiting', onConversationWaiting);
     conversations.off('toolCall', onConversationToolCall);
     conversations.off('subagents', onConversationSubagents);
+    conversations.off('liveQuestion', onConversationLiveQuestion);
     conversations.off('queue', onConversationQueue);
     repos.off('status', onGitStatus);
     memory.off('status', onMemoryStatus);

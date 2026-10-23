@@ -92,6 +92,12 @@
  * de integrar y en `integrate`, todos opcionales. Un servidor anterior no manda
  * nada de eso, y la web no ofrece las acciones nuevas sin `behind` en la fila.
  *
+ * Y la pregunta leida de la pantalla de la CLI (23-10-2026, §5.5.4), sin subir
+ * la version: `conversation.liveQuestion` y `liveQuestion` en
+ * `conversation.reset`, opcional. Se contesta con el `agent.answer` de siempre,
+ * con el id que trae. Un servidor anterior no la manda, y la web sigue con la
+ * barra de "esperando".
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -126,6 +132,7 @@ import {
   type ConversationEvent,
   type ConversationImageSource,
   type ConversationPart,
+  type ConversationQuestionPart,
   type ConversationState,
   type ConversationSubagent,
   type PlanContent,
@@ -1603,6 +1610,30 @@ export interface ServerConversationResetMessage {
    * `conversation.queue`. Un servidor que no lo manda equivale a ninguno.
    */
   queue: QueuedPrompt[];
+  /**
+   * La pregunta abierta leida de la pantalla de la CLI, o null. Ver
+   * `conversation.liveQuestion`. Un servidor que no la manda equivale a null.
+   */
+  liveQuestion: ConversationQuestionPart | null;
+}
+
+/**
+ * La pregunta que la CLI tiene abierta, leida de su pantalla (23-10-2026,
+ * §5.5.4), o null cuando ya no hay ninguna que se pueda contestar desde el
+ * hilo.
+ *
+ * Existe porque Claude Code no escribe en el historial la linea de la pregunta
+ * hasta que se contesta (medido con la 2.1.309: tres de tres), y la tarjeta del
+ * hilo sale de esa linea. Mientras tanto la app lee el menu de la pantalla y
+ * manda esto. `toolUseId` no es el de la CLI, que no se ve: es un id de la app
+ * para esta pregunta, y es el que lleva el `agent.answer` que la contesta. Al
+ * contestarla, la CLI escribe la linea de verdad y el hilo la muestra como
+ * siempre.
+ */
+export interface ServerConversationLiveQuestionMessage {
+  type: 'conversation.liveQuestion';
+  terminalId: TerminalId;
+  question: ConversationQuestionPart | null;
 }
 
 /**
@@ -2349,6 +2380,7 @@ export type ServerMessage =
   | ServerConversationToolCallMessage
   | ServerConversationSubagentsMessage
   | ServerConversationQueueMessage
+  | ServerConversationLiveQuestionMessage
   | ServerAgentSubmittedMessage
   | ServerAgentForceSentMessage
   | ServerAgentRewoundMessage
@@ -3110,6 +3142,12 @@ function parseQueue(value: unknown): QueuedPrompt[] | null {
   return asArrayFiltered(value, parseQueuedPrompt)?.slice(0, MAX_QUEUED_PROMPTS) ?? null;
 }
 
+/** La pregunta leida de la pantalla (§5.5.4), o null si no es una pregunta. */
+function parseLiveQuestion(value: unknown): ConversationQuestionPart | null {
+  const part = parseConversationPart(value);
+  return part !== null && part.kind === 'question' ? part : null;
+}
+
 export function parseServerMessage(raw: string): ServerMessage | null {
   const record = asRecord(parseJson(raw));
   if (record === null) return null;
@@ -3246,7 +3284,17 @@ export function parseServerMessage(raw: string): ServerMessage | null {
             subagents: parseSubagentList(record['subagents']) ?? [],
             // Ausente es vacia: un servidor anterior no muestra la cola (hito 45).
             queue: parseQueue(record['queue']) ?? [],
+            // Ausente es ninguna: un servidor anterior no lee la pantalla (§5.5.4).
+            liveQuestion: parseLiveQuestion(record['liveQuestion']),
           };
+    }
+    case 'conversation.liveQuestion': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      // null es "ya no hay"; algo que no es una pregunta no se toma por null.
+      const question = record['question'] === null ? null : parseLiveQuestion(record['question']);
+      return terminalId === null || (record['question'] !== null && question === null)
+        ? null
+        : { type: 'conversation.liveQuestion', terminalId, question };
     }
     case 'conversation.subagents': {
       const terminalId = asNonEmptyString(record['terminalId']);

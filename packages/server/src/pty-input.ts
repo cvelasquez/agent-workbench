@@ -236,6 +236,12 @@ function isFreeText(value: AnswerSelection): value is FreeTextAnswer {
  * | respuesta libre (1 pregunta) | `3` + texto + Enter | envia |
  * | respuesta libre (1ª de 2) | `3` + texto + Enter, `1`, `1` | las dos y envia |
  *
+ * Remedida con la 2.1.309 el 23-10-2026 (§5.5.4): todo igual, menos la
+ * respuesta libre en una de opcion multiple. Ahi el numero de `Type something`
+ * solo marca su casilla, sin abrir la edicion: el texto pegado se pierde y el
+ * Enter marca la opcion que tenga el cursor. `1` + `4` + texto + Enter + Tab +
+ * `1` envio "Servidor", la primera. No hay secuencia medida, y no se manda nada.
+ *
  * De ahi salen las cuatro reglas:
  *
  *  1. **El numero de la opcion es su posicion, 1-based, en el mismo array que
@@ -280,12 +286,12 @@ export function buildAnswerKeys(
       // La opcion libre queda detras de las reales; con nueve o mas, su numero
       // ya no se puede teclear (ver abajo).
       if (question.optionCount >= 9) return null;
+      // En una de opcion multiple el numero solo marca la casilla: el texto se
+      // perderia y el Enter elegiria otra cosa (medido con la 2.1.309).
+      if (question.multiSelect) return null;
       keys.push(String(question.optionCount + 1));
       keys.push(`${PASTE_START}${clean}${PASTE_END}`);
       keys.push(CONFIRM);
-      // Una pregunta de opcion multiple sigue necesitando su Tab: el texto
-      // confirma la opcion, no cierra la pregunta.
-      if (question.multiSelect) keys.push(TAB);
       continue;
     }
 
@@ -375,6 +381,27 @@ export const ANSWER_INVALID_TEXT: ServerText = serverText('answerInvalid');
 
 /** `answer-failed`: una respuesta escrita a una pregunta que no la acepta (hito 29, B4). */
 export const ANSWER_NO_FREE_TEXT_TEXT: ServerText = serverText('answerNoFreeText');
+
+/**
+ * `answer-failed`: la pregunta leida de la pantalla (§5.5.4) ya no es la misma
+ * al releerla, o el menu esta tocado en la solapa CLI. No se escribio nada.
+ */
+export const ANSWER_MENU_CHANGED_TEXT: ServerText = serverText('answerMenuChanged');
+
+/** `answer-failed`: una respuesta escrita en una pregunta de opcion multiple (ver `buildAnswerKeys`). */
+export const ANSWER_FREE_TEXT_MULTI_TEXT: ServerText = serverText('answerFreeTextMulti');
+
+/** Por que `buildAnswerKeys` no armo teclas: la respuesta escrita que no se puede teclear, o lo demas. */
+export function answerKeysRefusal(
+  questions: readonly { readonly multiSelect: boolean }[],
+  selections: readonly AnswerSelection[],
+): ServerText {
+  const freeInMulti = questions.some((question, index) => {
+    const chosen = selections[index];
+    return question.multiSelect && chosen !== undefined && isFreeText(chosen);
+  });
+  return freeInMulti ? ANSWER_FREE_TEXT_MULTI_TEXT : ANSWER_INVALID_TEXT;
+}
 
 /**
  * El texto de `answer-failed` para como termino una respuesta por la API de la

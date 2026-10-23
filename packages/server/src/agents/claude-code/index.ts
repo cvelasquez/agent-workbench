@@ -46,6 +46,7 @@ import { autoAnswerResumeDialog } from './resume-dialog.js';
 import { createClaudeCodeHandback } from './handback.js';
 import { sessionFilePath } from './paths.js';
 import { createClaudeCodeRewind } from './rewind-menu.js';
+import { createClaudeCodeScreenQuestions } from './question-screen.js';
 import {
   claudeStatusLineFragment,
   claudeStatusLineScriptPath,
@@ -266,6 +267,9 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
 
     // Volver a antes de un mensaje con el menu de rewind de la CLI (hito 44, §4.16).
     rewind: createClaudeCodeRewind(),
+
+    // La pregunta abierta, leida de la pantalla: la CLI no la escribe hasta que se contesta (§5.5.4).
+    screenQuestions: createClaudeCodeScreenQuestions(),
 
     // La cola la dice el JSONL (hito 45, §4.4.3), y "enviar ya" es su tecla.
     promptQueue: { source: 'session', forceSend: 'ctrl-x-ctrl-s' },
