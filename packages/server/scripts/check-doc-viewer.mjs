@@ -214,12 +214,29 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
   check('6.13 los candidatos de un texto: lo que va entre acentos graves y los enlaces, sin repetir',
     json(paths.pathCandidates(text, win)) === json(['docs/guia.md', 'src/app.ts', 'apps/mobile/notes.md']), json(paths.pathCandidates(text, win)));
 
-  const known = new Map([['docs/guia.md', true], ['docs/plan.md', false]]);
+  const known = new Map([['docs/guia.md', 'file'], ['docs/plan.md', null], ['docs/capturas', 'directory']]);
   check('6.14 se pregunta lo que no se conoce y lo que antes no estaba; lo que ya esta, o va en camino, no',
-    json(paths.pathsToCheck(['docs/guia.md', 'docs/plan.md', 'src/a.ts', 'src/b.ts'], known, new Set(['src/b.ts']))) === json(['docs/plan.md', 'src/a.ts']));
-  const after = paths.withChecked(known, ['docs/plan.md', 'src/a.ts'], ['docs/plan.md']);
+    json(paths.pathsToCheck(['docs/guia.md', 'docs/plan.md', 'docs/capturas', 'src/a.ts', 'src/b.ts'], known, new Set(['src/b.ts']))) ===
+      json(['docs/plan.md', 'src/a.ts']));
+  const after = paths.withChecked(known, ['docs/plan.md', 'src/a.ts'], ['docs/plan.md'], []);
   check('6.15 la respuesta dice de cada ruta pedida si esta: lo que no volvio, no esta',
-    after.get('docs/plan.md') === true && after.get('src/a.ts') === false && after.get('docs/guia.md') === true && known.get('docs/plan.md') === false);
+    after.get('docs/plan.md') === 'file' && after.get('src/a.ts') === null && after.get('docs/guia.md') === 'file' && known.get('docs/plan.md') === null);
+
+  // Una carpeta que nombra el agente se abre en el explorador del sistema (23-10-2026).
+  check('6.24 una carpeta, absoluta o relativa, con la barra del final o sin ella',
+    of('D:\\Mi Proyecto\\mobile\\store\\capturas\\') === 'mobile/store/capturas' && of('mobile/store/capturas/') === 'mobile/store/capturas' &&
+      of('mobile\\store\\capturas') === 'mobile/store/capturas');
+  check('6.25 una palabra sola con la barra del final es una carpeta, y se pregunta; sin la barra, sigue sin preguntarse',
+    of('docs/') === 'docs' && of('docs\\') === 'docs' && of('docs') === null &&
+      of('/') === null && of('./') === null && of('D:\\Mi Proyecto\\') === null);
+  check('6.28 la carpeta de la captura del usuario sale de su mensaje',
+    json(paths.pathCandidates('Están en `D:\\Mi Proyecto\\mobile\\store\\capturas\\`.', win)) === json(['mobile/store/capturas']));
+  const withFolders = paths.withChecked(new Map(), ['mobile/store/capturas', 'src/a.ts', 'nada.md'], ['src/a.ts'], ['mobile/store/capturas']);
+  check('6.26 la respuesta distingue un archivo de una carpeta; lo que no volvio en ninguna, no esta',
+    withFolders.get('mobile/store/capturas') === 'directory' && withFolders.get('src/a.ts') === 'file' && withFolders.get('nada.md') === null,
+    json([...withFolders]));
+  check('6.27 un servidor anterior no manda las carpetas: ninguna es carpeta',
+    paths.withChecked(new Map(), ['docs'], [], undefined).get('docs') === null);
 
   // El protocolo.
   const many = Array.from({ length: shared.FILES_CHECK_MAX_PATHS + 20 }, (_, index) => `src/f${index}.ts`);
@@ -232,9 +249,11 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
     shared.parseClientMessage(json({ type: 'files.check', requestId: 'r', paths: [] })) === null &&
       shared.parseClientMessage(json({ type: 'files.check', terminalId: 't', paths: [] })) === null &&
       shared.parseClientMessage(json({ type: 'files.check', terminalId: 't', requestId: 'r' })) === null);
-  check('6.19 files.checked se lee con su eco',
+  check('6.19 files.checked se lee con su eco, y sin las carpetas de un servidor anterior no hay ninguna',
     json(shared.parseServerMessage(json({ type: 'files.checked', terminalId: 't1', requestId: 'r1', existing: ['a.md'] }))) ===
-      json({ type: 'files.checked', terminalId: 't1', requestId: 'r1', existing: ['a.md'] }) &&
+      json({ type: 'files.checked', terminalId: 't1', requestId: 'r1', existing: ['a.md'], directories: [] }) &&
+      json(shared.parseServerMessage(json({ type: 'files.checked', terminalId: 't1', requestId: 'r1', existing: [], directories: ['docs'] }))) ===
+        json({ type: 'files.checked', terminalId: 't1', requestId: 'r1', existing: [], directories: ['docs'] }) &&
       shared.parseServerMessage(json({ type: 'files.checked', terminalId: 't1', existing: [] })) === null);
   const hello = (extra) => shared.parseServerMessage(json({ type: 'hello', protocolVersion: shared.PROTOCOL_VERSION, agents: [], defaultAgent: null, platform: 'win32', defaultCwd: 'D:\\x', shellName: null, ...extra }));
   check('6.20 un servidor anterior no dice fileCheck, y la pagina no pregunta', hello({}).fileCheck === false && hello({ fileCheck: true }).fileCheck === true);
@@ -244,11 +263,22 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
   const view = readFileSync(new URL('../../web/src/ConversationView.tsx', import.meta.url), 'utf8');
   const socket = readFileSync(new URL('../src/terminal-socket.ts', import.meta.url), 'utf8');
   check('6.21 solo es enlace lo que el servidor confirmo, y solo se pregunta con el servidor que contesta',
-    hook.includes('known?.get(path) === true') && /if \(!enabled \|\| terminalId === null \|\| cwd\.length === 0\) return;/.test(hook));
+    hook.includes("if (kind === 'file') return { open: () => onOpen(path), folder: false };") &&
+      /if \(!enabled \|\| terminalId === null \|\| cwd\.length === 0\) return;/.test(hook));
   check('6.22 solo el texto del agente: lo del usuario se muestra tal cual',
     hook.includes("if (event.role !== 'assistant') continue;") && /<Markdown text=\{part\.text\} needle=\{needle\} codeLink=\{fileLinks\?\.code\} localLink=\{fileLinks\?\.link\} \/>/.test(view));
   check('6.23 el servidor anuncia que contesta, y contesta por el guardia de rutas',
-    socket.includes('fileCheck: true,') && socket.includes('await existingFiles(cwd, message.paths, await folders)'));
+    socket.includes('fileCheck: true,') && socket.includes('await existingPaths(cwd, message.paths, await folders)'));
+
+  // Una carpeta se abre en el explorador del sistema: el de la PC, nunca desde un equipo remoto.
+  const app = readFileSync(new URL('../../web/src/App.tsx', import.meta.url), 'utf8');
+  const remote = readFileSync(new URL('../src/remote-access.ts', import.meta.url), 'utf8');
+  check('6.29 una carpeta abre el explorador solo sin acceso remoto, y el servidor le niega files.reveal a un remoto',
+    app.includes('onOpenFolder: remoteClient ? null : revealPath') &&
+      hook.includes("if (kind === 'directory' && onOpenFolder !== null) return { open: () => onOpenFolder(path), folder: true };") &&
+      remote.includes("'files.reveal',"));
+  check('6.30 y abrirla pasa por el guardia de rutas y nunca abre la carpeta de una CLI',
+    /case 'files\.reveal':[\s\S]{0,400}resolveInside\(cwd, message\.path, \{ mustExist: true \}\)[\s\S]{0,300}\(await folders\)\.contains\(absolute\)/.test(socket));
 }
 
 // --- 7. Editar un archivo (Hito 46, §6.36) ---------------------------------------------

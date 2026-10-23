@@ -958,6 +958,7 @@
   "thread.notice.error": "CLI에서 오류를 반환했습니다: {{detail}}",
   "thread.notice.errorNoDetail": "CLI에서 오류를 반환했습니다",
   "thread.notice.interrupted": "중단됨",
+  "thread.openFolder": "시스템 파일 탐색기에서 {{path}} 열기",
   "thread.openInFiles": "파일 탭에서 {{path}} 열기",
   "thread.pasted_other": "붙여 넣은 텍스트 #{{number}} · {{count}}줄",
   "thread.question.answerInCli": "CLI 탭에서 답하기",

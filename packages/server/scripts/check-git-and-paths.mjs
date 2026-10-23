@@ -21,7 +21,7 @@ import path from 'node:path';
 import { parsePorcelainV2, parseUnifiedDiff, parseWorktreeListZ, parseWorktrees } from '../src/git-repo.ts';
 import { InvalidPathError, resolveInside } from '../src/path-guard.ts';
 import { NO_CLI_FOLDERS } from '../src/cli-folders.ts';
-import { existingFiles } from '../src/file-browser.ts';
+import { existingPaths } from '../src/file-browser.ts';
 
 const dir = process.argv[2] ?? path.join(process.cwd(), '.check-git');
 await rm(dir, { recursive: true, force: true });
@@ -219,23 +219,31 @@ if (symlinkSupported) {
   console.log('OMITIDO enlace simbolico — el sistema no dejo crearlo');
 }
 
-// Cuales de las rutas que nombro el agente son archivos del proyecto (§6.33):
-// lo que el hilo vuelve enlace. Pasa por el mismo guardia que leer, y lo que no
-// esta, no es un archivo o cae fuera cuenta igual: no se dice cual de las tres.
+// Cuales de las rutas que nombro el agente son archivos o carpetas del proyecto
+// (§6.33): lo que el hilo vuelve enlace. Pasa por el mismo guardia que leer, y
+// lo que no esta o cae fuera cuenta igual: no se dice cual de las dos.
 const asked = [
   'src/a.ts',
   'src',
   'src/fantasma.ts',
+  'fantasma',
   '../afuera/secreto.txt',
+  '..',
   'C:\\Windows\\win.ini',
+  'C:\\Windows',
   '/etc/passwd',
+  '/etc',
   'atajo/secreto.txt',
+  'atajo',
   'src/a.ts\0.png',
 ];
-check('de las rutas que se preguntan, solo las que son un archivo de adentro',
-  JSON.stringify(await existingFiles(root, asked, NO_CLI_FOLDERS)) === JSON.stringify(['src/a.ts']), JSON.stringify(await existingFiles(root, asked, NO_CLI_FOLDERS)));
-check('sin rutas, ninguna; y con una carpeta que ya no esta, tampoco, sin lanzar',
-  (await existingFiles(root, [], NO_CLI_FOLDERS)).length === 0 && (await existingFiles(path.join(dir, 'no-existe'), ['src/a.ts'], NO_CLI_FOLDERS)).length === 0);
+const checked = await existingPaths(root, asked, NO_CLI_FOLDERS);
+check('de las rutas que se preguntan, solo los archivos y las carpetas de adentro, cada uno en su lista',
+  JSON.stringify(checked) === JSON.stringify({ files: ['src/a.ts'], directories: ['src'] }), JSON.stringify(checked));
+const none = JSON.stringify({ files: [], directories: [] });
+check('sin rutas, ninguna; y con una carpeta de proyecto que ya no esta, tampoco, sin lanzar',
+  JSON.stringify(await existingPaths(root, [], NO_CLI_FOLDERS)) === none &&
+    JSON.stringify(await existingPaths(path.join(dir, 'no-existe'), ['src/a.ts', 'src'], NO_CLI_FOLDERS)) === none);
 
 await rm(dir, { recursive: true, force: true });
 

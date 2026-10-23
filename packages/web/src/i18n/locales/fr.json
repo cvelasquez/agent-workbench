@@ -992,6 +992,7 @@
   "thread.notice.error": "La CLI a renvoyé une erreur : {{detail}}",
   "thread.notice.errorNoDetail": "La CLI a renvoyé une erreur",
   "thread.notice.interrupted": "Interrompu",
+  "thread.openFolder": "Ouvrir {{path}} dans l'explorateur de fichiers du système",
   "thread.openInFiles": "Ouvrir {{path}} dans l'onglet Fichiers",
   "thread.pasted_one": "Texte collé #{{number}} · {{count}} ligne",
   "thread.pasted_other": "Texte collé #{{number}} · {{count}} lignes",

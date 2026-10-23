@@ -16,12 +16,14 @@
  *    cae adentro; una que sale con `..`, una direccion o un patron no.
  *  - **Que no es candidata**: una sola palabra sin extension (`main`,
  *    `README`). Casi todo lo que el agente pone entre acentos graves es eso, y
- *    preguntarle al servidor por cada una no sirve de nada.
+ *    preguntarle al servidor por cada una no sirve de nada. Con la barra del
+ *    final si (`docs/`): la barra dice que es una carpeta.
  *
- * **Lo que sale de aca es un candidato, no un enlace.** Que el archivo exista
- * lo dice el servidor (`files.check`), con su guardia de rutas (§6.3): el
- * cliente sigue sin nombrar una ruta absoluta, y lo que el servidor no confirma
- * queda como texto.
+ * **Lo que sale de aca es un candidato, no un enlace.** Que el archivo o la
+ * carpeta exista lo dice el servidor (`files.check`), con su guardia de rutas
+ * (§6.3): el cliente sigue sin nombrar una ruta absoluta, y lo que el servidor
+ * no confirma queda como texto. Un archivo se abre en Archivos; una carpeta, en
+ * el explorador del sistema (23-10-2026).
  */
 
 import { FILES_CHECK_MAX_PATH_CHARS } from '@agent-workbench/shared';
@@ -87,6 +89,8 @@ export function projectPathOf(mention: string, root: ProjectRoot): string | null
     text = inside;
   }
 
+  // `docs/`: la barra del final dice que es una carpeta, aunque sea una palabra sola.
+  const markedFolder = text.endsWith('/');
   const parts: string[] = [];
   for (const segment of text.split('/')) {
     if (segment === '' || segment === '.') continue;
@@ -102,7 +106,7 @@ export function projectPathOf(mention: string, root: ProjectRoot): string | null
   const last = parts[parts.length - 1];
   if (last === undefined) return null;
   // Una palabra sola sin extension no se pregunta: es casi todo lo que va entre acentos graves.
-  if (parts.length === 1 && !EXTENSION.test(last)) return null;
+  if (parts.length === 1 && !EXTENSION.test(last) && !markedFolder) return null;
   return parts.join('/');
 }
 
@@ -145,8 +149,11 @@ export function pathCandidates(text: string, root: ProjectRoot): string[] {
   return [...found];
 }
 
-/** Lo que se sabe de una ruta: existe, no existe, o todavia no se pregunto. */
-export type KnownPaths = ReadonlyMap<string, boolean>;
+/** Que es una ruta que esta: un archivo, que se abre en Archivos, o una carpeta, en el explorador del sistema. */
+export type PathKind = 'file' | 'directory';
+
+/** Lo que se sabe de una ruta: que es, null si no esta, o nada si todavia no se pregunto. */
+export type KnownPaths = ReadonlyMap<string, PathKind | null>;
 
 /**
  * De los candidatos de un texto **nuevo**, los que hay que preguntar: los que
@@ -155,13 +162,22 @@ export type KnownPaths = ReadonlyMap<string, boolean>;
  * sabe que esta no se pregunta otra vez.
  */
 export function pathsToCheck(candidates: readonly string[], known: KnownPaths, pending: ReadonlySet<string>): string[] {
-  return candidates.filter((path) => known.get(path) !== true && !pending.has(path));
+  return candidates.filter((path) => (known.get(path) ?? null) === null && !pending.has(path));
 }
 
-/** Lo que cambia con una respuesta del servidor: cada ruta pedida, si esta o no. */
-export function withChecked(known: KnownPaths, asked: readonly string[], existing: readonly string[]): Map<string, boolean> {
-  const present = new Set(existing);
+/**
+ * Lo que cambia con una respuesta del servidor: cada ruta pedida, que es o si
+ * no esta. `directories` falta en la de un servidor anterior: ninguna es carpeta.
+ */
+export function withChecked(
+  known: KnownPaths,
+  asked: readonly string[],
+  existing: readonly string[],
+  directories: readonly string[] = [],
+): Map<string, PathKind | null> {
+  const files = new Set(existing);
+  const folders = new Set(directories);
   const next = new Map(known);
-  for (const path of asked) next.set(path, present.has(path));
+  for (const path of asked) next.set(path, files.has(path) ? 'file' : folders.has(path) ? 'directory' : null);
   return next;
 }

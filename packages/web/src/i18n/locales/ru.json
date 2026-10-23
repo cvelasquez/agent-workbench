@@ -1060,6 +1060,7 @@
   "thread.notice.error": "CLI вернул ошибку: {{detail}}",
   "thread.notice.errorNoDetail": "CLI вернул ошибку",
   "thread.notice.interrupted": "Прервано",
+  "thread.openFolder": "Открыть {{path}} в системном файловом менеджере",
   "thread.openInFiles": "Открыть {{path}} на вкладке «Файлы»",
   "thread.pasted_few": "Вставленный текст #{{number}} · {{count}} строки",
   "thread.pasted_many": "Вставленный текст #{{number}} · {{count}} строк",

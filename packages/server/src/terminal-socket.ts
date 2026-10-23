@@ -61,7 +61,7 @@ import { DraftTabs, draftEntriesOf, draftOwnerOf, submitClearsDraft, type DraftS
 import type { ConversationHub } from './conversation-hub.js';
 import { debugLog } from './debug.js';
 import { cliFolders } from './cli-folders.js';
-import { existingFiles, listDirectory, readPreview, searchFiles } from './file-browser.js';
+import { existingPaths, listDirectory, readPreview, searchFiles } from './file-browser.js';
 import { FileWriteError, saveProjectFile } from './file-write.js';
 import { readDiff } from './git-repo.js';
 import { GlobalSearchSlot } from './global-search.js';
@@ -2407,17 +2407,25 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           break;
 
         /*
-          Cuales de esas rutas son archivos del proyecto (§6.33): lo que el
-          hilo vuelve enlace. Sin error para ningun caso —una pestana que ya no
-          esta, una ruta que cae fuera—: nada existe, y el hilo queda como
+          Cuales de esas rutas son archivos o carpetas del proyecto (§6.33): lo
+          que el hilo vuelve enlace. Sin error para ningun caso (una pestana que
+          ya no esta, una ruta que cae fuera): nada existe, y el hilo queda como
           texto. Un cartel por una ruta que escribio el agente no le dice nada
           al usuario.
         */
         case 'files.check':
           void (async () => {
             const cwd = cwdOf(message.terminalId);
-            const existing = cwd === null ? [] : await existingFiles(cwd, message.paths, await folders).catch(() => []);
-            send(socket, { type: 'files.checked', terminalId: message.terminalId, requestId: message.requestId, existing });
+            const none = { files: [], directories: [] };
+            const { files, directories } =
+              cwd === null ? none : await existingPaths(cwd, message.paths, await folders).catch(() => none);
+            send(socket, {
+              type: 'files.checked',
+              terminalId: message.terminalId,
+              requestId: message.requestId,
+              existing: files,
+              directories,
+            });
           })();
           break;
 

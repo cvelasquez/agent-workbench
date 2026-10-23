@@ -973,6 +973,13 @@ export function App(): JSX.Element {
   openProjectFileRef.current = openProjectFile;
   const openFromThread = useCallback((relativePath: string) => openProjectFileRef.current(relativePath), []);
   const liveTerminalIds = useMemo(() => terminals.map((terminal) => terminal.terminalId), [terminals]);
+  const revealPath = useCallback(
+    (path: string) => {
+      if (activeTerminalId === null) return;
+      connection.send({ type: 'files.reveal', terminalId: activeTerminalId, path });
+    },
+    [connection, activeTerminalId],
+  );
   const fileLinks = useFileLinks({
     connection,
     // Con Archivos escondida en Ajustes no hay donde abrirlo: el hilo queda como texto.
@@ -983,6 +990,8 @@ export function App(): JSX.Element {
     events: conversation.events,
     liveTerminalIds,
     onOpen: openFromThread,
+    // Una carpeta se abre en el explorador del sistema; desde un equipo remoto se abriria en el anfitrion.
+    onOpenFolder: remoteClient ? null : revealPath,
   });
 
   /**
@@ -1029,14 +1038,6 @@ export function App(): JSX.Element {
         : null;
     return { command: activeCompactCommand, blockedReason, onCompact: () => sendCommand(activeCompactCommand) };
   }, [activeCompactCommand, activeTerminal, activeActivity, sendCommand, locale]);
-
-  const revealPath = useCallback(
-    (path: string) => {
-      if (activeTerminalId === null) return;
-      connection.send({ type: 'files.reveal', terminalId: activeTerminalId, path });
-    },
-    [connection, activeTerminalId],
-  );
 
   /*
     Desplegar la consola desde su barra plegada. Es lo unico que abre una

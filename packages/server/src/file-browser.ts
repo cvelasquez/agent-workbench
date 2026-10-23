@@ -459,29 +459,34 @@ export async function searchFiles(
 }
 
 /**
- * De esas rutas relativas, las que son un archivo del `cwd` (§6.33).
+ * De esas rutas relativas, las que son un archivo del `cwd` y las que son una
+ * carpeta (§6.33).
  *
- * Es lo que le deja al hilo abrir un archivo que el agente nombro: solo se
- * vuelve enlace lo que esta. Cada ruta pasa por el guardia, como si se fuera a
- * leer: una que sale del proyecto, un enlace hacia afuera, una carpeta, una que
- * no existe o una de la carpeta de una CLI cuentan igual, como que no esta, y no
- * se dice cual.
+ * Es lo que le deja al hilo abrir lo que el agente nombro: solo se vuelve
+ * enlace lo que esta. Un archivo se abre en Archivos; una carpeta, en el
+ * explorador del sistema (23-10-2026). Cada ruta pasa por el guardia, como si
+ * se fuera a leer: una que sale del proyecto, un enlace hacia afuera, una que
+ * no existe o una de la carpeta de una CLI cuentan igual, como que no esta, y
+ * no se dice cual.
  */
-export async function existingFiles(
+export async function existingPaths(
   cwd: string,
   relativePaths: readonly string[],
   folders: CliFolders,
-): Promise<string[]> {
-  const existing: string[] = [];
+): Promise<{ files: string[]; directories: string[] }> {
+  const files: string[] = [];
+  const directories: string[] = [];
   for (const relativePath of relativePaths) {
     try {
       const absolute = await resolveForFiles(cwd, relativePath, folders);
-      if ((await stat(absolute)).isFile()) existing.push(relativePath);
+      const info = await stat(absolute);
+      if (info.isFile()) files.push(relativePath);
+      else if (info.isDirectory()) directories.push(relativePath);
     } catch {
-      // No esta, no es un archivo o cae fuera: no es un enlace.
+      // No esta o cae fuera: no es un enlace.
     }
   }
-  return existing;
+  return { files, directories };
 }
 
 /** La huella de un contenido: con ella se guarda (`files.write`, §6.36). */

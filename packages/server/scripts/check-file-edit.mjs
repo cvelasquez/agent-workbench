@@ -44,7 +44,7 @@ process.env.GIT_CEILING_DIRECTORIES = root;
 
 const shared = await import('@agent-workbench/shared');
 const { cliFolders, NO_CLI_FOLDERS } = await import('../src/cli-folders.ts');
-const { existingFiles, listDirectory, readPreview, searchFiles, MAX_PREVIEW_BYTES } = await import('../src/file-browser.ts');
+const { existingPaths, listDirectory, readPreview, searchFiles, MAX_PREVIEW_BYTES } = await import('../src/file-browser.ts');
 const { FileWriteError, saveProjectFile, withLineEndings } = await import('../src/file-write.ts');
 const { writeAtomically } = await import('../src/atomic-write.ts');
 const { InvalidPathError } = await import('../src/path-guard.ts');
@@ -284,8 +284,9 @@ let cliLink = false;
   check('4.9 control: sin el guardia, la busqueda encuentra las credenciales', found.entries.some((entry) => entry.name === '.credentials.json'));
   const searched = await searchFiles(home, 'credentials', folders, { includeHidden: true });
   check('4.10 con el guardia no las encuentra', searched.entries.length === 0, json(searched.entries.map((entry) => entry.path)));
-  check('4.11 los enlaces del hilo tampoco las vuelven enlace',
-    json(await existingFiles(home, ['.claude/.credentials.json', 'proyecto/src/a.ts'], folders)) === json(['proyecto/src/a.ts']));
+  const linked = await existingPaths(home, ['.claude/.credentials.json', '.claude', 'proyecto/src/a.ts', 'proyecto'], folders);
+  check('4.11 los enlaces del hilo tampoco las vuelven enlace, ni la carpeta de la CLI una carpeta que se abre',
+    json(linked) === json({ files: ['proyecto/src/a.ts'], directories: ['proyecto'] }), json(linked));
 
   const fromInside = await thrown(listDirectory(cliDir, '', folders));
   const searchInside = await thrown(searchFiles(cliDir, 'credentials', folders));

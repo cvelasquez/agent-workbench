@@ -1,5 +1,6 @@
 /**
- * Los archivos del proyecto que el hilo puede abrir (§6.33).
+ * Los archivos del proyecto que el hilo puede abrir (§6.33), y desde el
+ * 23-10-2026 las carpetas, que se abren en el explorador del sistema.
  *
  * `project-paths.ts` saca los candidatos de lo que escribio el agente; aca se
  * le pregunta al servidor cuales existen (`files.check`) y se le da al hilo con
@@ -23,13 +24,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FILES_CHECK_MAX_PATHS, type ConversationEvent, type TerminalId } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
-import type { LocalLinkResolver } from './Markdown.js';
+import type { CodeLink, CodeLinkResolver, LocalLinkResolver } from './Markdown.js';
 import {
   pathCandidates,
   pathsToCheck,
   projectLinkPathOf,
   projectPathOf,
   withChecked,
+  type PathKind,
   type ProjectRoot,
 } from './project-paths.js';
 
@@ -37,14 +39,14 @@ import {
 const MAX_PATHS_PER_PASS = 1_000;
 
 export interface FileLinks {
-  /** La accion de una mencion entre acentos graves, o null si no es un archivo del proyecto. */
-  code: LocalLinkResolver;
+  /** La accion de una mencion entre acentos graves, o null si no es un archivo ni una carpeta del proyecto. */
+  code: CodeLinkResolver;
   /** Lo mismo para el destino de un enlace de Markdown. */
   link: LocalLinkResolver;
 }
 
 interface TabPaths {
-  known: Map<string, boolean>;
+  known: Map<string, PathKind | null>;
   /** Lo que se pregunto y todavia no volvio. */
   pending: Set<string>;
   /** Los mensajes cuyas menciones ya se miraron. */
@@ -61,8 +63,14 @@ export function useFileLinks(options: {
   /** Las pestanas que existen: lo de una que se cerro se olvida. */
   liveTerminalIds: readonly TerminalId[];
   onOpen: (relativePath: string) => void;
+  /**
+   * Abre una carpeta en el explorador del sistema (23-10-2026). null en una
+   * ventana que entro como equipo remoto: se abriria en el escritorio del
+   * anfitrion, y la carpeta queda como texto.
+   */
+  onOpenFolder: ((relativePath: string) => void) | null;
 }): FileLinks | null {
-  const { connection, enabled, terminalId, cwd, platform, events, liveTerminalIds, onOpen } = options;
+  const { connection, enabled, terminalId, cwd, platform, events, liveTerminalIds, onOpen, onOpenFolder } = options;
   const tabs = useRef(new Map<TerminalId, TabPaths>());
   const requests = useRef(new Map<string, { terminalId: TerminalId; paths: string[] }>());
   const nextRequest = useRef(0);
@@ -82,7 +90,7 @@ export function useFileLinks(options: {
       const tab = tabs.current.get(request.terminalId);
       if (tab === undefined) return;
       for (const path of request.paths) tab.pending.delete(path);
-      tab.known = withChecked(tab.known, request.paths, message.existing);
+      tab.known = withChecked(tab.known, request.paths, message.existing, message.directories);
       setVersion((current) => current + 1);
     });
     const offReopen = connection.onReopen(() => {
@@ -139,12 +147,18 @@ export function useFileLinks(options: {
   return useMemo(() => {
     if (!enabled || terminalId === null) return null;
     const known = tabs.current.get(terminalId)?.known;
-    const action = (path: string | null): (() => void) | null =>
-      path !== null && known?.get(path) === true ? () => onOpen(path) : null;
+    // Un archivo se abre en Archivos; una carpeta, en el explorador del sistema.
+    const linkOf = (path: string | null): CodeLink | null => {
+      if (path === null) return null;
+      const kind = known?.get(path) ?? null;
+      if (kind === 'file') return { open: () => onOpen(path), folder: false };
+      if (kind === 'directory' && onOpenFolder !== null) return { open: () => onOpenFolder(path), folder: true };
+      return null;
+    };
     return {
-      code: (mention) => action(projectPathOf(mention, root)),
-      link: (href) => action(projectLinkPathOf(href, root)),
+      code: (mention) => linkOf(projectPathOf(mention, root)),
+      link: (href) => linkOf(projectLinkPathOf(href, root))?.open ?? null,
     };
     // `version`: lo que cambia es el mapa de adentro, no su referencia.
-  }, [enabled, terminalId, root, onOpen, version]);
+  }, [enabled, terminalId, root, onOpen, onOpenFolder, version]);
 }

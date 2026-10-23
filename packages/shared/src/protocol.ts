@@ -1920,14 +1920,19 @@ export interface ServerFilePreviewMessage {
 
 /**
  * Respuesta a `files.check`: de las rutas pedidas, las que son un archivo del
- * proyecto. Las demas no estan, no son un archivo o caen fuera. Solo al socket
- * que pregunto.
+ * proyecto y las que son una carpeta. Las demas no estan o caen fuera. Solo al
+ * socket que pregunto.
  */
 export interface ServerFilesCheckedMessage {
   type: 'files.checked';
   terminalId: TerminalId;
   requestId: string;
   existing: string[];
+  /**
+   * Las carpetas, que el hilo abre en el explorador del sistema (23-10-2026).
+   * Aditivo: un servidor anterior no las manda, y se leen como ninguna.
+   */
+  directories: string[];
 }
 
 /** Lo que paso con un `files.write`. */
@@ -3544,9 +3549,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       const terminalId = asNonEmptyString(record['terminalId']);
       const requestId = asNonEmptyString(record['requestId']);
       const existing = asStringArray(record['existing']);
+      const directories = asStringArray(record['directories']) ?? [];
       return terminalId === null || requestId === null || existing === null
         ? null
-        : { type: 'files.checked', terminalId, requestId, existing };
+        : { type: 'files.checked', terminalId, requestId, existing, directories };
     }
     case 'files.saved': {
       const terminalId = asNonEmptyString(record['terminalId']);

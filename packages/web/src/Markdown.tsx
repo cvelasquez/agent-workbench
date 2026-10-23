@@ -53,12 +53,22 @@ function withNeedle(text: string, needle: string, keyBase: string): (JSX.Element
  */
 export type LocalLinkResolver = (href: string) => (() => void) | null;
 
-/** Lo que quien renderiza sabe abrir dentro de la app. Sin ninguno, todo queda como texto. */
+/** Una mencion entre acentos graves que se puede abrir. */
+export interface CodeLink {
+  open: () => void;
+  /** Una carpeta: se abre en el explorador del sistema, no en Archivos, y la ayuda lo dice. */
+  folder: boolean;
+}
+
+/** La mencion que quien renderiza sabe abrir, o null si no la reconoce. */
+export type CodeLinkResolver = (mention: string) => CodeLink | null;
+
+/** Lo que quien renderiza sabe abrir. Sin ninguno, todo queda como texto. */
 interface InlineLinks {
   /** Un enlace relativo de Markdown. */
   local: LocalLinkResolver | undefined;
   /** Una mencion entre acentos graves. */
-  code: LocalLinkResolver | undefined;
+  code: CodeLinkResolver | undefined;
 }
 
 const LOCAL_LINK = /^\[([^\]\n]+)\]\(([^)\s]+)\)$/;
@@ -114,10 +124,10 @@ function renderInline(
 
     switch (token.kind) {
       case 'code': {
-        // Un archivo del proyecto que quien renderiza reconocio: se abre con un clic (§6.33).
-        const open = links.code === undefined ? null : links.code(token.text);
+        // Un archivo o una carpeta del proyecto que quien renderiza reconocio: se abre con un clic (§6.33).
+        const target = links.code === undefined ? null : links.code(token.text);
         nodes.push(
-          open === null ? (
+          target === null ? (
             <code key={id}>{token.text}</code>
           ) : (
             /*
@@ -131,12 +141,16 @@ function renderInline(
               className="md-file-link"
               role="link"
               tabIndex={0}
-              title={t('thread.openInFiles', { path: token.text })}
-              onClick={open}
+              title={
+                target.folder
+                  ? t('thread.openFolder', { path: token.text })
+                  : t('thread.openInFiles', { path: token.text })
+              }
+              onClick={target.open}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
-                open();
+                target.open();
               }}
             >
               {token.text}
@@ -293,11 +307,11 @@ interface MarkdownProps {
   /** Enlaces relativos que se abren dentro de la app, p. ej. las notas del indice. */
   localLink?: LocalLinkResolver;
   /**
-   * Menciones entre acentos graves que se abren dentro de la app: en el hilo,
-   * un archivo del proyecto que el servidor confirmo (§6.33). Recibe el texto
-   * de la mencion y devuelve la accion, o null si no la reconoce.
+   * Menciones entre acentos graves que se pueden abrir: en el hilo, un archivo
+   * o una carpeta del proyecto que el servidor confirmo (§6.33). Recibe el
+   * texto de la mencion y devuelve la accion, o null si no la reconoce.
    */
-  codeLink?: LocalLinkResolver;
+  codeLink?: CodeLinkResolver;
 }
 
 export function Markdown({ text, needle = '', localLink, codeLink }: MarkdownProps): JSX.Element {
