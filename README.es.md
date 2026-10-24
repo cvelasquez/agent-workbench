@@ -37,7 +37,7 @@ La terminal sigue siendo la terminal: todo lo que escribes va directo a la CLI.
 | **Pestañas** | Varios agentes a la vez, de cualquier CLI, cada uno en su carpeta. Un punto en cada pestaña te dice si el agente está trabajando, libre o esperándote. Recargar la página no detiene nada: las CLIs corren en el servidor, no en el navegador. |
 | **Arranque rápido** | Al abrir la app, tus pestañas vuelven **dormidas**: puedes leerlas completas, y ninguna CLI arranca hasta que hagas clic en **Abrir CLI**. |
 | **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, de todas las CLIs, con un filtro. Haz clic en una para retomarla donde la dejaste, con su CLI. Archiva sesiones antiguas o un proyecto entero para ordenar: no se borra nada, y se puede deshacer. |
-| **Conversación** | Los mensajes como tarjetas, en vivo, con las llamadas a herramientas plegadas. Los mensajes anteriores se cargan a medida que subes. Busca, copia cualquier mensaje o bloque de código, y salta a tu mensaje anterior (↑) o al final (↓). Una fila al pie dice cuándo llegó tu mensaje a la CLI y si el agente sigue trabajando. Según la CLI, puedes contestar ahí mismo las preguntas del agente. Un archivo del proyecto que el agente nombra se abre en la solapa Archivos con un clic. Con Claude Code, un mensaje que detienes antes de que el agente empiece vuelve al cuadro para corregirlo, y **↩** en un mensaje vuelve a antes de él: la conversación y, si quieres, el código. Un mensaje que mandas con el agente trabajando espera al final, marcado en cola; según la CLI, **Forzar envío ahora** hace que el agente lo lea ya, y **Editar** (o ↑ con el cuadro vacío) lo devuelve al cuadro para corregirlo. |
+| **Conversación** | Los mensajes como tarjetas, en vivo, con las llamadas a herramientas plegadas. Los mensajes anteriores se cargan a medida que subes. Busca, copia cualquier mensaje o bloque de código, y salta a tu mensaje anterior (↑) o al final (↓). Una fila al pie dice cuándo llegó tu mensaje a la CLI y si el agente sigue trabajando. Según la CLI, puedes contestar ahí mismo las preguntas del agente. Un archivo del proyecto que el agente nombra se abre en la solapa Archivos con un clic, y una carpeta, en el explorador del sistema. Con Claude Code, un mensaje que detienes antes de que el agente empiece vuelve al cuadro para corregirlo, y **↩** en un mensaje vuelve a antes de él: la conversación y, si quieres, el código. Un mensaje que mandas con el agente trabajando espera al final, marcado en cola; según la CLI, **Forzar envío ahora** hace que el agente lo lea ya, y **Editar** (o ↑ con el cuadro vacío) lo devuelve al cuadro para corregirlo. |
 | **Cuadro de escritura** | Espacio para escribir, pegar imágenes y adjuntar archivos, y el texto largo que pegas queda como una ficha compacta. Lo que estás escribiendo no se pierde si cierras la app, y aparece en vivo en todas las ventanas abiertas. Shift+Enter sigue una lista numerada o con viñetas. |
 | **Medidor de contexto** | Cuánto de la ventana de contexto del modelo usa la conversación. Tokens, nunca dinero. Desde el 70 %, **Compactar** le pide a la CLI que compacte la conversación. A su lado, con Claude Code, Codex y Antigravity CLI, cuánto llevas usado de los límites de tu plan y cuándo se reinician. |
 | **Cambios** | La rama, los archivos cambiados y su diff. **Orquesta agentes en paralelo**: abre el proyecto en una rama nueva, en su propia carpeta, y varios agentes trabajan a la vez sin pisarse los cambios. Cambios muestra cada rama: lo que falta commitear, cuántos commits lleva y si ya está integrada. Otra CLI revisa una rama sin tocarla, y la integras en main con un clic. |
@@ -456,8 +456,11 @@ Lo que la app guarda en el teléfono y los permisos que pide están en
   lo muestra: `git worktree add` para abrir una rama en su propia carpeta,
   `git worktree remove` (nunca con `--force`), `git branch -d` (solo con una
   rama que creó la app y que ya está integrada) y `git merge --ff-only` para
-  integrar una rama en main sin crear ningún commit. Los commits los hacen los
-  agentes, en su terminal.
+  integrar una rama en main sin crear ningún commit. Al quitar una rama, la app
+  borra archivos por su cuenta solo en dos casos: los archivos nuevos que listó
+  el diálogo, si eliges perderlos, y lo que git deja de la carpeta de la rama
+  cuando no termina de borrarla. Los commits los hacen los agentes, en su
+  terminal.
 
 | CLI | Qué lee | Qué nunca abre |
 |---|---|---|

@@ -38,7 +38,7 @@ CLI.
 | **Tabs** | Several agents at once, from any CLI, each in its own folder. A dot on each tab tells you whether the agent is working, idle or waiting for you. Reloading the page doesn't stop anything: the CLIs run on the server, not in the browser. |
 | **Fast start** | When you open the app, your tabs come back **asleep**: you can read them in full, and no CLI starts until you click **Open CLI**. |
 | **History** | Your projects and past conversations in the sidebar, from every CLI, with a filter. Click one to pick it up where you left it, with its CLI. Archive old sessions or a whole project to tidy up: nothing is deleted, and it can be undone. |
-| **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. A file of the project that the agent names opens in the Files tab with one click. With Claude Code, a message you stop before the agent starts comes back to the box so you can fix it, and **↩** on a message goes back to before it: the conversation and, if you want, the code. A message you send while the agent works waits at the end, marked as queued; depending on the CLI, **Force send now** makes the agent read it right away, and **Edit** (or ↑ in the empty box) brings it back to the box to fix it. |
+| **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. A file of the project that the agent names opens in the Files tab with one click, and a folder, in the system's file explorer. With Claude Code, a message you stop before the agent starts comes back to the box so you can fix it, and **↩** on a message goes back to before it: the conversation and, if you want, the code. A message you send while the agent works waits at the end, marked as queued; depending on the CLI, **Force send now** makes the agent read it right away, and **Edit** (or ↑ in the empty box) brings it back to the box to fix it. |
 | **Message box** | Room to write, paste images, attach files, and long pasted text kept as a tidy chip. What you're typing survives closing the app, and shows up live in every open window. Shift+Enter continues a numbered or bulleted list. |
 | **Context meter** | How much of the model's context window the conversation is using. Tokens, never money. From 70%, **Compact** asks the CLI to compact the conversation. Next to it, with Claude Code, Codex and Antigravity CLI, how much of your plan's usage limits you've used and when they reset. |
 | **Changes** | The branch, the changed files and their diff. **Orchestrates agents in parallel**: open the project on a new branch, in its own folder, and several agents work at once without stepping on each other's changes. Changes shows every branch: what isn't committed yet, how many commits it has and whether it's merged. Another CLI reviews a branch without touching it, and you merge it into main with one click. |
@@ -445,8 +445,10 @@ app keeps on the phone and the permissions it asks for are in
   `git worktree add` to open a branch in its own folder, `git worktree remove`
   (never with `--force`), `git branch -d` (only for a branch the app created
   and that is already merged) and `git merge --ff-only` to merge a branch into
-  main without creating a commit. The agents make the commits, in their
-  terminal.
+  main without creating a commit. When you remove a branch, the app deletes
+  files itself in two cases only: the new files the dialog listed, if you
+  choose to lose them, and what git leaves of the branch's folder when it can't
+  finish deleting it. The agents make the commits, in their terminal.
 
 | CLI | What it reads | What it never opens |
 |---|---|---|

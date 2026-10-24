@@ -328,8 +328,9 @@ touch credentials.
 - The system temp folder: pasted images and attachments, per-tab CLI logs,
   temporary database copies, and the object folder of a branch's conflict
   check (`git merge-tree` writes its objects there instead of the repository,
-  and the folder is deleted when it finishes). Folders are created `0o700`,
-  files `0o600`.
+  and the folder is deleted when it finishes). On Windows, also the scratch
+  files of the PowerShell that names who holds a separate branch's folder,
+  which it deletes itself. Folders are created `0o700`, files `0o600`.
 - **Two places inside a project.** Shared memory: `.agents/memory/`, the text
   *between the markers* of a block in `AGENTS.md`/`CLAUDE.md`, and a few lines
   at the end of `.gitignore`. Always after a file-by-file preview and the
@@ -351,11 +352,21 @@ touch credentials.
   dialog that shows the git command: each one's folder in
   `<project>.worktrees/`, created and removed by git (`git worktree add` and
   `git worktree remove`, never with `--force`), with the ignored notes copied
-  from the main folder (never a CLI's configuration). When one is removed, the
-  notes that changed only in the branch go back to the main folder with an
-  atomic write; one that changed on both sides is merged against the copy kept
-  when it was copied, the way git merges code, and only the lines both sides
-  changed wait for the user. Merging a branch whose base is the main folder
+  from the main folder (never a CLI's configuration). The app deletes files
+  there itself in two cases only, with `fs.rm` and never following a link: the
+  untracked files the removal dialog listed, when everything uncommitted is new
+  and the user chooses to lose them (their path, size and date are compared on
+  confirm and again right before deleting; never offered with a git repository
+  inside or more than 20,000 files), and what's left of the folder when git
+  lets go of the branch without finishing the deletion (only with no `.git`
+  inside). git runs with `-c core.longpaths=true`, for that process only. When
+  another program holds the folder on Windows, the dialog names it: a
+  PowerShell script asks the system which processes have something open
+  inside, and reads only each one's executable and description. When one is
+  removed, the notes that changed only in the branch go back to the main folder
+  with an atomic write; one that changed on both sides is merged against the
+  copy kept when it was copied, the way git merges code, and only the lines
+  both sides changed wait for the user. Merging a branch whose base is the main folder
   brings its notes back the same way. `git branch -d` (never `-D`) deletes a
   branch only if the app created it and it's already merged. Merging a branch
   into its base is
