@@ -98,6 +98,7 @@
     <string name="share_note_untitled">Note</string>
     <string name="share_note_image_only">Image</string>
     <string name="share_no_images">no images</string>
+    <string name="share_just_now">just now</string>
     <string name="share_loading">Looking for your notes…</string>
     <string name="share_saving">Saving…</string>
     <string name="share_uploading">Uploading %1$d of %2$d…</string>

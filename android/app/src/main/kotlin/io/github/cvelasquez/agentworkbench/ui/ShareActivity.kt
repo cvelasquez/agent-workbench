@@ -321,9 +321,20 @@ class ShareActivity : Activity(), NotesClient.Listener {
         for (note in list.sortedByDescending { it.updatedAt }) {
             val count = if (note.images == 0) getString(R.string.share_no_images)
             else resources.getQuantityString(R.plurals.share_images, note.images, note.images)
-            val ago = DateUtils.getRelativeTimeSpanString(note.updatedAt, now, DateUtils.MINUTE_IN_MILLIS)
-            notesBox.addView(row(SharedItems.noteTitle(note.text, note.images, untitled, imageOnly), "$count · $ago") { pick(note) })
+            notesBox.addView(row(SharedItems.noteTitle(note.text, note.images, untitled, imageOnly), "$count · ${ago(note.updatedAt, now)}") { pick(note) })
         }
+    }
+
+    /**
+     * Desde cuándo, como en la web (`formatWhen`): "recién" en el primer minuto, y no
+     * el "Hace 0 minutos" del sistema, que es lo que se ve al compartir varias
+     * capturas seguidas. Va detrás de un "·": en minúscula.
+     */
+    private fun ago(updatedAt: Long, now: Long): String {
+        if (now - updatedAt < DateUtils.MINUTE_IN_MILLIS) return getString(R.string.share_just_now)
+        val locale = resources.configuration.locales[0]
+        return DateUtils.getRelativeTimeSpanString(updatedAt, now, DateUtils.MINUTE_IN_MILLIS).toString()
+            .replaceFirstChar { it.lowercase(locale) }
     }
 
     private fun row(title: String, meta: String?, accent: Boolean = false, onClick: () -> Unit): View {

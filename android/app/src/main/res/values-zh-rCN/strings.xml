@@ -86,6 +86,7 @@
     <string name="share_note_untitled">笔记</string>
     <string name="share_note_image_only">图片</string>
     <string name="share_no_images">没有图片</string>
+    <string name="share_just_now">刚刚</string>
     <string name="share_loading">正在查找你的笔记…</string>
     <string name="share_saving">正在保存…</string>
     <string name="share_uploading">正在上传第 %1$d 张，共 %2$d 张…</string>

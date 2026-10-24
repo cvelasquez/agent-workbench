@@ -86,6 +86,7 @@
     <string name="share_note_untitled">메모</string>
     <string name="share_note_image_only">이미지</string>
     <string name="share_no_images">이미지 없음</string>
+    <string name="share_just_now">방금 전</string>
     <string name="share_loading">메모를 찾는 중…</string>
     <string name="share_saving">저장 중…</string>
     <string name="share_uploading">%2$d개 중 %1$d번째 올리는 중…</string>

@@ -86,6 +86,7 @@
     <string name="share_note_untitled">メモ</string>
     <string name="share_note_image_only">画像</string>
     <string name="share_no_images">画像なし</string>
+    <string name="share_just_now">たった今</string>
     <string name="share_loading">メモを探しています…</string>
     <string name="share_saving">保存しています…</string>
     <string name="share_uploading">%2$d 枚中 %1$d 枚目を送信しています…</string>

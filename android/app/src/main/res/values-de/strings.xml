@@ -86,6 +86,7 @@
     <string name="share_note_untitled">Notiz</string>
     <string name="share_note_image_only">Bild</string>
     <string name="share_no_images">keine Bilder</string>
+    <string name="share_just_now">gerade eben</string>
     <string name="share_loading">Ihre Notizen werden gesucht…</string>
     <string name="share_saving">Wird gespeichert…</string>
     <string name="share_uploading">%1$d von %2$d wird hochgeladen…</string>

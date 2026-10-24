@@ -86,6 +86,7 @@
     <string name="share_note_untitled">Заметка</string>
     <string name="share_note_image_only">Изображение</string>
     <string name="share_no_images">без изображений</string>
+    <string name="share_just_now">только что</string>
     <string name="share_loading">Ищем ваши заметки…</string>
     <string name="share_saving">Сохранение…</string>
     <string name="share_uploading">Отправка %1$d из %2$d…</string>
