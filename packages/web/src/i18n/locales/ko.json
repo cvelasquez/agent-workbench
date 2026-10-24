@@ -968,6 +968,7 @@
   "thread.question.answerInCli": "CLI 탭에서 답하기",
   "thread.question.answered": "답변 완료",
   "thread.question.multi": "복수 선택",
+  "thread.question.noCli": "CLI가 열려 있지 않아 답할 수 없습니다",
   "thread.question.pickEach": "각 질문에서 옵션을 선택하세요 · CLI 탭에서 답할 수도 있습니다",
   "thread.question.pickOne": "옵션을 선택하세요 · CLI 탭에서 답할 수도 있습니다",
   "thread.question.placeholder": "답변을 입력하세요",

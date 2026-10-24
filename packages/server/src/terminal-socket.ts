@@ -347,13 +347,21 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
    *
    * Lo que se teclea en la terminal no pasa por aca: a una pestana sin proceso
    * se descarta callado (ver `input`).
+   *
+   * `refusedAs` cambia el codigo del aviso, no el texto: las teclas de una
+   * respuesta lo avisan como `answer-failed` (ver `answerWriter`).
    */
-  const writeToTerminal = (socket: WebSocket, terminalId: TerminalId, data: string): boolean => {
+  const writeToTerminal = (
+    socket: WebSocket,
+    terminalId: TerminalId,
+    data: string,
+    refusedAs?: 'answer-failed',
+  ): boolean => {
     if (registry.write(terminalId, data)) return true;
     if (registry.get(terminalId) === null) {
-      sendError(socket, 'unknown-terminal', serverText('terminalGone'));
+      sendError(socket, refusedAs ?? 'unknown-terminal', serverText('terminalGone'));
     } else {
-      sendError(socket, 'terminal-asleep', serverText('terminalAsleep'));
+      sendError(socket, refusedAs ?? 'terminal-asleep', serverText('terminalAsleep'));
     }
     return false;
   };
@@ -552,6 +560,17 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     (socket: WebSocket, terminalId: TerminalId): PieceWriter =>
     (piece) =>
       writeToTerminal(socket, terminalId, piece);
+
+  /**
+   * Lo que escribe cada tecla de una respuesta a una pregunta (§5.5). Si la
+   * pestana no tiene proceso, el aviso es `answer-failed`: es el unico que
+   * reabre la tarjeta. Con `terminal-asleep` decia "Respondida" con la
+   * respuesta rechazada, y a los 20 s "la CLI no confirmo" (24-10-2026, §5.5.3).
+   */
+  const answerWriter =
+    (socket: WebSocket, terminalId: TerminalId): PieceWriter =>
+    (piece) =>
+      writeToTerminal(socket, terminalId, piece, 'answer-failed');
 
   /**
    * Interrumpe lo que la CLI de una pestana este haciendo: el boton Detener, y
@@ -1445,7 +1464,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                   sendError(socket, 'answer-failed', check === 'gone' ? ANSWER_NOT_PENDING_TEXT : ANSWER_MENU_CHANGED_TEXT);
                   return;
                 }
-                const outcome = await lane.writePieces(keys, ANSWER_KEY_INTERVAL_MS, pieceWriter(socket, message.terminalId));
+                const outcome = await lane.writePieces(keys, ANSWER_KEY_INTERVAL_MS, answerWriter(socket, message.terminalId));
                 if (outcome === 'interrupted') interruptedAnswer();
               },
               { onDropped: interruptedAnswer },
@@ -1497,7 +1516,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               const outcome = await lane.writePieces(
                 keys,
                 ANSWER_KEY_INTERVAL_MS,
-                pieceWriter(socket, message.terminalId),
+                answerWriter(socket, message.terminalId),
               );
               if (outcome === 'interrupted') interruptedAnswer();
             },

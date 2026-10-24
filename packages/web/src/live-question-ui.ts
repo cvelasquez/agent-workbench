@@ -1,6 +1,7 @@
 /**
  * La pregunta leida de la pantalla en la web (23-10-2026, §5.5.4): que tarjeta
- * del historial hereda lo que paso en la leida.
+ * del historial hereda lo que paso en la leida. Y cuando una tarjeta de
+ * pregunta no se puede contestar desde el hilo (24-10-2026, §5.5.3).
  *
  * La CLI escribe la pregunta en su historial cuando quiere: antes de que se
  * conteste, al contestarla, o en el medio, entre el clic y la respuesta del
@@ -19,6 +20,27 @@ import {
   type ConversationQuestionItem,
   type TerminalId,
 } from '@agent-workbench/shared';
+
+/**
+ * Por que una tarjeta de pregunta no se contesta desde el hilo, o null si se
+ * contesta.
+ *
+ *  - `unsupported`: la CLI de la pestana no contesta con la tarjeta (§5.5); se
+ *    responde en la solapa CLI.
+ *  - `no-cli`: la pestana no tiene la CLI abierta, dormida o terminada. No hay
+ *    quien reciba la respuesta: el clic decia "Respondida" con la respuesta ya
+ *    rechazada (24-10-2026, §5.5.3).
+ */
+export type QuestionCardLock = 'unsupported' | 'no-cli' | null;
+
+/**
+ * El candado de las tarjetas de una pestana. `unsupported` va primero: a una
+ * CLI sin tarjetas de pregunta no le cambia nada que este abierta o no.
+ */
+export function questionCardLock(questionCards: boolean, cliOpen: boolean): QuestionCardLock {
+  if (!questionCards) return 'unsupported';
+  return cliOpen ? null : 'no-cli';
+}
 
 /** Lo que se mando en una pregunta leida, hasta que aparece la del historial. */
 export interface LiveAnswerRecord {

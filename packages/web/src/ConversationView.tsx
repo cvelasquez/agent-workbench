@@ -79,6 +79,7 @@ import {
   type CardSpan,
   type ThreadAnchor,
 } from './thread-scroll.js';
+import { questionCardLock, type QuestionCardLock } from './live-question-ui.js';
 import {
   mainStatusText,
   mainThreadStatus,
@@ -632,6 +633,13 @@ export function ConversationView({
   }, [activeMatchId]);
 
   /*
+    Sin la CLI abierta, ninguna tarjeta de pregunta se contesta (24-10-2026,
+    §5.5.3): no hay quien reciba las teclas. Es la regla de "Volver aqui" y de
+    la tarjeta leida de la pantalla, que solo se dibuja con la CLI viva.
+  */
+  const questionLock = questionCardLock(questionsAnswerable, cliPresence === 'live');
+
+  /*
     Otra pestana abre al final, donde quedo su agente.
 
     El hilo es uno solo para todas las pestanas, y "estaba mirando el final" se
@@ -1173,7 +1181,7 @@ export function ConversationView({
                   register={registerCard}
                   answered={answered}
                   answerFailed={answerFailed}
-                  answerable={questionsAnswerable}
+                  questionLock={questionLock}
                   onAnswer={answer}
                 />
               );
@@ -1201,7 +1209,7 @@ export function ConversationView({
                     register={registerCard}
                     answered={answered}
                     answerFailed={answerFailed}
-                    answerable={questionsAnswerable}
+                    questionLock={questionLock}
                     onAnswer={answer}
                   />
                 ))}
@@ -1221,7 +1229,7 @@ export function ConversationView({
                 part={liveQuestion}
                 answeredAt={answered[liveQuestion.toolUseId] ?? null}
                 failure={answerFailed[liveQuestion.toolUseId] ?? null}
-                answerable={questionsAnswerable}
+                lock={questionLock}
                 onAnswer={answer}
                 needle={needle}
               />
@@ -1555,8 +1563,8 @@ interface MessageBlockProps {
   answered: Record<string, AnswerSelection[]>;
   /** Respuestas que se dieron por perdidas, con el motivo. */
   answerFailed: Record<string, string>;
-  /** false: las preguntas se leen pero no se contestan desde aca. */
-  answerable: boolean;
+  /** Por que las preguntas se leen pero no se contestan desde aca, o null. */
+  questionLock: QuestionCardLock;
   onAnswer: (toolUseId: string, selections: AnswerSelection[]) => void;
 }
 
@@ -1574,7 +1582,7 @@ function MessageBlock({
   register,
   answered,
   answerFailed,
-  answerable,
+  questionLock,
   onAnswer,
 }: MessageBlockProps): JSX.Element {
   const { event } = card;
@@ -1633,7 +1641,7 @@ function MessageBlock({
           onRequestImage={onRequestImage}
           answeredAt={part.kind === 'question' ? answeredFor(part) : null}
           failure={part.kind === 'question' ? (answerFailed[part.toolUseId] ?? null) : null}
-          answerable={answerable}
+          questionLock={questionLock}
           onAnswer={onAnswer}
         />
       ))}
@@ -1806,7 +1814,7 @@ interface PartViewProps {
   answeredAt: AnswerSelection[] | null;
   /** Motivo por el que la respuesta no llego, si no llego. */
   failure: string | null;
-  answerable: boolean;
+  questionLock: QuestionCardLock;
   onAnswer: (toolUseId: string, selections: AnswerSelection[]) => void;
 }
 
@@ -1820,7 +1828,7 @@ function PartView({
   onRequestImage,
   answeredAt,
   failure,
-  answerable,
+  questionLock,
   onAnswer,
 }: PartViewProps): JSX.Element | null {
   const fileLinks = useContext(FileLinksContext);
@@ -1869,7 +1877,7 @@ function PartView({
           part={part}
           answeredAt={answeredAt}
           failure={failure}
-          answerable={answerable}
+          lock={questionLock}
           onAnswer={onAnswer}
           needle={needle}
         />
@@ -1958,13 +1966,14 @@ function PartView({
  * segundo envio escribiria numeros sueltos en el prompt. La excepcion es una
  * respuesta que **no se confirmo**: ahi la tarjeta lo dice y se vuelve a
  * abrir, porque dejarla cerrada seria afirmar que se contesto algo que nadie
- * recibio.
+ * recibio. Y sin la CLI abierta no acepta clics nunca (24-10-2026, §5.5.3):
+ * nadie los recibiria.
  */
 function QuestionCard({
   part,
   answeredAt,
   failure,
-  answerable,
+  lock,
   onAnswer,
   needle,
 }: {
@@ -1972,11 +1981,11 @@ function QuestionCard({
   answeredAt: AnswerSelection[] | null;
   failure: string | null;
   /**
-   * false si la CLI de la pestana no deja contestar desde aca. La pregunta se
-   * sigue leyendo entera; lo que se apaga es mandar teclas a un menu cuya
-   * forma no esta medida.
+   * Por que no se contesta desde aca, o null. La pregunta se sigue leyendo
+   * entera; lo que se apaga es mandar teclas: a un menu cuya forma no esta
+   * medida (`unsupported`), o a una pestana sin CLI (`no-cli`).
    */
-  answerable: boolean;
+  lock: QuestionCardLock;
   onAnswer: (toolUseId: string, selections: AnswerSelection[]) => void;
   needle: string;
 }): JSX.Element {
@@ -1987,7 +1996,7 @@ function QuestionCard({
 
   const done = answeredAt !== null;
   /** Ni respondida ni contestable: se lee y nada mas. */
-  const locked = done || !answerable;
+  const locked = done || lock !== null;
   const chosen = answeredAt ?? draft;
   const oneShot = part.questions.length === 1 && part.questions[0]?.multiSelect === false;
   const complete = chosen.every((selection) =>
@@ -2151,11 +2160,14 @@ function QuestionCard({
       })}
 
       <div className="question-foot">
-        {failure !== null && <span className="question-failed">{failure}</span>}
+        {/* Sin CLI, el motivo de un rechazo anterior ya no cuenta: lo que importa es que no hay quien reciba. */}
+        {failure !== null && lock !== 'no-cli' && <span className="question-failed">{failure}</span>}
         {done ? (
           <span className="question-sent">{t('thread.question.answered')}</span>
-        ) : !answerable ? (
+        ) : lock === 'unsupported' ? (
           <span className="question-note">{t('thread.question.answerInCli')}</span>
+        ) : lock === 'no-cli' ? (
+          <span className="question-note">{t('thread.question.noCli')}</span>
         ) : (
           <>
             {!oneShot && (

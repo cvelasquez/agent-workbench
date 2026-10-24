@@ -968,6 +968,7 @@
   "thread.question.answerInCli": "在 CLI 标签页中回答",
   "thread.question.answered": "已回答",
   "thread.question.multi": "多选",
+  "thread.question.noCli": "CLI 未打开，无法回答",
   "thread.question.pickEach": "请在每个问题中选择一个选项 · 也可以在 CLI 标签页中回答",
   "thread.question.pickOne": "请选择一个选项 · 也可以在 CLI 标签页中回答",
   "thread.question.placeholder": "输入你的回答",

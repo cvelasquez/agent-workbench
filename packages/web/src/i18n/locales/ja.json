@@ -968,6 +968,7 @@
   "thread.question.answerInCli": "CLI タブで回答",
   "thread.question.answered": "回答済み",
   "thread.question.multi": "複数選択",
+  "thread.question.noCli": "CLI が起動していないため回答できません",
   "thread.question.pickEach": "各質問で選択肢を選んでください · CLI タブでも回答できます",
   "thread.question.pickOne": "選択肢を選んでください · CLI タブでも回答できます",
   "thread.question.placeholder": "回答を入力",

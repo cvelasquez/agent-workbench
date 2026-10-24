@@ -1003,6 +1003,7 @@
   "thread.question.answerInCli": "Répondez dans l'onglet CLI",
   "thread.question.answered": "Réponse donnée",
   "thread.question.multi": "choix multiple",
+  "thread.question.noCli": "Impossible de répondre sans la CLI ouverte",
   "thread.question.pickEach": "Choisissez une option pour chaque question · vous pouvez aussi répondre dans l'onglet CLI",
   "thread.question.pickOne": "Choisissez une option · vous pouvez aussi répondre dans l'onglet CLI",
   "thread.question.placeholder": "Écrivez votre réponse",

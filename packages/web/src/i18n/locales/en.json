@@ -1003,6 +1003,7 @@
   "thread.question.answerInCli": "Answer in the CLI tab",
   "thread.question.answered": "Answered",
   "thread.question.multi": "multiple",
+  "thread.question.noCli": "Can't answer without the CLI open",
   "thread.question.pickEach": "Pick an option in each question · you can also answer in the CLI tab",
   "thread.question.pickOne": "Pick an option · you can also answer in the CLI tab",
   "thread.question.placeholder": "Write your answer",

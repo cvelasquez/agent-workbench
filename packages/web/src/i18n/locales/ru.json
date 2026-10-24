@@ -1073,6 +1073,7 @@
   "thread.question.answerInCli": "Ответьте на вкладке CLI",
   "thread.question.answered": "Отвечено",
   "thread.question.multi": "можно выбрать несколько",
+  "thread.question.noCli": "Без открытого CLI ответить нельзя",
   "thread.question.pickEach": "Выберите вариант в каждом вопросе · можно также ответить на вкладке CLI",
   "thread.question.pickOne": "Выберите вариант · можно также ответить на вкладке CLI",
   "thread.question.placeholder": "Напишите ответ",

@@ -19,6 +19,9 @@
  *    contestarla.
  *  - **Que la tarjeta cambie de id** por un redibujo a medias: la web perderia
  *    lo que ya se mando.
+ *  - **Decir "Respondida" sin CLI** (24-10-2026, §5.5.3). Una pestana dormida
+ *    o terminada no recibe la respuesta: la tarjeta no la acepta, y una que
+ *    llega igual al servidor vuelve como `answer-failed`.
  *
  * Las pantallas son las medidas con la CLI 2.1.309 (`fixtures/question-screens.mjs`).
  * No lanza la CLI, no carga node-pty y no lee `~/.claude`: el home apunta a una
@@ -528,7 +531,7 @@ const WAITING = { activity: 'waiting', waitingFor: 'input needed' };
 // --- F. La web: la tarjeta del historial hereda lo de la leida -----------------
 
 {
-  const { liveCarryOvers } = await import('../../web/src/live-question-ui.ts');
+  const { liveCarryOvers, questionCardLock } = await import('../../web/src/live-question-ui.ts');
   const base = itemOf('q1-basica');
   const asked = (id, item = base) => ({ eventId: `e-${id}`, role: 'assistant', parts: [{ kind: 'question', toolUseId: id, questions: [item] }] });
   const record = (patch = {}) => ({ terminalId: 't1', item: base, selections: [[1]], failure: null, ...patch });
@@ -554,6 +557,56 @@ const WAITING = { activity: 'waiting', waitingFor: 'input needed' };
   check('F7 dos leidas, cada una con la suya',
     two.length === 2 && two.some((each) => each.liveId === 'screen-1' && each.toolUseId === 'toolu_a') &&
       two.some((each) => each.liveId === 'screen-2' && each.toolUseId === 'toolu_b'), json(two));
+
+  /*
+    Sin la CLI abierta la tarjeta no se contesta (24-10-2026, §5.5.3). Visto en
+    la demo: una pestana dormida aceptaba el clic, el servidor contestaba
+    `terminal-asleep` a los 0,17 s y la tarjeta decia "Respondida" 20 s, y
+    despues "la CLI no confirmo", que tampoco era el motivo.
+  */
+  check('F8 con la CLI abierta, la tarjeta se contesta', questionCardLock(true, true) === null);
+  check('F8 sin la CLI abierta (dormida o terminada), no: diria "Respondida" con la respuesta rechazada',
+    questionCardLock(true, false) === 'no-cli', json(questionCardLock(true, false)));
+  check('F8 una CLI sin tarjetas sigue con "Responde en la solapa CLI", abierta o no',
+    questionCardLock(false, true) === 'unsupported' && questionCardLock(false, false) === 'unsupported',
+    json([questionCardLock(false, true), questionCardLock(false, false)]));
+
+  // Lo que la funcion pura no ve: que la vista decida con ella. Expresiones exactas sobre el fuente.
+  const { readFileSync } = await import('node:fs');
+  const view = readFileSync(new URL('../../web/src/ConversationView.tsx', import.meta.url), 'utf8');
+  check('F9 fuente: la vista calcula el candado con la CLI de la pestana',
+    view.includes("const questionLock = questionCardLock(questionsAnswerable, cliPresence === 'live');"));
+  // Tres pasan el candado hacia abajo (las dos de MessageBlock y la de PartView) y dos lo usan: la leida y la del historial.
+  const passed = (view.match(/questionLock=\{questionLock\}/g) ?? []).length;
+  const used = (view.match(/\slock=\{questionLock\}/g) ?? []).length;
+  check('F9 fuente: ninguna tarjeta se dibuja con la capacidad sola, sin el candado',
+    !/answerable=\{/.test(view) && passed === 3 && used === 2, `${passed} y ${used}`);
+  check('F9 fuente: la tarjeta con candado no acepta clics y dice por que',
+    view.includes('const locked = done || lock !== null;') && view.includes("t('thread.question.noCli')"));
+}
+
+// --- G. El socket: las teclas de una respuesta que no se pudieron escribir --------
+//
+// Una pestana sin proceso no acepta teclas. Con el aviso de siempre
+// (`terminal-asleep`) la tarjeta no se reabria: solo lo hace con `answer-failed`.
+// Cubre la carrera que el candado de la web no ve: la CLI se cierra entre el
+// clic y la primera tecla, o la pagina todavia no sabe que se cerro.
+
+{
+  const { readFileSync } = await import('node:fs');
+  const socket = readFileSync(new URL('../src/terminal-socket.ts', import.meta.url), 'utf8');
+  const start = socket.indexOf("case 'agent.answer': {");
+  const end = socket.indexOf("\n        case '", start + 1);
+  const block = start === -1 || end === -1 ? '' : socket.slice(start, end);
+  check('G1 fuente: el bloque de agent.answer se encuentra', block.length > 0);
+  check('G2 fuente: las teclas de los dos caminos van con answerWriter, ninguna con pieceWriter',
+    (block.match(/answerWriter\(socket, message\.terminalId\)/g) ?? []).length === 2 && !block.includes('pieceWriter('),
+    `${(block.match(/answerWriter\(/g) ?? []).length} answerWriter, ${(block.match(/pieceWriter\(/g) ?? []).length} pieceWriter`);
+  check('G3 fuente: answerWriter avisa con answer-failed',
+    /const answerWriter =[\s\S]{0,200}?writeToTerminal\(socket, terminalId, piece, 'answer-failed'\);/.test(socket));
+  check('G4 fuente: writeToTerminal usa ese codigo en los dos casos, con el texto de siempre',
+    socket.includes("sendError(socket, refusedAs ?? 'terminal-asleep', serverText('terminalAsleep'));") &&
+      socket.includes("sendError(socket, refusedAs ?? 'unknown-terminal', serverText('terminalGone'));"));
 }
 
 // --- E. El protocolo ---------------------------------------------------------------

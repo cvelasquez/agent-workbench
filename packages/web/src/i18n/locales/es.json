@@ -1003,6 +1003,7 @@
   "thread.question.answerInCli": "Responde en la solapa CLI",
   "thread.question.answered": "Respondida",
   "thread.question.multi": "varias",
+  "thread.question.noCli": "Sin la CLI abierta no se puede responder",
   "thread.question.pickEach": "Elige en cada pregunta · también puedes responder en la solapa CLI",
   "thread.question.pickOne": "Elige una opción · también puedes responder en la solapa CLI",
   "thread.question.placeholder": "Escribe tu respuesta",
