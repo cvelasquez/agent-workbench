@@ -11,6 +11,12 @@
  * Antigravity se cuelga, y no hay nada que configurar para lo que se hace acá.
  * `check-worktrees.mjs` busca comandos que escriben en el resto del servidor.
  *
+ * Todo corre con `-c core.longpaths=true`, que vale sólo para ese proceso: sin
+ * eso, git para Windows no borra una ruta de más de 260 caracteres, y
+ * `worktree remove` dejaba la carpeta a medias (medido con git 2.56 el
+ * 23-10-2026: un `node_modules` de Expo con rutas de 299). Fuera de Windows
+ * git no conoce la clave y la ignora.
+ *
  * El resto son lecturas, con `--no-optional-locks` como en `git-repo.ts`: corren
  * solas mientras el usuario trabaja, y no pueden tomar el `index.lock`. Una
  * lectura escribe algo de todos modos, `merge-tree` (sus objetos), y por eso
@@ -55,7 +61,7 @@ function run(
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
-      ['-c', 'core.quotepath=false', ...(options.write ? [] : ['--no-optional-locks']), ...args],
+      ['-c', 'core.quotepath=false', '-c', 'core.longpaths=true', ...(options.write ? [] : ['--no-optional-locks']), ...args],
       {
         cwd,
         timeout: options.write ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS,
@@ -146,8 +152,13 @@ export async function localBranches(cwd: string): Promise<string[]> {
 }
 
 export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
+  return (await readWorktreeList(cwd)) ?? [];
+}
+
+/** Como `listWorktrees`, pero null si git no contestó: para lo que no puede tomar un fallo por "no está". */
+export async function readWorktreeList(cwd: string): Promise<WorktreeEntry[] | null> {
   const result = await read(cwd, ['worktree', 'list', '--porcelain', '-z']);
-  return result.code === 0 ? parseWorktreeListZ(result.stdout) : [];
+  return result.code === 0 ? parseWorktreeListZ(result.stdout) : null;
 }
 
 export interface UncommittedChanges {
@@ -545,7 +556,9 @@ export function addWorktree(mainRoot: string, folder: string, branch: string, ba
  * git se niega, y eso es lo que tiene que pasar. Ojo: lo ignorado lo borra sin
  * avisar (medido), y por eso las notas vuelven antes (`include.ts`). Los
  * archivos nuevos que el usuario eligió perder los borra antes la app
- * (`untracked.ts`): si apareció otro, git se sigue negando.
+ * (`untracked.ts`): si apareció otro, git se sigue negando. Y si algo no se
+ * deja borrar después de sus controles, git suelta la rama igual y deja la
+ * carpeta a medias (medido): eso lo termina el servicio (`releasedByGit`).
  */
 export function removeWorktree(mainRoot: string, folder: string): Promise<GitRun> {
   return run(mainRoot, removeWorktreeArgs(folder), { write: true });

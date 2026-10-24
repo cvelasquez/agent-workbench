@@ -25,7 +25,8 @@
  *  5. las notas que cambiaron en la rama vuelven a la principal, juntas con lo
  *     que cambió allá si hace falta (21-10-2026);
  *  6. `git worktree remove`; lo que quede (los enlaces de pnpm, que git no
- *     borra) se borra sin seguir enlaces y sólo dentro de esa carpeta;
+ *     borra, o lo que no pudo borrar después de soltar la rama, 23-10-2026)
+ *     se borra sin seguir enlaces y sólo dentro de esa carpeta;
  *  7. la rama, con `branch -d`, sólo si la creó la app y ya está integrada. El
  *     registro anota en qué commit quedó: volver a abrir una conversación de
  *     ahí la crea otra vez en ese commit (20-10-2026).
@@ -39,7 +40,7 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdir, rename, rm, rmdir, stat } from 'node:fs/promises';
+import { lstat, mkdir, rename, rm, rmdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import {
   ServerTextError,
@@ -102,6 +103,7 @@ import {
   localBranches,
   mergeTarget,
   mergeTreeCheck,
+  readWorktreeList,
   refFormatAccepts,
   removeWorktree,
   removeWorktreeArgs,
@@ -206,6 +208,11 @@ export declare interface WorktreeService {
   on(event: 'changed' | 'rows', listener: () => void): this;
   off(event: 'changed' | 'rows', listener: () => void): this;
   emit(event: 'changed' | 'rows'): boolean;
+}
+
+/** La carpeta está, sin nada que se llame `.git` adentro (ni un enlace roto). */
+async function leftWithoutGit(folder: string): Promise<boolean> {
+  return (await exists(folder)) && (await lstat(path.join(folder, '.git')).catch(() => null)) === null;
 }
 
 async function exists(candidate: string): Promise<boolean> {
@@ -442,7 +449,12 @@ export class WorktreeService extends EventEmitter {
   }
 
   private async readRows(mainRoot: string, tips: ReadonlyMap<string, string>): Promise<Omit<WorktreeRow, 'isCurrent'>[]> {
-    const entries = (await listWorktrees(mainRoot)).filter((entry) => !entry.bare);
+    const listed = await readWorktreeList(mainRoot);
+    const entries = [
+      ...(listed ?? []).filter((entry) => !entry.bare),
+      // Las que git soltó a medias: sin su fila, no había cómo terminar de quitarlas.
+      ...(listed === null ? [] : await this.releasedEntries(mainRoot, listed)),
+    ];
     const mainBranch = entries.find((entry) => entry.isMain)?.branch ?? null;
     const read = await Promise.all(
       entries.map(async (entry) => {
@@ -618,7 +630,9 @@ export class WorktreeService extends EventEmitter {
   }
 
   private async planFor(record: WorktreeRecord): Promise<WorktreeRemovePlan> {
-    const present = await exists(record.path);
+    const onDisk = await exists(record.path);
+    // Lo que quedó de una que git ya soltó no se le pregunta a git: la app lo termina de borrar.
+    const present = onDisk && !(await this.releasedByGit(record));
     const [changes, notes, integrated] = await Promise.all([
       present ? uncommittedChanges(record.path) : Promise.resolve({ paths: [], untracked: [], complete: true }),
       present
@@ -634,7 +648,7 @@ export class WorktreeService extends EventEmitter {
     // Se borra igual (no tiene nada que perder), pero el diálogo no la llama integrada.
     const branchUnused = deletesBranch && stillAtStart(record, (await branchCommit(record.mainRoot, record.branch)) ?? undefined);
     // Con pestañas de la app adentro, la prueba daría "en uso" por ellas mismas: se mira al confirmar.
-    let inUse = !present ? false : tabs.length > 0 ? null : await folderInUse(record.path);
+    let inUse = !onDisk ? false : tabs.length > 0 ? null : await folderInUse(record.path);
     const holders = inUse === true ? await this.holdersOf(record.path) : [];
     // Nadie a la vista: algo de paso, que para ahora ya pudo soltarla (visto el 23-10-2026). Se mira otra vez.
     if (inUse === true && holders.length === 0) inUse = await folderInUse(record.path);
@@ -706,24 +720,30 @@ export class WorktreeService extends EventEmitter {
         throw new WorktreeInUseError({ ...plan, tabs: [], inUse: true, holders: await this.holdersOf(record.path) });
       }
 
-      const bases = new Map(record.copied.map((file) => [file.path, file.hash]));
-      try {
-        returned = (
-          await returnNotes(record.mainRoot, record.path, plan.returning, bases, {
-            loadBase: this.loadNoteBase,
-            onWritten: (file, branch) => this.noteReturned(record.id, file, branch),
-            notesAsked: record.notesAsked,
-          })
-        ).returned.length;
-      } catch (error) {
-        throw new WorktreeError(serverText('worktreeNotesFailed', { detail: error instanceof Error ? error.message : String(error) }));
+      // Una que git ya soltó no tiene notas que leer ni nada que preguntarle: queda borrar lo que dejó.
+      if (!(await this.releasedByGit(record))) {
+        const bases = new Map(record.copied.map((file) => [file.path, file.hash]));
+        try {
+          returned = (
+            await returnNotes(record.mainRoot, record.path, plan.returning, bases, {
+              loadBase: this.loadNoteBase,
+              onWritten: (file, branch) => this.noteReturned(record.id, file, branch),
+              notesAsked: record.notesAsked,
+            })
+          ).returned.length;
+        } catch (error) {
+          throw new WorktreeError(serverText('worktreeNotesFailed', { detail: error instanceof Error ? error.message : String(error) }));
+        }
+
+        // Después de las notas: una carpeta nueva puede tener adentro una nota que vuelve.
+        if (plan.uncommittedCount > 0) discardedFiles = await this.discardNew(record, discardUntracked);
+
+        const removed = await removeWorktree(record.mainRoot, record.path);
+        // Si git la soltó sin terminar de borrarla, lo que quedó ya pasó sus controles: se borra abajo.
+        if (removed.code !== 0 && !(await this.releasedByGit(record))) {
+          throw new WorktreeError(serverText('worktreeGitFailed', { detail: gitFailureText(removed) }));
+        }
       }
-
-      // Después de las notas: una carpeta nueva puede tener adentro una nota que vuelve.
-      if (plan.uncommittedCount > 0) discardedFiles = await this.discardNew(record, discardUntracked);
-
-      const removed = await removeWorktree(record.mainRoot, record.path);
-      if (removed.code !== 0) throw new WorktreeError(serverText('worktreeGitFailed', { detail: gitFailureText(removed) }));
       await this.removeLeftovers(record);
     }
 
@@ -769,6 +789,33 @@ export class WorktreeService extends EventEmitter {
     if ((await listWorktrees(record.mainRoot)).some((entry) => samePathShape(entry.path, folder))) return;
     await rm(folder, { recursive: true, maxRetries: 3 });
     await this.removeEmptyParent(folder);
+  }
+
+  /**
+   * true si git ya soltó la rama sin terminar de borrar su carpeta
+   * (23-10-2026). `worktree remove` borra después de sus controles y, si algo
+   * no se deja borrar a mitad de camino, quita su registro igual (medido con git
+   * 2.56: una ruta de más de 260 caracteres sin `core.longpaths`, o un nombre
+   * terminado en punto). Lo que quedó ya pasó esos controles, y lo termina de
+   * borrar la app. Sólo sin `.git` adentro, y si git contesta que no la tiene:
+   * una carpeta con su `.git` puede tener trabajo aunque git ya no la conozca.
+   */
+  private async releasedByGit(record: WorktreeRecord): Promise<boolean> {
+    if (!(await leftWithoutGit(record.path))) return false;
+    const entries = await readWorktreeList(record.mainRoot);
+    return entries !== null && !entries.some((entry) => samePathShape(entry.path, record.path));
+  }
+
+  /** Las ramas de la app que git soltó a medias (`releasedByGit`), como si git las listara. */
+  private async releasedEntries(mainRoot: string, listed: readonly WorktreeEntry[]): Promise<WorktreeEntry[]> {
+    const released: WorktreeEntry[] = [];
+    for (const record of this.deps.store.list()) {
+      if (record.removedAt !== null || !samePathShape(record.mainRoot, mainRoot)) continue;
+      if (listed.some((entry) => samePathShape(entry.path, record.path)) || !(await leftWithoutGit(record.path))) continue;
+      // `prunable`: no se le pregunta a git qué tiene sin commit.
+      released.push({ path: path.resolve(record.path), branch: record.branch, isMain: false, bare: false, locked: false, prunable: true });
+    }
+    return released;
   }
 
   /** La carpeta `<proyecto>.worktrees`, sólo si quedó vacía. */

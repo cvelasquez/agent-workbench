@@ -1583,6 +1583,113 @@ let reviewSession = '';
 }
 
 // ---------------------------------------------------------------------------
+// Z. Una ruta de más de 260 caracteres, y una rama que git soltó con la
+//    carpeta a medias (23-10-2026)
+// ---------------------------------------------------------------------------
+
+{
+  // Su propio repo y su propio registro, como X.
+  const largo = await makeRepo('largo');
+  const zStore = new WorktreeStore(path.join(root, 'appdata-largo', 'worktrees.json'));
+  await zStore.load();
+  const zRegistry = fakeRegistry();
+  const zService = new WorktreeService({
+    store: zStore,
+    registry: zRegistry,
+    projectCwd: (key) => (key === 'largo' ? largo : null),
+    findSession: () => null,
+    noteBases: new NoteBases(path.join(root, 'copias-largo'), { graceMs: 0 }),
+  });
+  const open = async (branch) => {
+    const tab = await zService.create({ source: { kind: 'project', projectKey: 'largo' }, branch, base: 'main', mode: 'new', copyNotes: false });
+    for (const opened of zRegistry.tabs.filter((candidate) => candidate.cwd === tab.cwd)) zRegistry.tabs.splice(zRegistry.tabs.indexOf(opened), 1);
+    return { folder: tab.cwd, record: zStore.byPath(tab.cwd) };
+  };
+  const listedZ = (folder) => git(largo, 'worktree', 'list', '--porcelain').includes(path.basename(folder));
+  const branchZ = (branch) => git(largo, 'branch', '--list', branch).trim();
+  // Lo que deja git cuando suelta la rama a mitad de borrar: la carpeta sin `.git`, y su registro borrado.
+  // En Windows, de verdad: un nombre terminado en punto, que Node crea (rutas `\\?\`) y git no borra ni
+  // con `core.longpaths` (medido con git 2.56). En los demás, a mano.
+  const releaseHalfway = async (folder) => {
+    if (windows) {
+      await mkdir(path.join(folder, 'node_modules'), { recursive: true });
+      await writeFile(path.join(folder, 'node_modules', 'punto.'), 'x');
+      return wtGit.removeWorktree(largo, folder);
+    }
+    await rm(git(folder, 'rev-parse', '--absolute-git-dir').trim(), { recursive: true });
+    await rm(path.join(folder, '.git'));
+    return { code: 255, stdout: '', stderr: 'a mano' };
+  };
+
+  if (windows) {
+    // Como el `node_modules` de Expo que dejó una rama a medias: rutas de 299 caracteres, ignoradas.
+    const { folder } = await open('feat/largo');
+    let deep = path.join(folder, 'node_modules', 'paquete');
+    while (deep.length < 280) deep = path.join(deep, 'una-carpeta-de-nombre-largo');
+    await mkdir(deep, { recursive: true });
+    const file = path.join(deep, 'Plugin$inlined$beforeRootProject$1.class');
+    await writeFile(file, 'x');
+    const removed = await wtGit.removeWorktree(largo, folder);
+    check('Z1 git borra entera una rama aparte con una ruta de más de 260 caracteres',
+      file.length > 260 && existsSync(file) === false && removed.code === 0 && !existsSync(folder) && !listedZ(folder),
+      `${file.length} ${removed.code} ${removed.stderr.trim()}`);
+  }
+
+  // La que git soltó a medias sigue en Cambios, y quitarla termina el trabajo.
+  const half = await open('feat/a-medias');
+  const halfway = await releaseHalfway(half.folder);
+  check('Z2 el caso: git falla, suelta la rama y deja la carpeta sin .git, con archivos',
+    halfway.code !== 0 && !listedZ(half.folder) && existsSync(path.join(half.folder, 'README.md')) && !existsSync(path.join(half.folder, '.git')),
+    `${halfway.code} ${halfway.stderr.trim()}`);
+  const mainTab = await zRegistry.open({ cwd: largo });
+  zService.changed();
+  const halfRow = (await zService.rows(mainTab.terminalId)).find((row) => row.branch === 'feat/a-medias');
+  check('Z3 sigue en Cambios, con su id, sin preguntarle a git qué tiene sin commit',
+    halfRow?.id === half.record.id && halfRow.changes === null && halfRow.integrated !== null, JSON.stringify(halfRow));
+  let halfPlan = null;
+  const halfPlanError = await errorKey(async () => {
+    halfPlan = await zService.planRemove(half.record.id);
+  });
+  check('Z4 el plan no le pregunta a git ni muestra git worktree remove (ya corrió), sí borrar la rama',
+    halfPlan?.uncommittedCount === 0 && halfPlan.deletesBranch === true &&
+      !halfPlan.commands.some((command) => command.includes('worktree remove')) && halfPlan.commands.some((command) => command.includes('branch -d')),
+    `${halfPlanError} ${halfPlan?.commands.join(' | ')}`);
+  let halfOutcome = null;
+  const halfError = await errorKey(async () => {
+    halfOutcome = await zService.remove(half.record.id, false, () => {});
+  });
+  check('Z5 quitarla borra lo que quedó y la rama, y el registro la da por quitada',
+    !existsSync(half.folder) && branchZ('feat/a-medias') === '' && halfOutcome?.branchDeleted === true && zStore.get(half.record.id)?.removedAt !== null,
+    `${halfError} ${JSON.stringify(halfOutcome)}`);
+
+  if (windows) {
+    // Lo mismo en un solo paso: git falla al quitar desde la app, y la app termina.
+    const direct = await open('feat/directo');
+    await mkdir(path.join(direct.folder, 'node_modules'), { recursive: true });
+    await writeFile(path.join(direct.folder, 'node_modules', 'punto.'), 'x');
+    const directError = await errorKey(async () => {
+      direct.outcome = await zService.remove(direct.record.id, false, () => {});
+    });
+    check('Z6 si git suelta la rama a mitad de borrar al quitarla, la app termina: sin carpeta, sin rama, quitada',
+      directError === 'no falló' && !existsSync(direct.folder) && !listedZ(direct.folder) && branchZ('feat/directo') === '' &&
+        direct.outcome?.branchDeleted === true && zStore.get(direct.record.id)?.removedAt !== null,
+      `${directError} ${JSON.stringify(direct.outcome)}`);
+  }
+
+  // Una carpeta que git no conoce pero conserva su `.git`: puede tener trabajo, y no se toca.
+  const kept = await open('feat/con-git');
+  await writeFile(path.join(kept.folder, 'trabajo.txt'), 'sin commit\n');
+  await rm(git(kept.folder, 'rev-parse', '--absolute-git-dir').trim(), { recursive: true });
+  zService.changed();
+  const keptRows = await zService.rows(mainTab.terminalId);
+  const keptError = await errorKey(() => zService.remove(kept.record.id, false, () => {}));
+  check('Z7 sin su registro en git pero con su .git: ni se lista ni se borra',
+    !listedZ(kept.folder) && existsSync(path.join(kept.folder, '.git')) && !keptRows.some((row) => row.id === kept.record.id) &&
+      keptError !== 'no falló' && existsSync(path.join(kept.folder, 'trabajo.txt')) && zStore.get(kept.record.id)?.removedAt === null,
+    keptError);
+}
+
+// ---------------------------------------------------------------------------
 // M. Las piezas puras del hito 49
 // ---------------------------------------------------------------------------
 
