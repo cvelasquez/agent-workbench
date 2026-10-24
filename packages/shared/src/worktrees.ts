@@ -28,6 +28,7 @@ import {
   asFiniteNumber,
   asLiteral,
   asNonEmptyString,
+  asPositiveInt,
   asRecord,
   asString,
   asStringArray,
@@ -221,6 +222,20 @@ export interface WorktreeOpenTab {
   label: string;
 }
 
+/**
+ * Un programa que tiene abierta la carpeta de una rama aparte (23-10-2026): el
+ * proceso, su ejecutable y la descripción que trae el ejecutable ("Visual
+ * Studio Code"), o null si no trae o no se pudo leer.
+ */
+export interface WorktreeHolder {
+  pid: number;
+  name: string;
+  description: string | null;
+}
+
+/** Cuántos programas que tienen la carpeta viajan en el plan. */
+export const WORKTREE_HOLDERS_MAX = 8;
+
 /** El plan de quitar una rama aparte: se muestra, se confirma y el servidor lo rehace. */
 export interface WorktreeRemovePlan {
   id: string;
@@ -257,6 +272,11 @@ export interface WorktreeRemovePlan {
   conflicts: string[];
   /** true si otro programa tiene la carpeta abierta; null si no se pudo saber (hay pestañas de la app adentro). */
   inUse: boolean | null;
+  /**
+   * Con `inUse`, los programas que la tienen abierta, si se pudo saber
+   * (23-10-2026, sólo en Windows). Vacío si no, y con un servidor anterior.
+   */
+  holders: WorktreeHolder[];
   /** true si la rama ya está integrada en su base: también se borra, con `branch -d`. */
   deletesBranch: boolean;
   /**
@@ -889,6 +909,19 @@ function parseOpenTab(value: unknown): WorktreeOpenTab | null {
   return { terminalId, kind, label };
 }
 
+/** Un nombre de ejecutable entra en 255 caracteres; la descripción, si es más larga, no se muestra. */
+const HOLDER_TEXT_MAX = 255;
+
+export function parseWorktreeHolder(value: unknown): WorktreeHolder | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const pid = asPositiveInt(record['pid']);
+  const name = asNonEmptyString(record['name']);
+  if (pid === null || name === null || name.length > HOLDER_TEXT_MAX) return null;
+  const description = asString(record['description'])?.trim() ?? '';
+  return { pid, name, description: description.length > 0 && description.length <= HOLDER_TEXT_MAX ? description : null };
+}
+
 export function parseWorktreeRemovePlan(value: unknown): WorktreeRemovePlan | null {
   const record = asRecord(value);
   if (record === null) return null;
@@ -916,7 +949,7 @@ export function parseWorktreeRemovePlan(value: unknown): WorktreeRemovePlan | nu
   ) {
     return null;
   }
-  const inUse = record['inUse'];
+  const inUse = typeof record['inUse'] === 'boolean' ? record['inUse'] : null;
   return {
     id,
     branch,
@@ -932,7 +965,9 @@ export function parseWorktreeRemovePlan(value: unknown): WorktreeRemovePlan | nu
     merging: (asStringArray(record['merging']) ?? []).filter((file) => returning.includes(file)),
     resolved: asStringArray(record['resolved']) ?? [],
     conflicts,
-    inUse: typeof inUse === 'boolean' ? inUse : null,
+    inUse,
+    // Ausente en un servidor anterior: el diálogo no nombra a nadie. Uno que no se entiende no tira los demás.
+    holders: inUse === true ? (asArrayFiltered(record['holders'], parseWorktreeHolder) ?? []).slice(0, WORKTREE_HOLDERS_MAX) : [],
     deletesBranch,
     branchUnused: deletesBranch && record['branchUnused'] === true,
     createdBranch: record['createdBranch'] !== false,

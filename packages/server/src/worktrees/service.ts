@@ -19,7 +19,7 @@
  *  2. notas que cambiaron en los dos lados y no se pueden juntar: no se
  *     quita, salvo que el usuario elija perder lo de la rama;
  *  3. otro programa con la carpeta abierta: no se quita (Windows dejaría a git
- *     a medias, medido);
+ *     a medias, medido), y desde el 23-10-2026 el plan dice cuál (`holders.ts`);
  *  4. se cierran las pestañas y consolas de ahí, y se espera a que Windows
  *     suelte la carpeta (unos 50 ms, medido en el paso 0);
  *  5. las notas que cambiaron en la rama vuelven a la principal, juntas con lo
@@ -60,6 +60,7 @@ import {
   type WorktreeChanges,
   type WorktreeCreateMode,
   type WorktreeDeleteBranchPlan,
+  type WorktreeHolder,
   type WorktreeInspection,
   type WorktreeIntegrateOutcome,
   type WorktreeIntegratePlan,
@@ -110,6 +111,7 @@ import {
   type UncommittedChanges,
   type WorktreeEntry,
 } from './git.js';
+import { folderHolders } from './holders.js';
 import { askedNotesNow, copyToWorktree, hashOf, notesIn, planCopy, returnNotes, reviewNotes, summarize, type CopyPlan } from './include.js';
 import { worktreeFolderFor, worktreesParentFor } from './names.js';
 import { NoteBases } from './note-bases.js';
@@ -120,6 +122,17 @@ import { deleteUntracked, scanUntracked, type UntrackedScan } from './untracked.
 
 /** Un pedido de ramas aparte que no se pudo cumplir. El texto dice por qué (§6.23). */
 export class WorktreeError extends ServerTextError {}
+
+/**
+ * Quitar se frenó porque otro programa tiene la carpeta (23-10-2026). Lleva el
+ * plan de ese momento, con quién la tiene: el socket lo manda como plan y el
+ * diálogo lo nombra, en vez de un error a secas. No se cambió nada.
+ */
+export class WorktreeInUseError extends WorktreeError {
+  constructor(readonly plan: WorktreeRemovePlan) {
+    super(serverText('worktreeInUse'));
+  }
+}
 
 /**
  * Cuánto se reusa el estado de las filas de Cambios: son procesos de git por
@@ -160,6 +173,8 @@ export interface WorktreeServiceDeps {
   history?(agent: AgentId): Pick<HistorySource, 'follow' | 'wholeRead'> | null;
   /** Las copias de origen de las notas (21-10-2026). Ausente: las de la carpeta de la app. */
   noteBases?: NoteBases;
+  /** Quién tiene abierta una carpeta (23-10-2026). Ausente: `folderHolders`. */
+  folderHolders?: (folder: string) => Promise<WorktreeHolder[]>;
   now?: () => number;
 }
 
@@ -618,6 +633,11 @@ export class WorktreeService extends EventEmitter {
     const deletesBranch = integrated === true;
     // Se borra igual (no tiene nada que perder), pero el diálogo no la llama integrada.
     const branchUnused = deletesBranch && stillAtStart(record, (await branchCommit(record.mainRoot, record.branch)) ?? undefined);
+    // Con pestañas de la app adentro, la prueba daría "en uso" por ellas mismas: se mira al confirmar.
+    let inUse = !present ? false : tabs.length > 0 ? null : await folderInUse(record.path);
+    const holders = inUse === true ? await this.holdersOf(record.path) : [];
+    // Nadie a la vista: algo de paso, que para ahora ya pudo soltarla (visto el 23-10-2026). Se mira otra vez.
+    if (inUse === true && holders.length === 0) inUse = await folderInUse(record.path);
     return {
       id: record.id,
       branch: record.branch,
@@ -638,8 +658,8 @@ export class WorktreeService extends EventEmitter {
       merging: notes.merging,
       resolved: notes.resolved,
       conflicts: notes.conflicts,
-      // Con pestañas de la app adentro, la prueba daría "en uso" por ellas mismas: se mira al confirmar.
-      inUse: !present ? false : tabs.length > 0 ? null : await folderInUse(record.path),
+      inUse,
+      holders,
       deletesBranch,
       branchUnused,
       createdBranch: record.createdBranch,
@@ -675,13 +695,16 @@ export class WorktreeService extends EventEmitter {
     if (plan.conflicts.length > 0 && !discardConflicts) {
       throw new WorktreeError(serverText('worktreeNotesConflict', { count: plan.conflicts.length }));
     }
-    if (plan.inUse === true) throw new WorktreeError(serverText('worktreeInUse'));
+    if (plan.inUse === true) throw new WorktreeInUseError(plan);
 
     let returned = 0;
     let discardedFiles = 0;
     if (await exists(record.path)) {
       for (const tab of plan.tabs) closeTab(tab.terminalId);
-      if (!(await this.waitUntilFree(record.path))) throw new WorktreeError(serverText('worktreeInUse'));
+      if (!(await this.waitUntilFree(record.path))) {
+        // Las pestañas ya se cerraron: lo que queda es de otro programa.
+        throw new WorktreeInUseError({ ...plan, tabs: [], inUse: true, holders: await this.holdersOf(record.path) });
+      }
 
       const bases = new Map(record.copied.map((file) => [file.path, file.hash]));
       try {
@@ -712,6 +735,15 @@ export class WorktreeService extends EventEmitter {
     await this.pruneNoteBases();
     this.changed();
     return { branchDeleted, returned, discarded: discardConflicts ? plan.conflicts.length : 0, discardedFiles };
+  }
+
+  /** Los programas que tienen la carpeta, para el diálogo. Sin saberlo, ninguno: el diálogo dice lo de antes. */
+  private async holdersOf(folder: string): Promise<WorktreeHolder[]> {
+    try {
+      return await (this.deps.folderHolders ?? folderHolders)(folder);
+    } catch {
+      return [];
+    }
   }
 
   /** Espera, con tope, a que ningún proceso tenga la carpeta. */

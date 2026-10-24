@@ -223,6 +223,7 @@ export function useWorktreeDialogs(
             }
             break;
           case 'worktree.removePlan':
+            // También contesta a quitar, si otro programa tenía la carpeta: el plan dice cuál (23-10-2026).
             if (message.requestId !== removeRequest.current) break;
             setRemove((current) => (current === null ? null : { ...current, state: { phase: 'ready', plan: message.plan } }));
             break;

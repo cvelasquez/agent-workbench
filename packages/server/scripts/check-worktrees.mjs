@@ -59,7 +59,8 @@ const wtGit = await import('../src/worktrees/git.ts');
 const include = await import('../src/worktrees/include.ts');
 const { WorktreeStore, parseWorktreesState } = await import('../src/worktrees/store.ts');
 const { WorktreeLinks } = await import('../src/worktrees/links.ts');
-const { WorktreeService, WorktreeError, folderInUse, notesConflictPrompt } = await import('../src/worktrees/service.ts');
+const { WorktreeService, WorktreeError, WorktreeInUseError, folderInUse, notesConflictPrompt } = await import('../src/worktrees/service.ts');
+const { parseHoldersOutput, holdersScript } = await import('../src/worktrees/holders.ts');
 const overlap = await import('../src/worktrees/overlap.ts');
 const review = await import('../src/worktrees/review.ts');
 const mergeNotes = await import('../src/worktrees/merge-notes.ts');
@@ -421,12 +422,81 @@ const folder = worktreeFolderFor(path.resolve(repo), 'feat/notas');
     ]);
     const taken = await folderInUse(folder);
     check('Q11 una carpeta tomada se detecta sin cambiar nada', taken && existsSync(folder));
+    // Quitar con la pestaña de la rama adentro: la cierra, la carpeta sigue tomada y contesta con el
+    // plan, que nombra al proceso (23-10-2026). El reloj salta para no esperar los 5 s.
+    let clock = 0;
+    const hurried = new WorktreeService({ store, registry, projectCwd: () => null, findSession: () => null, now: () => (clock += 10_000) });
+    const mainChecklist = await readFile(path.join(repo, 'CHECKLIST.md'), 'utf8');
+    const closedFirst = [];
+    let stillTaken = null;
+    try {
+      await hurried.remove(record.id, false, (terminalId) => closedFirst.push(terminalId));
+    } catch (error) {
+      stillTaken = error;
+    }
+    // Ni este proceso ni el PowerShell que pregunta, que tiene abierta cada ruta mientras la consulta.
+    const namesHolder = (holders) =>
+      holders.some((each) => each.pid === holder.pid && each.name.toLowerCase() === 'node.exe') &&
+      !holders.some((each) => each.pid === process.pid || each.name.toLowerCase() === 'powershell.exe');
+    check('Q11b quitar cierra la pestaña y, con la carpeta tomada igual, contesta con el plan que nombra al proceso, sin cambiar nada',
+      stillTaken instanceof WorktreeInUseError && stillTaken.text.key === 'worktreeInUse' && closedFirst.length === 1 &&
+        stillTaken.plan.tabs.length === 0 && stillTaken.plan.inUse === true && namesHolder(stillTaken.plan.holders) &&
+        existsSync(folder) && (await readFile(path.join(repo, 'CHECKLIST.md'), 'utf8')) === mainChecklist,
+      JSON.stringify(stillTaken?.plan?.holders ?? stillTaken?.message ?? null));
     registry.tabs.splice(registry.tabs.findIndex((candidate) => candidate.cwd === folder), 1);
     plan = await service.planRemove(record.id);
     check('Q12 sin pestañas de la app adentro, el plan dice que está en uso', plan.inUse === true);
-    holder.kill();
-    await new Promise((resolve) => holder.once('exit', resolve));
+    check('Q12b y nombra al proceso que la tiene, y no a este', namesHolder(plan.holders), JSON.stringify(plan.holders));
+    stillTaken = null;
+    try {
+      await service.remove(record.id, false, () => {});
+    } catch (error) {
+      stillTaken = error;
+    }
+    check('Q12c quitar sin pestañas se frena antes de cerrar nada, con el plan que lo nombra',
+      stillTaken instanceof WorktreeInUseError && namesHolder(stillTaken.plan.holders) && existsSync(folder));
+    // Windows la suelta unos 50 ms después de que el proceso termina (medido): se espera, con tope.
+    const release = async (child) => {
+      child.kill();
+      await new Promise((resolve) => child.once('exit', resolve));
+      for (let tries = 0; tries < 100 && (await folderInUse(folder)); tries++) await new Promise((resolve) => setTimeout(resolve, 50));
+    };
+    await release(holder);
+
+    // Algo de paso (un antivirus, un git que termina) que ya la soltó cuando se busca quién la tiene: se
+    // mira otra vez y no frena (23-10-2026).
+    const passing = spawn(process.execPath, ['-e', "process.stdout.write('ready\\n'); setInterval(() => {}, 1000)"], {
+      cwd: path.join(folder, 'docs'),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    children.push(passing);
+    await new Promise((resolve) => passing.stdout.once('data', resolve));
+    let searched = false;
+    const fleeting = new WorktreeService({
+      store, registry, projectCwd: () => null, findSession: () => null,
+      folderHolders: async () => {
+        searched = true;
+        await release(passing);
+        return [];
+      },
+    });
+    const fleetingPlan = await fleeting.planRemove(record.id);
+    check('Q12e si estaba tomada y al buscar quién ya no hay nadie, se mira otra vez: libre, no frena',
+      searched && fleetingPlan.inUse === false && fleetingPlan.holders.length === 0, `${searched} ${fleetingPlan.inUse}`);
   }
+
+  // Preguntar quién la tiene lanza PowerShell: con la carpeta libre, no se pregunta.
+  let asked = 0;
+  const counting = new WorktreeService({
+    store, registry, projectCwd: () => null, findSession: () => null,
+    folderHolders: async () => {
+      asked += 1;
+      return [];
+    },
+  });
+  const freePlan = await counting.planRemove(record.id);
+  check('Q12d con la carpeta libre no se pregunta quién la tiene', freePlan.inUse !== true && freePlan.holders.length === 0 && asked === 0,
+    `${freePlan.inUse} ${asked}`);
 
   // Un enlace de pnpm dentro de la rama, hacia afuera: git no lo borra, y lo que queda se borra sin seguirlo.
   if (windows) {
@@ -1835,6 +1905,63 @@ let reviewSession = '';
   check('D12 cuántos archivos se perdieron viaja, y un servidor anterior no lo manda: 0',
     shared.parseWorktreeRemoveOutcome({ branchDeleted: true, returned: 0, discarded: 0 })?.discardedFiles === 0 &&
       shared.parseWorktreeRemoveOutcome({ branchDeleted: true, returned: 0, discarded: 0, discardedFiles: 6 })?.discardedFiles === 6);
+}
+
+// ---------------------------------------------------------------------------
+// O. Quién tiene la carpeta (23-10-2026)
+// ---------------------------------------------------------------------------
+
+{
+  const line = JSON.stringify({
+    complete: true,
+    ms: 12,
+    holders: [
+      { pid: 11, name: 'Code.exe', description: 'Visual Studio Code' },
+      { pid: process.pid, name: 'node.exe', description: 'Node.js JavaScript Runtime' },
+      { pid: 11, name: 'Code.exe', description: 'Visual Studio Code' },
+      { pid: 0, name: 'x.exe', description: null },
+      { pid: 12, name: '', description: null },
+      { pid: 13, name: 'node.exe', description: '   ' },
+    ],
+  });
+  const parsed = parseHoldersOutput(`ruido de PowerShell\r\n${line}\r\n`, process.pid);
+  check('O1 la salida del guion: sin este servidor, sin repetidos y sin lo que no tiene la forma',
+    parsed?.complete === true && parsed.self === true &&
+      JSON.stringify(parsed.holders) ===
+        JSON.stringify([{ pid: 11, name: 'Code.exe', description: 'Visual Studio Code' }, { pid: 13, name: 'node.exe', description: null }]),
+    JSON.stringify(parsed));
+  const many = JSON.stringify({ complete: false, ms: 4_001, holders: Array.from({ length: 20 }, (_, i) => ({ pid: 100 + i, name: 'a.exe', description: null })) });
+  check('O2 con tope, y lo que no se entiende es null',
+    parseHoldersOutput(many, 1)?.holders.length === shared.WORKTREE_HOLDERS_MAX && parseHoldersOutput(many, 1)?.complete === false &&
+      parseHoldersOutput('', 1) === null && parseHoldersOutput('{"complete":true,"holders":{}}', 1) === null &&
+      parseHoldersOutput('{"complete":tru', 1) === null);
+  const decoded = (script) => Buffer.from(/FromBase64String\('([A-Za-z0-9+/=]+)'\)/.exec(script)?.[1] ?? '', 'base64').toString('utf8');
+  const tricky = "D:\\Carlos\u2019 'x' $(y)\\rama";
+  const script = holdersScript(tricky);
+  check('O3 la ruta va en base64, larga y entera: ninguna comilla de su nombre entra al guion',
+    decoded(script) === `\\\\?\\${tricky}` && !script.includes('Carlos') && decoded(holdersScript('\\\\srv\\share\\x')) === '\\\\?\\UNC\\srv\\share\\x',
+    decoded(script));
+  // PowerShell lee la entrada con la página de códigos de la consola: una tilde en el C# lo rompería.
+  check('O3b el guion va sólo en ASCII', /^[\x00-\x7f]*$/.test(script), [...script].filter((c) => c > '\x7f').join(''));
+
+  const base = {
+    id: 'w', branch: 'b', path: 'D:\\x', commands: [], uncommitted: [], uncommittedCount: 0, untracked: null, tabs: [], returning: [],
+    merging: [], resolved: [], conflicts: [], inUse: true, holders: [], deletesBranch: false, branchUnused: false, createdBranch: true,
+  };
+  const code = { pid: 1234, name: 'Code.exe', description: 'Visual Studio Code' };
+  check('O4 sin saber quién, la frase de antes; con uno, lo nombra con su ejecutable y su PID',
+    ui.inUseText(base) === 'Otro programa tiene la carpeta abierta (un editor, un servidor de desarrollo). Ciérralo y vuelve a intentarlo.' &&
+      ui.inUseText({ ...base, holders: [code] }) === 'Visual Studio Code (Code.exe, PID 1234) tiene la carpeta abierta. Ciérralo y vuelve a intentarlo.',
+    ui.inUseText({ ...base, holders: [code] }));
+  const two = ui.inUseText({ ...base, holders: [code, { ...code, pid: 99 }, { pid: 7, name: 'node.exe', description: 'node' }] });
+  check('O5 los procesos de un mismo programa van juntos, y una descripción que repite el ejecutable no se dice',
+    two === 'Visual Studio Code (Code.exe, PID 1234 y 99) y node.exe (PID 7) tienen la carpeta abierta. Ciérralos y vuelve a intentarlo.', two);
+  const travels = (extra) => shared.parseWorktreeRemovePlan(JSON.parse(JSON.stringify({ ...base, ...extra })));
+  check('O6 quién tiene la carpeta viaja; de un servidor anterior, sin estar en uso o mal formado, nadie',
+    JSON.stringify(travels({ holders: [code, { pid: -1, name: 'x.exe' }, { pid: 5, name: 'y.exe', description: 'Y' }] })?.holders) ===
+      JSON.stringify([code, { pid: 5, name: 'y.exe', description: 'Y' }]) &&
+      travels({ holders: undefined })?.holders.length === 0 && travels({ inUse: false, holders: [code] })?.holders.length === 0 &&
+      travels({ holders: 'Code.exe' })?.holders.length === 0);
 }
 
 // ---------------------------------------------------------------------------

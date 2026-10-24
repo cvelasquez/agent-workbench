@@ -103,7 +103,7 @@ import { TerminalOpenError, type OutputListener, type TerminalRegistry } from '.
 import { TerminalWriteQueue, type PieceWriter } from './terminal-write-queue.js';
 import { VaultError, type VaultService } from './vault/service.js';
 import { GitMissingError } from './git-repo.js';
-import { WorktreeError, type WorktreeService } from './worktrees/service.js';
+import { WorktreeError, WorktreeInUseError, type WorktreeService } from './worktrees/service.js';
 import { remoteRefusal } from './remote-access.js';
 import type { RemoteAccessService } from './remote-access-service.js';
 import { authorizeRequest, type Credential } from './security.js';
@@ -2879,7 +2879,11 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           const closeTab = (terminalId: TerminalId): void => void dropTab(terminalId);
           void worktrees.remove(worktreeId, discardConflicts, closeTab, message.discardUntracked ?? null).then(
             (outcome) => send(socket, { type: 'worktree.removed', requestId, worktreeId, outcome }),
-            (error: unknown) => sendWorktreeError(socket, error, requestId),
+            // Otro programa tiene la carpeta: el plan otra vez, que dice cuál (23-10-2026).
+            (error: unknown) =>
+              error instanceof WorktreeInUseError
+                ? send(socket, { type: 'worktree.removePlan', requestId, plan: error.plan })
+                : sendWorktreeError(socket, error, requestId),
           );
           break;
         }

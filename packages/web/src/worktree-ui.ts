@@ -377,6 +377,31 @@ export function untrackedText(plan: WorktreeRemovePlan, accepted: string | null)
   return t('worktree.remove.untracked', { count: untracked.files, size: formatBytes(untracked.bytes) });
 }
 
+/**
+ * Lo que dice el diálogo de otro programa con la carpeta abierta: cuál, si el
+ * servidor lo supo (23-10-2026), con su ejecutable y sus procesos, y si no, la
+ * frase de antes. Los procesos de un mismo programa van juntos.
+ */
+export function inUseText(plan: WorktreeRemovePlan): string {
+  if (plan.holders.length === 0) return t('worktree.remove.inUse');
+  const programs: { exe: string; program: string | null; pids: number[] }[] = [];
+  for (const holder of plan.holders) {
+    // Una descripción que sólo repite el ejecutable no dice nada más.
+    const plain = holder.name.toLowerCase().replace(/\.exe$/, '');
+    const program = holder.description !== null && holder.description.toLowerCase() !== plain ? holder.description : null;
+    const same = programs.find((entry) => entry.exe.toLowerCase() === holder.name.toLowerCase() && entry.program === program);
+    if (same !== undefined) same.pids.push(holder.pid);
+    else programs.push({ exe: holder.name, program, pids: [holder.pid] });
+  }
+  const list = formatList(
+    programs.map(({ exe, program, pids }) => {
+      const values = { exe, pids: formatList(pids.map(String)) };
+      return program === null ? t('worktree.remove.holderExe', values) : t('worktree.remove.holder', { ...values, program });
+    }),
+  );
+  return t('worktree.remove.inUseBy', { count: programs.length, list });
+}
+
 /** Las rutas sin commit para una línea, con "…" si había más. */
 export function uncommittedListText(plan: WorktreeRemovePlan): string {
   return `${formatList(plan.uncommitted)}${plan.uncommittedCount > plan.uncommitted.length ? '…' : ''}`;

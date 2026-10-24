@@ -2336,6 +2336,11 @@ export interface ServerWorktreeRowsMessage {
   kept?: WorktreeKeptBranch[];
 }
 
+/**
+ * La respuesta a `worktree.planRemove`, y desde el 23-10-2026 también a un
+ * `worktree.remove` que otro programa frenó: el plan de ese momento, con quién
+ * tiene la carpeta, y nada cambiado.
+ */
 export interface ServerWorktreeRemovePlanMessage {
   type: 'worktree.removePlan';
   requestId: string;

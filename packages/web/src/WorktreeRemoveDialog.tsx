@@ -16,7 +16,8 @@
  *    con un botón que lo dice y cuántos son (23-10-2026); si después frena
  *    otra cosa, el diálogo pasa a esa;
  *  - otro programa con la carpeta abierta: volver a intentar, después de
- *    cerrarlo;
+ *    cerrarlo. Desde el 23-10-2026 dice cuál, si el servidor lo supo, y
+ *    también cuando quitar se frena después de cerrar las pestañas;
  *  - notas que cambiaron en los dos lados y no se pueden juntar solas:
  *    pedirle al agente que las junte, o quitarla perdiendo lo que la rama
  *    cambió en ellas, con un botón que lo dice.
@@ -33,6 +34,7 @@ import type { RemoveDialog } from './useWorktrees.js';
 import { WorktreeNotesLine } from './WorktreeNotesLine.js';
 import {
   filesAccepted,
+  inUseText,
   offersDiscardFiles,
   removeAction,
   removeFateText,
@@ -139,7 +141,7 @@ export function WorktreeRemoveDialog({
                   <span className="worktree-files">{uncommittedListText(plan)}</span>
                 </p>
               )}
-              {plan.inUse === true && <p className="worktree-problem">{t('worktree.remove.inUse')}</p>}
+              {plan.inUse === true && <p className="worktree-problem">{inUseText(plan)}</p>}
               {plan.conflicts.length > 0 && (
                 <p className="worktree-warning">{t('worktree.remove.conflicts', { list: formatList(plan.conflicts) })}</p>
               )}
