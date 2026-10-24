@@ -79,4 +79,34 @@
     <string name="settings_about">Agent Workbench %1$s · Open Source (MIT)</string>
     <string name="settings_privacy">Datenschutz</string>
     <string name="shortcut_settings">Einstellungen</string>
+
+    <string name="share_title">In einer Notiz speichern</string>
+    <string name="share_comment_hint">Kommentar (optional)</string>
+    <string name="share_new_note">+ Neue Notiz</string>
+    <string name="share_note_untitled">Notiz</string>
+    <string name="share_note_image_only">Bild</string>
+    <string name="share_no_images">keine Bilder</string>
+    <string name="share_loading">Ihre Notizen werden gesucht…</string>
+    <string name="share_saving">Wird gespeichert…</string>
+    <string name="share_uploading">%1$d von %2$d wird hochgeladen…</string>
+    <string name="share_saved">In „%1$s“ gespeichert</string>
+    <string name="share_saved_partly">Gespeichert: %1$d von %2$d.</string>
+    <string name="share_close">Schließen</string>
+    <string name="share_nothing">Hier gibt es nichts zu speichern: Eine Notiz nimmt Bilder (PNG, JPEG, GIF oder WebP) und Text auf.</string>
+    <string name="share_open_app">Agent Workbench öffnen</string>
+    <string name="share_connection_lost">Die Verbindung zu Ihrem Computer wurde unterbrochen.</string>
+    <string name="share_error_no_answer">Ihr Computer hat nicht geantwortet. Versuchen Sie es erneut.</string>
+    <string name="share_error_unreadable">Ein Bild konnte aus der App, die es geteilt hat, nicht gelesen werden.</string>
+    <string name="share_error_format">Eine Notiz nimmt nur PNG-, JPEG-, GIF- oder WebP-Bilder auf.</string>
+    <string name="share_error_too_large">Ein Bild ist größer als %1$d MB, das Maximum.</string>
+    <string name="share_error_note_gone">Diese Notiz gibt es nicht mehr: Sie wurde auf dem Computer geschlossen.</string>
+    <string name="share_error_too_long">Der Text der Notiz hätte mehr als %1$d Zeichen, das Maximum.</string>
+    <string name="share_error_image_rejected">Ihr Computer hat das Bild nicht angenommen.</string>
+    <string name="share_error_generic">In der Notiz konnte nicht gespeichert werden.</string>
+    <string name="share_too_many_images">Diese Notiz hätte mehr als %1$d Bilder, das Maximum.</string>
+    <string name="share_too_many_notes">Es gibt schon %1$d Notizen, das Maximum. Schließen Sie eine auf dem Computer.</string>
+    <plurals name="share_images">
+        <item quantity="one">%d Bild</item>
+        <item quantity="other">%d Bilder</item>
+    </plurals>
 </resources>

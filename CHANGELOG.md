@@ -4,6 +4,28 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## 0.9.0 - unreleased
+
+### Added
+
+- **To message box** on a note puts its text and images in the message box of
+  the active tab, to add to it and send it to the conversation you're in. The
+  note stays. On the phone, the view switches to the chat.
+- **The Android app 0.9.0** (on Google Play when this version is out):
+  - **Share → Agent Workbench** from any app saves images (PNG, JPEG, GIF or
+    WebP) and text to a note on your computer, a new one or one you pick, with
+    a comment if you like, and goes back to the app you were in. The phone
+    keeps no copy, and nothing waits on it if the computer doesn't answer.
+  - **Settings → Change address**: if your computer's IP address changes, type
+    the new one instead of pairing again. It's saved only if your computer
+    answers there, with its fingerprint. When the app can't find your computer,
+    the connection screen offers it.
+
+### Changed
+
+- The Android app is built with R8, as Google Play asks from February 2027:
+  its code goes from 10.5 MB to 0.7 MB.
+
 ## 0.8.1 - 2026-10-23
 
 ### Added

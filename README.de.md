@@ -44,7 +44,7 @@ Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 | **Änderungen** | Der Branch, die geänderten Dateien und ihr Diff. **Orchestriert Agenten parallel**: Öffnen Sie das Projekt in einem neuen Branch, in einem eigenen Ordner, und mehrere Agenten arbeiten gleichzeitig, ohne sich gegenseitig die Änderungen zu überschreiben. „Änderungen“ zeigt jeden Branch: was noch nicht committet ist, wie viele Commits er hat und ob er schon integriert ist. Eine andere CLI prüft einen Branch, ohne ihn zu ändern, und Sie integrieren ihn mit einem Klick in main. |
 | **Dateien** | Der Dateibaum des Projekts, mit Suche und einer Vorschau mit Syntaxhervorhebung. Öffnen Sie mehrere Dateien gleichzeitig, jede in ihrem eigenen Tab; Markdown-Dateien öffnen sich formatiert. Ein Klick fügt den Pfad einer Datei in Ihre Nachricht ein. Bearbeiten Sie eine Textdatei, etwa eine `.env`, und speichern Sie sie direkt dort: Hat der Agent sie inzwischen geändert, wird nichts überschrieben, und Sie übernehmen Ihre Änderungen in die neue Version. |
 | **Pläne** | Die Pläne und `.md`-Dokumente, die die Unterhaltung geschrieben hat, formatiert dargestellt. Ein Klick fügt den Pfad eines Dokuments in Ihre Nachricht ein. |
-| **Notizen** | Ein Notizblock neben der Unterhaltung, Bilder inklusive. Mit Claude Code schickt ein Klick eine Notiz an eine neue Unterhaltung. |
+| **Notizen** | Ein Notizblock neben der Unterhaltung, Bilder inklusive. **Ins Eingabefeld** übernimmt eine Notiz in das Eingabefeld, um sie an die Unterhaltung zu senden, in der Sie gerade sind; mit Claude Code schickt ein Klick sie an eine neue. |
 | **Konsole** | Das Terminal Ihres Systems am unteren Rand, im Ordner des Projekts: PowerShell, cmd oder Git Bash unter Windows; bash oder zsh unter macOS und Linux. |
 | **Fortsetzen mit…** | Mit mehr als einer CLI setzen Sie eine Unterhaltung mit einer anderen CLI im selben Ordner fort. Der neue Agent startet mit einem Transkript der letzten Runden. |
 | **Benachrichtigungen** | Ein Ton und auf Wunsch Systembenachrichtigungen, wenn ein Agent fertig ist oder auf Sie wartet. |
@@ -433,6 +433,16 @@ ihn nur im Arbeitsspeicher, bis das Telefon ihn verwendet, und schreibt ihn nie
 auf den Datenträger: **Teilen Sie kein Foto dieses QR-Codes**. Das Telefon merkt
 sich beim ersten Verbinden den SSH-Fingerabdruck Ihres Computers, und falls er
 sich je ändert, verweigert es die Verbindung und sagt es Ihnen.
+
+**Teilen Sie einen Screenshot mit Ihrem Agenten.** In jeder App speichert
+**Teilen → Agent Workbench** Bilder (PNG, JPEG, GIF oder WebP) und Text in einer
+Notiz auf Ihrem Computer, einer neuen oder einer, die Sie auswählen, auf Wunsch
+mit einem Kommentar. Danach übernimmt **Ins Eingabefeld** in der Notiz sie in
+die Unterhaltung, die Sie wählen. Das Telefon behält keine Kopie.
+
+**Wenn sich die IP-Adresse Ihres Computers ändert**, übernimmt
+**Einstellungen → Adresse ändern** die neue, ohne erneutes Koppeln. Die App
+speichert sie nur, wenn dort Ihr Computer antwortet, mit seinem Fingerabdruck.
 
 **Um ein Telefon zu entfernen**, klicken Sie im Dialog bei ihm auf
 **Widerrufen** und löschen Sie seine Zeile aus `authorized_keys` (sie endet auf

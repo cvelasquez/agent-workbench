@@ -79,4 +79,35 @@
     <string name="settings_about">Agent Workbench %1$s · open source (MIT)</string>
     <string name="settings_privacy">Confidentialité</string>
     <string name="shortcut_settings">Réglages</string>
+
+    <string name="share_title">Enregistrer dans une note</string>
+    <string name="share_comment_hint">Commentaire (facultatif)</string>
+    <string name="share_new_note">+ Nouvelle note</string>
+    <string name="share_note_untitled">Note</string>
+    <string name="share_note_image_only">Image</string>
+    <string name="share_no_images">aucune image</string>
+    <string name="share_loading">Recherche de vos notes…</string>
+    <string name="share_saving">Enregistrement…</string>
+    <string name="share_uploading">Envoi de %1$d sur %2$d…</string>
+    <string name="share_saved">Enregistré dans « %1$s »</string>
+    <string name="share_saved_partly">Enregistrées : %1$d sur %2$d.</string>
+    <string name="share_close">Fermer</string>
+    <string name="share_nothing">Rien à enregistrer : une note accepte des images (PNG, JPEG, GIF ou WebP) et du texte.</string>
+    <string name="share_open_app">Ouvrir Agent Workbench</string>
+    <string name="share_connection_lost">La connexion avec votre ordinateur a été coupée.</string>
+    <string name="share_error_no_answer">Votre ordinateur n’a pas répondu. Réessayez.</string>
+    <string name="share_error_unreadable">Une image n’a pas pu être lue depuis l’application qui l’a partagée.</string>
+    <string name="share_error_format">Une note n’accepte que des images PNG, JPEG, GIF ou WebP.</string>
+    <string name="share_error_too_large">Une image pèse plus de %1$d Mo, le maximum.</string>
+    <string name="share_error_note_gone">Cette note n’existe plus : elle a été fermée sur l’ordinateur.</string>
+    <string name="share_error_too_long">Le texte de la note dépasserait %1$d caractères, le maximum.</string>
+    <string name="share_error_image_rejected">Votre ordinateur n’a pas accepté l’image.</string>
+    <string name="share_error_generic">Impossible d’enregistrer dans la note.</string>
+    <string name="share_too_many_images">Cette note aurait plus de %1$d images, le maximum.</string>
+    <string name="share_too_many_notes">Il y a déjà %1$d notes, le maximum. Fermez-en une sur l’ordinateur.</string>
+    <plurals name="share_images">
+        <item quantity="one">%d image</item>
+        <item quantity="many">%d images</item>
+        <item quantity="other">%d images</item>
+    </plurals>
 </resources>

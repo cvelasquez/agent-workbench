@@ -32,7 +32,7 @@ import {
 } from './agent-ui.js';
 import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
-import { Composer, type ComposerInsert } from './Composer.js';
+import { Composer, type ComposerInsert, type ComposerNoteInsert } from './Composer.js';
 import { ConsolePane } from './ConsolePane.js';
 import { shellToOpenOnUnfold } from './console-shells.js';
 import { ConversationView } from './ConversationView.js';
@@ -70,6 +70,7 @@ import { useRemoteAccess } from './useRemoteAccess.js';
 import { RemoteAccessDialog } from './RemoteAccessDialog.js';
 import { remoteButtonOn, remoteStateText } from './remote-access-ui.js';
 import { projectColor } from './project-color.js';
+import { noteImagesForComposer } from './note-to-composer.js';
 import { NotesPanel } from './NotesPanel.js';
 import { NarrowShell } from './NarrowShell.js';
 import {
@@ -949,6 +950,8 @@ export function App(): JSX.Element {
     (text: string) => composerInsertRef.current?.(text, !narrow),
     [narrow],
   );
+  /* Lo mismo para una nota entera, con sus imagenes ("Al cuadro", §6.6.2). */
+  const composerNoteRef = useRef<ComposerNoteInsert | null>(null);
 
   /*
     Un archivo del proyecto que el agente nombro en el hilo se abre en la solapa
@@ -1537,6 +1540,7 @@ export function App(): JSX.Element {
           }}
           fontSize={threadFont.size}
           insertRef={composerInsertRef}
+          noteInsertRef={composerNoteRef}
           /*
             La flecha arriba con el cuadro vacio saca la cola, como en la CLI
             (§6.35.1): solo si hay algo que sacar y se puede. Si no, la flecha
@@ -1691,6 +1695,24 @@ export function App(): JSX.Element {
             }
       }
       sendTargetCwd={activeTerminal?.cwd ?? null}
+      /*
+        "Al cuadro" (hito 50, §6.6.2): la nota al cuadro de la pestana activa, a
+        la conversacion que ya existe. Dentro del clic, como la ruta del arbol
+        (`insertPath`): asi Ctrl+Z la saca. En el telefono el cuadro esta en el
+        chat, y la vista pasa ahi.
+      */
+      onNoteToComposer={
+        activeTerminal === null
+          ? null
+          : (noteId) => {
+              const note = notes.notes.find((entry) => entry.noteId === noteId);
+              if (note === undefined) return;
+              const images = noteImagesForComposer(note.images, notes.images, (index) => `${t('notes.imageOnly')} ${index + 1}`);
+              composerNoteRef.current?.(note.text, images, !narrow);
+              if (narrow) changeNarrowView('chat');
+            }
+      }
+      composerTarget={activeTerminal === null ? null : tabNameFor(activeTerminal)}
     />
   );
 

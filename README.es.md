@@ -43,7 +43,7 @@ La terminal sigue siendo la terminal: todo lo que escribes va directo a la CLI.
 | **Cambios** | La rama, los archivos cambiados y su diff. **Orquesta agentes en paralelo**: abre el proyecto en una rama nueva, en su propia carpeta, y varios agentes trabajan a la vez sin pisarse los cambios. Cambios muestra cada rama: lo que falta commitear, cuántos commits lleva y si ya está integrada. Otra CLI revisa una rama sin tocarla, y la integras en main con un clic. |
 | **Archivos** | El árbol de archivos del proyecto, con búsqueda y vista previa con resaltado de sintaxis. Abre varios archivos a la vez, cada uno en su solapa; los archivos Markdown se abren con formato. Un clic pone la ruta de un archivo en tu mensaje. Edita un archivo de texto, un `.env` por ejemplo, y guárdalo ahí mismo: si el agente lo cambió mientras lo editabas, no se pisa nada, y pasas tus cambios a la versión nueva. |
 | **Planes** | Los planes y los documentos `.md` que escribió la conversación, con formato. Un clic pone la ruta de un documento en tu mensaje. |
-| **Notas** | Un bloc de notas junto a la conversación, con imágenes incluidas. Con Claude Code, un clic manda una nota a una conversación nueva. |
+| **Notas** | Un bloc de notas junto a la conversación, con imágenes incluidas. **Al cuadro** pone una nota en el cuadro de escritura, para mandarla a la conversación en la que estás; con Claude Code, un clic la manda a una nueva. |
 | **Consola** | La terminal de tu sistema, abajo, en la carpeta del proyecto: PowerShell, cmd o Git Bash en Windows; bash o zsh en macOS y Linux. |
 | **Continuar con…** | Con más de una CLI, sigue una conversación con otra CLI en la misma carpeta. El agente nuevo arranca de un transcript de los últimos turnos. |
 | **Notificaciones** | Un sonido, y notificaciones del sistema opcionales, cuando un agente termina o te está esperando. |
@@ -414,6 +414,16 @@ en memoria hasta que el teléfono la usa, y nunca la escribe en disco:
 **no compartas una foto de ese código QR**. El teléfono recuerda la huella SSH
 de tu equipo en la primera conexión, y si alguna vez cambia, se niega a
 conectarse y te avisa.
+
+**Comparte una captura con tu agente.** En cualquier app, **Compartir → Agent
+Workbench** guarda imágenes (PNG, JPEG, GIF o WebP) y texto en una nota de tu
+equipo, una nueva o una que elijas, con un comentario si quieres. Después,
+**Al cuadro** en la nota la pone en la conversación que elijas. El teléfono no
+guarda ninguna copia.
+
+**Si cambia la dirección IP de tu equipo**, **Ajustes → Cambiar dirección**
+toma la nueva, sin emparejar de nuevo. La app la guarda solo si ahí contesta tu
+equipo, con su huella.
 
 **Para quitar un teléfono**, usa **Revocar** en el diálogo y borra su línea de
 `authorized_keys` (termina en `agent-workbench-phone`). En el teléfono,

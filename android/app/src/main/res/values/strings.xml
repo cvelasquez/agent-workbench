@@ -4,7 +4,7 @@
   idioma por defecto y los otros ocho van en values-<idioma>. El nombre del
   producto no se traduce.
 -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name" translatable="false">Agent Workbench</string>
 
     <!-- Emparejar -->
@@ -90,4 +90,38 @@
     <string name="settings_about">Agent Workbench %1$s · open source (MIT)</string>
     <string name="settings_privacy">Privacy</string>
     <string name="shortcut_settings">Settings</string>
+
+    <!-- Compartir a una nota (hito 50, §15.12) -->
+    <string name="share_title">Save to a note</string>
+    <string name="share_comment_hint">Comment (optional)</string>
+    <string name="share_new_note">+ New note</string>
+    <string name="share_note_untitled">Note</string>
+    <string name="share_note_image_only">Image</string>
+    <string name="share_no_images">no images</string>
+    <string name="share_loading">Looking for your notes…</string>
+    <string name="share_saving">Saving…</string>
+    <string name="share_uploading">Uploading %1$d of %2$d…</string>
+    <string name="share_saved">Saved to “%1$s”</string>
+    <string name="share_saved_partly">Saved: %1$d of %2$d.</string>
+    <string name="share_close">Close</string>
+    <string name="share_nothing">There’s nothing to save: a note takes images (PNG, JPEG, GIF or WebP) and text.</string>
+    <string name="share_open_app">Open Agent Workbench</string>
+    <string name="share_connection_lost">The connection with your computer was cut.</string>
+    <string name="share_error_no_answer">Your computer didn’t answer. Try again.</string>
+    <string name="share_error_unreadable">An image couldn’t be read from the app that shared it.</string>
+    <string name="share_error_format">A note only takes PNG, JPEG, GIF or WebP images.</string>
+    <string name="share_error_too_large">An image weighs more than %1$d MB, the maximum.</string>
+    <string name="share_error_note_gone">That note doesn’t exist anymore: it was closed on the computer.</string>
+    <!-- Los topes (100 000, 20, 100) nunca son 1: no hace falta plural. -->
+    <string name="share_error_too_long" tools:ignore="PluralsCandidate">The note’s text would go over %1$d characters, the maximum.</string>
+    <string name="share_error_image_rejected">Your computer didn’t accept the image.</string>
+    <string name="share_error_generic">Couldn’t save to the note.</string>
+    <string name="share_too_many_images" tools:ignore="PluralsCandidate">That note would have more than %1$d images, the maximum.</string>
+    <string name="share_too_many_notes" tools:ignore="PluralsCandidate">There are already %1$d notes, the maximum. Close one on the computer.</string>
+    <!-- "+3": las imágenes que no entran en la fila de miniaturas. Es un dato. -->
+    <string name="share_more" translatable="false">+%1$d</string>
+    <plurals name="share_images">
+        <item quantity="one">%d image</item>
+        <item quantity="other">%d images</item>
+    </plurals>
 </resources>

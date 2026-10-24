@@ -793,6 +793,21 @@ export function noteSendTitle(
   return empty ? t('agent.note.empty') : t('agent.note.send', { cwd: targetCwd ?? '' });
 }
 
+/**
+ * Titulo del boton "Al cuadro" de una nota (hito 50, §6.6.2): a que pestana va, o
+ * por que no se puede todavia. `ready`: el navegador ya tiene sus imagenes.
+ */
+export function noteToComposerTitle(
+  targetTab: string | null,
+  empty: boolean,
+  ready: boolean,
+): string {
+  if (targetTab === null) return t('notes.toComposer.needsTab');
+  if (empty) return t('agent.note.empty');
+  if (!ready) return t('notes.toComposer.loading');
+  return t('notes.toComposer.title', { tab: targetTab });
+}
+
 // ---------------------------------------------------------------------------
 // Elegir CLI: el boton partido, el menu y las insignias (hito 25)
 // ---------------------------------------------------------------------------

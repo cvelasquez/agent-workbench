@@ -34,7 +34,10 @@ Only the latest published version is supported.
   commands. On the phone, the key and the device credential are encrypted with
   the Android Keystore, the host's SSH fingerprint is pinned on the first
   connection, and unencrypted traffic is allowed only to `127.0.0.1`, the
-  phone's end of the tunnel. See [`PRIVACY.md`](PRIVACY.md).
+  phone's end of the tunnel. Its share screen, which any app can open, reads
+  only `content://` addresses of other apps and checks each image's signature
+  before sending it; an address typed in its settings is saved only if the
+  pinned host answers there. See [`PRIVACY.md`](PRIVACY.md).
 - **No telemetry and no outgoing network calls.** The CLIs you launch talk to
   their providers exactly as they do in a plain terminal.
 - The app **never reads, stores or forwards credentials** of any CLI, has no
@@ -74,7 +77,8 @@ pairing, a pairing code that works twice or survives its attempts, a revoked
 device that still gets in, or a paired device doing what only the host may.
 With the Android app: a pairing QR still good after it was used or cancelled,
 a key line that allows more than the tunnel, a way to make the app connect to
-a host whose fingerprint changed, or a secret stored unencrypted on the phone.
+a host whose fingerprint changed, a secret stored unencrypted on the phone, or
+a share that makes the app read or send its own files.
 
 Reaching the machine over SSH is outside the app: it's your system's SSH server,
 with your user's login. The README recommends a key restricted to the tunnel.

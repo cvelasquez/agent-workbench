@@ -79,4 +79,33 @@
     <string name="settings_about">Agent Workbench %1$s · オープンソース（MIT）</string>
     <string name="settings_privacy">プライバシー</string>
     <string name="shortcut_settings">設定</string>
+
+    <string name="share_title">メモに保存</string>
+    <string name="share_comment_hint">コメント（任意）</string>
+    <string name="share_new_note">+ 新しいメモ</string>
+    <string name="share_note_untitled">メモ</string>
+    <string name="share_note_image_only">画像</string>
+    <string name="share_no_images">画像なし</string>
+    <string name="share_loading">メモを探しています…</string>
+    <string name="share_saving">保存しています…</string>
+    <string name="share_uploading">%2$d 枚中 %1$d 枚目を送信しています…</string>
+    <string name="share_saved">「%1$s」に保存しました</string>
+    <string name="share_saved_partly">保存済み：%2$d 枚中 %1$d 枚。</string>
+    <string name="share_close">閉じる</string>
+    <string name="share_nothing">保存するものがありません。メモに入れられるのは画像（PNG、JPEG、GIF、WebP）とテキストです。</string>
+    <string name="share_open_app">Agent Workbench を開く</string>
+    <string name="share_connection_lost">コンピューターとの接続が切れました。</string>
+    <string name="share_error_no_answer">コンピューターから応答がありません。もう一度お試しください。</string>
+    <string name="share_error_unreadable">共有元のアプリから画像を読み込めませんでした。</string>
+    <string name="share_error_format">メモに入れられる画像は PNG、JPEG、GIF、WebP だけです。</string>
+    <string name="share_error_too_large">上限の %1$d MB を超える画像があります。</string>
+    <string name="share_error_note_gone">そのメモはもうありません。コンピューターで閉じられました。</string>
+    <string name="share_error_too_long">メモのテキストが上限の %1$d 文字を超えます。</string>
+    <string name="share_error_image_rejected">コンピューターが画像を受け付けませんでした。</string>
+    <string name="share_error_generic">メモに保存できませんでした。</string>
+    <string name="share_too_many_images">そのメモの画像が上限の %1$d 枚を超えます。</string>
+    <string name="share_too_many_notes">メモはすでに上限の %1$d 件あります。コンピューターでどれかを閉じてください。</string>
+    <plurals name="share_images">
+        <item quantity="other">画像 %d 枚</item>
+    </plurals>
 </resources>

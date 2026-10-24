@@ -444,7 +444,9 @@ The shell adds what a browser tab can't do on a phone.
   the QR in order, pins the host key on the first connection and accepts only
   that key's algorithm afterwards, pings every 15 s, and reconnects with growing
   waits (1 s to 5 min) that a network change cuts short. A changed fingerprint,
-  or a credential the server refuses, stops it until the user acts.
+  or a credential the server refuses, stops it until the user acts. If the
+  computer's IP address changes, the user types the new one in the settings,
+  which save it only after the pinned host answers there.
 - **The viewer** (`ui/MainActivity.kt`). A WebView on
   `http://127.0.0.1:<port>/`, with the device credential set as its cookie. The
   web and the shell know each other through three things, and a change to one
@@ -463,6 +465,14 @@ The shell adds what a browser tab can't do on a phone.
   for you" at once, "finished" when idle holds for 1.5 s, nothing for the first
   batch after connecting and nothing for `unknown` or `offline`— and stays
   quiet while the viewer is on screen, where the interface itself chimes.
+- **Sharing to a note** (`ui/ShareActivity.kt`, `watch/NoteUpload.kt`). The one
+  screen of its own that shows something from the computer: Android's share
+  sheet opens it with images or text, and a third WebSocket lists the notes and
+  sends what was shared with the same messages the web uses to paste an image
+  into a note (`notes.create`, `notes.update`, `notes.addImage`), so the server
+  didn't change. It reads only `content://` addresses of other apps, checks
+  every image before sending the first, and waits for each one's
+  acknowledgement. Nothing is kept on the phone.
 - **Storage** (`store/`). The SSH key's seed and the credential are encrypted
   with AES-GCM under a key from the Android Keystore; the rest is plain
   preferences. Backups are off.
@@ -470,6 +480,9 @@ The shell adds what a browser tab can't do on a phone.
   analytics or crash reporting.
 
 Its tests run on the JVM (`./gradlew :app:testDebugUnitTest`): the QR payload
-parser, the notification rule with a fake clock, the message reader and the
-phone's identity. One more opens a real tunnel against an SSH server named by
-environment variables, and skips when they aren't set.
+parser, the notification rule with a fake clock, the message reader, the
+phone's identity, what a share accepts and the order of an upload against a
+fake server. One more opens a real tunnel against an SSH server named by
+environment variables, and skips when they aren't set. The release build goes
+through R8; what libraries look up by name (sshlib's ciphers) is kept in
+`proguard-rules.pro`, and the CI builds it too.

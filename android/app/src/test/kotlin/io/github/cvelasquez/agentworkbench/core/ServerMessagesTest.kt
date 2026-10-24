@@ -19,6 +19,28 @@ class ServerMessagesTest {
     }
 
     @Test
+    fun `la lista de notas, el acuse de una imagen y los errores, para compartir a una nota`() {
+        val list = ServerMessage.parse(
+            """{"type":"notes.list","notes":[{"noteId":"n1","text":"Bugs\nmás","images":[{"imageId":"i1","mediaType":"image/png","bytes":10},{"imageId":"i2","mediaType":"image/jpeg","bytes":20}],"createdAt":1,"updatedAt":5},{"noteId":"n2","text":"","images":[],"createdAt":2,"updatedAt":3},{"text":"sin id","images":[]}]}""",
+        )
+        assertEquals(
+            ServerMessage.NotesList(listOf(ServerMessage.NoteSummary("n1", "Bugs\nmás", 2, 5), ServerMessage.NoteSummary("n2", "", 0, 3))),
+            list,
+        )
+        // La PC le devuelve los bytes al que subió la imagen: se reconoce sin leer los megas.
+        val data = "A".repeat(200_000)
+        assertEquals(
+            ServerMessage.NoteImageStored("4b8e"),
+            ServerMessage.parse("""{"type":"notes.imageData","imageId":"4b8e","mediaType":"image/png","data":"$data"}"""),
+        )
+        assertEquals(
+            ServerMessage.Failure("notes-failed", "noteImagesMax", mapOf("max" to "20")),
+            ServerMessage.parse("""{"type":"error","code":"notes-failed","text":{"key":"noteImagesMax","params":{"max":20}}}"""),
+        )
+        assertEquals(ServerMessage.Failure("internal", "", emptyMap()), ServerMessage.parse("""{"type":"error","code":"internal"}"""))
+    }
+
+    @Test
     fun `lo demás, o lo que no se entiende, se ignora`() {
         assertEquals(ServerMessage.Other, ServerMessage.parse("""{"type":"terminal.output","terminalId":"t1","data":"hola"}"""))
         assertEquals(ServerMessage.Other, ServerMessage.parse("""{"type":"terminal.activity","terminalId":"","activity":"busy"}"""))

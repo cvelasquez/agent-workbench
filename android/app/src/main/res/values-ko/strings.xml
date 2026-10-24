@@ -79,4 +79,33 @@
     <string name="settings_about">Agent Workbench %1$s · 오픈 소스(MIT)</string>
     <string name="settings_privacy">개인정보 보호</string>
     <string name="shortcut_settings">설정</string>
+
+    <string name="share_title">메모에 저장</string>
+    <string name="share_comment_hint">코멘트(선택)</string>
+    <string name="share_new_note">+ 새 메모</string>
+    <string name="share_note_untitled">메모</string>
+    <string name="share_note_image_only">이미지</string>
+    <string name="share_no_images">이미지 없음</string>
+    <string name="share_loading">메모를 찾는 중…</string>
+    <string name="share_saving">저장 중…</string>
+    <string name="share_uploading">%2$d개 중 %1$d번째 올리는 중…</string>
+    <string name="share_saved">“%1$s”에 저장했습니다</string>
+    <string name="share_saved_partly">저장됨: %2$d개 중 %1$d개.</string>
+    <string name="share_close">닫기</string>
+    <string name="share_nothing">저장할 것이 없습니다. 메모에는 이미지(PNG, JPEG, GIF, WebP)와 텍스트를 넣을 수 있습니다.</string>
+    <string name="share_open_app">Agent Workbench 열기</string>
+    <string name="share_connection_lost">컴퓨터와의 연결이 끊어졌습니다.</string>
+    <string name="share_error_no_answer">컴퓨터가 응답하지 않았습니다. 다시 시도하세요.</string>
+    <string name="share_error_unreadable">공유한 앱에서 이미지를 읽을 수 없었습니다.</string>
+    <string name="share_error_format">메모에는 PNG, JPEG, GIF, WebP 이미지만 넣을 수 있습니다.</string>
+    <string name="share_error_too_large">최대 크기인 %1$d MB를 넘는 이미지가 있습니다.</string>
+    <string name="share_error_note_gone">그 메모는 더 이상 없습니다. 컴퓨터에서 닫혔습니다.</string>
+    <string name="share_error_too_long">메모 텍스트가 최대 %1$d자를 넘게 됩니다.</string>
+    <string name="share_error_image_rejected">컴퓨터가 이미지를 받지 않았습니다.</string>
+    <string name="share_error_generic">메모에 저장할 수 없었습니다.</string>
+    <string name="share_too_many_images">그 메모의 이미지가 최대 %1$d개를 넘게 됩니다.</string>
+    <string name="share_too_many_notes">메모가 이미 최대인 %1$d개입니다. 컴퓨터에서 하나를 닫으세요.</string>
+    <plurals name="share_images">
+        <item quantity="other">이미지 %d개</item>
+    </plurals>
 </resources>

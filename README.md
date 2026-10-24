@@ -44,7 +44,7 @@ CLI.
 | **Changes** | The branch, the changed files and their diff. **Orchestrates agents in parallel**: open the project on a new branch, in its own folder, and several agents work at once without stepping on each other's changes. Changes shows every branch: what isn't committed yet, how many commits it has and whether it's merged. Another CLI reviews a branch without touching it, and you merge it into main with one click. |
 | **Files** | The project's file tree, with search and a preview with syntax highlighting. Open several files at once, each in its own tab; Markdown files open formatted. One click puts a file's path in your message. Edit a text file, a `.env` for instance, and save it right there: if the agent changed it while you were editing, nothing is overwritten, and you move your changes to the new version. |
 | **Plans** | The plans and `.md` documents the conversation wrote, rendered. One click puts a document's path in your message. |
-| **Notes** | A scratchpad next to the conversation, images included. With Claude Code, one click sends a note to a new conversation. |
+| **Notes** | A scratchpad next to the conversation, images included. **To message box** puts a note in the message box, to send it to the conversation you're in; with Claude Code, one click sends it to a new one. |
 | **Console** | Your system's terminal at the bottom, in the project's folder: PowerShell, cmd or Git Bash on Windows; bash or zsh on macOS and Linux. |
 | **Continue with…** | With more than one CLI, continue a conversation with another one in the same folder. The new agent starts from a transcript of the last turns. |
 | **Notifications** | A sound, and optional system notifications, when an agent finishes or is waiting for you. |
@@ -405,6 +405,15 @@ memory until the phone uses it and never writes it to disk: **don't share a
 picture of that QR code**. The phone remembers your computer's SSH fingerprint
 on the first connection, and if it ever changes, it refuses to connect and tells
 you.
+
+**Share a screenshot with your agent.** In any app, **Share → Agent Workbench**
+saves images (PNG, JPEG, GIF or WebP) and text to a note on your computer, a
+new one or one you pick, with a comment if you like. Then **To message box** on
+the note puts it in the conversation you choose. The phone keeps no copy.
+
+**If your computer's IP address changes**, **Settings → Change address** takes
+the new one, without pairing again. The app saves it only if your computer
+answers there, with its fingerprint.
 
 **To remove a phone**, **Revoke** it in the dialog and delete its line from
 `authorized_keys` (it ends in `agent-workbench-phone`). On the phone,

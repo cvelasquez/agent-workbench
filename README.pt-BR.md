@@ -45,7 +45,7 @@ CLI.
 | **Alterações** | O branch, os arquivos alterados e o diff deles. **Orquestra agentes em paralelo**: abra o projeto em um branch novo, na sua própria pasta, e vários agentes trabalham ao mesmo tempo sem pisar nas alterações uns dos outros. Alterações mostra cada branch: o que falta fazer commit, quantos commits ele tem e se já está integrado. Outra CLI revisa um branch sem mexer nele, e você o integra no main com um clique. |
 | **Arquivos** | A árvore de arquivos do projeto, com busca e pré-visualização com realce de sintaxe. Abra vários arquivos ao mesmo tempo, cada um na sua aba; os arquivos Markdown abrem formatados. Um clique coloca o caminho de um arquivo na sua mensagem. Edite um arquivo de texto, um `.env` por exemplo, e salve ali mesmo: se o agente o alterou enquanto você editava, nada é sobrescrito, e você passa suas alterações para a versão nova. |
 | **Planos** | Os planos e os documentos `.md` que a conversa escreveu, renderizados. Um clique coloca o caminho de um documento na sua mensagem. |
-| **Notas** | Um bloco de anotações ao lado da conversa, com imagens. Com o Claude Code, um clique envia uma nota para uma nova conversa. |
+| **Notas** | Um bloco de anotações ao lado da conversa, com imagens. **Para a caixa** coloca uma nota na caixa de mensagem, para enviá-la à conversa em que você está; com o Claude Code, um clique a envia para uma nova. |
 | **Console** | O terminal do seu sistema embaixo, na pasta do projeto: PowerShell, cmd ou Git Bash no Windows; bash ou zsh no macOS e no Linux. |
 | **Continuar com…** | Com mais de uma CLI, continue uma conversa com outra na mesma pasta. O novo agente parte de uma transcrição dos últimos turnos. |
 | **Notificações** | Um som, e notificações do sistema opcionais, quando um agente termina ou está esperando por você. |
@@ -408,6 +408,16 @@ memória até o celular usá-la e nunca a grava no disco: **não compartilhe uma
 foto desse QR code**. O celular memoriza a impressão digital SSH do seu
 computador na primeira conexão e, se ela mudar algum dia, ele se recusa a
 conectar e avisa você.
+
+**Compartilhe uma captura com o seu agente.** Em qualquer app,
+**Compartilhar → Agent Workbench** salva imagens (PNG, JPEG, GIF ou WebP) e
+texto em uma nota do seu computador, nova ou uma que você escolher, com um
+comentário se quiser. Depois, **Para a caixa** na nota a coloca na conversa que
+você escolher. O celular não guarda nenhuma cópia.
+
+**Se o endereço IP do seu computador mudar**, **Configurações → Mudar endereço**
+aceita o novo, sem parear de novo. O app só o salva se o seu computador
+responder ali, com a impressão digital dele.
 
 **Para remover um celular**, use **Revogar** no diálogo e apague a linha dele do
 `authorized_keys` (ela termina em `agent-workbench-phone`). No celular,

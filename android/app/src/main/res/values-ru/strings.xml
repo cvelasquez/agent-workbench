@@ -79,4 +79,36 @@
     <string name="settings_about">Agent Workbench %1$s · открытый код (MIT)</string>
     <string name="settings_privacy">Конфиденциальность</string>
     <string name="shortcut_settings">Настройки</string>
+
+    <string name="share_title">Сохранить в заметку</string>
+    <string name="share_comment_hint">Комментарий (необязательно)</string>
+    <string name="share_new_note">+ Новая заметка</string>
+    <string name="share_note_untitled">Заметка</string>
+    <string name="share_note_image_only">Изображение</string>
+    <string name="share_no_images">без изображений</string>
+    <string name="share_loading">Ищем ваши заметки…</string>
+    <string name="share_saving">Сохранение…</string>
+    <string name="share_uploading">Отправка %1$d из %2$d…</string>
+    <string name="share_saved">Сохранено в «%1$s»</string>
+    <string name="share_saved_partly">Сохранено: %1$d из %2$d.</string>
+    <string name="share_close">Закрыть</string>
+    <string name="share_nothing">Сохранять нечего: в заметку можно добавить изображения (PNG, JPEG, GIF или WebP) и текст.</string>
+    <string name="share_open_app">Открыть Agent Workbench</string>
+    <string name="share_connection_lost">Связь с компьютером прервалась.</string>
+    <string name="share_error_no_answer">Компьютер не ответил. Попробуйте ещё раз.</string>
+    <string name="share_error_unreadable">Не удалось прочитать изображение из приложения, которое им поделилось.</string>
+    <string name="share_error_format">В заметку можно добавить только изображения PNG, JPEG, GIF или WebP.</string>
+    <string name="share_error_too_large">Одно из изображений больше %1$d МБ: это максимум.</string>
+    <string name="share_error_note_gone">Этой заметки больше нет: её закрыли на компьютере.</string>
+    <string name="share_error_too_long">Текст заметки превысил бы %1$d символов: это максимум.</string>
+    <string name="share_error_image_rejected">Компьютер не принял изображение.</string>
+    <string name="share_error_generic">Не удалось сохранить в заметку.</string>
+    <string name="share_too_many_images">В заметке стало бы больше %1$d изображений: это максимум.</string>
+    <string name="share_too_many_notes">Заметок уже %1$d: это максимум. Закройте какую-нибудь на компьютере.</string>
+    <plurals name="share_images">
+        <item quantity="one">%d изображение</item>
+        <item quantity="few">%d изображения</item>
+        <item quantity="many">%d изображений</item>
+        <item quantity="other">%d изображения</item>
+    </plurals>
 </resources>

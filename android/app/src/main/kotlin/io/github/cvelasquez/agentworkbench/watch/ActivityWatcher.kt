@@ -146,7 +146,9 @@ class ActivityWatcher(
                 tabs.remove(message.terminalId)
                 tracker.forget(message.terminalId)
             }
-            is ServerMessage.Hello, ServerMessage.Other -> Unit
+            // Las notas son de la pantalla de compartir (hito 50): el vigía no las mira.
+            is ServerMessage.Hello, is ServerMessage.NotesList, is ServerMessage.NoteImageStored, is ServerMessage.Failure,
+            ServerMessage.Other -> Unit
         }
     }
 

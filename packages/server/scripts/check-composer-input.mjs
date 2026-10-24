@@ -91,6 +91,12 @@ import {
 } from '../../web/src/prefs-cookie.ts';
 import { DEVICE_COOKIE, TOKEN_COOKIE } from '../src/security.ts';
 import { isConsolePasteKey, isWindowsClient } from '../../web/src/console-paste.ts';
+import {
+  noteImagesForComposer,
+  noteImagesReady,
+  noteTextInsertion,
+  parseDataUrl,
+} from '../../web/src/note-to-composer.ts';
 
 // Los textos de la interfaz salen de `t()` (§6.23): este chequeo los compara
 // con el español de siempre, así que lo fija antes de la primera comparación.
@@ -725,6 +731,58 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
   check('con texto seleccionado: la ruta lo reemplaza', put('cambia ESTO por', 7, 11).text === `cambia ${path} por`,
     show(put('cambia ESTO por', 7, 11)));
   check('un cursor fuera del texto cae al final', put('ab', 99).text === `ab ${path} `, show(put('ab', 99)));
+}
+
+// ---------------------------------------------------------------------------
+// "Al cuadro": una nota en el cuadro de la pestaña activa (hito 50, §6.6.2)
+// ---------------------------------------------------------------------------
+
+{
+  const show = (value) => JSON.stringify(value);
+  const apply = (current, note) => {
+    const insertion = noteTextInsertion(current, note);
+    return insertion === null ? current : current.slice(0, insertion.from) + insertion.inserted;
+  };
+  check('en un cuadro vacío, el texto de la nota tal cual', apply('', 'el botón se corta') === 'el botón se corta');
+  check('con algo escrito: al final, después de una línea en blanco',
+    apply('mira esto', 'el botón se corta') === 'mira esto\n\nel botón se corta', show(apply('mira esto', 'el botón se corta')));
+  check('los espacios y saltos que sobraban al final no se acumulan',
+    apply('mira esto  \n\n\n', 'nota') === 'mira esto\n\nnota', show(apply('mira esto  \n\n\n', 'nota')));
+  check('la nota pierde las líneas en blanco de los bordes, no la sangría ni las de adentro',
+    apply('', '\n\n  - uno\n\n  - dos\n\n') === '  - uno\n\n  - dos', show(apply('', '\n\n  - uno\n\n  - dos\n\n')));
+  check('una nota sin texto no toca lo escrito', noteTextInsertion('hola ', '  \n ') === null);
+  const insertion = noteTextInsertion('a \n', 'b');
+  check('lo que se reemplaza empieza donde termina lo escrito', insertion?.from === 1 && insertion.inserted === '\n\nb', show(insertion));
+
+  // El peso sale del base64 sin decodificarlo: con 0, 1 y 2 signos de relleno.
+  const sizes = [14, 15, 16].map((length) => {
+    const bytes = Buffer.alloc(length, 7);
+    return parseDataUrl(`data:image/png;base64,${bytes.toString('base64')}`)?.bytes === length;
+  });
+  check('una imagen de la nota: su tipo, sus datos y su peso exacto', sizes.every(Boolean), show(sizes));
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+  const pngUrl = `data:image/png;base64,${png.toString('base64')}`;
+  const parsed = parseDataUrl(pngUrl);
+  check('los datos son los de la imagen, byte a byte',
+    parsed?.mediaType === 'image/png' && Buffer.from(parsed.base64, 'base64').equals(png));
+  check('algo que no es un data URL en base64 no es una imagen',
+    parseDataUrl('data:image/png,xyz') === null && parseDataUrl('hola') === null &&
+      parseDataUrl('data:image/png;base64,***') === null);
+
+  const jpgUrl = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString('base64')}`;
+  const images = [
+    { imageId: 'a', mediaType: 'image/png', bytes: png.length },
+    { imageId: 'b', mediaType: 'image/png', bytes: png.length },
+    { imageId: 'c', mediaType: 'image/jpeg', bytes: 4 },
+  ];
+  const ready = noteImagesForComposer(images, { a: pngUrl, b: null, c: jpgUrl }, (index) => `Imagen ${index + 1}`);
+  check('van las que el navegador tiene, en el orden de la nota; la que la PC ya no encuentra, no',
+    ready.map((entry) => `${entry.name}:${entry.mediaType}:${entry.bytes}`).join(',') === `Imagen 1:image/png:${png.length},Imagen 3:image/jpeg:4`,
+    show(ready.map((entry) => entry.name)));
+  check('cada una lleva su data URL para la miniatura', ready[0]?.dataUrl === pngUrl && ready[1]?.dataUrl === jpgUrl);
+  check('el botón espera a que estén todas: una sin pedir todavía lo frena, una que no está ya no',
+    !noteImagesReady(images, { a: pngUrl, b: null }) && noteImagesReady(images, { a: pngUrl, b: null, c: pngUrl }) &&
+      noteImagesReady([], {}));
 }
 
 // ---------------------------------------------------------------------------

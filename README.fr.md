@@ -44,7 +44,7 @@ Le terminal reste le terminal : tout ce que vous tapez va directement à la CLI.
 | **Modifications** | La branche, les fichiers modifiés et leur diff. **Orchestre des agents en parallèle** : ouvrez le projet sur une nouvelle branche, dans son propre dossier, et plusieurs agents travaillent en même temps sans se marcher sur leurs modifications. Modifications montre chaque branche : ce qui n'est pas encore commité, combien de commits elle a et si elle est déjà intégrée. Une autre CLI relit une branche sans la toucher, et vous l'intégrez dans main en un clic. |
 | **Fichiers** | L'arborescence du projet, avec une recherche et un aperçu avec coloration syntaxique. Ouvrez plusieurs fichiers à la fois, chacun dans son onglet ; les fichiers Markdown s'ouvrent mis en forme. Un clic place le chemin d'un fichier dans votre message. Modifiez un fichier texte, un `.env` par exemple, et enregistrez-le sur place : si l'agent l'a changé pendant que vous le modifiiez, rien n'est écrasé, et vous reportez vos modifications dans la nouvelle version. |
 | **Plans** | Les plans et les documents `.md` que la conversation a écrits, mis en forme. Un clic place le chemin d'un document dans votre message. |
-| **Notes** | Un bloc-notes à côté de la conversation, images comprises. Avec Claude Code, un clic envoie une note dans une nouvelle conversation. |
+| **Notes** | Un bloc-notes à côté de la conversation, images comprises. **Vers la saisie** place une note dans la zone de saisie, pour l'envoyer à la conversation où vous êtes ; avec Claude Code, un clic l'envoie dans une nouvelle. |
 | **Console** | Le terminal de votre système, en bas, dans le dossier du projet : PowerShell, cmd ou Git Bash sous Windows ; bash ou zsh sous macOS et Linux. |
 | **Continuer avec…** | Avec plus d'une CLI, poursuivez une conversation avec une autre CLI, dans le même dossier. Le nouvel agent repart d'une transcription des derniers tours. |
 | **Notifications** | Un son, et en option des notifications système, quand un agent a terminé ou vous attend. |
@@ -436,6 +436,17 @@ garde qu'en mémoire jusqu'à ce que le téléphone l'utilise et ne l'écrit jam
 sur le disque : **ne partagez pas de photo de ce code QR**. Le téléphone
 mémorise l'empreinte SSH de votre ordinateur à la première connexion et, si
 elle change un jour, il refuse de se connecter et vous prévient.
+
+**Partagez une capture avec votre agent.** Dans n'importe quelle application,
+**Partager → Agent Workbench** enregistre des images (PNG, JPEG, GIF ou WebP) et
+du texte dans une note de votre ordinateur, une nouvelle ou celle que vous
+choisissez, avec un commentaire si vous voulez. Ensuite, **Vers la saisie** dans
+la note la place dans la conversation de votre choix. Le téléphone n'en garde
+aucune copie.
+
+**Si l'adresse IP de votre ordinateur change**, **Réglages → Changer l'adresse**
+prend la nouvelle, sans nouvelle association. L'application ne l'enregistre que
+si votre ordinateur y répond, avec son empreinte.
 
 **Pour retirer un téléphone**, cliquez sur **Révoquer** dans la boîte de
 dialogue et supprimez sa ligne de `authorized_keys` (elle se termine par

@@ -44,10 +44,11 @@ import { t } from './i18n/index.js';
 import { ImageViewer } from './ImageViewer.js';
 import { continueList, type ListEdit } from './list-continuation.js';
 import { enterSubmits } from './narrow-layout.js';
+import { noteTextInsertion } from './note-to-composer.js';
 import type { ThreadFontSize } from './thread-font.js';
 import { newSubmitRequestId } from './thread-status.js';
 import type { ComposerPrefill } from './useWorkspace.js';
-import { useComposerAttachments, type Attachment } from './useComposerAttachments.js';
+import { useComposerAttachments, type Attachment, type ComposerImage } from './useComposerAttachments.js';
 import { useDragSize } from './useDragSize.js';
 import { useTouch } from './useNarrow.js';
 import { parseStoredSize, readStored, writeStored } from './window-prefs.js';
@@ -75,6 +76,12 @@ const TEXTAREA_HEIGHT_KEY = 'agent-workbench.composer-height';
  * el cuadro esta en otra vista y el foco abriria el teclado encima del arbol.
  */
 export type ComposerInsert = (text: string, focus: boolean) => void;
+
+/**
+ * Pone una nota en el cuadro (hito 50, §6.6.2): su texto al final de lo escrito y
+ * sus imágenes como si se hubieran pegado. `focus`, como en `ComposerInsert`.
+ */
+export type ComposerNoteInsert = (text: string, images: readonly ComposerImage[], focus: boolean) => void;
 
 interface ComposerProps {
   connection: AgentConnection;
@@ -161,6 +168,8 @@ interface ComposerProps {
    * archivos **dentro de su clic** (ver `insertPath`).
    */
   insertRef?: React.MutableRefObject<ComposerInsert | null>;
+  /** Donde el cuadro deja su funcion de recibir una nota ("Al cuadro", §6.6.2), para el boton de la nota. */
+  noteInsertRef?: React.MutableRefObject<ComposerNoteInsert | null>;
   /**
    * Sacar de la cola de la CLI lo que espera, para editarlo (§6.35.1): la
    * flecha arriba con el cuadro vacio, como en la CLI. Ausente si no hay nada
@@ -198,6 +207,7 @@ export function Composer({
   onSubmitted,
   fontSize,
   insertRef,
+  noteInsertRef,
   onEditQueue,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
@@ -604,6 +614,54 @@ export function Composer({
       if (insertRef.current === insertPath) insertRef.current = null;
     };
   }, [insertRef, insertPath]);
+
+  /*
+    Una nota al cuadro (hito 50, §6.6.2). El texto va al final de lo escrito y no
+    donde esta el cursor: es un bloque entero, no una ruta. Se escribe como
+    `insertPath` y por lo mismo, dentro del clic del boton de la nota: Ctrl+Z lo
+    saca. Las imagenes entran ya leidas y en su orden (`acceptImages`), con los
+    topes de un pegado y su aviso si la CLI no las recibe.
+  */
+  const { acceptImages } = attachments;
+  const insertNote = useCallback<ComposerNoteInsert>(
+    (noteText, images, focus) => {
+      const element = textareaRef.current;
+      if (element === null || element.disabled) {
+        setText((current) => {
+          const insertion = noteTextInsertion(current, noteText);
+          return insertion === null ? current : current.slice(0, insertion.from) + insertion.inserted;
+        });
+      } else {
+        const insertion = noteTextInsertion(element.value, noteText);
+        if (insertion !== null) {
+          element.setSelectionRange(insertion.from, element.value.length);
+          let done = false;
+          if (focus) {
+            element.focus();
+            try {
+              done = document.execCommand('insertText', false, insertion.inserted);
+            } catch {
+              done = false;
+            }
+          }
+          if (!done) {
+            element.setRangeText(insertion.inserted, insertion.from, element.value.length, 'end');
+            setText(element.value);
+          }
+        }
+      }
+      acceptImages(images);
+    },
+    [acceptImages],
+  );
+
+  useEffect(() => {
+    if (noteInsertRef === undefined) return;
+    noteInsertRef.current = insertNote;
+    return () => {
+      if (noteInsertRef.current === insertNote) noteInsertRef.current = null;
+    };
+  }, [noteInsertRef, insertNote]);
 
   const onPaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {

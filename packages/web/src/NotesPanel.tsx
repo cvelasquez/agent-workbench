@@ -26,10 +26,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { noteTitle, type Note, type NoteImage } from '@agent-workbench/shared';
-import { noteSendTitle } from './agent-ui.js';
+import { noteSendTitle, noteToComposerTitle } from './agent-ui.js';
 import { formatBytes, formatWhen } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
+import { noteImagesReady } from './note-to-composer.js';
 import { SectionHideButton } from './SectionHideButton.js';
 import { threadFontTitle } from './thread-font.js';
 import type { NotesApi } from './useNotes.js';
@@ -69,6 +70,13 @@ interface NotesPanelProps {
    */
   sendTargetCwd: string | null;
   /**
+   * "Al cuadro" (hito 50, §6.6.2): la nota al cuadro de la pestana activa, a la
+   * conversacion que ya existe. null sin pestana.
+   */
+  onNoteToComposer: ((noteId: string) => void) | null;
+  /** El nombre de esa pestana, para el titulo del boton. */
+  composerTarget: string | null;
+  /**
    * Las notas son lo unico de la columna —no hay ninguna pestana—: se llevan
    * todo el alto y no se pliegan, porque plegadas dejarian una columna vacia
    * con una fila arriba. La preferencia guardada no se toca.
@@ -82,6 +90,8 @@ export function NotesPanel({
   notes,
   onSendNote,
   sendTargetCwd,
+  onNoteToComposer,
+  composerTarget,
   fill,
   onHide,
 }: NotesPanelProps): JSX.Element {
@@ -320,6 +330,8 @@ export function NotesPanel({
                 onOpenImage={setLightbox}
                 onSend={onSendNote === null ? null : () => onSendNote(active.noteId)}
                 sendTargetCwd={sendTargetCwd}
+                onToComposer={onNoteToComposer === null ? null : () => onNoteToComposer(active.noteId)}
+                composerTarget={composerTarget}
               />
             )}
           </div>
@@ -351,6 +363,9 @@ interface NoteEditorProps {
   onSend: (() => void) | null;
   /** Donde se abriria esa conversacion. Para el titulo del boton. */
   sendTargetCwd: string | null;
+  /** La pone en el cuadro de la pestana activa (hito 50), o null sin pestana. */
+  onToComposer: (() => void) | null;
+  composerTarget: string | null;
 }
 
 /**
@@ -415,10 +430,13 @@ function NoteEditor({
   onOpenImage,
   onSend,
   sendTargetCwd,
+  onToComposer,
+  composerTarget,
 }: NoteEditorProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const empty = note.text.trim().length === 0 && note.images.length === 0;
+  const imagesReady = noteImagesReady(note.images, notes.images);
 
   // Solo se roba el foco al crear una nota: es lo que el usuario acaba de pedir.
   useEffect(() => {
@@ -509,6 +527,20 @@ function NoteEditor({
       <div className="note-footer">
         <span className="note-meta">{formatWhen(note.updatedAt)}</span>
         <span className="composer-spacer" />
+        {/*
+          "Al cuadro" (hito 50, §6.6.2): la nota al cuadro de la pestana activa,
+          a la conversacion que ya existe; el avion de al lado abre una nueva.
+          Espera a que el navegador tenga las imagenes: las miniaturas las piden
+          al dibujarse. Tampoco borra la nota.
+        */}
+        <button
+          className="link-button note-to-composer"
+          onClick={() => onToComposer?.()}
+          disabled={onToComposer === null || empty || !imagesReady}
+          title={noteToComposerTitle(onToComposer === null ? null : composerTarget ?? '', empty, imagesReady)}
+        >
+          {t('notes.toComposer')}
+        </button>
         {/*
           Mandar la nota al agente, en una conversacion nueva del proyecto que
           se este mirando. **No la borra**: cerrar es lo unico que borra, y por

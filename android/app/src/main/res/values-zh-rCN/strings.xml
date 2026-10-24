@@ -79,4 +79,33 @@
     <string name="settings_about">Agent Workbench %1$s · 开源（MIT）</string>
     <string name="settings_privacy">隐私</string>
     <string name="shortcut_settings">设置</string>
+
+    <string name="share_title">保存到笔记</string>
+    <string name="share_comment_hint">备注（可选）</string>
+    <string name="share_new_note">+ 新建笔记</string>
+    <string name="share_note_untitled">笔记</string>
+    <string name="share_note_image_only">图片</string>
+    <string name="share_no_images">没有图片</string>
+    <string name="share_loading">正在查找你的笔记…</string>
+    <string name="share_saving">正在保存…</string>
+    <string name="share_uploading">正在上传第 %1$d 张，共 %2$d 张…</string>
+    <string name="share_saved">已保存到“%1$s”</string>
+    <string name="share_saved_partly">已保存：%2$d 张中的 %1$d 张。</string>
+    <string name="share_close">关闭</string>
+    <string name="share_nothing">没有可保存的内容：笔记可以放图片（PNG、JPEG、GIF 或 WebP）和文字。</string>
+    <string name="share_open_app">打开 Agent Workbench</string>
+    <string name="share_connection_lost">与电脑的连接断开了。</string>
+    <string name="share_error_no_answer">电脑没有回应。请再试一次。</string>
+    <string name="share_error_unreadable">无法从分享图片的应用读取图片。</string>
+    <string name="share_error_format">笔记只能放 PNG、JPEG、GIF 或 WebP 图片。</string>
+    <string name="share_error_too_large">有一张图片超过了 %1$d MB 的上限。</string>
+    <string name="share_error_note_gone">这条笔记已经不存在了：它在电脑上被关闭了。</string>
+    <string name="share_error_too_long">笔记文字会超过 %1$d 个字符的上限。</string>
+    <string name="share_error_image_rejected">电脑没有接受这张图片。</string>
+    <string name="share_error_generic">无法保存到笔记。</string>
+    <string name="share_too_many_images">这条笔记的图片会超过 %1$d 张的上限。</string>
+    <string name="share_too_many_notes">笔记已经有 %1$d 条，达到上限。请在电脑上关闭一条。</string>
+    <plurals name="share_images">
+        <item quantity="other">%d 张图片</item>
+    </plurals>
 </resources>

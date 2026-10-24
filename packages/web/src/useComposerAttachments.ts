@@ -95,6 +95,12 @@ export interface ComposerAttachments {
   acceptPaste: (data: DataTransfer, takenNumbers?: readonly number[]) => PasteResult;
   /** Para arrastrar y soltar, y para el boton del clip. Imagenes y documentos. */
   acceptFiles: (files: FileList | File[]) => void;
+  /**
+   * Imagenes que ya vienen en base64, las de una nota ("Al cuadro", §6.6.2): en
+   * su orden y con los mismos topes. Un archivo se lee aparte y la mas chica
+   * terminaria antes, cambiando el orden de las que se nombran en el texto.
+   */
+  acceptImages: (images: readonly ComposerImage[]) => void;
   remove: (id: string) => void;
   /** Lo editado en la ficha de un texto pegado: es lo que se manda. */
   updateText: (id: string, text: string) => void;
@@ -108,6 +114,9 @@ export interface ComposerAttachments {
   clear: () => void;
   dismissProblem: () => void;
 }
+
+/** Una imagen ya leida, lista para ser ficha: la de un adjunto sin su id. */
+export type ComposerImage = Omit<Extract<Attachment, { kind: 'image' }>, 'id' | 'kind'>;
 
 function newId(): string {
   return crypto.randomUUID();
@@ -260,6 +269,30 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
     [acceptFiles, items],
   );
 
+  const acceptImages = useCallback(
+    (images: readonly ComposerImage[]) => {
+      if (images.length === 0) return;
+      if (!imagesAllowed) {
+        setProblem(imagesRefusedMessage());
+        return;
+      }
+      const room = MAX_SUBMIT_IMAGES - items.filter((item) => item.kind === 'image').length;
+      const fitting = images.filter((image) => image.bytes <= MAX_SUBMIT_IMAGE_BYTES);
+      // Una nota no guarda imágenes más grandes que el tope del cuadro: esto no debería pasar, pero no se calla.
+      const big = images.find((image) => image.bytes > MAX_SUBMIT_IMAGE_BYTES);
+      if (big !== undefined) {
+        setProblem(t('composer.problem.imageTooBig', {
+          size: Math.round(big.bytes / 1024 / 1024),
+          max: MAX_SUBMIT_IMAGE_BYTES / 1024 / 1024,
+        }));
+      }
+      if (fitting.length > room) setProblem(t('composer.problem.tooManyImages', { count: MAX_SUBMIT_IMAGES }));
+      const added = fitting.slice(0, Math.max(0, room)).map((image): Attachment => ({ ...image, id: newId(), kind: 'image' }));
+      if (added.length > 0) setItems((current) => [...current, ...added]);
+    },
+    [items, imagesAllowed],
+  );
+
   const remove = useCallback((id: string) => {
     setItems((current) => current.filter((item) => item.id !== id));
   }, []);
@@ -281,5 +314,5 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
 
   const dismissProblem = useCallback(() => setProblem(null), []);
 
-  return { items, problem, acceptPaste, acceptFiles, remove, updateText, replace, clear, dismissProblem };
+  return { items, problem, acceptPaste, acceptFiles, acceptImages, remove, updateText, replace, clear, dismissProblem };
 }

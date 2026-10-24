@@ -2,7 +2,7 @@
 
 This policy covers Agent Workbench: the app you run on your computer (the npm
 package) and its Android app, published on Google Play by Axialab. Effective
-2026-09-25.
+2026-10-24.
 
 **Agent Workbench collects nothing.** There are no accounts, no analytics, no
 ads, no crash reports and no third-party SDKs. Neither the app nor its
@@ -17,6 +17,10 @@ maintainers receive any data from you.
   on your network. It connects to no other server. The interface it shows is
   served by your computer, and what you type in it goes to your computer. A
   link to another site opens in your browser, not in the app.
+- **When you share something with the Android app** from another app, only
+  what you share (images and text) is sent, to a note on your computer. The
+  phone keeps no copy: if your computer doesn't answer, nothing is kept for
+  later.
 
 ## What the Android app keeps on the phone
 
@@ -24,7 +28,8 @@ All of it lives in the app's private storage, and it's deleted when you tap
 **Settings → Forget this computer** or uninstall the app:
 
 - How to reach your computer, as it came in the pairing code: its name, its
-  network addresses, the SSH port, your user name on it and the app's port.
+  network addresses (or the ones you typed in **Settings → Change address**),
+  the SSH port, your user name on it and the app's port.
 - Your computer's SSH fingerprint, saved at the first connection so the app can
   refuse a computer that isn't the one you paired.
 - The phone's SSH key and the credential your computer gave it, **encrypted**
@@ -48,7 +53,8 @@ none of this is copied off the phone.
 
 It asks for nothing else: no location, contacts, microphone, phone or storage.
 When you attach a file in the interface, Android's own file picker opens, and
-only the file you pick is sent, to your computer.
+only the file you pick is sent, to your computer. Sharing with the app needs no
+permission either: Android lets it read only what you share.
 
 ## Children
 

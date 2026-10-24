@@ -79,4 +79,35 @@
     <string name="settings_about">Agent Workbench %1$s · código aberto (MIT)</string>
     <string name="settings_privacy">Privacidade</string>
     <string name="shortcut_settings">Configurações</string>
+
+    <string name="share_title">Salvar em uma nota</string>
+    <string name="share_comment_hint">Comentário (opcional)</string>
+    <string name="share_new_note">+ Nova nota</string>
+    <string name="share_note_untitled">Nota</string>
+    <string name="share_note_image_only">Imagem</string>
+    <string name="share_no_images">sem imagens</string>
+    <string name="share_loading">Procurando suas notas…</string>
+    <string name="share_saving">Salvando…</string>
+    <string name="share_uploading">Enviando %1$d de %2$d…</string>
+    <string name="share_saved">Salvo em “%1$s”</string>
+    <string name="share_saved_partly">Salvas: %1$d de %2$d.</string>
+    <string name="share_close">Fechar</string>
+    <string name="share_nothing">Não há nada para salvar: uma nota leva imagens (PNG, JPEG, GIF ou WebP) e texto.</string>
+    <string name="share_open_app">Abrir o Agent Workbench</string>
+    <string name="share_connection_lost">A conexão com o seu computador caiu.</string>
+    <string name="share_error_no_answer">O seu computador não respondeu. Tente de novo.</string>
+    <string name="share_error_unreadable">Não foi possível ler uma imagem do app que a compartilhou.</string>
+    <string name="share_error_format">Uma nota só aceita imagens PNG, JPEG, GIF ou WebP.</string>
+    <string name="share_error_too_large">Uma imagem tem mais de %1$d MB, o máximo.</string>
+    <string name="share_error_note_gone">Essa nota não existe mais: foi fechada no computador.</string>
+    <string name="share_error_too_long">O texto da nota passaria de %1$d caracteres, o máximo.</string>
+    <string name="share_error_image_rejected">O seu computador não aceitou a imagem.</string>
+    <string name="share_error_generic">Não foi possível salvar na nota.</string>
+    <string name="share_too_many_images">Essa nota ficaria com mais de %1$d imagens, o máximo.</string>
+    <string name="share_too_many_notes">Já há %1$d notas, o máximo. Feche alguma no computador.</string>
+    <plurals name="share_images">
+        <item quantity="one">%d imagem</item>
+        <item quantity="many">%d imagens</item>
+        <item quantity="other">%d imagens</item>
+    </plurals>
 </resources>
