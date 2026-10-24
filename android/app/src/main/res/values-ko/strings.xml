@@ -53,6 +53,15 @@
     <string name="settings_title">설정</string>
     <string name="settings_computer">컴퓨터</string>
     <string name="settings_fingerprint">SSH 지문: %1$s</string>
+    <string name="settings_change_address">주소 변경</string>
+    <string name="address_title">컴퓨터 주소</string>
+    <string name="address_hint">네트워크에서의 IP입니다. 컴퓨터의 Agent Workbench “원격 접속”에 있는 “이 컴퓨터의 주소”에 표시됩니다. 쉼표로 구분해 여러 개를 넣을 수 있습니다.</string>
+    <string name="address_check">확인 후 저장</string>
+    <string name="address_checking">%1$s 확인 중…</string>
+    <string name="address_invalid">192.168.1.20 같은 IP나 컴퓨터 이름을 입력하세요.</string>
+    <string name="address_other_pc">%1$s에서 응답한 것은 “%2$s”가 아닌 다른 컴퓨터입니다(지문: %3$s). 저장하지 않았습니다.</string>
+    <string name="address_not_saved">%1$s 저장하지 않았습니다.</string>
+    <string name="address_saved">저장했습니다. 이제 %2$s에서 “%1$s”를 찾습니다.</string>
     <string name="settings_notices">알림</string>
     <string name="settings_notify">에이전트가 작업을 마치거나 기다릴 때 알림</string>
     <string name="settings_notify_system">알림 시스템 설정</string>

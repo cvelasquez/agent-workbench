@@ -53,6 +53,15 @@
     <string name="settings_title">設定</string>
     <string name="settings_computer">コンピューター</string>
     <string name="settings_fingerprint">SSH フィンガープリント：%1$s</string>
+    <string name="settings_change_address">アドレスを変更</string>
+    <string name="address_title">コンピューターのアドレス</string>
+    <string name="address_hint">ネットワーク内での IP です。コンピューターの Agent Workbench の「リモートアクセス」にある「このコンピューターのアドレス」に表示されます。カンマで区切って複数入力できます。</string>
+    <string name="address_check">確認して保存</string>
+    <string name="address_checking">%1$s を確認しています…</string>
+    <string name="address_invalid">192.168.1.20 のような IP か、コンピューター名を入力してください。</string>
+    <string name="address_other_pc">%1$s で応答したのは「%2$s」ではなく別のコンピューターです（フィンガープリント：%3$s）。保存していません。</string>
+    <string name="address_not_saved">%1$s 保存していません。</string>
+    <string name="address_saved">保存しました。これからは %2$s で「%1$s」を探します。</string>
     <string name="settings_notices">通知</string>
     <string name="settings_notify">エージェントが完了したとき、または待っているときに通知する</string>
     <string name="settings_notify_system">通知のシステム設定</string>

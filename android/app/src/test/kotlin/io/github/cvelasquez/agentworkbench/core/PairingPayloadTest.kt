@@ -54,6 +54,20 @@ class PairingPayloadTest {
     }
 
     @Test
+    fun `una dirección escrita a mano sigue la misma regla que las del código`() {
+        assertEquals(listOf("192.168.1.50"), PairingPayload.parseHosts("192.168.1.50"))
+        assertEquals(listOf("192.168.1.50", "10.0.0.5"), PairingPayload.parseHosts(" 192.168.1.50 , 10.0.0.5 "))
+        assertEquals("el nombre del equipo", listOf("laptop-ana.lan"), PairingPayload.parseHosts("laptop-ana.lan"))
+        assertEquals("repetida, una vez", listOf("192.168.1.50"), PairingPayload.parseHosts("192.168.1.50,192.168.1.50"))
+        assertNull("vacía", PairingPayload.parseHosts("  "))
+        assertNull("sólo comas", PairingPayload.parseHosts(" , "))
+        assertNull("con un espacio adentro", PairingPayload.parseHosts("evil host"))
+        assertNull("con signos", PairingPayload.parseHosts("a;rm"))
+        assertNull("con puerto: el de SSH es el del código", PairingPayload.parseHosts("192.168.1.50:22"))
+        assertNull("más de ocho", PairingPayload.parseHosts((1..9).joinToString(",") { "10.0.0.$it" }))
+    }
+
+    @Test
     fun `lo que se imprime no lleva la semilla`() {
         val text = PairingPayload.parse(fromServer).toString()
         assertFalse(text.contains("nWGxne"))

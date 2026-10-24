@@ -62,6 +62,17 @@
     <!-- «PC · usuario@dirección[:puerto]»: son datos, no se traducen. -->
     <string name="settings_computer_address" translatable="false">%1$s · %2$s@%3$s%4$s</string>
     <string name="settings_fingerprint">SSH fingerprint: %1$s</string>
+    <string name="settings_change_address">Change address</string>
+    <string name="address_title">Your computer’s address</string>
+    <string name="address_hint">Its IP on your network. On the computer, Agent Workbench shows it in “Remote access”, under “This computer’s address”. Several can go separated by commas.</string>
+    <!-- Un ejemplo de dirección: es un dato, no se traduce. -->
+    <string name="address_example" translatable="false">192.168.1.20</string>
+    <string name="address_check">Check and save</string>
+    <string name="address_checking">Checking %1$s…</string>
+    <string name="address_invalid">Write an IP, such as 192.168.1.20, or the computer’s name.</string>
+    <string name="address_other_pc">Another computer answers at %1$s, not “%2$s” (its fingerprint is %3$s). Not saved.</string>
+    <string name="address_not_saved">%1$s Not saved.</string>
+    <string name="address_saved">Saved: the phone now looks for “%1$s” at %2$s.</string>
     <string name="settings_notices">Notices</string>
     <string name="settings_notify">Notify when an agent finishes or is waiting for you</string>
     <string name="settings_notify_system">System settings for notices</string>

@@ -51,8 +51,7 @@ class PairingPayload(
             }
             if (params["v"] != VERSION) return null
             val pcName = params["n"]?.trim()?.takeIf { it.isNotEmpty() }?.take(80) ?: return null
-            val hosts = params["h"].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
-            if (hosts.isEmpty() || hosts.size > 8 || !hosts.all { HOST.matches(it) }) return null
+            val hosts = parseHosts(params["h"].orEmpty()) ?: return null
             val sshPort = params["p"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
             val user = params["u"]?.takeIf { it.isNotEmpty() && it.length <= 256 && '\n' !in it } ?: return null
             val appPort = params["a"]?.toIntOrNull()?.takeIf { it in 1024..65535 } ?: return null
@@ -62,6 +61,20 @@ class PairingPayload(
                 ?.takeIf { it.size == 32 } ?: return null
             return PairingPayload(pcName, hosts, sshPort, user, appPort, code, seed)
         }
+
+        /**
+         * Las direcciones de la PC, separadas por coma: las del código y las que el
+         * usuario escribe en Ajustes ("Cambiar dirección") siguen la misma regla. Cada
+         * una es una IPv4 o un nombre, sin puerto: el de SSH es el del código. Hasta
+         * ocho, sin repetir; null si no queda ninguna o alguna no tiene forma.
+         */
+        fun parseHosts(text: String): List<String>? {
+            val hosts = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            if (hosts.isEmpty() || hosts.size > MAX_HOSTS || !hosts.all { HOST.matches(it) }) return null
+            return hosts
+        }
+
+        private const val MAX_HOSTS = 8
 
         private fun decode(value: String): String? = runCatching { URLDecoder.decode(value, "UTF-8") }.getOrNull()
     }

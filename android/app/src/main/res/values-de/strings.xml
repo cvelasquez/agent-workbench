@@ -53,6 +53,15 @@
     <string name="settings_title">Einstellungen</string>
     <string name="settings_computer">Computer</string>
     <string name="settings_fingerprint">SSH-Fingerabdruck: %1$s</string>
+    <string name="settings_change_address">Adresse ändern</string>
+    <string name="address_title">Adresse Ihres Computers</string>
+    <string name="address_hint">Seine IP in Ihrem Netz. Auf dem Computer zeigt Agent Workbench sie unter „Fernzugriff“ bei „Adresse dieses Computers“. Mehrere Adressen trennen Sie mit Kommas.</string>
+    <string name="address_check">Prüfen und speichern</string>
+    <string name="address_checking">%1$s wird geprüft…</string>
+    <string name="address_invalid">Geben Sie eine IP wie 192.168.1.20 oder den Namen des Computers ein.</string>
+    <string name="address_other_pc">Unter %1$s antwortet ein anderer Computer, nicht „%2$s“ (sein Fingerabdruck ist %3$s). Nicht gespeichert.</string>
+    <string name="address_not_saved">%1$s Nicht gespeichert.</string>
+    <string name="address_saved">Gespeichert: Das Telefon sucht „%1$s“ jetzt unter %2$s.</string>
     <string name="settings_notices">Hinweise</string>
     <string name="settings_notify">Benachrichtigen, wenn ein Agent fertig ist oder auf Sie wartet</string>
     <string name="settings_notify_system">Systemeinstellungen für Hinweise</string>

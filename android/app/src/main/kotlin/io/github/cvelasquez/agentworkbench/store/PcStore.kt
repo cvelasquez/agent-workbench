@@ -81,6 +81,19 @@ class PcStore(context: Context) {
     }
 
     /**
+     * Las direcciones que escribió el usuario en Ajustes ("Cambiar dirección"), en
+     * lugar de las del código, con la que contestó primero. Con `commit`: el servicio
+     * las relee de disco en su intento siguiente.
+     */
+    @SuppressLint("ApplySharedPref")
+    fun saveHosts(hosts: List<String>, working: String) {
+        prefs.edit()
+            .putString(KEY_HOSTS, hosts.joinToString(","))
+            .putString(KEY_LAST_HOST, working)
+            .commit()
+    }
+
+    /**
      * Olvida la PC: borra lo guardado, también los dos ajustes, y la llave con la que
      * se cifró lo secreto. PRIVACY.md promete que "Olvidar" no deja nada.
      */

@@ -53,6 +53,15 @@
     <string name="settings_title">Ajustes</string>
     <string name="settings_computer">Equipo</string>
     <string name="settings_fingerprint">Huella SSH: %1$s</string>
+    <string name="settings_change_address">Cambiar dirección</string>
+    <string name="address_title">Dirección de tu equipo</string>
+    <string name="address_hint">Su IP en tu red. En el equipo, Agent Workbench la muestra en «Acceso remoto», en «Dirección de este equipo». Puedes poner varias, separadas por coma.</string>
+    <string name="address_check">Probar y guardar</string>
+    <string name="address_checking">Probando %1$s…</string>
+    <string name="address_invalid">Escribe una IP, como 192.168.1.20, o el nombre del equipo.</string>
+    <string name="address_other_pc">En %1$s contesta otro equipo, no «%2$s» (su huella es %3$s). No se guardó.</string>
+    <string name="address_not_saved">%1$s No se guardó.</string>
+    <string name="address_saved">Listo: el teléfono ahora busca a «%1$s» en %2$s.</string>
     <string name="settings_notices">Avisos</string>
     <string name="settings_notify">Avisar cuando un agente termina o te espera</string>
     <string name="settings_notify_system">Ajustes del sistema para los avisos</string>

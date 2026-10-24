@@ -53,6 +53,15 @@
     <string name="settings_title">Настройки</string>
     <string name="settings_computer">Компьютер</string>
     <string name="settings_fingerprint">SSH-отпечаток: %1$s</string>
+    <string name="settings_change_address">Изменить адрес</string>
+    <string name="address_title">Адрес вашего компьютера</string>
+    <string name="address_hint">Его IP в вашей сети. На компьютере Agent Workbench показывает его в «Удалённом доступе», в поле «Адрес этого компьютера». Можно указать несколько через запятую.</string>
+    <string name="address_check">Проверить и сохранить</string>
+    <string name="address_checking">Проверка %1$s…</string>
+    <string name="address_invalid">Введите IP, например 192.168.1.20, или имя компьютера.</string>
+    <string name="address_other_pc">По адресу %1$s отвечает другой компьютер, а не «%2$s» (его отпечаток: %3$s). Не сохранено.</string>
+    <string name="address_not_saved">%1$s Не сохранено.</string>
+    <string name="address_saved">Сохранено: теперь телефон ищет «%1$s» по адресу %2$s.</string>
     <string name="settings_notices">Уведомления</string>
     <string name="settings_notify">Уведомлять, когда агент закончил работу или ждёт вас</string>
     <string name="settings_notify_system">Системные настройки уведомлений</string>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Cambiar dirección" (§15.4): dónde verla, el cuadro y lo que contestó la dirección. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/address_hint"
+        android:textAppearance="@android:style/TextAppearance.DeviceDefault.Small" />
+
+    <EditText
+        android:id="@+id/addressInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="@string/address_example"
+        android:imeOptions="actionGo"
+        android:importantForAutofill="no"
+        android:inputType="textUri|textNoSuggestions"
+        android:maxLines="1"
+        android:minHeight="48dp" />
+
+    <TextView
+        android:id="@+id/addressStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textAppearance="@android:style/TextAppearance.DeviceDefault.Small" />
+</LinearLayout>

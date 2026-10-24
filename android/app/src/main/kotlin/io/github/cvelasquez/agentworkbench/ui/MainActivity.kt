@@ -240,6 +240,11 @@ class MainActivity : Activity() {
     private val pairAgain: Pair<Int, () -> Unit> = R.string.action_pair_again to { startActivity(Intent(this, PairingActivity::class.java)) }
     private val connect: Pair<Int, () -> Unit> = R.string.settings_connect to { TunnelService.start(this) }
 
+    /** Sin la PC en ninguna dirección: lo más probable es que el router le haya dado otra IP (hito 50). */
+    private val changeAddress: Pair<Int, () -> Unit> = R.string.settings_change_address to {
+        startActivity(Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_EDIT_ADDRESS, true))
+    }
+
     private fun render(status: TunnelStatus) {
         when (status) {
             is TunnelStatus.Connected -> {
@@ -251,7 +256,8 @@ class MainActivity : Activity() {
             is TunnelStatus.Waiting -> if (!loaded) {
                 val seconds = ((status.retryAt - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
                 val text = Texts.problem(this, status.problem) + "\n\n" + getString(R.string.status_retrying, seconds.toInt())
-                showOverlay(text, busy = false, primary = retry, secondary = openSettings)
+                val secondary = if (status.problem == TunnelProblem.PcNotFound) changeAddress else openSettings
+                showOverlay(text, busy = false, primary = retry, secondary = secondary)
             }
             is TunnelStatus.Blocked -> {
                 val needsPairing = status.problem is TunnelProblem.NotAccepted || status.problem is TunnelProblem.HostKeyChanged ||

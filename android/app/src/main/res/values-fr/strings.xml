@@ -53,6 +53,15 @@
     <string name="settings_title">Réglages</string>
     <string name="settings_computer">Ordinateur</string>
     <string name="settings_fingerprint">Empreinte SSH : %1$s</string>
+    <string name="settings_change_address">Changer l’adresse</string>
+    <string name="address_title">Adresse de votre ordinateur</string>
+    <string name="address_hint">Son IP sur votre réseau. Sur l’ordinateur, Agent Workbench l’affiche dans « Accès à distance », sous « Adresse de cet ordinateur ». Vous pouvez en indiquer plusieurs, séparées par des virgules.</string>
+    <string name="address_check">Vérifier et enregistrer</string>
+    <string name="address_checking">Vérification de %1$s…</string>
+    <string name="address_invalid">Saisissez une IP, comme 192.168.1.20, ou le nom de l’ordinateur.</string>
+    <string name="address_other_pc">Un autre ordinateur répond à %1$s, pas « %2$s » (son empreinte est %3$s). Adresse non enregistrée.</string>
+    <string name="address_not_saved">%1$s Adresse non enregistrée.</string>
+    <string name="address_saved">Enregistré : le téléphone cherche désormais « %1$s » à %2$s.</string>
     <string name="settings_notices">Alertes</string>
     <string name="settings_notify">Alerter quand un agent a terminé ou vous attend</string>
     <string name="settings_notify_system">Réglages du système pour les alertes</string>

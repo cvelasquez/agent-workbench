@@ -53,6 +53,15 @@
     <string name="settings_title">Configurações</string>
     <string name="settings_computer">Computador</string>
     <string name="settings_fingerprint">Impressão digital SSH: %1$s</string>
+    <string name="settings_change_address">Mudar endereço</string>
+    <string name="address_title">Endereço do seu computador</string>
+    <string name="address_hint">O IP dele na sua rede. No computador, o Agent Workbench mostra em “Acesso remoto”, em “Endereço deste computador”. Dá para colocar vários, separados por vírgula.</string>
+    <string name="address_check">Testar e salvar</string>
+    <string name="address_checking">Testando %1$s…</string>
+    <string name="address_invalid">Digite um IP, como 192.168.1.20, ou o nome do computador.</string>
+    <string name="address_other_pc">Em %1$s responde outro computador, não “%2$s” (a impressão digital dele é %3$s). Não foi salvo.</string>
+    <string name="address_not_saved">%1$s Não foi salvo.</string>
+    <string name="address_saved">Pronto: agora o celular procura “%1$s” em %2$s.</string>
     <string name="settings_notices">Avisos</string>
     <string name="settings_notify">Avisar quando um agente termina ou está esperando por você</string>
     <string name="settings_notify_system">Configurações do sistema para os avisos</string>

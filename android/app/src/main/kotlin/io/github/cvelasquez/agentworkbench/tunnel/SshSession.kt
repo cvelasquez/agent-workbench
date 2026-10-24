@@ -154,6 +154,31 @@ class SshSession private constructor(
             return Outcome.Down(if (refused == target.hosts.size) TunnelProblem.SshClosed else TunnelProblem.PcNotFound)
         }
 
+        /**
+         * Quién contesta en `host`: conecta exigiendo la huella fijada, como `open`, y
+         * no entra, porque para saber si es la PC alcanza con su huella. Lo usa
+         * "Cambiar dirección" antes de guardar una dirección escrita a mano.
+         */
+        fun check(host: String, port: Int, pinnedAlgorithm: String, pinnedKey: ByteArray): AddressCheck {
+            val connection = Connection(host, port)
+            connection.setServerHostKeyAlgorithms(arrayOf(pinnedAlgorithm))
+            var presented: ByteArray? = null
+            val verifier = ServerHostKeyVerifier { _, _, algorithm, key ->
+                val ok = algorithm == pinnedAlgorithm && key.contentEquals(pinnedKey)
+                if (!ok) presented = key
+                ok
+            }
+            return try {
+                connection.connect(verifier, CONNECT_TIMEOUT_MS, KEX_TIMEOUT_MS)
+                AddressCheck.SamePc
+            } catch (error: IOException) {
+                presented?.let { AddressCheck.OtherPc(PhoneIdentity.fingerprint(it)) }
+                    ?: AddressCheck.Unreachable(if (isRefused(error)) TunnelProblem.SshClosed else TunnelProblem.PcNotFound)
+            } finally {
+                connection.close()
+            }
+        }
+
         /** El par de llaves de la semilla: la pública la deriva Tink, que ya viene con sshlib. */
         fun keyPair(seed: ByteArray): KeyPair {
             val derived = Ed25519Sign.KeyPair.newKeyPairFromSeed(seed)

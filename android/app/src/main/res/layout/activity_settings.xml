@@ -41,6 +41,13 @@
             android:textAppearance="@android:style/TextAppearance.DeviceDefault.Small"
             android:textIsSelectable="true" />
 
+        <Button
+            android:id="@+id/changeAddress"
+            style="@android:style/Widget.DeviceDefault.Button.Borderless"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_change_address" />
+
         <!-- Conexión -->
         <TextView
             style="@style/SettingsSection"
