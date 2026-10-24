@@ -40,6 +40,7 @@
 
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { processAlive } from '../../process-alive.js';
 import { cliSessionsStateRoot } from './paths.js';
 
 /**
@@ -114,12 +115,29 @@ function readStatus(value: unknown): CliSessionStatus | null {
 }
 
 /**
+ * Si el archivo de un proceso cuenta: el que trae `pid` cuenta solo si ese
+ * proceso vive (hito 51). Medido con la 2.1.310: una CLI matada a la fuerza
+ * (`taskkill /F`) deja su archivo, con el ultimo estado que escribio, hasta que
+ * la proxima CLI que arranca lo borra. Sin esto, una pestana que se abre justo
+ * despues de un cierre abrupto se daba por lista con el "idle" del proceso
+ * muerto. Un archivo sin `pid` cuenta: las versiones medidas antes no lo
+ * nombran en el registro, y no hay con que mirarlo.
+ */
+function fileCounts(record: Record<string, unknown>, isAlive: (pid: number) => boolean): boolean {
+  const pid = record['pid'];
+  return typeof pid !== 'number' || isAlive(pid);
+}
+
+/**
  * Sondeo compartido de `~/.claude/sessions/`.
  *
  * Uno solo para todas las pestanas: el costo esta en listar el directorio y
  * leer los archivos, y eso no crece con la cantidad de suscriptores.
  */
 export class CliStatusWatcher {
+  /** Inyectable para el chequeo, que no puede inventar procesos vivos. */
+  constructor(private readonly isAlive: (pid: number) => boolean = processAlive) {}
+
   private readonly subscriptions = new Set<Subscription>();
   private timer: NodeJS.Timeout | null = null;
   private reading = false;
@@ -174,6 +192,35 @@ export class CliStatusWatcher {
     }
   }
 
+  /**
+   * true si algun proceso vivo de la CLI tiene esa conversacion (hito 51,
+   * §6.39). Cuenta tambien el archivo que todavia no escribio su estado: la CLI
+   * lo crea antes de decir si esta libre (medido con la 2.1.310), y ese proceso
+   * ya tiene la conversacion abierta.
+   */
+  async isOpen(sessionId: string): Promise<boolean> {
+    const root = cliSessionsStateRoot();
+    let names: string[];
+    try {
+      names = await readdir(root);
+    } catch {
+      return false;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await readFile(path.join(root, name), 'utf8'));
+      } catch {
+        continue;
+      }
+      if (typeof parsed !== 'object' || parsed === null) continue;
+      const record = parsed as Record<string, unknown>;
+      if (record['sessionId'] === sessionId && fileCounts(record, this.isAlive)) return true;
+    }
+    return false;
+  }
+
   dispose(): void {
     this.subscriptions.clear();
     this.stop();
@@ -218,8 +265,11 @@ export class CliStatusWatcher {
         continue;
       }
       if (typeof parsed !== 'object' || parsed === null) continue;
-      const sessionId = (parsed as Record<string, unknown>)['sessionId'];
+      const record = parsed as Record<string, unknown>;
+      const sessionId = record['sessionId'];
       if (typeof sessionId !== 'string' || sessionId.length === 0) continue;
+      // El de un proceso que ya no esta no dice nada de ahora (hito 51).
+      if (!fileCounts(record, this.isAlive)) continue;
       const status = readStatus(parsed);
       if (status !== null) found.set(sessionId, status);
     }

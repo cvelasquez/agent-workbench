@@ -95,6 +95,12 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
   // La flecha arriba saca la cola a su caja, y Ctrl+U Ctrl+K la vacian sin cortar el turno (2.1.309, §6.35.1).
   editQueue: true,
   /*
+    Hito 51: su archivo de `sessions/` dice si esta libre, si otro proceso tiene
+    la conversacion (con el pid vivo: el de una CLI matada queda, medido con la
+    2.1.310) y cuando quedo lista despues de abrirla (§6.39).
+  */
+  scheduledSend: true,
+  /*
     Hito 49: `--permission-mode plan`. Medido con la 2.1.304 y el pedido de
     revision: corrio git log, diff y status sin pedir permiso, no ofrecio salir
     del modo plan y termino con la linea del veredicto, sin tocar nada (§4.8.1).
@@ -147,6 +153,8 @@ function createStatusSource(watcher: CliStatusWatcher): StatusSource {
         ),
       ),
     waitUntilReady: (sessionId, timeoutMs) => watcher.waitUntilIdle(sessionId, timeoutMs),
+    // Hito 51: antes de abrir una pestana dormida para un mensaje programado.
+    isOpen: (sessionId) => watcher.isOpen(sessionId),
     dispose: () => watcher.dispose(),
   };
 }

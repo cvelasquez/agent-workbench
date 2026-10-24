@@ -40,7 +40,7 @@ CLI.
 | **Início rápido** | Ao abrir o app, as suas abas voltam **suspensas**: dá para lê-las por inteiro, e nenhuma CLI é iniciada até você clicar em **Abrir CLI**. |
 | **Histórico** | Os seus projetos e conversas anteriores na barra lateral, de todas as CLIs, com um filtro. Clique em uma para retomá-la de onde você parou, com a CLI dela. Arquive sessões antigas ou um projeto inteiro para organizar: nada é excluído, e dá para desfazer. |
 | **Conversa** | As mensagens como cartões, ao vivo, com as chamadas de ferramentas recolhidas. As mensagens mais antigas carregam conforme você rola para cima. Busque, copie qualquer mensagem ou bloco de código, e vá para a sua mensagem anterior (↑) ou para o final (↓). Uma linha embaixo mostra quando a sua mensagem chegou à CLI e se o agente ainda está trabalhando. Dependendo da CLI, você pode responder às perguntas do agente ali mesmo. Um arquivo do projeto que o agente menciona abre na aba Arquivos com um clique, e uma pasta, no explorador de arquivos do sistema. Com o Claude Code, uma mensagem que você interrompe antes de o agente começar volta para a caixa para você corrigir, e **↩** em uma mensagem volta para antes dela: a conversa e, se você quiser, o código. Uma mensagem enviada com o agente trabalhando espera no final, marcada na fila; dependendo da CLI, **Forçar envio agora** faz o agente lê-la na hora, e **Editar** (ou ↑ com a caixa vazia) a traz de volta para a caixa para você corrigir. |
-| **Caixa de mensagem** | Espaço para escrever, colar imagens e anexar arquivos; um texto longo colado vira um chip compacto. O que você está digitando não se perde ao fechar o app e aparece ao vivo em todas as janelas abertas. Shift+Enter continua uma lista numerada ou com marcadores. |
+| **Caixa de mensagem** | Espaço para escrever, colar imagens e anexar arquivos; um texto longo colado vira um chip compacto. O que você está digitando não se perde ao fechar o app e aparece ao vivo em todas as janelas abertas. Shift+Enter continua uma lista numerada ou com marcadores. Com o Claude Code, o relógio envia sozinho o que você escreveu, no dia e na hora que você escolher, na mesma conversa; ative em Configurações. |
 | **Medidor de contexto** | Quanto da janela de contexto do modelo a conversa está usando. Tokens, nunca dinheiro. A partir de 70%, **Compactar** pede à CLI que compacte a conversa. Ao lado dele, com o Claude Code, o Codex e o Antigravity CLI, quanto você já usou dos limites de uso do seu plano e quando eles renovam. |
 | **Alterações** | O branch, os arquivos alterados e o diff deles. **Orquestra agentes em paralelo**: abra o projeto em um branch novo, na sua própria pasta, e vários agentes trabalham ao mesmo tempo sem pisar nas alterações uns dos outros. Alterações mostra cada branch: o que falta fazer commit, quantos commits ele tem e se já está integrado. Outra CLI revisa um branch sem mexer nele, e você o integra no main com um clique. |
 | **Arquivos** | A árvore de arquivos do projeto, com busca e pré-visualização com realce de sintaxe. Abra vários arquivos ao mesmo tempo, cada um na sua aba; os arquivos Markdown abrem formatados. Um clique coloca o caminho de um arquivo na sua mensagem. Edite um arquivo de texto, um `.env` por exemplo, e salve ali mesmo: se o agente o alterou enquanto você editava, nada é sobrescrito, e você passa suas alterações para a versão nova. |
@@ -49,7 +49,7 @@ CLI.
 | **Console** | O terminal do seu sistema embaixo, na pasta do projeto: PowerShell, cmd ou Git Bash no Windows; bash ou zsh no macOS e no Linux. |
 | **Continuar com…** | Com mais de uma CLI, continue uma conversa com outra na mesma pasta. O novo agente parte de uma transcrição dos últimos turnos. |
 | **Notificações** | Um som, e notificações do sistema opcionais, quando um agente termina ou está esperando por você. |
-| **Configurações** | ⚙ no cabeçalho: o idioma, o tema do terminal, quais painéis aparecem, qual console abre e quais CLIs o app usa. |
+| **Configurações** | ⚙ no cabeçalho: o idioma, o tema do terminal, quais painéis aparecem, qual console abre, quais CLIs o app usa e se dá para agendar mensagens. |
 | **Nove idiomas** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français e Deutsch. Segue o idioma do seu navegador. |
 | **Tema** | Claro, escuro ou o do sistema. O terminal fica escuro por padrão, para que as cores das CLIs continuem legíveis. |
 
@@ -518,7 +518,7 @@ ambiente `PI_TELEMETRY=0`.
 **O que o app grava:**
 
 - **Na própria pasta de configuração:** as abas abertas, o cache do índice, as
-  notas, as sessões arquivadas, as mensagens não enviadas, os scripts da status
+  notas, as sessões arquivadas, as mensagens não enviadas e as agendadas, os scripts da status
   line do Claude Code e do Antigravity com o que eles salvam, os branches
   separados que o app criou com uma cópia de cada nota de texto copiada para
   eles (para juntar as notas depois) e, se você o ativar, o backup (ou na pasta

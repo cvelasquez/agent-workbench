@@ -100,12 +100,22 @@ import { SettingsDialog } from './SettingsDialog.js';
 import { SectionHideButton } from './SectionHideButton.js';
 import { usePanelVisibility, type HideablePanel } from './panel-visibility.js';
 import { useAppSettings } from './useAppSettings.js';
+import { useScheduledMessages } from './useScheduledMessages.js';
+import { scheduledCloseWarning, scheduledFor } from './scheduled-ui.js';
+import { CloseTabDialog } from './CloseTabDialog.js';
 import { VaultDialog } from './VaultDialog.js';
 import { RewindDialog } from './RewindDialog.js';
 import { changedFilesAfter, rewindPreview } from './rewind-ui.js';
 import { useRewind } from './useRewind.js';
 import type { ConnectionStatus } from './connection.js';
-import { blindToApprovals, normalizeCwdKey, type AgentId, type GlobalSearchHit, type TerminalId } from '@agent-workbench/shared';
+import {
+  blindToApprovals,
+  normalizeCwdKey,
+  type AgentId,
+  type GlobalSearchHit,
+  type ScheduledMessage,
+  type TerminalId,
+} from '@agent-workbench/shared';
 
 const STATUS_LABEL_KEYS: Record<ConnectionStatus, MessageKey> = {
   connecting: 'app.status.connecting',
@@ -519,6 +529,31 @@ export function App(): JSX.Element {
     anterior.
   */
   const appSettings = useAppSettings(connection);
+  /*
+    Los mensajes programados (hito 51, §6.39). El reloj del cuadro aparece con
+    "Mensajes programados" encendido en Ajustes y la CLI de la pestana que lo
+    declara; lo ya programado se ve siempre en su conversacion, tambien en pausa.
+  */
+  const scheduled = useScheduledMessages(connection);
+  const schedulingOn = appSettings.status?.scheduledMessages === true && scheduled.messages !== null;
+  const scheduledByTerminal = useMemo(() => {
+    const byTerminal = new Map<TerminalId, ScheduledMessage[]>();
+    for (const terminal of terminals) {
+      const own = scheduledFor(scheduled.messages, terminal.terminalId);
+      if (own.length > 0) byTerminal.set(terminal.terminalId, own);
+    }
+    return byTerminal;
+  }, [scheduled.messages, terminals]);
+  /** La pestana que se va a cerrar con algo programado: la × pregunta antes (hito 51). */
+  const [closingTab, setClosingTab] = useState<{ terminalId: TerminalId; warning: string } | null>(null);
+  const requestCloseTerminal = useCallback(
+    (terminalId: TerminalId) => {
+      const warning = scheduledCloseWarning(scheduledByTerminal.get(terminalId) ?? []);
+      if (warning === null) closeTerminal(terminalId);
+      else setClosingTab({ terminalId, warning });
+    },
+    [scheduledByTerminal, closeTerminal],
+  );
   const [settingsVisible, setSettingsVisible] = useState(false);
   const consoleShellName = appSettings.status !== null ? appSettings.status.shellName : shellName;
   /** La primera vez que se esconde algo desde su barra, se dice donde vuelve. */
@@ -1269,7 +1304,7 @@ export function App(): JSX.Element {
         if (activeTerminalId !== null) {
           event.preventDefault();
           event.stopPropagation();
-          closeTerminal(activeTerminalId);
+          requestCloseTerminal(activeTerminalId);
         }
         return;
       }
@@ -1302,7 +1337,7 @@ export function App(): JSX.Element {
     activeTerminal,
     activeTerminalId,
     cliAvailable,
-    closeTerminal,
+    requestCloseTerminal,
     cycleTab,
     defaultCwd,
     newTabBlocked,
@@ -1507,6 +1542,10 @@ export function App(): JSX.Element {
           planSetupState={activePlanSetup?.state ?? null}
           onConfigurePlanLimits={activePlanSetup === null ? undefined : () => setPlanLimitsDialogVisible(true)}
           compactAction={compactAction}
+          scheduled={activeTerminalId === null ? undefined : scheduledByTerminal.get(activeTerminalId)}
+          onCancelScheduled={scheduled.cancel}
+          // En pausa (apagado en Ajustes) solo se cancela: mandarlo ya seria programar con el reloj apagado.
+          onSendScheduledNow={schedulingOn ? scheduled.sendNow : undefined}
         />
       )}
     </div>
@@ -1558,6 +1597,8 @@ export function App(): JSX.Element {
               ? conversation.editQueue
               : undefined
           }
+          // El reloj (hito 51): encendido en Ajustes y con una CLI que lo declara.
+          onSchedule={schedulingOn && activeControls.scheduledSend ? scheduled.schedule : undefined}
           leading={
             activeControls.modeCycle === null ? undefined : (
               <ModeControl
@@ -1900,6 +1941,24 @@ export function App(): JSX.Element {
           onAskCommit={worktreeDialogs.askCommit}
           onRetry={worktreeDialogs.retryRemove}
           onClose={worktreeDialogs.closeRemove}
+          // Quitarla cierra sus pestanas, y cerrar una pestana cancela lo programado (hito 51).
+          scheduledCountFor={(terminalIds) =>
+            terminalIds.reduce(
+              (count, terminalId) =>
+                count + (scheduledByTerminal.get(terminalId) ?? []).filter((message) => message.state !== 'failed').length,
+              0,
+            )
+          }
+        />
+      )}
+      {closingTab !== null && (
+        <CloseTabDialog
+          warning={closingTab.warning}
+          onConfirm={() => {
+            closeTerminal(closingTab.terminalId);
+            setClosingTab(null);
+          }}
+          onClose={() => setClosingTab(null)}
         />
       )}
       {worktreeTeam.review !== null && (
@@ -2063,7 +2122,8 @@ export function App(): JSX.Element {
           canOpen={cliAvailable && defaultCwd.length > 0}
           newTabBlockedTitle={newTabBlockedTitle}
           onSelectTab={selectTab}
-          onCloseTab={closeTerminal}
+          onCloseTab={requestCloseTerminal}
+          scheduled={scheduledByTerminal}
           onRenameTab={renameTerminal}
           onNewTab={(agent) => openTerminal({ cwd: newTabCwd, ...(agent !== undefined ? { agent } : {}) })}
           drawer={sidebarElement}
@@ -2219,7 +2279,8 @@ export function App(): JSX.Element {
             attention={sound.attention}
             canOpen={cliAvailable && defaultCwd.length > 0}
             onSelect={selectTab}
-            onClose={closeTerminal}
+            onClose={requestCloseTerminal}
+            scheduled={scheduledByTerminal}
             onRename={renameTerminal}
             onReorder={reorderTabs}
             onNew={(agent) =>

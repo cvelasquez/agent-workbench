@@ -21,3 +21,4 @@ export * from './support.js';
 export * from './settings.js';
 export * from './plan-limits.js';
 export * from './worktrees.js';
+export * from './scheduled-messages.js';

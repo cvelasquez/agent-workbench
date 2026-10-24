@@ -43,10 +43,12 @@ import type {
   ContextWindowSource,
   PlanLimitWindow,
   QueuedPrompt,
+  ScheduledMessage,
   StatusLineState,
   TerminalActivity,
   TerminalId,
 } from '@agent-workbench/shared';
+import { scheduledActionable, scheduledStateText } from './scheduled-ui.js';
 import {
   continueButtonTitle,
   discoveringHint,
@@ -416,6 +418,15 @@ interface ConversationViewProps {
   onConfigurePlanLimits?: () => void;
   /** "Compactar" al lado del medidor de contexto, o null si la CLI no tiene el comando. */
   compactAction?: CompactAction | null;
+  /**
+   * Los mensajes programados de esta conversacion (hito 51, §6.39), al final del
+   * hilo, con o sin CLI abierta: los guarda la app, no la CLI.
+   */
+  scheduled?: readonly ScheduledMessage[];
+  /** Lo saca, y su texto vuelve al cuadro. */
+  onCancelScheduled?: (id: string) => void;
+  /** Lo manda ya, con las reglas de siempre. */
+  onSendScheduledNow?: (id: string) => void;
 }
 
 /**
@@ -461,6 +472,9 @@ export function ConversationView({
   planSetupState = null,
   onConfigurePlanLimits,
   compactAction = null,
+  scheduled = NO_SCHEDULED,
+  onCancelScheduled,
+  onSendScheduledNow,
 }: ConversationViewProps): JSX.Element {
   const {
     events,
@@ -807,8 +821,8 @@ export function ConversationView({
     // Cualquier cambio de las tarjetas, no solo una mas: la duracion de un turno, una
     // imagen que se le suma a un mensaje o el resultado de una herramienta tambien crecen.
     // La cola va al final: una burbuja nueva baja la vista como un mensaje (hito 45).
-    // La pregunta leida de la pantalla tambien (§5.5.4).
-  }, [cards, queue.length, liveQuestion?.toolUseId, needle, measureEnd, spanIn]);
+    // La pregunta leida de la pantalla tambien (§5.5.4), y un mensaje programado (hito 51).
+  }, [cards, queue.length, liveQuestion?.toolUseId, scheduled.length, needle, measureEnd, spanIn]);
 
   /*
     Lo que crece despues de dibujar, con la vista siguiendo el final
@@ -1264,6 +1278,14 @@ export function ConversationView({
               editing={editingQueue}
               onEdit={editQueue}
             />
+          )}
+
+          {/*
+            Los mensajes programados de esta conversacion (hito 51, §6.39), despues
+            de todo: todavia no se mandaron. Con o sin CLI: los guarda la app.
+          */}
+          {scheduled.length > 0 && (
+            <ScheduledPrompts messages={scheduled} onCancel={onCancelScheduled} onSendNow={onSendScheduledNow} />
           )}
         </div>
         {awayFromEnd && (offerOwn || seekingOwn) && (
@@ -1740,6 +1762,78 @@ function QueuedPrompts({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Sin mensajes programados: una sola lista vacia, para que el efecto del final no corra por nada. */
+const NO_SCHEDULED: readonly ScheduledMessage[] = [];
+
+/** Cada cuanto se rehace "en 3d 2h": lo que falta no puede quedar quieto. */
+const SCHEDULED_CLOCK_MS = 30_000;
+
+/**
+ * Los mensajes programados de la conversacion (hito 51, §6.39), al final del
+ * hilo, como los que estan en cola: un mensaje propio atenuado, con su hora y
+ * en que esta. Dos botones: mandarlo ya (con las reglas de siempre: si el
+ * agente trabaja, espera) y cancelarlo, que devuelve el texto al cuadro.
+ */
+function ScheduledPrompts({
+  messages,
+  onCancel,
+  onSendNow,
+}: {
+  messages: readonly ScheduledMessage[];
+  onCancel?: (id: string) => void;
+  onSendNow?: (id: string) => void;
+}): JSX.Element {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), SCHEDULED_CLOCK_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <div className="scheduled-prompts">
+      {messages.map((message) => {
+        const failed = message.state === 'failed';
+        const actionable = scheduledActionable(message);
+        return (
+          <article
+            key={message.id}
+            className={`turn turn-user turn-pending turn-scheduled${failed ? ' turn-scheduled-failed' : ''}`}
+          >
+            <OwnText text={message.text} truncated={false} needle="" />
+            <div className="turn-meta">
+              <span className="turn-who">{t('thread.turn.you')}</span>
+              <span className={`turn-scheduled-state${failed ? ' is-failed' : ''}`} role={failed ? 'alert' : undefined}>
+                {scheduledStateText(message, now)}
+              </span>
+              <span className="turn-scheduled-actions">
+                {onSendNow !== undefined && message.state !== 'paused' && (
+                  <button
+                    className="queued-edit"
+                    onClick={() => onSendNow(message.id)}
+                    disabled={!actionable}
+                    title={t('scheduled.thread.sendNowTitle')}
+                  >
+                    {t('scheduled.thread.sendNow')}
+                  </button>
+                )}
+                {onCancel !== undefined && (
+                  <button
+                    className="queued-edit"
+                    onClick={() => onCancel(message.id)}
+                    disabled={!actionable}
+                    title={t('scheduled.thread.cancelTitle')}
+                  >
+                    {t('scheduled.thread.cancel')}
+                  </button>
+                )}
+              </span>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }

@@ -121,6 +121,8 @@ export const OPENCODE_CAPABILITIES: AgentCapabilities = {
   forceSend: false,
   // El mensaje en cola ya esta escrito en su base (§11.13): no hay de donde sacarlo.
   editQueue: false,
+  // Hito 51: "libre" es del `serve`, no de su pantalla; el 52 mide mandarlo por su API.
+  scheduledSend: false,
   /*
     Hito 49: ninguno. Su agente `plan` pide permiso antes de editar, pero la app
     abre el TUI con `opencode attach`, que segun su documentacion no acepta

@@ -288,6 +288,13 @@ export interface AgentCapabilities {
    */
   editQueue: boolean;
   /**
+   * Hito 51 (§6.39). La app sabe mandarle sola un mensaje programado: sabe si
+   * la CLI esta libre, si otro proceso tiene la conversacion abierta, y cuando
+   * quedo lista despues de abrirla. Medido por CLI; sin esto, el reloj del
+   * cuadro no aparece y el servidor rechaza programar.
+   */
+  scheduledSend: boolean;
+  /**
    * Hito 49. Como arranca la CLI que revisa una rama aparte sin tocarla, o null
    * si no tiene un modo medido para eso: ahi la pestana de revision arranca
    * como cualquier otra, y el dialogo lo dice antes de pedir nada.
@@ -333,6 +340,7 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   waitingBlocksSubmit: false,
   forceSend: false,
   editQueue: false,
+  scheduledSend: false,
   readOnlyLaunch: null,
 };
 
@@ -524,6 +532,8 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     waitingBlocksSubmit: record['waitingBlocksSubmit'] === true,
     forceSend: record['forceSend'] === true,
     editQueue: record['editQueue'] === true,
+    // Ausente en un servidor anterior al hito 51: no se programa nada.
+    scheduledSend: record['scheduledSend'] === true,
     // Ausente en un servidor anterior al hito 49: ninguna CLI se ofrece en solo lectura.
     readOnlyLaunch: parseReadOnlyLaunch(record['readOnlyLaunch']),
   };

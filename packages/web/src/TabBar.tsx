@@ -23,12 +23,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import type {
   AgentId,
   AgentInfo,
+  ScheduledMessage,
   StatusLineSetupInfo,
   TerminalActivity,
   TerminalDescriptor,
   TerminalId,
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
+import { ScheduledClock } from './ScheduledClock.js';
+import { scheduledTabLine } from './scheduled-ui.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import {
   pendingTabPlacements,
@@ -76,6 +79,8 @@ interface TabBarProps {
    * trata. Sin entrada —una consola, una sesion sin titulo todavia— no se pone.
    */
   sessionTitles: ReadonlyMap<TerminalId, string>;
+  /** Lo programado de cada pestana (hito 51): un reloj chico en la etiqueta, y su linea en el titulo. */
+  scheduled?: ReadonlyMap<TerminalId, ScheduledMessage[]>;
 }
 
 /**
@@ -228,6 +233,7 @@ export function TabBar({
   platform,
   newTabBlockedTitle,
   sessionTitles,
+  scheduled,
 }: TabBarProps): JSX.Element {
   const [editingId, setEditingId] = useState<TerminalId | null>(null);
   const [draftLabel, setDraftLabel] = useState('');
@@ -283,6 +289,9 @@ export function TabBar({
         const isActive = terminal.terminalId === activeTerminalId;
         const isEditing = terminal.terminalId === editingId;
         const branch = tabBranch(terminal, terminals, platform);
+        const ownScheduled = scheduled?.get(terminal.terminalId) ?? [];
+        const scheduledLine = scheduledTabLine(ownScheduled);
+        const extraLine = [tabExtraLine(terminal, branch), scheduledLine].filter((line): line is string => line !== null);
 
         return (
           <React.Fragment key={terminal.terminalId}>
@@ -300,7 +309,7 @@ export function TabBar({
               terminal.cwd,
               sessionTitles.get(terminal.terminalId),
               tabStateText(terminal),
-              tabExtraLine(terminal, branch),
+              extraLine.length === 0 ? null : extraLine.join('\n'),
             )}
             style={{ '--tab-project-color': projectColor(tabColorCwd(terminal)) } as React.CSSProperties}
           >
@@ -332,6 +341,8 @@ export function TabBar({
                   )}
                   {terminal.review && <span className="tab-review">{t('worktree.tab.review')}</span>}
                   {branch !== null && <span className="tab-branch">{branch}</span>}
+                  {/* Hito 51: lo programado, con su linea en el titulo de la pestana. */}
+                  {ownScheduled.length > 0 && <ScheduledClock messages={ownScheduled} />}
                   {defaultTabLabel(terminal)}
                 </span>
                 <button

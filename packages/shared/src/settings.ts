@@ -1,9 +1,10 @@
 /**
  * Lo que la ventana de Ajustes (Hito 41, §6.32) lee y cambia del servidor.
  *
- * Son dos ajustes de `settings.json` que deciden cosas del servidor: que consola
- * abre una nueva, y que CLIs no se usan. El resto de Ajustes —el idioma, el tema
- * de la terminal, que paneles se ven— es de la ventana y no viaja (§6.26).
+ * Son ajustes de `settings.json` que deciden cosas del servidor: que consola
+ * abre una nueva, que CLIs no se usan y, desde el hito 51, si se programan
+ * mensajes (§6.39). El resto de Ajustes (el idioma, el tema de la terminal, que
+ * paneles se ven) es de la ventana y no viaja (§6.26).
  *
  * El cliente nunca manda una ruta: elige una consola por su id, de las que el
  * servidor encontro instaladas.
@@ -52,6 +53,11 @@ export interface AppSettingsStatus {
    * reiniciar la app: si difiere de `disabledAgents`, Ajustes lo dice.
    */
   disabledAtStart: AgentId[];
+  /**
+   * Hito 51: "Mensajes programados" encendido. Viene apagado, y un servidor
+   * anterior no lo manda: la web lo lee como apagado.
+   */
+  scheduledMessages: boolean;
 }
 
 function asConsoleShellId(value: unknown): ConsoleShellId | null {
@@ -87,24 +93,31 @@ export function parseAppSettingsStatus(value: unknown): AppSettingsStatus | null
   const disabledAtStart = asAgentIdList(record['disabledAtStart']);
   if (consoleShell === null || consoleShells === null || disabledAgents === null || disabledAtStart === null) return null;
   if (rawShellName !== null && shellName === null) return null;
-  return { consoleShell, consoleShells, shellName, disabledAgents, disabledAtStart };
+  // Ausente en un servidor anterior al hito 51: apagado, y no se ofrece nada.
+  const scheduledMessages = record['scheduledMessages'] === true;
+  return { consoleShell, consoleShells, shellName, disabledAgents, disabledAtStart, scheduledMessages };
 }
 
-/** El cambio que pide Ajustes: al menos uno de los dos. */
+/** El cambio que pide Ajustes: al menos uno. */
 export interface AppSettingsChange {
   consoleShell?: ConsoleShellId;
   disabledAgents?: AgentId[];
+  /** Hito 51: encender o apagar "Mensajes programados". */
+  scheduledMessages?: boolean;
 }
 
 export function parseAppSettingsChange(record: Record<string, unknown>): AppSettingsChange | null {
   const rawShell = record['consoleShell'];
   const rawAgents = record['disabledAgents'];
+  const rawScheduled = record['scheduledMessages'];
   const consoleShell = rawShell === undefined ? undefined : asConsoleShellId(rawShell);
   const disabledAgents = rawAgents === undefined ? undefined : asAgentIdList(rawAgents);
-  if (consoleShell === null || disabledAgents === null) return null;
-  if (consoleShell === undefined && disabledAgents === undefined) return null;
+  const scheduledMessages = rawScheduled === undefined ? undefined : typeof rawScheduled === 'boolean' ? rawScheduled : null;
+  if (consoleShell === null || disabledAgents === null || scheduledMessages === null) return null;
+  if (consoleShell === undefined && disabledAgents === undefined && scheduledMessages === undefined) return null;
   return {
     ...(consoleShell !== undefined ? { consoleShell } : {}),
     ...(disabledAgents !== undefined ? { disabledAgents } : {}),
+    ...(scheduledMessages !== undefined ? { scheduledMessages } : {}),
   };
 }

@@ -2550,6 +2550,8 @@ const throwsOn = (run) => {
     waitingBlocksSubmit: false,
     forceSend: false,
     editQueue: false,
+    // Hito 51: no se le programa nada todavia (el 52).
+    scheduledSend: false,
     // Hito 49: la sandbox de solo lectura, medida con la 0.162.1 (§10.15).
     readOnlyLaunch: { mode: null, guard: 'cli' },
   }), show(adapter.capabilities));

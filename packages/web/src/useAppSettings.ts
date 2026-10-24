@@ -21,6 +21,8 @@ export interface AppSettingsApi {
   problem: string | null;
   setConsoleShell: (shell: ConsoleShellId) => void;
   setDisabledAgents: (agents: AgentId[]) => void;
+  /** Hito 51: encender o apagar "Mensajes programados". */
+  setScheduledMessages: (enabled: boolean) => void;
   dismissProblem: () => void;
 }
 
@@ -56,7 +58,11 @@ export function useAppSettings(connection: AgentConnection): AppSettingsApi {
     (agents: AgentId[]) => connection.send({ type: 'settings.update', disabledAgents: agents }),
     [connection],
   );
+  const setScheduledMessages = useCallback(
+    (enabled: boolean) => connection.send({ type: 'settings.update', scheduledMessages: enabled }),
+    [connection],
+  );
   const dismissProblem = useCallback(() => setProblem(null), []);
 
-  return { status, problem, setConsoleShell, setDisabledAgents, dismissProblem };
+  return { status, problem, setConsoleShell, setDisabledAgents, setScheduledMessages, dismissProblem };
 }

@@ -13,9 +13,10 @@
  *
  *  - **De esta ventana** (el idioma, el tema de la terminal, los paneles): se
  *    guardan con las preferencias de la ventana (§6.26) y valen enseguida.
- *  - **Del servidor** (la consola y las CLIs): van a `settings.json`. Una ventana
- *    remota los ve pero no los cambia, y con un servidor anterior no aparecen.
- *    Las CLIs valen al reiniciar, y la ventana lo dice mientras falte.
+ *  - **Del servidor** (la consola, las CLIs y, desde el hito 51, los mensajes
+ *    programados): van a `settings.json`. Una ventana remota los ve pero no los
+ *    cambia, y con un servidor anterior no aparecen. Las CLIs valen al
+ *    reiniciar, y la ventana lo dice mientras falte.
  *
  * `Escape` cierra sin llegar a la terminal, como los demas dialogos.
  */
@@ -94,12 +95,15 @@ export function SettingsDialog({
   */
   const [pendingShell, setPendingShell] = useState<ConsoleShellId | null>(null);
   const [pendingDisabled, setPendingDisabled] = useState<AgentId[] | null>(null);
+  const [pendingScheduled, setPendingScheduled] = useState<boolean | null>(null);
   useEffect(() => {
     setPendingShell(null);
     setPendingDisabled(null);
+    setPendingScheduled(null);
   }, [status, appSettings.problem]);
   const shownShell = pendingShell ?? status?.consoleShell ?? 'auto';
   const shownDisabled = pendingDisabled ?? status?.disabledAgents ?? [];
+  const shownScheduled = pendingScheduled ?? status?.scheduledMessages ?? false;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -277,6 +281,25 @@ export function SettingsDialog({
               </ul>
               <p className="modal-hint">{t('settings.cli.hint')}</p>
               {restartPending && <p className="settings-restart">{t('settings.cli.restart')}</p>}
+
+              {/*
+                Hito 51 (§6.39): viene apagado, porque no es un uso comun. Apagarlo
+                no borra lo programado: queda en pausa, y vuelve a correr al encenderlo.
+              */}
+              <h3 className="modal-section">{t('settings.section.scheduled')}</h3>
+              <label className="settings-choice">
+                <input
+                  type="checkbox"
+                  checked={shownScheduled}
+                  disabled={!serverEditable}
+                  onChange={(event) => {
+                    setPendingScheduled(event.target.checked);
+                    appSettings.setScheduledMessages(event.target.checked);
+                  }}
+                />
+                {t('settings.scheduled.enable')}
+              </label>
+              <p className="modal-hint">{t('settings.scheduled.hint')}</p>
               {remoteClient && <p className="modal-hint">{t('settings.hostOnly')}</p>}
               {appSettings.problem !== null && (
                 <p className="settings-problem" role="alert">

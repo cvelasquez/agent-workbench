@@ -152,6 +152,7 @@ packages/
       app-prompt-queue.ts     the queue the app keeps for a CLI that doesn't write one
       live-question.ts        a question read from the CLI's screen, before its history has it
       plan-limits-board.ts    the account's plan limits, from every CLI that publishes them
+      scheduled-messages/     messages scheduled for a day and time, and which instance sends each one
       handoff/                continue a conversation with another CLI
       global-search.ts        search across the text of every conversation
       vault/                  the app's own copy of the history
@@ -284,7 +285,7 @@ itself. Nothing is ever **written** in any CLI's folder.
 
 | CLI | Read | Never opened |
 |---|---|---|
-| **Claude Code** (`~/.claude`) | `projects/*.jsonl` (history) and `projects/<slug>/memory/*.md`; `sessions/<pid>.json` (live status); `plans/*.md` and session `.md` files, **only** when the conversation being viewed named them; from `settings.json`, only `model`, `modelSettings` and `statusLine` (it can carry `env` with keys, and the parsed object never leaves the function that reads it). The folder is never walked | `.credentials.json` |
+| **Claude Code** (`~/.claude`) | `projects/*.jsonl` (history) and `projects/<slug>/memory/*.md`; `sessions/<pid>.json` (live status; the file of a process that already ended doesn't count); `plans/*.md` and session `.md` files, **only** when the conversation being viewed named them; from `settings.json`, only `model`, `modelSettings` and `statusLine` (it can carry `env` with keys, and the parsed object never leaves the function that reads it). The folder is never walked | `.credentials.json` |
 | **Codex** (`CODEX_HOME` or `~/.codex`) | `sessions/**/rollout-*.jsonl`, `archived_sessions/`. `CODEX_HOME` itself is never listed | `auth.json`, `cap_sid`, `.sandbox-secrets/`, `config.toml` (MCP server environments can carry secrets), the `*.sqlite` files |
 | **OpenCode** (xdg-basedir folders) | the SQLite database, read-only: named columns of `session`, `message` and `part`, always filtered by id; the models catalog. From the app's own `opencode serve`, over loopback with basic auth: a fixed list of seven endpoints | `auth.json`, `account.json`, `mcp-auth.json`; the `account`, `credential`, `session_share` and `permission` tables; response headers and bodies stored in error records; `opencode.json` (can carry API keys) |
 | **Antigravity CLI** (`~/.gemini/antigravity-cli`) | `brain/<id>/…/transcript*.jsonl`, `history.jsonl`, two fields of `settings.json`, and a **copy** of the conversations index (see below). `~/.gemini` is never walked | `mcp/`, MCP config files, the OS keychain, the contents of `conversations/*`, the whole IDE folder `~/.gemini/antigravity/`, the browser profile, and everything of Gemini CLI (`oauth_creds.json`, `google_accounts.json`, `.env`) |
@@ -318,7 +319,9 @@ touch credentials.
 ### Where the app writes
 
 - Its own configuration directory: tabs, index cache, notes, archived
-  sessions, settings, the paired devices of remote access (hashes only), the
+  sessions, settings, scheduled messages (`scheduled-messages.json`) and the
+  claim each instance takes before sending one (`scheduled-claims/`, so two
+  instances never send it twice), the paired devices of remote access (hashes only), the
   separate branches it created (`worktrees.json`) with a copy of each text
   note copied into them (`worktree-notes/`, to merge it later), the status line
   scripts of Claude Code and Antigravity CLI (`integrations/`) and what they
@@ -404,7 +407,9 @@ search, remote access (pairing codes, device credentials, what a paired device
 is refused, and that with it off nothing of it is accepted), the plan limits
 (which reading wins, and the Claude Code status line script run through Git
 Bash and PowerShell), the question read from the screen and the queue taken
-back to the message box (against measured screens of each CLI), and the nine
+back to the message box (against measured screens of each CLI), scheduled
+messages (what happens at the time in each state of the tab, against a fake
+clock and fake tabs, and two instances that never send one twice), and the nine
 locale files. The Android app has its own tests, on the JVM (section 7).
 
 Two rules for writing one:

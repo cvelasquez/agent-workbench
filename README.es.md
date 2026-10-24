@@ -38,7 +38,7 @@ La terminal sigue siendo la terminal: todo lo que escribes va directo a la CLI.
 | **Arranque rápido** | Al abrir la app, tus pestañas vuelven **dormidas**: puedes leerlas completas, y ninguna CLI arranca hasta que hagas clic en **Abrir CLI**. |
 | **Historial** | Tus proyectos y conversaciones anteriores en la barra lateral, de todas las CLIs, con un filtro. Haz clic en una para retomarla donde la dejaste, con su CLI. Archiva sesiones antiguas o un proyecto entero para ordenar: no se borra nada, y se puede deshacer. |
 | **Conversación** | Los mensajes como tarjetas, en vivo, con las llamadas a herramientas plegadas. Los mensajes anteriores se cargan a medida que subes. Busca, copia cualquier mensaje o bloque de código, y salta a tu mensaje anterior (↑) o al final (↓). Una fila al pie dice cuándo llegó tu mensaje a la CLI y si el agente sigue trabajando. Según la CLI, puedes contestar ahí mismo las preguntas del agente. Un archivo del proyecto que el agente nombra se abre en la solapa Archivos con un clic, y una carpeta, en el explorador del sistema. Con Claude Code, un mensaje que detienes antes de que el agente empiece vuelve al cuadro para corregirlo, y **↩** en un mensaje vuelve a antes de él: la conversación y, si quieres, el código. Un mensaje que mandas con el agente trabajando espera al final, marcado en cola; según la CLI, **Forzar envío ahora** hace que el agente lo lea ya, y **Editar** (o ↑ con el cuadro vacío) lo devuelve al cuadro para corregirlo. |
-| **Cuadro de escritura** | Espacio para escribir, pegar imágenes y adjuntar archivos, y el texto largo que pegas queda como una ficha compacta. Lo que estás escribiendo no se pierde si cierras la app, y aparece en vivo en todas las ventanas abiertas. Shift+Enter sigue una lista numerada o con viñetas. |
+| **Cuadro de escritura** | Espacio para escribir, pegar imágenes y adjuntar archivos, y el texto largo que pegas queda como una ficha compacta. Lo que estás escribiendo no se pierde si cierras la app, y aparece en vivo en todas las ventanas abiertas. Shift+Enter sigue una lista numerada o con viñetas. Con Claude Code, el reloj manda solo lo que escribiste, el día y a la hora que elijas, en la misma conversación; se enciende en Ajustes. |
 | **Medidor de contexto** | Cuánto de la ventana de contexto del modelo usa la conversación. Tokens, nunca dinero. Desde el 70 %, **Compactar** le pide a la CLI que compacte la conversación. A su lado, con Claude Code, Codex y Antigravity CLI, cuánto llevas usado de los límites de tu plan y cuándo se reinician. |
 | **Cambios** | La rama, los archivos cambiados y su diff. **Orquesta agentes en paralelo**: abre el proyecto en una rama nueva, en su propia carpeta, y varios agentes trabajan a la vez sin pisarse los cambios. Cambios muestra cada rama: lo que falta commitear, cuántos commits lleva y si ya está integrada. Otra CLI revisa una rama sin tocarla, y la integras en main con un clic. |
 | **Archivos** | El árbol de archivos del proyecto, con búsqueda y vista previa con resaltado de sintaxis. Abre varios archivos a la vez, cada uno en su solapa; los archivos Markdown se abren con formato. Un clic pone la ruta de un archivo en tu mensaje. Edita un archivo de texto, un `.env` por ejemplo, y guárdalo ahí mismo: si el agente lo cambió mientras lo editabas, no se pisa nada, y pasas tus cambios a la versión nueva. |
@@ -47,7 +47,7 @@ La terminal sigue siendo la terminal: todo lo que escribes va directo a la CLI.
 | **Consola** | La terminal de tu sistema, abajo, en la carpeta del proyecto: PowerShell, cmd o Git Bash en Windows; bash o zsh en macOS y Linux. |
 | **Continuar con…** | Con más de una CLI, sigue una conversación con otra CLI en la misma carpeta. El agente nuevo arranca de un transcript de los últimos turnos. |
 | **Notificaciones** | Un sonido, y notificaciones del sistema opcionales, cuando un agente termina o te está esperando. |
-| **Ajustes** | ⚙ en la cabecera: el idioma, el tema de la terminal, qué paneles se ven, qué consola se abre y qué CLIs usa la app. |
+| **Ajustes** | ⚙ en la cabecera: el idioma, el tema de la terminal, qué paneles se ven, qué consola se abre, qué CLIs usa la app y si se pueden programar mensajes. |
 | **Nueve idiomas** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français y Deutsch. Sigue el idioma de tu navegador. |
 | **Tema** | Claro, oscuro o el del sistema. La terminal queda oscura por defecto, para que los colores de las CLIs se sigan leyendo bien. |
 
@@ -524,7 +524,7 @@ entorno `PI_TELEMETRY=0`.
 **Lo que escribe la app:**
 
 - **En su propia carpeta de configuración:** las pestañas abiertas, la caché
-  del índice, las notas, las sesiones archivadas, los mensajes sin enviar, los
+  del índice, las notas, las sesiones archivadas, los mensajes sin enviar y los programados, los
   scripts de las status lines de Claude Code y Antigravity con lo que guardan,
   las ramas aparte que creó, con una copia de cada nota de texto que copió en
   ellas (para juntar las notas después) y, si lo enciendes, el respaldo (o en

@@ -437,6 +437,8 @@ export interface AgentControlsView {
   forceSend: boolean;
   /** "Editar" en los mensajes en cola, y la flecha arriba en el cuadro vacio (§6.35.1). */
   editQueue: boolean;
+  /** El reloj del cuadro: programar un mensaje (hito 51). Ademas hace falta encenderlo en Ajustes. */
+  scheduledSend: boolean;
 }
 
 export function controlsFor(capabilities: AgentCapabilities, review = false): AgentControlsView {
@@ -461,6 +463,7 @@ export function controlsFor(capabilities: AgentCapabilities, review = false): Ag
     noteSendable: capabilities.readySignal,
     forceSend: capabilities.forceSend,
     editQueue: capabilities.editQueue,
+    scheduledSend: capabilities.scheduledSend,
   };
 }
 

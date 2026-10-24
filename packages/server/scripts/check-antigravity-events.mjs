@@ -1980,6 +1980,8 @@ const statusRecord = (id, over = {}) => ({
     forceSend: true,
     // §6.35.1: la flecha arriba y Ctrl+U Ctrl+K, medidos con la 1.4.4.
     editQueue: true,
+    // Hito 51: no se le programa nada todavia (el 52).
+    scheduledSend: false,
     // Hito 49: `--mode plan`, medido al lanzar con la 1.4.0 (§12.14).
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };

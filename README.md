@@ -39,7 +39,7 @@ CLI.
 | **Fast start** | When you open the app, your tabs come back **asleep**: you can read them in full, and no CLI starts until you click **Open CLI**. |
 | **History** | Your projects and past conversations in the sidebar, from every CLI, with a filter. Click one to pick it up where you left it, with its CLI. Archive old sessions or a whole project to tidy up: nothing is deleted, and it can be undone. |
 | **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. A file of the project that the agent names opens in the Files tab with one click, and a folder, in the system's file explorer. With Claude Code, a message you stop before the agent starts comes back to the box so you can fix it, and **↩** on a message goes back to before it: the conversation and, if you want, the code. A message you send while the agent works waits at the end, marked as queued; depending on the CLI, **Force send now** makes the agent read it right away, and **Edit** (or ↑ in the empty box) brings it back to the box to fix it. |
-| **Message box** | Room to write, paste images, attach files, and long pasted text kept as a tidy chip. What you're typing survives closing the app, and shows up live in every open window. Shift+Enter continues a numbered or bulleted list. |
+| **Message box** | Room to write, paste images, attach files, and long pasted text kept as a tidy chip. What you're typing survives closing the app, and shows up live in every open window. Shift+Enter continues a numbered or bulleted list. With Claude Code, the clock sends what you wrote on its own, on the day and at the time you choose, in the same conversation; turn it on in Settings. |
 | **Context meter** | How much of the model's context window the conversation is using. Tokens, never money. From 70%, **Compact** asks the CLI to compact the conversation. Next to it, with Claude Code, Codex and Antigravity CLI, how much of your plan's usage limits you've used and when they reset. |
 | **Changes** | The branch, the changed files and their diff. **Orchestrates agents in parallel**: open the project on a new branch, in its own folder, and several agents work at once without stepping on each other's changes. Changes shows every branch: what isn't committed yet, how many commits it has and whether it's merged. Another CLI reviews a branch without touching it, and you merge it into main with one click. |
 | **Files** | The project's file tree, with search and a preview with syntax highlighting. Open several files at once, each in its own tab; Markdown files open formatted. One click puts a file's path in your message. Edit a text file, a `.env` for instance, and save it right there: if the agent changed it while you were editing, nothing is overwritten, and you move your changes to the new version. |
@@ -48,7 +48,7 @@ CLI.
 | **Console** | Your system's terminal at the bottom, in the project's folder: PowerShell, cmd or Git Bash on Windows; bash or zsh on macOS and Linux. |
 | **Continue with…** | With more than one CLI, continue a conversation with another one in the same folder. The new agent starts from a transcript of the last turns. |
 | **Notifications** | A sound, and optional system notifications, when an agent finishes or is waiting for you. |
-| **Settings** | ⚙ in the header: the language, the terminal's theme, which panels show, which console opens and which CLIs the app uses. |
+| **Settings** | ⚙ in the header: the language, the terminal's theme, which panels show, which console opens, which CLIs the app uses and whether you can schedule messages. |
 | **Nine languages** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français and Deutsch. It follows your browser's language. |
 | **Theme** | Light, dark or the system's. The terminal stays dark by default, so the CLIs' colors stay readable. |
 
@@ -508,7 +508,7 @@ Pi's settings, or the `PI_TELEMETRY=0` environment variable.
 **What the app writes:**
 
 - **In its own configuration folder:** the open tabs, the index cache, the
-  notes, the archived sessions, unsent messages, the status line scripts of
+  notes, the archived sessions, unsent and scheduled messages, the status line scripts of
   Claude Code and Antigravity with what they save, the separate branches it
   created with a copy of each text note it copied into them (to merge the
   notes later) and, if you turn it on, the backup (or in the folder you

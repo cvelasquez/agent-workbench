@@ -1,8 +1,9 @@
 /**
  * Ajustes de la app, en `<carpeta de configuracion>/settings.json`.
  *
- * Los de la copia propia (hito 28), los del acceso remoto (hito 37) y, desde el
- * Hito 41, la consola que abre una nueva y las CLIs apagadas (§6.32). Archivo aparte de
+ * Los de la copia propia (hito 28), los del acceso remoto (hito 37), desde el
+ * Hito 41 la consola que abre una nueva y las CLIs apagadas (§6.32), y desde el
+ * 51 si se programan mensajes (§6.39). Archivo aparte de
  * `workspace.json` por lo de siempre: ese se reescribe entero en cada cambio de
  * pestanas y dos instancias se lo pisan (CLAUDE.md 6.5).
  *
@@ -85,12 +86,22 @@ export interface AgentsSettings {
   disabled: AgentId[];
 }
 
+/**
+ * Los mensajes programados (hito 51, §6.39). Apagado por defecto: no es un uso
+ * comun, y apagado no se ve nada nuevo. Lo programado no se borra al apagarlo:
+ * queda en pausa.
+ */
+export interface ScheduledMessagesSettings {
+  enabled: boolean;
+}
+
 export interface AppSettings {
   version: typeof SETTINGS_VERSION;
   vault: VaultSettings;
   remote: RemoteSettings;
   console: ConsoleSettings;
   agents: AgentsSettings;
+  scheduledMessages: ScheduledMessagesSettings;
 }
 
 export interface SettingsPatch {
@@ -98,6 +109,7 @@ export interface SettingsPatch {
   remote?: Partial<RemoteSettings>;
   console?: Partial<ConsoleSettings>;
   agents?: Partial<AgentsSettings>;
+  scheduledMessages?: Partial<ScheduledMessagesSettings>;
 }
 
 export function defaultAppSettings(): AppSettings {
@@ -107,6 +119,7 @@ export function defaultAppSettings(): AppSettings {
     remote: { enabled: false, port: REMOTE_DEFAULT_PORT },
     console: { shell: 'auto' },
     agents: { disabled: [] },
+    scheduledMessages: { enabled: false },
   };
 }
 
@@ -151,6 +164,9 @@ export function parseAppSettings(
   const agentsRecord = asRecord(record['agents']);
   const disabled = agentsRecord === null ? null : asAgentIdList(agentsRecord['disabled']);
   if (disabled !== null) settings.agents.disabled = disabled;
+  // Hito 51, tambien antes de la copia.
+  const scheduledRecord = asRecord(record['scheduledMessages']);
+  settings.scheduledMessages.enabled = (scheduledRecord === null ? null : asBoolean(scheduledRecord['enabled'])) ?? false;
 
   const remote = asRecord(record['remote']);
   if (remote !== null) {
@@ -180,6 +196,7 @@ function frozen(settings: AppSettings): AppSettings {
     remote: Object.freeze({ ...settings.remote }),
     console: Object.freeze({ ...settings.console }),
     agents: Object.freeze({ disabled: Object.freeze([...settings.agents.disabled]) as AgentId[] }),
+    scheduledMessages: Object.freeze({ ...settings.scheduledMessages }),
   });
 }
 
@@ -246,6 +263,24 @@ export class SettingsStore {
     this.current = frozen({ ...this.current, remote: settings.remote });
   }
 
+  /**
+   * Relee **solo** "Mensajes programados" (hito 51), por lo mismo que el acceso
+   * remoto: apagarlo desde la otra instancia tiene que valer en esta, que es la
+   * que podria estar por mandar algo. true si cambio.
+   */
+  async reloadScheduledMessages(): Promise<boolean> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(this.filePath, 'utf8'));
+    } catch {
+      return false;
+    }
+    const settings = parseAppSettings(parsed, this.platform);
+    if (settings === null || settings.scheduledMessages.enabled === this.current.scheduledMessages.enabled) return false;
+    this.current = frozen({ ...this.current, scheduledMessages: settings.scheduledMessages });
+    return true;
+  }
+
   /** Una marca que cambia cuando el archivo cambia (fecha y tamano), o '' si no esta. */
   async stamp(): Promise<string> {
     try {
@@ -271,12 +306,15 @@ export class SettingsStore {
       // Un cambio que no es del acceso remoto no puede reescribirlo con lo que
       // esta instancia recordaba: otra pudo apagarlo, y volveria encendido.
       if (patch.remote === undefined) await this.reloadRemote();
+      // Lo mismo con los mensajes programados (hito 51).
+      if (patch.scheduledMessages === undefined) await this.reloadScheduledMessages();
       const next: AppSettings = {
         version: SETTINGS_VERSION,
         vault: { ...this.current.vault },
         remote: { ...this.current.remote },
         console: { ...this.current.console },
         agents: { disabled: [...this.current.agents.disabled] },
+        scheduledMessages: { ...this.current.scheduledMessages },
       };
       const vault = patch.vault ?? {};
       if (vault.enabled !== undefined) next.vault.enabled = vault.enabled;
@@ -291,6 +329,7 @@ export class SettingsStore {
       }
       if (patch.console?.shell !== undefined) next.console.shell = patch.console.shell;
       if (patch.agents?.disabled !== undefined) next.agents.disabled = [...new Set(patch.agents.disabled)];
+      if (patch.scheduledMessages?.enabled !== undefined) next.scheduledMessages.enabled = patch.scheduledMessages.enabled;
       const remote = patch.remote ?? {};
       if (remote.enabled !== undefined) next.remote.enabled = remote.enabled;
       if (remote.port !== undefined) {

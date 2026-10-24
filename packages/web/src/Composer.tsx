@@ -45,6 +45,7 @@ import { ImageViewer } from './ImageViewer.js';
 import { continueList, type ListEdit } from './list-continuation.js';
 import { enterSubmits } from './narrow-layout.js';
 import { noteTextInsertion } from './note-to-composer.js';
+import { ScheduleMenu } from './ScheduleMenu.js';
 import type { ThreadFontSize } from './thread-font.js';
 import { newSubmitRequestId } from './thread-status.js';
 import type { ComposerPrefill } from './useWorkspace.js';
@@ -176,6 +177,13 @@ interface ComposerProps {
    * que sacar o no se puede: la flecha hace lo de siempre.
    */
   onEditQueue?: () => void;
+  /**
+   * Programar lo escrito (hito 51, §6.39): el reloj de la barra. Ausente si no
+   * se ofrece (apagado en Ajustes, o la CLI de la pestana no lo declara), y ahi
+   * el reloj no se dibuja. Devuelve true si el pedido salio por el socket en el
+   * acto, como un envio.
+   */
+  onSchedule?: (terminalId: TerminalId, text: string, sendAt: number) => boolean;
 }
 
 /** Donde esta el cursor del cuadro y hasta donde se desplazo, para volver ahi (`DraftView`). */
@@ -209,9 +217,12 @@ export function Composer({
   insertRef,
   noteInsertRef,
   onEditQueue,
+  onSchedule,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
+  /** El reloj que abrio el menu de programar, o null con el menu cerrado. */
+  const [scheduleAnchor, setScheduleAnchor] = useState<HTMLElement | null>(null);
   const attachments = useComposerAttachments(imagesAllowed);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const touch = useTouch();
@@ -477,6 +488,38 @@ export function Composer({
     onSubmitted?.(terminalId, requestId, !sentNow);
   }, [connection, drafts, terminalId, text, attachments, blockedReason, onSubmitted]);
 
+  /*
+    Programar lo escrito (hito 51, §6.39). Solo texto: con una imagen o un
+    archivo el reloj esta apagado. Lo pegado en fichas va dentro del texto,
+    igual que al mandar. El cuadro se vacia como al mandar; si el servidor no lo
+    acepta, el texto vuelve (`composer.prefill`, `unscheduled`).
+  */
+  const schedule = useCallback(
+    (sendAt: number) => {
+      setScheduleAnchor(null);
+      if (terminalId === null || onSchedule === undefined) return;
+      if (attachments.items.some((item) => item.kind !== 'text')) return;
+      const folded = attachments.items
+        .filter((item): item is Extract<Attachment, { kind: 'text' }> => item.kind === 'text')
+        .map((item) => ({ number: item.number, text: item.text }));
+      const body = assembleMessage(folded, text);
+      if (body.trim().length === 0) return;
+      const sentNow = onSchedule(terminalId, body, sendAt);
+      drafts.submitted(terminalId, sentNow);
+      setText('');
+      attachments.clear();
+    },
+    [terminalId, onSchedule, attachments, text, drafts],
+  );
+  const closeSchedule = useCallback(() => setScheduleAnchor(null), []);
+  // Otra pestana es otro mensaje: el menu de la anterior no queda abierto.
+  useEffect(() => setScheduleAnchor(null), [terminalId]);
+  // Apagado en Ajustes (tambien desde otra ventana) con el menu abierto: se va con el reloj.
+  const scheduleOffered = onSchedule !== undefined;
+  useEffect(() => {
+    if (!scheduleOffered) setScheduleAnchor(null);
+  }, [scheduleOffered]);
+
   const interrupt = useCallback(() => {
     if (terminalId === null) return;
     connection.send({ type: 'agent.interrupt', terminalId });
@@ -697,6 +740,13 @@ export function Composer({
   const showSend = hasSomething || !showStop;
   // Pasado el tope, lo escrito no se guarda para el proximo arranque (§6.29), y se dice.
   const tooLongToKeep = draftTooLong({ text, items: attachments.items });
+  // El reloj (hito 51): solo texto, y algo escrito. El titulo dice por que esta apagado.
+  const withFiles = attachments.items.some((item) => item.kind !== 'text');
+  const scheduleBlocked = withFiles
+    ? t('scheduled.composer.onlyText')
+    : !hasSomething
+      ? t('scheduled.composer.empty')
+      : null;
 
   return (
     <div
@@ -884,6 +934,30 @@ export function Composer({
             />
           </svg>
         </button>
+        {/*
+          Programar el envio (hito 51, §6.39), al lado del clip: es otra forma de
+          mandar lo escrito. Solo si se ofrece (Ajustes y la CLI de la pestana).
+        */}
+        {onSchedule !== undefined && (
+          <button
+            className={`icon-button composer-schedule${scheduleAnchor !== null ? ' composer-schedule-open' : ''}`}
+            onClick={(event) => {
+              const button = event.currentTarget;
+              setScheduleAnchor((current) => (current === null ? button : null));
+            }}
+            disabled={disabled || scheduleBlocked !== null}
+            title={scheduleBlocked ?? t('scheduled.composer.title')}
+            aria-label={t('scheduled.composer.label')}
+            aria-haspopup="dialog"
+            aria-expanded={scheduleAnchor !== null}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
+        {scheduleAnchor !== null && <ScheduleMenu anchor={scheduleAnchor} onPick={schedule} onClose={closeSchedule} />}
         {leading}
         <span className="composer-spacer" />
         {controls}

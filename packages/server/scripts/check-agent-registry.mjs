@@ -164,6 +164,13 @@ check('E1 editQueue que no es true cae a false; true se lee',
   parseAgentCapabilities({ editQueue: 'true' }).editQueue === false &&
   parseAgentCapabilities({ editQueue: 1 }).editQueue === false &&
   parseAgentCapabilities({ editQueue: true }).editQueue === true);
+// Hito 51: un servidor anterior no la manda, y ahi no se programa nada.
+check('51.1 scheduledSend ausente es false, y NO_CAPABILITIES la declara en false',
+  parseAgentCapabilities({ readySignal: true }).scheduledSend === false && NO_CAPABILITIES.scheduledSend === false);
+check('51.1 scheduledSend que no es true cae a false; true se lee',
+  parseAgentCapabilities({ scheduledSend: 'true' }).scheduledSend === false &&
+  parseAgentCapabilities({ scheduledSend: 1 }).scheduledSend === false &&
+  parseAgentCapabilities({ scheduledSend: true }).scheduledSend === true);
 // Hito 49: un servidor anterior no la manda, y sin ella ninguna CLI se ofrece en solo lectura.
 check('49 readOnlyLaunch ausente es null, y NO_CAPABILITIES la declara null',
   parseAgentCapabilities({ statusSource: true }).readOnlyLaunch === null && NO_CAPABILITIES.readOnlyLaunch === null);
@@ -663,6 +670,7 @@ const adapter = createClaudeCodeAdapter();
     waitingBlocksSubmit: false,
     forceSend: true,
     editQueue: true,
+    scheduledSend: true,
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };
   check('capacidades de claude-code iguales al literal', sameShape(adapter.capabilities, expected), JSON.stringify(adapter.capabilities));
@@ -806,6 +814,21 @@ const adapter = createClaudeCodeAdapter();
       // Pi fuera de Windows tiene el driver y no la capacidad: su tecla ahi no se midio.
       if (!registered.capabilities.editQueue) return !driver || (id === 'pi' && process.platform !== 'win32');
       return driver && registered.promptQueue !== undefined;
+    }));
+  /*
+    Hito 51: programar un mensaje, solo donde la app sabe que la CLI esta lista
+    (`readySignal`), si esta libre (`statusSource`) y si otro proceso tiene la
+    conversacion (`status.isOpen`). Hoy, Claude Code y nadie mas: las otras
+    cuatro son del 52.
+  */
+  const scheduling = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.scheduledSend);
+  check('51.2 scheduledSend: solo claude-code', sameShape(scheduling, ['claude-code']), scheduling.join(','));
+  check('51.2 la que lo declara sabe esperar "lista", publica su estado y dice si otro proceso tiene la conversacion',
+    AGENT_IDS.every((id) => {
+      const registered = appRegistry.adapter(id);
+      if (!registered.capabilities.scheduledSend) return true;
+      return registered.capabilities.readySignal && registered.capabilities.statusSource &&
+        typeof registered.status?.isOpen === 'function';
     }));
   appRegistry.disposeAll();
 }
@@ -1116,6 +1139,7 @@ const adapter = createClaudeCodeAdapter();
   check('claude-code: imagenes, volver aqui, preguntas, @ruta, planes y nota, todo encendido',
     controls.imagesAllowed && controls.rewind && controls.questionsAnswerable && controls.fileMentions &&
     controls.plansAvailable && controls.noteSendable && controls.forceSend && controls.editQueue, JSON.stringify(controls));
+  check('claude-code: el reloj de programar (hito 51)', controls.scheduledSend === true, JSON.stringify(controls));
   check('claude-code: el medidor mide con variantes', controls.contextWindowSource === 'usage-with-variants');
 
   // Hito 49: una pestana de revision arranco en plan, y el combo cuenta desde ahi.
@@ -1131,14 +1155,15 @@ const adapter = createClaudeCodeAdapter();
     none.modeCycle === null && none.models === null && none.efforts === null, JSON.stringify(none));
   check('sin capacidades: sin imagenes, volver aqui, preguntas, @ruta, planes, nota ni medidor',
     !none.imagesAllowed && !none.rewind && !none.questionsAnswerable && !none.fileMentions &&
-    !none.plansAvailable && !none.noteSendable && !none.forceSend && !none.editQueue && none.contextWindowSource === null, JSON.stringify(none));
+    !none.plansAvailable && !none.noteSendable && !none.forceSend && !none.editQueue && !none.scheduledSend &&
+    none.contextWindowSource === null, JSON.stringify(none));
 
   // --- Cada capacidad apaga su control y ninguno mas ---
   const controlOf = {
     permissionCycle: 'modeCycle', models: 'models', efforts: 'efforts', imagesByPath: 'imagesAllowed',
     rewind: 'rewind', questionCards: 'questionsAnswerable', fileMentions: 'fileMentions', plans: 'plansAvailable',
     contextWindowSource: 'contextWindowSource', readySignal: 'noteSendable', forceSend: 'forceSend',
-    editQueue: 'editQueue',
+    editQueue: 'editQueue', scheduledSend: 'scheduledSend',
   };
   for (const [capability, control] of Object.entries(controlOf)) {
     const without = ui.controlsFor({ ...claude.capabilities, [capability]: NO_CAPABILITIES[capability] });
@@ -1589,6 +1614,34 @@ const adapter = createClaudeCodeAdapter();
   await rm(stateFile);
   check('sin archivo, el listener recibe null', await waitFor(() => seen.length >= 5) && seen[4] === null, JSON.stringify(seen));
   stop();
+  statusAdapter.dispose();
+}
+
+/*
+  Hito 51: el archivo de una CLI matada a la fuerza queda (medido con la
+  2.1.310) y no dice nada de ahora. Uno que trae `pid` cuenta solo si ese
+  proceso vive; uno sin `pid`, como los de arriba, cuenta igual que antes.
+*/
+{
+  const statusAdapter = createClaudeCodeAdapter();
+  const stateDir = path.join(home, '.claude', 'sessions');
+  await mkdir(stateDir, { recursive: true });
+  const deadPid = 0x7ffffff0;
+  const staleId = 'eeeeeeee-5555-4555-8555-555555555555';
+  const liveId = 'dddddddd-4444-4444-8444-444444444444';
+  const staleFile = path.join(stateDir, `${deadPid}.json`);
+  const liveFile = path.join(stateDir, `${process.pid}.json`);
+  await writeFile(staleFile, JSON.stringify({ pid: deadPid, sessionId: staleId, status: 'idle' }));
+  await writeFile(liveFile, JSON.stringify({ pid: process.pid, sessionId: liveId }));
+  check('51.3 el archivo de un proceso muerto no cuenta: no esta lista', (await statusAdapter.status.waitUntilReady(staleId, 900)) === false);
+  check('51.3 ni tiene la conversacion abierta', (await statusAdapter.status.isOpen?.(staleId)) === false);
+  check('51.3 un proceso vivo la tiene abierta aunque todavia no escribio su estado', (await statusAdapter.status.isOpen?.(liveId)) === true);
+  check('51.3 una conversacion sin archivo no esta abierta', (await statusAdapter.status.isOpen?.('ffffffff-0000-4000-8000-000000000000')) === false);
+  await writeFile(staleFile, JSON.stringify({ sessionId: staleId, status: 'idle' }));
+  check('51.3 sin `pid`, como las versiones de antes, cuenta: lista y abierta',
+    (await statusAdapter.status.waitUntilReady(staleId, 2000)) === true && (await statusAdapter.status.isOpen?.(staleId)) === true);
+  await rm(staleFile);
+  await rm(liveFile);
   statusAdapter.dispose();
 }
 

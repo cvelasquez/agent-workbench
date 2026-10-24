@@ -91,6 +91,21 @@ export function formatWeekdayTime(timestamp: number): string {
 }
 
 /**
+ * El dia, con su semana y su mes, y la hora: `mar 28 oct, 10:00`,
+ * `Tue, Oct 28, 10:00 AM`. Para un mensaje programado (hito 51): puede ser de
+ * la semana que viene.
+ */
+export function formatDayTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(getFormatTag(), {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
  * Cuanto falta, corto, para el medidor del plan (hito 47): `5d 10h`, `10h 23m`,
  * `23m`, y `<1m` en el ultimo minuto. Las unidades salen del diccionario.
  */

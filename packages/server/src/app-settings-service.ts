@@ -9,6 +9,9 @@
  *    a soltar su historial, sus vigilantes y su lugar en la barra con la app
  *    andando; se guarda, y Ajustes dice que falta reiniciar mientras lo
  *    guardado y lo que corre no coincidan (`disabledAtStart`).
+ *  - **"Mensajes programados" vale enseguida** (hito 51, §6.39), tambien si lo
+ *    cambia la otra instancia que comparte la carpeta: el reloj lo relee en
+ *    cada vuelta (`refreshScheduledMessages`).
  */
 
 import { EventEmitter } from 'node:events';
@@ -54,7 +57,18 @@ export class AppSettingsService extends EventEmitter {
       shellName: this.currentShell()?.name ?? null,
       disabledAgents: [...settings.agents.disabled],
       disabledAtStart: [...this.disabledAtStart],
+      scheduledMessages: settings.scheduledMessages.enabled,
     };
+  }
+
+  /** "Mensajes programados" encendido, segun lo ultimo leido (hito 51). */
+  scheduledMessagesEnabled(): boolean {
+    return this.options.settings.get().scheduledMessages.enabled;
+  }
+
+  /** Lo relee del disco; si la otra instancia lo cambio, avisa como cualquier cambio. */
+  async refreshScheduledMessages(): Promise<void> {
+    if (await this.options.settings.reloadScheduledMessages()) this.emit('status', this.status());
   }
 
   /** Guarda el cambio, avisa al registro si cambio la consola, y emite `status`. */
@@ -66,6 +80,7 @@ export class AppSettingsService extends EventEmitter {
     await this.options.settings.update({
       ...(change.consoleShell !== undefined ? { console: { shell: change.consoleShell } } : {}),
       ...(change.disabledAgents !== undefined ? { agents: { disabled: change.disabledAgents } } : {}),
+      ...(change.scheduledMessages !== undefined ? { scheduledMessages: { enabled: change.scheduledMessages } } : {}),
     });
     const after = this.currentShell();
     if (after !== before) this.options.onShellChange(after);

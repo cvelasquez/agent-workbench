@@ -102,6 +102,13 @@
  * con el id que trae. Un servidor anterior no la manda, y la web sigue con la
  * barra de "esperando".
  *
+ * Y el hito 51, sin subir la version (§6.39): los mensajes programados.
+ * `schedule.create`, `schedule.cancel` y `schedule.sendNow`, con sus respuestas
+ * `schedule.created` y `schedule.list`; el error `schedule-failed`; el motivo
+ * `unscheduled` de `composer.prefill`; `scheduledSend` en las capacidades y
+ * `scheduledMessages` en Ajustes. Un servidor anterior no manda la lista ni la
+ * capacidad, y la web no ofrece programar.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -155,6 +162,7 @@ import {
   type FileSearchResult,
 } from './files.js';
 import { parseGitDiff, parseGitStatus, type GitDiff, type GitStatus } from './git.js';
+import { parseScheduledMessage, type ScheduledMessage } from './scheduled-messages.js';
 import {
   WORKTREE_CREATE_MODES,
   asCommitId,
@@ -1150,6 +1158,33 @@ export interface ClientComposerDraftMessage {
 }
 
 /**
+ * Programar lo escrito en el cuadro de una pestana (hito 51, §6.39). Solo
+ * texto: ni imagenes ni archivos. La pestana dice de que conversacion es; lo
+ * guarda el servidor, que contesta `schedule.created` o un `error`
+ * `schedule-failed`, los dos con `requestId`. Vacia el borrador, como Enviar.
+ */
+export interface ClientScheduleCreateMessage {
+  type: 'schedule.create';
+  requestId: string;
+  terminalId: TerminalId;
+  text: string;
+  /** Cuando se manda, en milisegundos desde 1970. */
+  sendAt: number;
+}
+
+/** Saca un mensaje programado, y su texto vuelve al cuadro de su pestana (`composer.prefill`, `unscheduled`). */
+export interface ClientScheduleCancelMessage {
+  type: 'schedule.cancel';
+  id: string;
+}
+
+/** Lo manda ya, con las mismas reglas que a su hora: espera si el agente trabaja. */
+export interface ClientScheduleSendNowMessage {
+  type: 'schedule.sendNow';
+  id: string;
+}
+
+/**
  * Las ramas aparte (`worktree.*`, hito 48, §6.38).
  *
  * **Ningun pedido lleva una ruta** (§2.4): una rama nueva sale de un proyecto
@@ -1410,6 +1445,9 @@ export type ClientMessage =
   | ClientRemotePhoneCancelMessage
   | ClientRemoteDeviceForgetSelfMessage
   | ClientComposerDraftMessage
+  | ClientScheduleCreateMessage
+  | ClientScheduleCancelMessage
+  | ClientScheduleSendNowMessage
   | ClientSettingsUpdateMessage
   | ClientWorktreeInspectMessage
   | ClientWorktreeCreateMessage
@@ -2072,6 +2110,23 @@ export interface ServerSettingsStatusMessage {
 }
 
 /**
+ * Los mensajes programados (hito 51, §6.39), todos y siempre la lista entera:
+ * son pocos. Al conectar y a todas las ventanas en cada cambio, tambien cuando
+ * cambia el estado de uno (empezo a esperar, se esta mandando, fallo).
+ */
+export interface ServerScheduleListMessage {
+  type: 'schedule.list';
+  messages: ScheduledMessage[];
+}
+
+/** Se guardo un `schedule.create`. Solo al socket que lo pidio. */
+export interface ServerScheduleCreatedMessage {
+  type: 'schedule.created';
+  requestId: string;
+  id: string;
+}
+
+/**
  * Los limites del plan de cada CLI que los publica (hito 47, §6.37). Al
  * conectar, si hay algo, y a todas las ventanas en cada cambio. Siempre la
  * lista entera: son unas pocas ventanas por CLI.
@@ -2144,7 +2199,9 @@ export type ComposerPrefillReason =
   /** Hito 48: lo pidio el usuario en un dialogo de la app (las notas de una rama aparte). Sin aviso. */
   | 'requested'
   /** §6.35.1: lo que esperaba en la cola de la CLI, que el usuario saco para editarlo. */
-  | 'queue-edit';
+  | 'queue-edit'
+  /** Hito 51: un mensaje programado que se cancelo, o que el servidor no acepto. Sin aviso, con el foco. */
+  | 'unscheduled';
 export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
   'no-delivery',
   'not-ready',
@@ -2154,6 +2211,7 @@ export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
   'rewound',
   'requested',
   'queue-edit',
+  'unscheduled',
 ];
 
 /**
@@ -2274,6 +2332,8 @@ export type ServerErrorCode =
   | 'write-failed'
   /** Un pedido `worktree.*` que no se pudo cumplir (hito 48). El texto dice por que. */
   | 'worktree-failed'
+  /** Un pedido `schedule.*` que no se hizo (hito 51). El texto dice por que; nada quedo programado ni se mando. */
+  | 'schedule-failed'
   /** Un pedido que a un equipo remoto no se le atiende (hito 37). No se hizo nada. */
   | 'remote-refused'
   /**
@@ -2312,6 +2372,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'queue-edit-failed',
   'write-failed',
   'worktree-failed',
+  'schedule-failed',
   'remote-refused',
   'agent-unsupported',
   'internal',
@@ -2475,6 +2536,8 @@ export type ServerMessage =
   | ServerGlobalSearchMessage
   | ServerRemoteStatusMessage
   | ServerSettingsStatusMessage
+  | ServerScheduleListMessage
+  | ServerScheduleCreatedMessage
   | ServerPlanLimitsMessage
   | ServerRemotePairingCodeMessage
   | ServerRemotePhonePairingMessage
@@ -3038,6 +3101,23 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const terminalId = asNonEmptyString(record['terminalId']);
       const draft = parseComposerDraft(record['draft']);
       return terminalId === null || draft === null ? null : { type: 'composer.draft', terminalId, draft };
+    }
+    case 'schedule.create': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const text = asString(record['text']);
+      const sendAt = asFiniteNumber(record['sendAt']);
+      return requestId === null || terminalId === null || text === null || sendAt === null
+        ? null
+        : { type: 'schedule.create', requestId, terminalId, text, sendAt };
+    }
+    case 'schedule.cancel': {
+      const id = asNonEmptyString(record['id']);
+      return id === null ? null : { type: 'schedule.cancel', id };
+    }
+    case 'schedule.sendNow': {
+      const id = asNonEmptyString(record['id']);
+      return id === null ? null : { type: 'schedule.sendNow', id };
     }
     case 'settings.update': {
       const change = parseAppSettingsChange(record);
@@ -3723,6 +3803,16 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     case 'settings.status': {
       const settings = parseAppSettingsStatus(record['settings']);
       return settings === null ? null : { type: 'settings.status', settings };
+    }
+    case 'schedule.list': {
+      // Uno mal formado se descarta solo: no se lleva los de las demas conversaciones.
+      const messages = asArrayFiltered(record['messages'], parseScheduledMessage);
+      return messages === null ? null : { type: 'schedule.list', messages };
+    }
+    case 'schedule.created': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const id = asNonEmptyString(record['id']);
+      return requestId === null || id === null ? null : { type: 'schedule.created', requestId, id };
     }
     case 'plan.limits': {
       // Filtrada: una CLI que este lado no conoce no se lleva la de las demas.

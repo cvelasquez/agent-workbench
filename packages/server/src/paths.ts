@@ -119,6 +119,24 @@ export function composerDraftsPath(): string {
 }
 
 /**
+ * Los mensajes programados (hito 51, §6.39), por su conversacion, como los
+ * borradores. Dos instancias de la app comparten el archivo (§14.8): cada una
+ * lo relee antes de cambiarlo.
+ */
+export function scheduledMessagesPath(): string {
+  return path.join(appConfigDir(), 'scheduled-messages.json');
+}
+
+/**
+ * Quien esta mandando cada mensaje programado: un archivo por mensaje, creado
+ * en exclusiva por la instancia que lo manda (hito 51). Asi dos instancias no
+ * mandan el mismo.
+ */
+export function scheduledClaimsDir(): string {
+  return path.join(appConfigDir(), 'scheduled-claims');
+}
+
+/**
  * Donde se copia, un instante, el indice de conversaciones de Antigravity CLI
  * para leerlo: una subcarpeta por lectura, que se borra al terminar.
  *

@@ -121,6 +121,8 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
   forceSend: true,
   // La flecha arriba saca la cola al editor, y Ctrl+U Ctrl+K lo vacian sin cortar el turno (1.4.4, §6.35.1).
   editQueue: true,
+  // Hito 51: no avisa que esta lista, ni con status line (`READY_SIGNAL_SAFE`); lo mide el 52.
+  scheduledSend: false,
   /*
     Hito 49: `--mode plan`. Medido con la 1.4.0 al lanzar: arranca en "Plan
     mode: research & plan only" y el ciclo sigue desde ahi. Que hace con

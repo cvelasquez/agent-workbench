@@ -31,12 +31,15 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import type {
   AgentId,
   AgentInfo,
+  ScheduledMessage,
   StatusLineSetupInfo,
   TerminalActivity,
   TerminalDescriptor,
   TerminalId,
 } from '@agent-workbench/shared';
 import { AgentSplitButton } from './AgentSplitButton.js';
+import { ScheduledClock } from './ScheduledClock.js';
+import { scheduledTabLine } from './scheduled-ui.js';
 import type { ConnectionStatus } from './connection.js';
 import { t } from './i18n/index.js';
 import { LocaleMenu } from './LocaleMenu.js';
@@ -96,6 +99,8 @@ interface NarrowShellProps {
   newTabBlockedTitle: string | null;
   onSelectTab: (terminalId: TerminalId) => void;
   onCloseTab: (terminalId: TerminalId) => void;
+  /** Lo programado de cada pestana (hito 51): el reloj chico en la lista. */
+  scheduled?: ReadonlyMap<TerminalId, ScheduledMessage[]>;
   onRenameTab: (terminalId: TerminalId, label: string) => void;
   onNewTab: (agent?: AgentId) => void;
   /** La barra de proyectos, ya armada. */
@@ -134,6 +139,7 @@ export function NarrowShell({
   newTabBlockedTitle,
   onSelectTab,
   onCloseTab,
+  scheduled,
   onRenameTab,
   onNewTab,
   drawer,
@@ -315,6 +321,7 @@ export function NarrowShell({
               }}
               onClose={onCloseTab}
               onRename={onRenameTab}
+              scheduled={scheduled}
             />
             <AgentSplitButton
               className="narrow-sheet-new"
@@ -353,6 +360,7 @@ function TabSheet({
   onSelect,
   onClose,
   onRename,
+  scheduled,
 }: {
   terminals: readonly TerminalDescriptor[];
   platform: string;
@@ -362,6 +370,7 @@ function TabSheet({
   onSelect: (terminalId: TerminalId) => void;
   onClose: (terminalId: TerminalId) => void;
   onRename: (terminalId: TerminalId, label: string) => void;
+  scheduled?: ReadonlyMap<TerminalId, ScheduledMessage[]>;
 }): JSX.Element {
   const [editingId, setEditingId] = useState<TerminalId | null>(null);
   const [draft, setDraft] = useState('');
@@ -417,6 +426,11 @@ function TabSheet({
                   </span>
                 )}
                 {branch !== null && <span className="tab-branch">{branch}</span>}
+                {(scheduled?.get(terminal.terminalId)?.length ?? 0) > 0 && (
+                  <span title={scheduledTabLine(scheduled?.get(terminal.terminalId) ?? []) ?? undefined}>
+                    <ScheduledClock messages={scheduled?.get(terminal.terminalId) ?? []} />
+                  </span>
+                )}
                 <span className="narrow-tab-label">{defaultTabLabel(terminal)}</span>
               </button>
             )}

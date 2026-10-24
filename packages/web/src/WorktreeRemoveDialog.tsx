@@ -50,6 +50,11 @@ interface WorktreeRemoveDialogProps {
   onAskCommit: () => void;
   onRetry: () => void;
   onClose: () => void;
+  /**
+   * Cuantos mensajes programados tienen esas pestanas (hito 51): quitar la rama
+   * las cierra, y cerrar una pestana cancela lo suyo. Ausente: no se dice nada.
+   */
+  scheduledCountFor?: (terminalIds: string[]) => number;
 }
 
 export function WorktreeRemoveDialog({
@@ -60,6 +65,7 @@ export function WorktreeRemoveDialog({
   onAskCommit,
   onRetry,
   onClose,
+  scheduledCountFor,
 }: WorktreeRemoveDialogProps): JSX.Element {
   const { state, acceptedFiles } = dialog;
 
@@ -80,6 +86,7 @@ export function WorktreeRemoveDialog({
   const action = plan === null || failed ? null : removeAction(plan, acceptedFiles);
   const discardFiles = plan !== null && !failed && offersDiscardFiles(plan, acceptedFiles);
   const newFiles = plan === null ? null : untrackedText(plan, acceptedFiles);
+  const scheduledCount = plan === null || scheduledCountFor === undefined ? 0 : scheduledCountFor(plan.tabs.map((tab) => tab.terminalId));
   const title = t('worktree.remove.title', { branch: dialog.branch });
 
   const primary = failed
@@ -150,6 +157,9 @@ export function WorktreeRemoveDialog({
               <WorktreeNotesLine returning={plan.returning} merging={plan.merging} resolved={plan.resolved} />
               {plan.tabs.length > 0 && (
                 <p className="modal-hint">{t('worktree.remove.tabs', { list: formatList(plan.tabs.map((tab) => tab.label)) })}</p>
+              )}
+              {scheduledCount > 0 && (
+                <p className="worktree-warning">{t('scheduled.worktree.cancels', { count: scheduledCount })}</p>
               )}
 
               {plan.commands.length > 0 && (

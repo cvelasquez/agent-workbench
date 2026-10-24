@@ -43,6 +43,7 @@ import {
 } from './startup-summary.js';
 import { NotesStore } from './notes-store.js';
 import { DraftStore, workspaceDraftOwners } from './draft-store.js';
+import { ScheduledMessageStore } from './scheduled-messages/store.js';
 import { locateShells, pickShell, type ShellLocation } from './shell-locator.js';
 import { AppSettingsService } from './app-settings-service.js';
 import { watchSessions } from './session-watcher.js';
@@ -416,6 +417,17 @@ async function main(): Promise<void> {
   // de aceptar conexiones: el primer mensaje de cada socket lleva los suyos.
   const drafts = new DraftStore();
   await drafts.load();
+  // Los mensajes programados (hito 51, §6.39), por lo mismo: el primer mensaje de cada socket los lleva.
+  const scheduled = new ScheduledMessageStore();
+  await scheduled.load();
+  /*
+    El reloj de los mensajes programados arranca cuando terminan de restaurarse
+    las pestanas: antes no sabria cual es la de cada mensaje.
+  */
+  let markRestored: () => void = () => undefined;
+  const restored = new Promise<void>((resolve) => {
+    markRestored = resolve;
+  });
   /*
     Las conversaciones siguen cada sesion con el seguidor de su adaptador, y
     avisan que la CLI espera algo con el estado que publica ese mismo adaptador.
@@ -491,6 +503,8 @@ async function main(): Promise<void> {
     vault,
     remote,
     worktrees,
+    scheduled,
+    restored,
   });
 
   // El indice arranca en segundo plano: 3,2 s en frio no pueden demorar la URL.
@@ -517,19 +531,29 @@ async function main(): Promise<void> {
     —abrir una consola— reescribiria el archivo sin ninguna.
   */
   if (process.env['AGENT_WORKBENCH_NO_RESTORE'] !== '1') {
-    void store.load().then((state) => {
-      /*
-        Un borrador sin pestana en el archivo no lo va a pedir nadie: la cerro
-        una build anterior, que no los borra, o su carpeta ya no existe (§6.29).
-        Sin restaurar no se sabe cuales son, y no se toca ninguno.
-      */
-      drafts.retainOnly(workspaceDraftOwners(state));
-      if (state.tabs.length === 0 && state.foreignTabs.length === 0) return;
-      if (agents.anyAvailable()) {
-        console.log(`Restoring ${state.tabs.length} tab(s) from the previous run...`);
-      }
-      return registry.restore(state);
-    });
+    void store
+      .load()
+      .then(async (state) => {
+        /*
+          Un borrador sin pestana en el archivo no lo va a pedir nadie: la cerro
+          una build anterior, que no los borra, o su carpeta ya no existe (§6.29).
+          Sin restaurar no se sabe cuales son, y no se toca ninguno. Lo mismo con
+          lo programado (hito 51).
+        */
+        const owners = workspaceDraftOwners(state);
+        drafts.retainOnly(owners);
+        await scheduled.retainOnly(owners).catch((error: unknown) => {
+          console.warn("[scheduled] couldn't drop the messages of closed tabs:", error);
+        });
+        if (state.tabs.length === 0 && state.foreignTabs.length === 0) return;
+        if (agents.anyAvailable()) {
+          console.log(`Restoring ${state.tabs.length} tab(s) from the previous run...`);
+        }
+        return registry.restore(state);
+      })
+      .finally(markRestored);
+  } else {
+    markRestored();
   }
 
   const url = `http://${LOOPBACK_HOST}:${port}/?${TOKEN_QUERY_PARAM}=${token}`;
@@ -572,6 +596,8 @@ async function main(): Promise<void> {
       archived.flush(),
       notes.flush(),
       drafts.flush(),
+      // Lo que esta instancia tenia reservado sin haber escrito nada lo puede tomar otra (hito 51).
+      scheduled.flush().then(() => scheduled.releaseReserved()),
       remote.flush(),
       worktreeStore.flush(),
       agentsDisposed,

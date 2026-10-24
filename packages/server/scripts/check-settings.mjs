@@ -84,6 +84,28 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
     }
   })());
   check('1.8 los de por defecto', json(defaultAppSettings().console) === '{"shell":"auto"}' && json(defaultAppSettings().agents) === '{"disabled":[]}');
+
+  // Hito 51: los mensajes programados, apagados si no se dice otra cosa.
+  check('1.9 un settings.json de antes: los mensajes programados apagados',
+    old.scheduledMessages.enabled === false && defaultAppSettings().scheduledMessages.enabled === false);
+  check('1.10 encendido se lee; un valor que no es si o no, apagado',
+    parseAppSettings({ version: 1, scheduledMessages: { enabled: true } }, process.platform).scheduledMessages.enabled === true &&
+      parseAppSettings({ version: 1, scheduledMessages: { enabled: 'si' } }, process.platform).scheduledMessages.enabled === false &&
+      parseAppSettings({ version: 1, scheduledMessages: true }, process.platform).scheduledMessages.enabled === false);
+  await store.update({ scheduledMessages: { enabled: true } });
+  const withScheduled = JSON.parse(await readFile(file, 'utf8'));
+  check('1.11 encenderlo se escribe, sin perder lo demas',
+    withScheduled.scheduledMessages?.enabled === true && withScheduled.console.shell === 'pwsh' && withScheduled.remote.port === 30000, json(withScheduled));
+  // La otra instancia lo apaga: esta lo relee, y otro cambio suyo no lo vuelve a encender.
+  const other = new SettingsStore(file, { log: { warn: () => undefined } });
+  await other.load();
+  await other.update({ scheduledMessages: { enabled: false } });
+  check('1.12 releer trae lo que cambio la otra instancia', (await store.reloadScheduledMessages()) === true && store.get().scheduledMessages.enabled === false);
+  check('1.13 releer sin cambios dice que no cambio nada', (await store.reloadScheduledMessages()) === false);
+  await other.update({ scheduledMessages: { enabled: true } });
+  await store.update({ console: { shell: 'cmd' } });
+  check('1.14 cambiar la consola no pisa lo que encendio la otra',
+    JSON.parse(await readFile(file, 'utf8')).scheduledMessages?.enabled === true && store.get().scheduledMessages.enabled === true);
 }
 
 // --- 2. Las consolas instaladas ------------------------------------------------------
@@ -166,7 +188,7 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
   const emitted = [];
   service.on('status', (status) => emitted.push(status));
   check('4.1 el estado: la automatica, las instaladas y la apagada del arranque',
-    json(service.status()) === json({ consoleShell: 'auto', consoleShells: [{ id: 'pwsh', label: 'PowerShell 7' }, { id: 'git-bash', label: 'Git Bash' }], shellName: 'PowerShell', disabledAgents: [], disabledAtStart: ['opencode'] }),
+    json(service.status()) === json({ consoleShell: 'auto', consoleShells: [{ id: 'pwsh', label: 'PowerShell 7' }, { id: 'git-bash', label: 'Git Bash' }], shellName: 'PowerShell', disabledAgents: [], disabledAtStart: ['opencode'], scheduledMessages: false }),
     json(service.status()));
   await service.update({ consoleShell: 'git-bash' });
   check('4.2 elegir Git Bash avisa al registro y a todas las ventanas',
@@ -176,6 +198,20 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
   await service.update({ disabledAgents: ['codex'] });
   check('4.4 apagar una CLI se guarda, y lo del arranque no cambia hasta reiniciar',
     json(service.status().disabledAgents) === '["codex"]' && json(service.status().disabledAtStart) === '["opencode"]' && changes.length === 1);
+  // Hito 51.
+  const before = emitted.length;
+  await service.update({ scheduledMessages: true });
+  check('4.5 encender los mensajes programados se guarda y avisa a todas las ventanas',
+    service.scheduledMessagesEnabled() === true && emitted.length === before + 1 && emitted.at(-1)?.scheduledMessages === true && changes.length === 1);
+  const otherStore = new SettingsStore(path.join(workDir, 'service', 'settings.json'), { log: { warn: () => undefined } });
+  await otherStore.load();
+  await otherStore.update({ scheduledMessages: { enabled: false } });
+  await service.refreshScheduledMessages();
+  check('4.6 apagado desde la otra instancia: se entera al releer y avisa',
+    service.scheduledMessagesEnabled() === false && emitted.at(-1)?.scheduledMessages === false);
+  const quiet = emitted.length;
+  await service.refreshScheduledMessages();
+  check('4.7 releer sin cambios no avisa', emitted.length === quiet);
 }
 
 // --- 5. El protocolo ----------------------------------------------------------------
@@ -193,6 +229,11 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
     parsed?.type === 'settings.status' && json(parsed.settings.consoleShells) === '[{"id":"cmd","label":"cmd"}]' && parsed.settings.shellName === null, json(parsed));
   check('5.4 una ventana remota no cambia los ajustes del servidor; una del anfitrion si',
     remoteRefusal('settings.update', true)?.key === 'settingsHostOnly' && remoteRefusal('settings.update', false) === null);
+  check('5.5 settings.update con solo los mensajes programados (hito 51)',
+    json(parseClientMessage(json({ type: 'settings.update', scheduledMessages: true }))) === json({ type: 'settings.update', scheduledMessages: true }) &&
+      parseClientMessage(json({ type: 'settings.update', scheduledMessages: 1 })) === null);
+  check('5.6 programar desde un equipo remoto si se atiende: es como mandar un mensaje',
+    remoteRefusal('schedule.create', true) === null && remoteRefusal('schedule.cancel', true) === null && remoteRefusal('schedule.sendNow', true) === null);
 }
 
 // --- 6. Lo que se esconde -------------------------------------------------------------

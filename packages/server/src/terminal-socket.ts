@@ -106,6 +106,12 @@ import { GitMissingError } from './git-repo.js';
 import { WorktreeError, WorktreeInUseError, type WorktreeService } from './worktrees/service.js';
 import { remoteRefusal } from './remote-access.js';
 import type { RemoteAccessService } from './remote-access-service.js';
+import {
+  MessageScheduler,
+  SCHEDULED_DELIVERY_TIMEOUT_MS,
+  scheduleCreateRefusal,
+} from './scheduled-messages/scheduler.js';
+import type { ScheduledMessageStore } from './scheduled-messages/store.js';
 import { authorizeRequest, type Credential } from './security.js';
 
 /**
@@ -190,6 +196,10 @@ export interface TerminalSocketOptions {
   remote: RemoteAccessService;
   /** Las ramas aparte (`worktree.*`, hito 48, §6.38). */
   worktrees: WorktreeService;
+  /** Los mensajes programados (`schedule.*`, hito 51, §6.39), ya cargados. */
+  scheduled: ScheduledMessageStore;
+  /** Cuando terminan de restaurarse las pestanas: recien ahi arranca el reloj de los mensajes programados. */
+  restored: Promise<unknown>;
 }
 
 export function attachTerminalSocket(options: TerminalSocketOptions): () => void {
@@ -211,6 +221,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     vault,
     remote,
     worktrees,
+    scheduled,
   } = options;
 
   const pasteStore = options.pasteStore ?? new PasteStore();
@@ -385,6 +396,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     // De una pestana nueva, solo los que hay: ninguna ventana tiene nada viejo que vaciar.
     const entries = draftEntriesOf(appeared, drafts).filter((entry) => !isEmptyComposerDraft(entry.draft));
     if (entries.length > 0) broadcast({ type: 'composer.drafts', drafts: entries });
+    // Lo programado se muda con su pestana, como el borrador (hito 51), y la lista lleva la pestana de hoy.
+    for (const { from, to } of moved) {
+      void scheduler.moveOwner(from, to).catch((error: unknown) => {
+        console.warn('[scheduled] couldn\'t move the messages of a tab:', error);
+      });
+    }
+    scheduler.publish();
+    scheduler.nudge();
   };
 
   const onRegistryExit = (
@@ -412,6 +431,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     );
     // Hito 49: el revisor empezo o termino. La fila de su rama vuelve a preguntar.
     if (registry.get(terminalId)?.review === true) worktrees.reviewActivity();
+    // Hito 51: un mensaje que esperaba a que el agente terminara se manda en el acto.
+    scheduler.nudge();
   };
 
   const onIndexStatus = (status: IndexStatus): void =>
@@ -691,6 +712,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     if (!registry.close(terminalId)) return false;
     // Cerrar la pestana es tirar lo que quedo escrito en su cuadro (§6.29).
     if (draftOwner !== null) drafts.delete(draftOwner);
+    // Y lo que tenia programado (hito 51): la web lo pregunto antes de cerrar.
+    if (draftOwner !== null) {
+      void scheduler.dropOwner(draftOwner).catch((error: unknown) => {
+        console.warn('[scheduled] couldn\'t cancel the messages of a closed tab:', error);
+      });
+    }
     // Sin pestana no hay nada que seguir, la mire quien la mire.
     conversations.drop(terminalId);
     repos.drop(terminalId);
@@ -721,6 +748,49 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     noteSubmitted: (terminalId, text) => registry.noteSubmitted(terminalId, text),
     enqueue: (terminalId, job, enqueueOptions) => writeQueue.enqueue(terminalId, job, enqueueOptions),
   };
+
+  /*
+    Los mensajes programados (hito 51, §6.39). El reloj manda por el camino de
+    las notas (`deliverWhenReady`): espera a que la CLI diga que esta libre y
+    escribe por la fila de la terminal. Arranca cuando terminan de restaurarse
+    las pestanas: antes no sabria cual es la de cada mensaje.
+  */
+  const scheduler = new MessageScheduler({
+    store: scheduled,
+    now: Date.now,
+    enabled: () => appSettings.scheduledMessagesEnabled(),
+    refreshEnabled: () => appSettings.refreshScheduledMessages(),
+    tabs: () =>
+      registry.list().flatMap((tab) =>
+        tab.kind === 'agent' && tab.agent !== null && tab.sessionId.length > 0
+          ? [{ terminalId: tab.terminalId, agent: tab.agent, sessionId: tab.sessionId, alive: tab.alive }]
+          : [],
+      ),
+    activityOf: (terminalId) => registry.activityOf(terminalId),
+    agentOf: (agent) => {
+      const registered = agents.get(agent);
+      if (registered === null) return null;
+      // Una CLI que no esta instalada no se puede abrir: no se le programa nada.
+      return {
+        label: registered.adapter.label,
+        scheduledSend: registered.adapter.capabilities.scheduledSend && registered.location !== null,
+      };
+    },
+    isOpenElsewhere: async (agent, sessionId) => (await agents.get(agent)?.adapter.status?.isOpen?.(sessionId)) === true,
+    wake: async (terminalId) => (await registry.wake(terminalId)) !== null,
+    deliver: (terminalId, text) =>
+      deliverWhenReady(deliverDeps, {
+        terminalId,
+        text,
+        images: [],
+        timeoutMs: SCHEDULED_DELIVERY_TIMEOUT_MS,
+        write: (piece) => registry.write(terminalId, piece),
+      }),
+    onChange: (messages) => broadcast({ type: 'schedule.list', messages }),
+    log: (line) => console.warn(line),
+  });
+  const startScheduler = (): void => scheduler.start();
+  void options.restored.then(startScheduler, startScheduler);
 
   /** Lo que la continuacion en otra CLI usa del servidor (hito 29). */
   const continueDeps: ContinueDeps = {
@@ -816,7 +886,12 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   );
 
   // Ajustes (Hito 41) avisa a todas las ventanas: el nombre de la consola nueva lo usan todas.
-  const onAppSettingsStatus = (settings: AppSettingsStatus): void => broadcast({ type: 'settings.status', settings });
+  const onAppSettingsStatus = (settings: AppSettingsStatus): void => {
+    broadcast({ type: 'settings.status', settings });
+    // Hito 51: encender o apagar los mensajes programados cambia lo que hace el reloj, y lo que dice la lista.
+    scheduler.publish();
+    scheduler.nudge();
+  };
   appSettings.on('status', onAppSettingsStatus);
   /*
     Un equipo revocado, o el acceso apagado (null): sus ventanas se cierran ya.
@@ -1014,6 +1089,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       los guarda, y solo desde ahi manda los suyos.
     */
     send(socket, { type: 'composer.drafts', drafts: draftEntriesOf(registry.list(), drafts) });
+    // Los mensajes programados (hito 51), aunque no haya: tambien le dice que este servidor los tiene.
+    send(socket, { type: 'schedule.list', messages: scheduler.snapshot() });
     send(socket, { type: 'vault.status', status: vault.status() });
     if (deviceId === null) send(socket, { type: 'remote.status', status: remote.status() });
     send(socket, { type: 'settings.status', settings: appSettings.status() });
@@ -3070,6 +3147,96 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         }
 
         /*
+          Programar lo escrito en el cuadro (hito 51, §6.39). La pestana dice de
+          que conversacion es; el servidor revisa todo antes de guardar. Si no lo
+          acepta, el texto vuelve al cuadro, que ya se habia vaciado al mandarlo.
+          Guardado, el borrador se vacia como con Enviar (§6.29).
+        */
+        case 'schedule.create': {
+          const { requestId, terminalId, text, sendAt } = message;
+          const giveBack = (): void => {
+            if (text.trim().length > 0) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'unscheduled' });
+          };
+          const descriptor = registry.get(terminalId);
+          if (descriptor === null) {
+            sendError(socket, 'unknown-terminal', serverText('terminalGone'), undefined, requestId);
+            break;
+          }
+          const owner = draftOwnerOf(descriptor);
+          const scheduling = adapterOf(terminalId);
+          const refusal = scheduleCreateRefusal({
+            enabled: appSettings.scheduledMessagesEnabled(),
+            owner,
+            agentLabel: scheduling?.label ?? null,
+            capable: scheduling?.capabilities.scheduledSend === true,
+            text,
+            sendAt,
+            now: Date.now(),
+            count: scheduled.size,
+          });
+          if (refusal !== null || owner === null || descriptor.agent === null) {
+            sendError(socket, 'schedule-failed', refusal ?? serverText('scheduleNoConversation'), undefined, requestId);
+            giveBack();
+            break;
+          }
+          const agent = descriptor.agent;
+          void (async () => {
+            try {
+              const created = await scheduler.create(owner, agent, text, sendAt);
+              drafts.delete(owner);
+              broadcast({ type: 'composer.drafts', drafts: draftEntriesOf(registry.list(), drafts, owner) });
+              send(socket, { type: 'schedule.created', requestId, id: created.id });
+            } catch (error) {
+              const detail = error instanceof Error ? error.message : String(error);
+              console.warn('[scheduled] couldn\'t save a scheduled message:', detail);
+              sendError(socket, 'schedule-failed', serverText('scheduleSaveFailed'), detail, requestId);
+              giveBack();
+            }
+          })();
+          break;
+        }
+
+        /* Sacarlo: su texto vuelve al cuadro de su pestana, en esta ventana. */
+        case 'schedule.cancel': {
+          void (async () => {
+            const outcome = await scheduler.cancel(message.id);
+            if (outcome.kind === 'gone') {
+              sendError(socket, 'schedule-failed', serverText('scheduleGone'));
+              return;
+            }
+            if (outcome.kind === 'sending') {
+              sendError(socket, 'schedule-failed', serverText('scheduleSending'));
+              return;
+            }
+            const { agent, sessionId, text } = outcome.message;
+            const tab = registry
+              .list()
+              .find((entry) => entry.kind === 'agent' && entry.agent === agent && entry.sessionId === sessionId);
+            if (tab !== undefined) send(socket, { type: 'composer.prefill', terminalId: tab.terminalId, text, reason: 'unscheduled' });
+          })().catch((error: unknown) => {
+            const detail = error instanceof Error ? error.message : String(error);
+            sendError(socket, 'schedule-failed', serverText('scheduleSaveFailed'), detail);
+          });
+          break;
+        }
+
+        /* Mandarlo ya, con las reglas de siempre: si el agente trabaja, espera. */
+        case 'schedule.sendNow': {
+          void scheduler
+            .sendNow(message.id)
+            .then((outcome) => {
+              if (outcome === 'off') sendError(socket, 'schedule-failed', serverText('scheduleOff'));
+              else if (outcome === 'gone') sendError(socket, 'schedule-failed', serverText('scheduleGone'));
+              else if (outcome === 'sending') sendError(socket, 'schedule-failed', serverText('scheduleSending'));
+            })
+            .catch((error: unknown) => {
+              const detail = error instanceof Error ? error.message : String(error);
+              sendError(socket, 'schedule-failed', serverText('scheduleSaveFailed'), detail);
+            });
+          break;
+        }
+
+        /*
           Ajustes (Hito 41, §6.32). Una consola que ya no esta, o un disco que no
           deja escribir, se dicen; lo demas lo valido el parser. A una ventana
           remota no llega: lo frena `remoteRefusal`.
@@ -3224,6 +3391,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     appSettings.off('status', onAppSettingsStatus);
     stopRemoteStatus();
     stopRemoteRevoked();
+    // El reloj para, y lo reservado se suelta en el apagado (`index.ts` espera a que termine).
+    void scheduler.stop();
     for (const client of wss.clients) client.terminate();
     wss.close();
   };

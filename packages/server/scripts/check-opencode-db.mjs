@@ -1386,7 +1386,7 @@ const historyOf = (file, extra = {}) => {
   check('13 capacidades iguales al literal', same(adapter.capabilities, {
     sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, models: null, efforts: null,
     questionCards: true, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
-    waitingBlocksSubmit: true, forceSend: false, editQueue: false, readOnlyLaunch: null,
+    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: false, readOnlyLaunch: null,
   }) && adapter.capabilities === OPENCODE_CAPABILITIES, show(adapter.capabilities));
   check('13 las capacidades sobreviven al viaje por la red', same(shared.parseAgentCapabilities(JSON.parse(JSON.stringify(adapter.capabilities))), adapter.capabilities));
   check('13 envio: imagenes por ruta pegada sola (medido en vivo), el Enter aparte, 400 ms y dos Esc', same(adapter.input, {

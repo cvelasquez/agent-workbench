@@ -90,6 +90,8 @@ export const PI_BASE_CAPABILITIES: AgentCapabilities = {
     (§6.35.1). Medido en Windows; fuera, la tecla es Alt+Up y no esta medida.
   */
   editQueue: process.platform === 'win32',
+  // Hito 51: dice si trabaja, pero no cuando quedo lista despues de abrirla; lo mide el 52.
+  scheduledSend: false,
   // Hito 49: sin `edit` ni `write` (`PI_REVIEW_TOOLS`), pero su consola puede escribir: a medias (§16.19).
   readOnlyLaunch: { mode: null, guard: 'tools' },
 };

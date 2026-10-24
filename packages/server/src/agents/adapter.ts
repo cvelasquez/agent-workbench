@@ -526,6 +526,14 @@ export interface StatusSource {
    * R27-2): tiene que preguntar al archivo, no a la ultima vuelta del sondeo.
    */
   refresh?(sessionId: string): Promise<void>;
+  /**
+   * true si algun proceso vivo de la CLI tiene esa conversacion abierta ahora
+   * (hito 51, §6.39). Lo pregunta el reloj de los mensajes programados antes de
+   * abrir una pestana dormida: si otro proceso la tiene (otra instancia de la
+   * app, una terminal suelta), abrirla serian dos procesos escribiendo el mismo
+   * historial. Ausente: la CLI no lo dice, y esa CLI no declara `scheduledSend`.
+   */
+  isOpen?(sessionId: string): Promise<boolean>;
   dispose(): void;
 }
 

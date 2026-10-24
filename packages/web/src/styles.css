@@ -1155,6 +1155,18 @@ kbd {
   color: var(--accent);
 }
 
+/* El reloj (hito 51, §6.39): al lado del clip y con su mismo color. Con el menu abierto, el del acento. */
+.composer-schedule {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+
+.composer-schedule:hover:not(:disabled),
+.composer-schedule-open {
+  color: var(--accent);
+}
+
 .composer-input {
   width: 100%;
   min-height: 34px;
@@ -2510,6 +2522,56 @@ kbd {
 .queued-edit:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--text);
+}
+
+/*
+  Los mensajes programados (hito 51, §6.39), despues de la cola: el mismo marco
+  punteado y atenuado, porque tampoco son parte de la conversacion todavia. Su
+  estado va en el color del acento; el de uno que no se envio, en el de aviso,
+  porque hay que ir a mirarlo. Los dos botones van juntos a la derecha.
+*/
+.scheduled-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.turn-scheduled-state {
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+}
+
+.turn-scheduled-state.is-failed {
+  border-style: solid;
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.turn-scheduled-failed {
+  opacity: 0.9;
+}
+
+/*
+  Si la hora y los dos botones no entran en una linea, los botones bajan juntos
+  a la segunda, a la derecha, sin partir su nombre: "Enviar / ahora" en dos
+  renglones se leia como dos botones.
+*/
+.turn-scheduled .turn-meta {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.turn-scheduled-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.turn-scheduled-actions .queued-edit {
+  margin-left: 0;
+  white-space: nowrap;
 }
 
 /*
@@ -4457,6 +4519,104 @@ kbd {
 .agent-menu-version {
   font-size: 10px;
   color: var(--text-dim);
+}
+
+/*
+  El menu del reloj del cuadro (hito 51, §6.39): como el de elegir CLI, con los
+  dos atajos arriba y el dia y la hora a mano abajo, separados por una linea.
+*/
+.schedule-menu {
+  position: fixed;
+  z-index: 45;
+  min-width: 240px;
+  padding: 6px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.schedule-menu-title {
+  padding: 2px 8px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.schedule-menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.schedule-menu-item:hover,
+.schedule-menu-item:focus-visible {
+  background: var(--hover);
+  color: var(--accent);
+  outline: none;
+}
+
+.schedule-menu-label {
+  flex: 1 1 auto;
+}
+
+.schedule-menu-when {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.schedule-menu-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px 8px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.schedule-menu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.schedule-menu-field input {
+  padding: 3px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.schedule-menu-hint {
+  margin: 2px 8px 4px;
+  font-size: 11px;
+  color: var(--warning);
+}
+
+/* El reloj chico de una pestana con algo programado (hito 51); en el color de aviso si alguno no se envio. */
+.tab-scheduled {
+  display: inline-flex;
+  margin-right: 5px;
+  vertical-align: -1px;
+  color: var(--accent);
+}
+
+.tab-scheduled-failed {
+  color: var(--warning);
 }
 
 /* ---------- dialogo ---------- */

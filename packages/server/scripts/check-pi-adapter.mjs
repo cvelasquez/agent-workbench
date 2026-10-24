@@ -1132,6 +1132,8 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
       forceSend: true,
       // §6.35.1: Alt+Q y Ctrl+C, medidos en Windows con la 1.3.0.
       editQueue: process.platform === 'win32',
+      // Hito 51: no se le programa nada todavia (el 52).
+      scheduledSend: false,
       // Hito 49: sin `edit` ni `write`, pero con la consola (§16.19).
       readOnlyLaunch: { mode: null, guard: 'tools' },
     }), show(piIndex.PI_BASE_CAPABILITIES));

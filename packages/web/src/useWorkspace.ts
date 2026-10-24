@@ -79,7 +79,7 @@ export interface HandoffNotice {
   /** `sending`: el servidor la esta mandando sola. `prefilled`: quedo en el cuadro. */
   delivery: HandoffDelivery;
   /** Por que quedo en el cuadro, si quedo; null mientras se manda sola. */
-  prefillReason: Exclude<ComposerPrefillReason, ReturnedReason | 'rewound' | 'requested' | 'queue-edit'> | null;
+  prefillReason: Exclude<ComposerPrefillReason, ReturnedReason | 'rewound' | 'requested' | 'queue-edit' | 'unscheduled'> | null;
 }
 
 /**
@@ -483,7 +483,8 @@ export function useWorkspace(): Workspace {
               terminalId: message.terminalId,
               text: message.text,
               pasted: message.pasted ?? [],
-              focus: message.reason === 'queue-edit',
+              // Lo que el usuario saco para corregirlo: la cola (§6.35.1) o un mensaje programado (hito 51).
+              focus: message.reason === 'queue-edit' || message.reason === 'unscheduled',
             },
           ]);
           const { reason } = message;
@@ -498,9 +499,9 @@ export function useWorkspace(): Workspace {
             break;
           }
           // El mensaje antes del que se volvio (hito 44), el pedido de las notas de
-          // una rama aparte (hito 48) o la cola que se saco para editarla (§6.35.1):
-          // los pidio el usuario, sin aviso.
-          if (reason === 'rewound' || reason === 'requested' || reason === 'queue-edit') break;
+          // una rama aparte (hito 48), la cola que se saco para editarla (§6.35.1)
+          // o un mensaje programado que se cancelo (hito 51): los pidio el usuario, sin aviso.
+          if (reason === 'rewound' || reason === 'requested' || reason === 'queue-edit' || reason === 'unscheduled') break;
           setHandoffs((current) => {
             const notice = current.get(message.terminalId);
             if (notice === undefined) return current;
