@@ -1002,6 +1002,7 @@
   "thread.pasted_other": "Texte collé #{{number}} · {{count}} lignes",
   "thread.question.answerInCli": "Répondez dans l'onglet CLI",
   "thread.question.answered": "Réponse donnée",
+  "thread.question.closed": "La CLI s'est fermée avec cette question ouverte",
   "thread.question.multi": "choix multiple",
   "thread.question.noCli": "Impossible de répondre sans la CLI ouverte",
   "thread.question.pickEach": "Choisissez une option pour chaque question · vous pouvez aussi répondre dans l'onglet CLI",

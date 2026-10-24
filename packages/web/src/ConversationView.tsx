@@ -79,7 +79,7 @@ import {
   type CardSpan,
   type ThreadAnchor,
 } from './thread-scroll.js';
-import { questionCardLock, type QuestionCardLock } from './live-question-ui.js';
+import { questionCardLock, type QuestionCardLock, type QuestionCardTab } from './live-question-ui.js';
 import {
   mainStatusText,
   mainThreadStatus,
@@ -332,6 +332,11 @@ interface ConversationViewProps {
    * dicen lo mismo y por eso no se mezclan.
    */
   cliPresence: CliPresence;
+  /**
+   * Cuando arranco la CLI de la pestana (epoch ms), o null. Una pregunta de
+   * antes la hizo un proceso que ya no esta, y no se contesta (§5.5.3).
+   */
+  cliLaunchedAt: number | null;
   /** Codigo de salida, para la que murio. */
   exitCode: number | null;
   /** Lanza la CLI de esta pestana, reusando su conversacion. */
@@ -430,6 +435,7 @@ export function ConversationView({
   instructionsFile,
   onGoToCli,
   cliPresence,
+  cliLaunchedAt,
   exitCode,
   onWakeCli,
   waking,
@@ -635,9 +641,14 @@ export function ConversationView({
   /*
     Sin la CLI abierta, ninguna tarjeta de pregunta se contesta (24-10-2026,
     §5.5.3): no hay quien reciba las teclas. Es la regla de "Volver aqui" y de
-    la tarjeta leida de la pantalla, que solo se dibuja con la CLI viva.
+    la tarjeta leida de la pantalla, que solo se dibuja con la CLI viva. Con la
+    CLI abierta, tampoco la que hizo un proceso anterior: cada tarjeta lo mira
+    con la hora de su pregunta (`questionCardLock`).
   */
-  const questionLock = questionCardLock(questionsAnswerable, cliPresence === 'live');
+  const questionTab = useMemo<QuestionCardTab>(
+    () => ({ questionCards: questionsAnswerable, cliOpen: cliPresence === 'live', launchedAt: cliLaunchedAt }),
+    [questionsAnswerable, cliPresence, cliLaunchedAt],
+  );
 
   /*
     Otra pestana abre al final, donde quedo su agente.
@@ -1181,7 +1192,7 @@ export function ConversationView({
                   register={registerCard}
                   answered={answered}
                   answerFailed={answerFailed}
-                  questionLock={questionLock}
+                  questionTab={questionTab}
                   onAnswer={answer}
                 />
               );
@@ -1209,7 +1220,7 @@ export function ConversationView({
                     register={registerCard}
                     answered={answered}
                     answerFailed={answerFailed}
-                    questionLock={questionLock}
+                    questionTab={questionTab}
                     onAnswer={answer}
                   />
                 ))}
@@ -1229,7 +1240,7 @@ export function ConversationView({
                 part={liveQuestion}
                 answeredAt={answered[liveQuestion.toolUseId] ?? null}
                 failure={answerFailed[liveQuestion.toolUseId] ?? null}
-                lock={questionLock}
+                lock={questionCardLock(questionTab, null)}
                 onAnswer={answer}
                 needle={needle}
               />
@@ -1563,8 +1574,8 @@ interface MessageBlockProps {
   answered: Record<string, AnswerSelection[]>;
   /** Respuestas que se dieron por perdidas, con el motivo. */
   answerFailed: Record<string, string>;
-  /** Por que las preguntas se leen pero no se contestan desde aca, o null. */
-  questionLock: QuestionCardLock;
+  /** Lo que decide si sus preguntas se contestan desde aca (`questionCardLock`). */
+  questionTab: QuestionCardTab;
   onAnswer: (toolUseId: string, selections: AnswerSelection[]) => void;
 }
 
@@ -1582,11 +1593,13 @@ function MessageBlock({
   register,
   answered,
   answerFailed,
-  questionLock,
+  questionTab,
   onAnswer,
 }: MessageBlockProps): JSX.Element {
   const { event } = card;
   const mine = event.role === 'user';
+  // Con la hora de este mensaje: la pregunta de un proceso anterior de la CLI ya no espera (§5.5.3).
+  const questionLock = questionCardLock(questionTab, event.at);
 
   /*
     Una pregunta esta contestada si su `tool_result` ya llego al archivo —lo
@@ -1967,7 +1980,8 @@ function PartView({
  * respuesta que **no se confirmo**: ahi la tarjeta lo dice y se vuelve a
  * abrir, porque dejarla cerrada seria afirmar que se contesto algo que nadie
  * recibio. Y sin la CLI abierta no acepta clics nunca (24-10-2026, §5.5.3):
- * nadie los recibiria.
+ * nadie los recibiria. Tampoco si la hizo una CLI que ya se cerro: la de ahora
+ * no tiene ese menu.
  */
 function QuestionCard({
   part,
@@ -1983,7 +1997,8 @@ function QuestionCard({
   /**
    * Por que no se contesta desde aca, o null. La pregunta se sigue leyendo
    * entera; lo que se apaga es mandar teclas: a un menu cuya forma no esta
-   * medida (`unsupported`), o a una pestana sin CLI (`no-cli`).
+   * medida (`unsupported`), a una pestana sin CLI (`no-cli`) o a una CLI que
+   * no hizo la pregunta (`closed`).
    */
   lock: QuestionCardLock;
   onAnswer: (toolUseId: string, selections: AnswerSelection[]) => void;
@@ -2160,14 +2175,16 @@ function QuestionCard({
       })}
 
       <div className="question-foot">
-        {/* Sin CLI, el motivo de un rechazo anterior ya no cuenta: lo que importa es que no hay quien reciba. */}
-        {failure !== null && lock !== 'no-cli' && <span className="question-failed">{failure}</span>}
+        {/* Con candado, el motivo de un rechazo anterior ya no cuenta: lo que importa es por que no se contesta. */}
+        {failure !== null && lock === null && <span className="question-failed">{failure}</span>}
         {done ? (
           <span className="question-sent">{t('thread.question.answered')}</span>
         ) : lock === 'unsupported' ? (
           <span className="question-note">{t('thread.question.answerInCli')}</span>
         ) : lock === 'no-cli' ? (
           <span className="question-note">{t('thread.question.noCli')}</span>
+        ) : lock === 'closed' ? (
+          <span className="question-note">{t('thread.question.closed')}</span>
         ) : (
           <>
             {!oneShot && (

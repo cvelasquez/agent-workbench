@@ -1002,6 +1002,7 @@
   "thread.pasted_other": "Eingefügter Text #{{number}} · {{count}} Zeilen",
   "thread.question.answerInCli": "Im CLI-Tab antworten",
   "thread.question.answered": "Beantwortet",
+  "thread.question.closed": "Die CLI wurde geschlossen, während diese Frage offen war",
   "thread.question.multi": "Mehrfachauswahl",
   "thread.question.noCli": "Ohne geöffnete CLI kann nicht geantwortet werden",
   "thread.question.pickEach": "Wählen Sie bei jeder Frage eine Option · Sie können auch im CLI-Tab antworten",

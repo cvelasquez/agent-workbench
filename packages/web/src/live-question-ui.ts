@@ -14,6 +14,7 @@
  */
 
 import {
+  askedBeforeLaunch,
   sameQuestionItem,
   type AnswerSelection,
   type ConversationEvent,
@@ -30,16 +31,32 @@ import {
  *  - `no-cli`: la pestana no tiene la CLI abierta, dormida o terminada. No hay
  *    quien reciba la respuesta: el clic decia "Respondida" con la respuesta ya
  *    rechazada (24-10-2026, §5.5.3).
+ *  - `closed`: la hizo un proceso anterior de la CLI, que se cerro con la
+ *    pregunta abierta. La de ahora no tiene ese menu: el clic le mandaba un
+ *    numero a su prompt (24-10-2026, §5.5.3).
  */
-export type QuestionCardLock = 'unsupported' | 'no-cli' | null;
+export type QuestionCardLock = 'unsupported' | 'no-cli' | 'closed' | null;
+
+/** Lo que el candado sabe de la pestana: lo mismo para todas sus tarjetas. */
+export interface QuestionCardTab {
+  /** La CLI de la pestana contesta con la tarjeta (`questionCards`). */
+  questionCards: boolean;
+  /** Tiene la CLI abierta. */
+  cliOpen: boolean;
+  /** Cuando arranco esa CLI (epoch ms), o null si no se sabe. */
+  launchedAt: number | null;
+}
 
 /**
- * El candado de las tarjetas de una pestana. `unsupported` va primero: a una
- * CLI sin tarjetas de pregunta no le cambia nada que este abierta o no.
+ * El candado de una tarjeta. `askedAt` es el `at` del evento de la pregunta, y
+ * null en la leida de la pantalla, que es siempre de la CLI de ahora.
+ * `unsupported` va primero: a una CLI sin tarjetas de pregunta no le cambia
+ * nada que este abierta o no.
  */
-export function questionCardLock(questionCards: boolean, cliOpen: boolean): QuestionCardLock {
-  if (!questionCards) return 'unsupported';
-  return cliOpen ? null : 'no-cli';
+export function questionCardLock(tab: QuestionCardTab, askedAt: number | null): QuestionCardLock {
+  if (!tab.questionCards) return 'unsupported';
+  if (!tab.cliOpen) return 'no-cli';
+  return askedAt !== null && askedBeforeLaunch(askedAt, tab.launchedAt) ? 'closed' : null;
 }
 
 /** Lo que se mando en una pregunta leida, hasta que aparece la del historial. */

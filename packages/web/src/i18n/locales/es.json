@@ -1002,6 +1002,7 @@
   "thread.pasted_other": "Texto pegado #{{number}} · {{count}} líneas",
   "thread.question.answerInCli": "Responde en la solapa CLI",
   "thread.question.answered": "Respondida",
+  "thread.question.closed": "La CLI se cerró con esta pregunta abierta",
   "thread.question.multi": "varias",
   "thread.question.noCli": "Sin la CLI abierta no se puede responder",
   "thread.question.pickEach": "Elige en cada pregunta · también puedes responder en la solapa CLI",

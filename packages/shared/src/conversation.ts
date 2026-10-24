@@ -143,6 +143,21 @@ export function sameQuestionItem(a: ConversationQuestionItem, b: ConversationQue
 }
 
 /**
+ * true si una pregunta la hizo un proceso anterior de la CLI de la pestana: se
+ * hizo (`askedAt`, el `at` de su evento) antes de que arrancara el de ahora
+ * (`launchedAt`). Esa ya no espera respuesta (24-10-2026, §5.5.3): Claude Code
+ * no vuelve a abrir su menu al reanudar, la da por rechazada sin escribirlo
+ * (medido con la 2.1.310), y las teclas caerian en un prompt sin menu.
+ *
+ * Sin hora de la pregunta (0) o sin proceso (null) no se sabe: false, y todo
+ * queda como antes. La usan el servidor, para no mandar teclas, y la web, para
+ * que la tarjeta lo diga.
+ */
+export function askedBeforeLaunch(askedAt: number, launchedAt: number | null): boolean {
+  return askedAt > 0 && launchedAt !== null && askedAt < launchedAt;
+}
+
+/**
  * De donde salen los bytes de una imagen del usuario.
  *
  * Son **tres formas distintas**, y por eso hay que distinguirlas:

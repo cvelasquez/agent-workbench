@@ -22,6 +22,9 @@
  *  - **Decir "Respondida" sin CLI** (24-10-2026, §5.5.3). Una pestana dormida
  *    o terminada no recibe la respuesta: la tarjeta no la acepta, y una que
  *    llega igual al servidor vuelve como `answer-failed`.
+ *  - **Contestar la pregunta de una CLI que se cerro** (24-10-2026, §5.5.3).
+ *    Reabierta, la CLI no vuelve a abrir su menu: la tarjeta no la acepta, el
+ *    servidor no la da por pendiente y no esconde una igual de la CLI de ahora.
  *
  * Las pantallas son las medidas con la CLI 2.1.309 (`fixtures/question-screens.mjs`).
  * No lanza la CLI, no carga node-pty y no lee `~/.claude`: el home apunta a una
@@ -440,7 +443,7 @@ function fakeCli({ screenQuestions = createClaudeCodeScreenQuestions() } = {}) {
   };
 }
 
-function hubWith(cli, screen) {
+function hubWith(cli, screen, launchedAtOf = () => 1) {
   let opened = 0;
   const registry = {
     get: (terminalId) => terminalId === 't1'
@@ -448,7 +451,7 @@ function hubWith(cli, screen) {
           label: 't1', resumed: false, createdAt: 0, alive: true, exitCode: null, sleeping: false }
       : null,
     on: () => undefined,
-    launchedAtOf: () => 1,
+    launchedAtOf,
     watchScreen: () => {
       opened += 1;
       return screen;
@@ -528,6 +531,42 @@ const WAITING = { activity: 'waiting', waitingFor: 'input needed' };
   hub.disposeAll();
 }
 
+/*
+  La pregunta de un proceso anterior (24-10-2026, §5.5.3). Medido con la
+  2.1.310: la CLI cerrada con el menu abierto y reabierta no lo vuelve a
+  mostrar, y no escribe nada: la pregunta sigue sin resultado en el archivo.
+  Para la CLI de ahora no esta pendiente: el socket no le manda teclas, y una
+  igual en la pantalla de ahora no se esconde detras de ella.
+*/
+{
+  const cli = fakeCli();
+  const fake = fakeScreen(screens.BASIC_OPEN);
+  let launchedAt = 5_000;
+  const { hub, emitted } = hubWith(cli, fake.screen, () => launchedAt);
+  await hub.subscribe('t1');
+  const input = itemOf('q1-basica');
+  const asked = (id, at) => ({ eventId: `e-${id}`, role: 'assistant', at, parts: [{ kind: 'question', toolUseId: id, questions: [input] }] });
+
+  cli.tail.events = [asked('toolu_viejo', 1_000)];
+  check('D9 la que hizo un proceso anterior ya no esta pendiente: el socket no manda teclas', hub.getPendingQuestion('t1') === null);
+  cli.tail.events = [asked('toolu_nuevo', 6_000)];
+  check('D9 la de la CLI de ahora si', hub.getPendingQuestion('t1')?.toolUseId === 'toolu_nuevo');
+  cli.tail.events = [asked('toolu_sin_hora', 0)];
+  check('D9 sin hora no se sabe: como antes', hub.getPendingQuestion('t1')?.toolUseId === 'toolu_sin_hora');
+  launchedAt = null;
+  cli.tail.events = [asked('toolu_viejo', 1_000)];
+  check('D9 sin proceso sigue pendiente: la escritura falla con el aviso de la pestana sin CLI',
+    hub.getPendingQuestion('t1')?.toolUseId === 'toolu_viejo');
+
+  // La misma pregunta, hecha otra vez por la CLI de ahora y en su pantalla: la vieja no la esconde.
+  launchedAt = 5_000;
+  cli.push(WAITING);
+  await waitFor(() => emitted.some((each) => each.question !== null), 5_000);
+  check('D9 una igual de un proceso anterior no esconde la que la CLI de ahora tiene en pantalla',
+    hub.getLiveQuestion('t1')?.toolUseId.startsWith(LIVE_QUESTION_ID_PREFIX) === true, json(emitted.at(-1)));
+  hub.disposeAll();
+}
+
 // --- F. La web: la tarjeta del historial hereda lo de la leida -----------------
 
 {
@@ -564,25 +603,50 @@ const WAITING = { activity: 'waiting', waitingFor: 'input needed' };
     `terminal-asleep` a los 0,17 s y la tarjeta decia "Respondida" 20 s, y
     despues "la CLI no confirmo", que tampoco era el motivo.
   */
-  check('F8 con la CLI abierta, la tarjeta se contesta', questionCardLock(true, true) === null);
+  // La pestana de las tarjetas: con tarjetas de pregunta, la CLI abierta y lanzada a los 5 s.
+  const tab = (patch = {}) => ({ questionCards: true, cliOpen: true, launchedAt: 5_000, ...patch });
+  const closedTab = tab({ cliOpen: false, launchedAt: null });
+  check('F8 con la CLI abierta, la pregunta de esa CLI se contesta', questionCardLock(tab(), 6_000) === null);
   check('F8 sin la CLI abierta (dormida o terminada), no: diria "Respondida" con la respuesta rechazada',
-    questionCardLock(true, false) === 'no-cli', json(questionCardLock(true, false)));
+    questionCardLock(closedTab, 6_000) === 'no-cli' && questionCardLock(closedTab, 1_000) === 'no-cli',
+    json([questionCardLock(closedTab, 6_000), questionCardLock(closedTab, 1_000)]));
   check('F8 una CLI sin tarjetas sigue con "Responde en la solapa CLI", abierta o no',
-    questionCardLock(false, true) === 'unsupported' && questionCardLock(false, false) === 'unsupported',
-    json([questionCardLock(false, true), questionCardLock(false, false)]));
+    questionCardLock(tab({ questionCards: false }), 6_000) === 'unsupported' &&
+      questionCardLock({ ...closedTab, questionCards: false }, 6_000) === 'unsupported',
+    json([questionCardLock(tab({ questionCards: false }), 6_000), questionCardLock({ ...closedTab, questionCards: false }, 6_000)]));
+
+  /*
+    La pregunta de un proceso anterior (24-10-2026, §5.5.3). Medido con la
+    2.1.310: se cerro la CLI con el menu abierto y al reabrirla no lo volvio a
+    mostrar; la dio por rechazada sin escribirlo, y el clic mandaba el "1" a su
+    prompt.
+  */
+  check('F10 la pregunta que hizo un proceso anterior no se contesta: la CLI de ahora no tiene su menu',
+    questionCardLock(tab(), 1_000) === 'closed', json(questionCardLock(tab(), 1_000)));
+  check('F10 sin hora de la pregunta, o sin saber cuando arranco la CLI, como antes',
+    questionCardLock(tab(), 0) === null && questionCardLock(tab({ launchedAt: null }), 1_000) === null);
+  check('F10 la leida de la pantalla es siempre de la CLI de ahora', questionCardLock(tab(), null) === null);
+  check('F10 la regla compartida: antes del arranque si; a la misma hora, despues, sin hora o sin proceso, no',
+    shared.askedBeforeLaunch(4_999, 5_000) && !shared.askedBeforeLaunch(5_000, 5_000) && !shared.askedBeforeLaunch(6_000, 5_000) &&
+      !shared.askedBeforeLaunch(0, 5_000) && !shared.askedBeforeLaunch(1_000, null));
 
   // Lo que la funcion pura no ve: que la vista decida con ella. Expresiones exactas sobre el fuente.
   const { readFileSync } = await import('node:fs');
   const view = readFileSync(new URL('../../web/src/ConversationView.tsx', import.meta.url), 'utf8');
-  check('F9 fuente: la vista calcula el candado con la CLI de la pestana',
-    view.includes("const questionLock = questionCardLock(questionsAnswerable, cliPresence === 'live');"));
-  // Tres pasan el candado hacia abajo (las dos de MessageBlock y la de PartView) y dos lo usan: la leida y la del historial.
-  const passed = (view.match(/questionLock=\{questionLock\}/g) ?? []).length;
-  const used = (view.match(/\slock=\{questionLock\}/g) ?? []).length;
-  check('F9 fuente: ninguna tarjeta se dibuja con la capacidad sola, sin el candado',
-    !/answerable=\{/.test(view) && passed === 3 && used === 2, `${passed} y ${used}`);
-  check('F9 fuente: la tarjeta con candado no acepta clics y dice por que',
-    view.includes('const locked = done || lock !== null;') && view.includes("t('thread.question.noCli')"));
+  const app = readFileSync(new URL('../../web/src/App.tsx', import.meta.url), 'utf8');
+  check('F9 fuente: la vista arma el candado con la CLI de la pestana y cuando arranco, que le pasa App',
+    view.includes("cliOpen: cliPresence === 'live', launchedAt: cliLaunchedAt") &&
+      app.includes('cliLaunchedAt={activeTerminal?.launchedAt ?? null}'));
+  // Las dos de la lista pasan la pestana; cada mensaje calcula su candado con la hora de su evento y lo baja a su tarjeta.
+  const counts = [/questionTab=\{questionTab\}/g, /questionLock=\{questionLock\}/g, /\slock=\{questionLock\}/g].map((re) => (view.match(re) ?? []).length);
+  check('F9 fuente: ninguna tarjeta se dibuja sin su candado, y la del historial lo mira con la hora de su pregunta',
+    !/answerable=\{/.test(view) && same(counts, [2, 1, 1]) &&
+      view.includes('const questionLock = questionCardLock(questionTab, event.at);') &&
+      view.includes('lock={questionCardLock(questionTab, null)}'),
+    json(counts));
+  check('F9 fuente: la tarjeta con candado no acepta clics, dice por que y no repite un rechazo viejo',
+    view.includes('const locked = done || lock !== null;') && view.includes("t('thread.question.noCli')") &&
+      view.includes("t('thread.question.closed')") && view.includes('{failure !== null && lock === null && <span'));
 }
 
 // --- G. El socket: las teclas de una respuesta que no se pudieron escribir --------

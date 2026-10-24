@@ -1072,6 +1072,7 @@
   "thread.pasted_other": "Вставленный текст #{{number}} · {{count}} строки",
   "thread.question.answerInCli": "Ответьте на вкладке CLI",
   "thread.question.answered": "Отвечено",
+  "thread.question.closed": "CLI закрылся, пока этот вопрос был открыт",
   "thread.question.multi": "можно выбрать несколько",
   "thread.question.noCli": "Без открытого CLI ответить нельзя",
   "thread.question.pickEach": "Выберите вариант в каждом вопросе · можно также ответить на вкладке CLI",

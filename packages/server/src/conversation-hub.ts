@@ -21,6 +21,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import {
   EMPTY_CONTEXT_USAGE,
+  askedBeforeLaunch,
   blindToApprovals,
   launchModeFor,
   sameQuestionItem,
@@ -542,12 +543,13 @@ export class ConversationHub extends EventEmitter {
   /**
    * Avisa la pregunta leida de la pantalla si cambio. No se avisa la que el
    * historial ya tiene abierta: esa tarjeta ya esta en el hilo, con el id de la
-   * CLI, y verla dos veces seria peor que no verla.
+   * CLI, y verla dos veces seria peor que no verla. Una igual que hizo un
+   * proceso anterior no cuenta: esa ya no espera (§5.5.3).
    */
   private refreshLiveQuestion(terminalId: TerminalId, entry: Entry): void {
     if (this.entries.get(terminalId) !== entry) return;
     const read = entry.live?.current()?.part ?? null;
-    const pending = read === null ? null : this.pendingQuestionOf(entry);
+    const pending = read === null ? null : this.pendingQuestionOf(terminalId, entry);
     const item = read?.questions[0];
     const shown =
       read !== null && item !== undefined && !(pending?.questions.some((each) => sameQuestionItem(each, item)) ?? false)
@@ -1162,10 +1164,15 @@ export class ConversationHub extends EventEmitter {
    * Se recorre desde el final: la ultima pregunta sin su `tool_result` es la
    * abierta. Si ya tiene resultado —porque se contesto desde la solapa CLI—
    * devuelve null, y esa es la unica defensa contra responder dos veces.
+   *
+   * Tambien devuelve null si la hizo un proceso anterior de la CLI (24-10-2026,
+   * §5.5.3): sin resultado en el archivo, pero la CLI de ahora no tiene ese
+   * menu, y las teclas caerian en su prompt. Sin proceso la pregunta sigue
+   * aca, y la escritura falla con el aviso de la pestana sin CLI.
    */
   getPendingQuestion(terminalId: TerminalId): ConversationQuestionPart | null {
     const entry = this.entries.get(terminalId);
-    return entry === undefined ? null : this.pendingQuestionOf(entry);
+    return entry === undefined ? null : this.pendingQuestionOf(terminalId, entry);
   }
 
   /**
@@ -1202,7 +1209,7 @@ export class ConversationHub extends EventEmitter {
     return entry.live.check(item);
   }
 
-  private pendingQuestionOf(entry: Entry): ConversationQuestionPart | null {
+  private pendingQuestionOf(terminalId: TerminalId, entry: Entry): ConversationQuestionPart | null {
     const { events } = entry.follower.getTail(PENDING_QUESTION_LOOKBACK);
     const answered = new Set<string>();
     for (const event of events) {
@@ -1212,11 +1219,14 @@ export class ConversationHub extends EventEmitter {
     }
 
     for (let index = events.length - 1; index >= 0; index -= 1) {
-      const parts = events[index]?.parts ?? [];
+      const event = events[index];
+      const parts = event?.parts ?? [];
       for (let at = parts.length - 1; at >= 0; at -= 1) {
         const part = parts[at];
         if (part?.kind !== 'question') continue;
-        return answered.has(part.toolUseId) ? null : part;
+        if (answered.has(part.toolUseId)) return null;
+        // La de un proceso anterior ya no espera: la CLI de ahora no tiene su menu.
+        return askedBeforeLaunch(event?.at ?? 0, this.registry.launchedAtOf(terminalId)) ? null : part;
       }
     }
     return null;

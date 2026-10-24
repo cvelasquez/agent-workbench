@@ -1463,6 +1463,8 @@ export function App(): JSX.Element {
                 ? 'sleeping'
                 : 'exited'
           }
+          // Una pregunta de antes la hizo un proceso que ya no esta (§5.5.3).
+          cliLaunchedAt={activeTerminal?.launchedAt ?? null}
           exitCode={activeTerminal?.exitCode ?? null}
           waking={activeTerminalId !== null && waking.has(activeTerminalId)}
           onWakeCli={() => {
