@@ -4,6 +4,38 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## 0.8.1 - 2026-10-23
+
+### Added
+
+- **Remove a separate branch and lose the new files it has left.** When all
+  that's uncommitted in a branch is new files (screenshots, test scripts, a
+  build), the remove dialog says how many there are and how much they weigh,
+  and offers **Remove and lose these files**. Only what the dialog showed is
+  deleted: if anything changed in the meantime, nothing is. It isn't offered
+  with a git repository inside, more than 20,000 files, or a file copied from
+  the main folder that the branch doesn't ignore, and the dialog says why. A
+  changed tracked file still holds the removal back.
+  - **Ask the agent to commit them** no longer asks it whether something should
+    be discarded: what doesn't belong in the repository stays as it is, and the
+    agent says which and why.
+- **The remove dialog names the program that has the folder open**, on Windows:
+  its name, its executable and its PID, instead of just "another program".
+- **A folder the agent names in the conversation opens in the system's file
+  explorer** with one click, the way a file opens in the Files tab. Not from a
+  paired device, where it would open on the host's desktop.
+
+### Fixed
+
+- Removing a separate branch with paths over 260 characters, on Windows, no
+  longer leaves it half-deleted: git now runs with long paths on, and if it
+  lets go of the branch without finishing, the app deletes what's left. A
+  branch already left like that shows up again in Changes, and removing it
+  finishes the job.
+- Switching tabs no longer leaves the conversation above the end when its last
+  messages have screenshots that load late, and a tab that notified you while
+  you were in another one opens at the end.
+
 ## 0.8.0 - 2026-10-23
 
 ### Added
