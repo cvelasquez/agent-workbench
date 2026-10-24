@@ -90,9 +90,10 @@ jobs:
         shell: bash
         run: node .github/scripts/smoke.mjs agent-workbench-*.tgz
 
-  # The Android app: its JVM tests and a debug APK (not signed for publishing).
-  # It lives in android/, outside the pnpm workspace; nothing of it reaches the
-  # npm package.
+  # The Android app: its JVM tests, a debug APK (not signed for publishing) and
+  # the release build, unsigned, so a library that breaks R8 shows up the day it
+  # lands. It lives in android/, outside the pnpm workspace; nothing of it
+  # reaches the npm package.
   android:
     name: Android app
     runs-on: ubuntu-latest
@@ -110,8 +111,8 @@ jobs:
           cache: gradle
       - name: Android SDK packages the build uses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "build-tools;35.0.0" > /dev/null
-      - name: Tests, lint and the debug APK
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - name: Tests, lint, the debug APK and the release build with R8
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: android-debug-apk

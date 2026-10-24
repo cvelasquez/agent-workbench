@@ -48,9 +48,12 @@ android {
             versionNameSuffix = "-dev"
         }
         release {
-            // Sin achicar todavía: sshlib y Tink registran proveedores por nombre,
-            // y las reglas para conservarlos se escriben y se prueban al publicar.
-            isMinifyEnabled = false
+            // R8: achica, ofusca y optimiza. Play lo exige desde febrero de 2027 a las apps
+            // con más de 10 MB de código, y esta tenía 10,5 (§15.11). Lo que una biblioteca
+            // busca por nombre se conserva en proguard-rules.pro, con el porqué de cada regla.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (keystoreProperties.containsKey("storeFile")) signingConfig = signingConfigs.getByName("upload")
         }
     }
