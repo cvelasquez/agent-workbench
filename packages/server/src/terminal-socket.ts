@@ -66,6 +66,7 @@ import { FileWriteError, saveProjectFile } from './file-write.js';
 import { readDiff } from './git-repo.js';
 import { GlobalSearchSlot } from './global-search.js';
 import { deliverWhenReady, prefillReasonFor, type DeliverDeps } from './deliver-when-ready.js';
+import { prepareSubmit, runSubmit, type SubmitMessageDeps } from './submit-message.js';
 import { HANDOFF_DELIVERY_TIMEOUT_MS, continueSession, type ContinueDeps } from './handoff/handoff.js';
 import { InvalidPathError, resolveInside } from './path-guard.js';
 import { attachmentLine, attachmentReference, textWithAttachments } from './attachments.js';
@@ -89,10 +90,6 @@ import {
   buildInterruptKeys,
   buildSubmissionWrites,
   planModeChange,
-  screenShowsDialog,
-  submissionPayload,
-  submitRefusal,
-  submitStartDelayMs,
 } from './pty-input.js';
 import { QueuedSubmitBook, reclaimQueuedSubmits } from './queued-submits.js';
 import type { RepoHub } from './repo-hub.js';
@@ -112,6 +109,9 @@ import {
   scheduleCreateRefusal,
 } from './scheduled-messages/scheduler.js';
 import type { ScheduledMessageStore } from './scheduled-messages/store.js';
+import type { RunningInstances } from './scheduled-messages/instances.js';
+import { deliverScheduled, freenessOf, type ScheduledDeliveryDeps } from './scheduled-messages/delivery.js';
+import type { SessionFollower } from './agents/adapter.js';
 import { authorizeRequest, type Credential } from './security.js';
 
 /**
@@ -200,6 +200,8 @@ export interface TerminalSocketOptions {
   scheduled: ScheduledMessageStore;
   /** Cuando terminan de restaurarse las pestanas: recien ahi arranca el reloj de los mensajes programados. */
   restored: Promise<unknown>;
+  /** Hito 52: las otras instancias de la app que corren sobre la misma carpeta. Ausente: ninguna. */
+  instances?: Pick<RunningInstances, 'othersRunning'>;
 }
 
 export function attachTerminalSocket(options: TerminalSocketOptions): () => void {
@@ -712,6 +714,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     if (!registry.close(terminalId)) return false;
     // Cerrar la pestana es tirar lo que quedo escrito en su cuadro (§6.29).
     if (draftOwner !== null) drafts.delete(draftOwner);
+    turnProbes.delete(terminalId);
     // Y lo que tenia programado (hito 51): la web lo pregunto antes de cerrar.
     if (draftOwner !== null) {
       void scheduler.dropOwner(draftOwner).catch((error: unknown) => {
@@ -749,6 +752,62 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     enqueue: (terminalId, job, enqueueOptions) => writeQueue.enqueue(terminalId, job, enqueueOptions),
   };
 
+  /** El envio del cuadro, con sus guardas (hito 52, `submit-message.ts`). Lo usa tambien el reloj. */
+  const submitDeps: SubmitMessageDeps = {
+    adapterOf,
+    inputOf,
+    launchedAtOf: (terminalId) => registry.launchedAtOf(terminalId),
+    activityOf: (terminalId) => registry.activityOf(terminalId),
+    sessionIdOf: (terminalId) => registry.get(terminalId)?.sessionId ?? null,
+    watchScreen: (terminalId) => registry.watchScreen(terminalId),
+    noteSubmitted: (terminalId, text) => registry.noteSubmitted(terminalId, text),
+    conversations,
+    queuedSubmits,
+    enqueue: (terminalId, job, enqueueOptions) => writeQueue.enqueue(terminalId, job, enqueueOptions),
+    now: Date.now,
+  };
+
+  /*
+    Hito 52: el "libre" de una CLI que no publica su estado (Codex) sale del turno
+    abierto de su historial. Un seguidor por pestana, que lee de a poco lo que se
+    agrega; se suelta al cambiar de conversacion o al cerrar la pestana.
+  */
+  const turnProbes = new Map<TerminalId, { sessionId: string; follower: SessionFollower; started: Promise<void> }>();
+  const probeFor = (terminalId: TerminalId, follow: () => SessionFollower, sessionId: string): { follower: SessionFollower; started: Promise<void> } => {
+    const known = turnProbes.get(terminalId);
+    if (known !== undefined && known.sessionId === sessionId) return known;
+    const follower = follow();
+    const probe = { sessionId, follower, started: follower.start() };
+    turnProbes.set(terminalId, probe);
+    return probe;
+  };
+
+  /** Lo que usa el envio de un mensaje programado a una CLI sin senal de "lista" (hito 52, `delivery.ts`). */
+  const scheduledDeliveryDeps = (follow: ScheduledDeliveryDeps['follow']): ScheduledDeliveryDeps => ({
+    tab: (terminalId) => {
+      const tab = registry.get(terminalId);
+      if (tab === null) return null;
+      return { alive: tab.alive, sessionId: tab.sessionId, cwd: tab.cwd, launchedAt: registry.launchedAtOf(terminalId) };
+    },
+    activityOf: (terminalId) => registry.activityOf(terminalId),
+    screen: (terminalId) => registry.watchScreen(terminalId),
+    // El camino del cuadro, con sus guardas, solo texto.
+    submit: async (terminalId, text) => {
+      const plan = prepareSubmit(submitDeps, terminalId);
+      if ('refusal' in plan) return { kind: 'refusal' };
+      return runSubmit(submitDeps, plan, {
+        text,
+        imageCount: 0,
+        send: true,
+        prepare: () => Promise.resolve({ fullText: text, imagePaths: [] }),
+        write: (piece) => registry.write(terminalId, piece),
+      });
+    },
+    follow,
+    now: Date.now,
+    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  });
+
   /*
     Los mensajes programados (hito 51, §6.39). El reloj manda por el camino de
     las notas (`deliverWhenReady`): espera a que la CLI diga que esta libre y
@@ -767,6 +826,21 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           : [],
       ),
     activityOf: (terminalId) => registry.activityOf(terminalId),
+    freeNow: async (tab) => {
+      const adapter = agents.get(tab.agent)?.adapter ?? null;
+      if (adapter === null) return 'unknown';
+      if (adapter.status !== null) {
+        const activity = registry.activityOf(tab.terminalId);
+        return activity === 'idle' || activity === 'busy' || activity === 'waiting' ? activity : 'unknown';
+      }
+      const tabNow = registry.get(tab.terminalId);
+      if (tabNow === null) return 'unknown';
+      const probe = probeFor(tab.terminalId, () => adapter.history.follow({ cwd: tabNow.cwd, sessionId: tab.sessionId }), tab.sessionId);
+      await probe.started;
+      return freenessOf(false, null, probe.follower, registry.launchedAtOf(tab.terminalId));
+    },
+    othersRunning: () => options.instances?.othersRunning() ?? Promise.resolve(false),
+    tellsOpenElsewhere: (agent) => agents.get(agent)?.adapter.status?.isOpen !== undefined,
     agentOf: (agent) => {
       const registered = agents.get(agent);
       if (registered === null) return null;
@@ -778,14 +852,31 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     },
     isOpenElsewhere: async (agent, sessionId) => (await agents.get(agent)?.adapter.status?.isOpen?.(sessionId)) === true,
     wake: async (terminalId) => (await registry.wake(terminalId)) !== null,
-    deliver: (terminalId, text) =>
-      deliverWhenReady(deliverDeps, {
+    deliver: (terminalId, text) => {
+      /*
+        Hito 52: la CLI que no avisa cuando esta lista declara como se le manda
+        (`scheduled`): por su pantalla o por su API, y se confirma que llego.
+        Claude Code sigue por el camino de las notas (51).
+      */
+      const adapter = adapterOf(terminalId);
+      if (adapter?.scheduled !== undefined) {
+        const follow: ScheduledDeliveryDeps['follow'] = (target) => adapter.history.follow(target);
+        return deliverScheduled(scheduledDeliveryDeps(follow), {
+          terminalId,
+          text,
+          support: adapter.scheduled,
+          hasStatus: adapter.status !== null,
+          readyTimeoutMs: SCHEDULED_DELIVERY_TIMEOUT_MS,
+        });
+      }
+      return deliverWhenReady(deliverDeps, {
         terminalId,
         text,
         images: [],
         timeoutMs: SCHEDULED_DELIVERY_TIMEOUT_MS,
         write: (piece) => registry.write(terminalId, piece),
-      }),
+      });
+    },
     onChange: (messages) => broadcast({ type: 'schedule.list', messages }),
     log: (line) => console.warn(line),
   });
@@ -1217,112 +1308,26 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           }
 
           /*
-            Una pestana cuyo estado no se ve puede estar mostrando un menu de
-            aprobacion sin que la app lo sepa, y ahi el mensaje llegaria como
-            teclas: el Enter final aprueba, y un texto que empieza con la letra
-            de "aprobar siempre" aprueba para toda la sesion (A1 del hito 25).
-            Lo unico que se ve desde aca es una llamada a herramienta de este
-            proceso que todavia no tiene resultado, y con eso no se escribe nada.
-            Antes de encolar: un rechazo no tiene por que esperar su turno.
-
-            "No se ve" es por pestana, no por CLI (R27-1 del hito 27): la que
-            publica su estado solo con algo configurado, y no publico nada, esta
-            igual de ciega que la que no lo publica nunca.
+            Las guardas que no dejan escribir sobre un menu (§10.8, R27-2, D12 y
+            el dialogo del arranque, §12.14) y el trabajo en la fila viven en
+            `submit-message.ts` desde el hito 52: el reloj de los mensajes
+            programados pasa por las mismas. Un rechazo se contesta en el acto,
+            antes de encolar, como siempre.
           */
           const submitting = adapterOf(terminalId);
-          const isBlind = (): boolean =>
-            submitting !== null && conversations.isBlindToApprovals(terminalId, submitting);
-          /*
-            Y una CLI cuya confirmacion abierta aprueba lo que llegue (hito 27,
-            R27-2): con el menu de permiso abierto, el Enter aparte del mensaje
-            cae sobre la opcion resaltada. Aca la app si sabe que hay un menu —lo
-            publica la CLI— y no escribe, por lo mismo que el combo de modo no
-            cicla (D16). Con Claude Code la capacidad es false y no cambia nada.
-          */
-          const guardsPending = submitting?.capabilities.permissionCycle?.approvesPendingOnCycle === true;
-          /*
-            Y una CLI que declara que su espera bloquea el cuadro (hito 29, D12:
-            OpenCode por `serve`). La actividad es la del registro, que la sigue
-            siempre; la del hub solo existe con alguien mirando la conversacion.
-          */
-          const blocksWhileWaiting = submitting?.capabilities.waitingBlocksSubmit === true;
-          if (submitting !== null) {
-            const launchedAt = registry.launchedAtOf(terminalId);
-            const blind = isBlind();
-            const refusal = submitRefusal({
-              label: submitting.label,
-              approvesPendingOnCycle: guardsPending,
-              waitingFor: conversations.getWaitingFor(terminalId),
-              waitingBlocksSubmit: blocksWhileWaiting,
-              activity: registry.activityOf(terminalId),
-              blind,
-              openToolCall: blind && launchedAt !== null && conversations.hasOpenToolCall(terminalId, launchedAt),
-            });
-            if (refusal !== null) {
-              sendError(socket, 'submit-failed', refusal);
-              settle(false);
-              break;
-            }
+          const plan = prepareSubmit(submitDeps, terminalId);
+          if ('refusal' in plan) {
+            sendError(socket, 'submit-failed', plan.refusal);
+            settle(false);
+            break;
           }
-          /*
-            Y otra vez antes de cada pieza, leyendo el archivo en el momento.
-            Entre este chequeo y el Enter pasan el guardado de las imagenes, lo
-            que hubiera delante en la fila y 400 ms por pieza: con ocho imagenes,
-            casi cuatro segundos en los que la CLI puede abrir un menu. Si abre
-            uno, lo que falta —el Enter sobre todo— no se escribe. La ceguera se
-            vuelve a preguntar en cada pieza: la status line puede empezar a
-            publicar a mitad del envio.
-          */
-          const approvalGuard =
-            submitting !== null && (guardsPending || blocksWhileWaiting || isBlind())
-              ? async (): Promise<boolean> => {
-                  const current = registry.launchedAtOf(terminalId);
-                  // Sin proceso no hay menu: la escritura la rechaza la terminal.
-                  if (current === null) return true;
-                  // D12: el estado llega por eventos, y el registro ya tiene el ultimo.
-                  if (blocksWhileWaiting && registry.activityOf(terminalId) === 'waiting') return false;
-                  if (isBlind() && (await conversations.checkOpenToolCall(terminalId, current))) return false;
-                  return !guardsPending || (await conversations.checkWaitingFor(terminalId)) === null;
-                }
-              : undefined;
-
-          const input = inputOf(terminalId);
-          /*
-            La CLI que pregunta algo al arrancar sin publicarlo (20-10-2026,
-            §12.14: la confianza de una carpeta nueva, con la status line muda
-            hasta que hay conversacion). Antes de la primera pieza de una pestana
-            sin conversacion se mira su pantalla; con el dialogo abierto no se
-            escribe nada, porque el Enter aparte lo aceptaria sin que nadie lo
-            vea, y el texto vuelve al cuadro. Despues de la primera pieza no
-            hace falta: el dialogo es del arranque.
-          */
-          const startupDialog = input.startupDialog;
-          const firstMessage = startupDialog !== undefined && (registry.get(terminalId)?.sessionId ?? '') === '';
-          let startupChecked = false;
-          let stoppedByDialog = false;
-          const pieceGuard =
-            firstMessage || approvalGuard !== undefined
-              ? async (): Promise<boolean> => {
-                  if (firstMessage && startupDialog !== undefined && !startupChecked) {
-                    startupChecked = true;
-                    const screen = registry.watchScreen(terminalId);
-                    if (screen !== null) {
-                      try {
-                        stoppedByDialog = screenShowsDialog(await screen.lines(), startupDialog);
-                      } finally {
-                        screen.dispose();
-                      }
-                      if (stoppedByDialog) return false;
-                    }
-                  }
-                  return approvalGuard === undefined ? true : approvalGuard();
-                }
-              : undefined;
-          const interrupted = (): void =>
-            sendError(socket, 'submit-failed', serverText('submitInterrupted'));
-          void writeQueue.enqueue(
-            terminalId,
-            async (lane) => {
+          void runSubmit(submitDeps, plan, {
+            text,
+            imageCount: images.length,
+            send: message.send !== false,
+            write: pieceWriter(socket, terminalId),
+            onWritten: (outcome) => settle(outcome === 'written'),
+            prepare: async (input) => {
               const imagePaths: string[] = [];
               try {
                 for (const image of images) {
@@ -1337,7 +1342,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                   error instanceof PasteImageError ? error.text : serverText('pasteImageFailed'),
                   detail,
                 );
-                return;
+                return null;
               }
 
               /*
@@ -1363,74 +1368,25 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                   error instanceof PasteFileError ? error.text : serverText('attachmentSaveFailed'),
                   detail,
                 );
-                return;
+                return null;
               }
-              const fullText = textWithAttachments(text, attachmentLines);
-
-              const pieces = buildSubmissionWrites(fullText, imagePaths, input, {
-                send: message.send !== false,
-              });
-              // Un cuadro vacio no le manda un Enter a la CLI.
-              if (pieces === null) return;
-              // Antes de la primera escritura: quien busca la sesion por este
-              // texto no puede encontrar el archivo de la CLI antes que el texto.
-              // Con adjuntos es el texto entero: es lo que la CLI va a guardar.
-              registry.noteSubmitted(terminalId, fullText);
-              // Un envio justo despues de lanzar espera a que la CLI dibuje su
-              // pantalla: lo que llega antes se pierde (hito 35, §10.11).
-              const startAfterMs = submitStartDelayMs(
-                registry.launchedAtOf(terminalId),
-                Date.now(),
-                input.readyAfterLaunchMs ?? 0,
-              );
-              const outcome = await lane.writePieces(
-                pieces,
-                input.pieceGapMs,
-                pieceWriter(socket, terminalId),
-                pieceGuard,
-                { startAfterMs },
-              );
-              settle(outcome === 'written');
-              /*
-                Una CLI cuya cola no queda escrita (hito 45, `source: 'app'`):
-                lo mandado con el agente trabajando queda en cola hasta que
-                aparezca en el hilo. Un comando de barra no hace cola.
-              */
-              if (
-                outcome === 'written' &&
-                message.send !== false &&
-                submitting?.promptQueue?.source === 'app' &&
-                registry.activityOf(terminalId) === 'busy' &&
-                !text.trimStart().startsWith('/')
-              ) {
-                conversations.noteQueued(terminalId, { text, images: images.length, at: Date.now() });
+              return { fullText: textWithAttachments(text, attachmentLines), imagePaths };
+            },
+          })
+            .then((result) => {
+              // Descartado por una interrupcion antes de empezar, o cortado a mitad.
+              if (result.kind === 'dropped' || result.kind === 'interrupted') {
+                sendError(socket, 'submit-failed', serverText('submitInterrupted'));
               }
-              /*
-                Con la CLI que devuelve a su editor lo que tenia en cola al
-                interrumpir (hito 43), se anota lo que llego hasta el Enter: es
-                lo que una interrupcion puede tener que recuperar.
-              */
-              if (outcome === 'written' && message.send !== false && submitting?.queuedSubmits !== undefined) {
-                queuedSubmits.note(
-                  terminalId,
-                  submissionPayload(fullText, imagePaths, input.imageReference) ?? fullText,
-                  Date.now(),
-                  fullText,
-                );
-              }
-              if (outcome === 'interrupted') interrupted();
-              if (outcome === 'blocked' && stoppedByDialog) {
+              if (result.kind === 'blocked' && result.byDialog) {
                 sendError(socket, 'submit-failed', serverText('submitStartupDialog', { label: submitting?.label ?? '' }));
                 // Lo que salio del cuadro vuelve a el; un comando de un combo no salio de ahi.
                 if (clearsDraft) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'not-ready' });
-                return;
-              }
-              if (outcome === 'blocked') {
-                const waitingNow = blocksWhileWaiting && registry.activityOf(terminalId) === 'waiting';
+              } else if (result.kind === 'blocked') {
                 sendError(
                   socket,
                   'submit-failed',
-                  waitingNow
+                  result.waitingNow
                     ? submitting === null
                       ? serverText('submitStoppedWaitingNoLabel')
                       : serverText('submitStoppedWaiting', { label: submitting.label })
@@ -1439,12 +1395,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                       : serverText('submitStoppedTool', { label: submitting.label }),
                 );
               }
-            },
-            { onDropped: interrupted },
-          )
-            // La fila resuelve siempre, tambien si el trabajo lanzo o se descarto:
-            // lo que no llego al Enter se contesta como no entregado.
-            .then(() => settle(false));
+            })
+            // Lo que no llego al Enter se contesta como no entregado.
+            .finally(() => settle(false));
           break;
         }
 

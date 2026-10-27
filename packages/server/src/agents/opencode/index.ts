@@ -51,6 +51,7 @@ import { launchWithServe } from './serve-launch.js';
 import { OpenCodeServeProcess, type ServeEndpoint, type ServeProcessOptions } from './serve-process.js';
 import { OpenCodeQuestions, readPartCall } from './serve-questions.js';
 import { OpenCodeServeStatus, readSessionParent, type ServeStatusOptions } from './serve-status.js';
+import { OPENCODE_SCHEDULED_CONFIRM_MS, readLastUserPrompt } from './scheduled.js';
 import { OPENCODE_REQUIRED_COLUMNS } from './sql.js';
 
 /** Nombre del comando en el PATH. Dato de compatibilidad, no marca (regla 2.3). */
@@ -121,8 +122,11 @@ export const OPENCODE_CAPABILITIES: AgentCapabilities = {
   forceSend: false,
   // El mensaje en cola ya esta escrito en su base (§11.13): no hay de donde sacarlo.
   editQueue: false,
-  // Hito 51: "libre" es del `serve`, no de su pantalla; el 52 mide mandarlo por su API.
-  scheduledSend: false,
+  /*
+    Hito 52 (§11.16): por la API de su `serve` (`prompt_async`), sin tocar la
+    pantalla del TUI, con el agente y el modelo del ultimo mensaje.
+  */
+  scheduledSend: true,
   /*
     Hito 49: ninguno. Su agente `plan` pide permiso antes de editar, pero la app
     abre el TUI con `opencode attach`, que segun su documentacion no acepta
@@ -313,6 +317,28 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
 
     // La cola la dice la base: un mensaje sin respuesta detras de uno que se esta contestando (hito 45, §11.13).
     promptQueue: { source: 'session', forceSend: null },
+
+    /*
+      Hito 52 (§11.16): un mensaje programado va por `prompt_async` del `serve`
+      que la pestana abierta ya levanto, con el agente, el modelo y la variante
+      del ultimo mensaje del usuario. Sin `serve`, o sin poder leer la base, no
+      se manda nada: sin el agente, OpenCode usaria el predeterminado.
+    */
+    scheduled: {
+      kind: 'api',
+      confirmTimeoutMs: OPENCODE_SCHEDULED_CONFIRM_MS,
+      deliver: async (target, text) => {
+        const client = current?.client ?? null;
+        if (client === null) return 'not-sent';
+        let choice;
+        try {
+          choice = readLastUserPrompt(db, target.sessionId);
+        } catch {
+          return 'not-sent';
+        }
+        return client.promptAsync(target.cwd, target.sessionId, text, choice);
+      },
+    },
 
     /**
      * La base que se lee, para el arranque. Solo si hay algo que decir, para que

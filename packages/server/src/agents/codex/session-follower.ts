@@ -184,6 +184,10 @@ export class CodexSessionFollower implements SessionFollower {
     return this.sink.hasOpenToolCall(launchedAt);
   }
 
+  hasOpenTurn(launchedAt: number): boolean {
+    return this.sink.hasOpenTurn(launchedAt);
+  }
+
   getState(): ConversationState {
     return this.jsonl.getState();
   }

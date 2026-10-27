@@ -858,6 +858,156 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
   check('no choca con las cookies del servidor', PREFS_COOKIE !== TOKEN_COOKIE && PREFS_COOKIE !== DEVICE_COOKIE);
 }
 
+
+// S52. Hito 52: el envio del cuadro sacado del socket (`submit-message.ts`) arma
+// las mismas piezas que `buildSubmissionWrites`, con las mismas guardas, para
+// el cuadro y para el reloj de los mensajes programados.
+{
+  const { prepareSubmit, runSubmit } = await import('../src/submit-message.ts');
+  const { CLAUDE_CODE_INPUT } = await import('../src/agents/claude-code/index.ts');
+  const { codexInput } = await import('../src/agents/codex/index.ts');
+  const { PI_INPUT } = await import('../src/agents/pi/index.ts');
+  const { ANTIGRAVITY_INPUT } = await import('../src/agents/antigravity/index.ts');
+  const { OPENCODE_INPUT } = await import('../src/agents/opencode/index.ts');
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const NOW = 1_000_000;
+
+  /** Una pestana de mentira: la fila corre el trabajo en el acto y anota cada pieza. */
+  function fake({ input, adapter = null, blind = false, openTool = false, waitingFor = null, activity = 'idle', sessionId = 's1', screen = null, launchedAt = NOW - 60_000, drop = false } = {}) {
+    const log = [];
+    const deps = {
+      adapterOf: () => adapter,
+      inputOf: () => input,
+      launchedAtOf: () => launchedAt,
+      activityOf: () => activity,
+      sessionIdOf: () => sessionId,
+      watchScreen: () => (screen === null ? null : { lines: () => screen, dispose: () => undefined }),
+      noteSubmitted: (_t, fullText) => log.push(['noteSubmitted', fullText]),
+      conversations: {
+        isBlindToApprovals: () => blind,
+        getWaitingFor: () => waitingFor,
+        hasOpenToolCall: () => openTool,
+        checkOpenToolCall: async () => openTool,
+        checkWaitingFor: async () => waitingFor,
+        noteQueued: (_t, queued) => log.push(['noteQueued', queued.text, queued.images]),
+      },
+      queuedSubmits: { note: (_t, noted) => log.push(['queuedSubmit', noted]) },
+      enqueue: async (_t, job, options) => {
+        if (drop) {
+          options?.onDropped?.();
+          return;
+        }
+        await job({
+          writePieces: async (pieces, gapMs, write, guard, writeOptions) => {
+            log.push(['writePieces', gapMs, writeOptions?.startAfterMs ?? 0]);
+            for (const piece of pieces) {
+              if (guard !== undefined && !(await guard())) return 'blocked';
+              if (!write(piece)) return 'refused';
+            }
+            return 'written';
+          },
+        });
+      },
+      now: () => NOW,
+    };
+    return { deps, log };
+  }
+  const caps = (over = {}) => ({ permissionCycle: null, waitingBlocksSubmit: false, ...over });
+  const send = async (world, textToSend, imagePaths = [], extra = {}) => {
+    const written = [];
+    const plan = prepareSubmit(world.deps, 't1');
+    if ('refusal' in plan) return { refusal: plan.refusal, written };
+    const result = await runSubmit(world.deps, plan, {
+      text: textToSend,
+      imageCount: imagePaths.length,
+      send: extra.send ?? true,
+      prepare: async () => (extra.prepareFails ? null : { fullText: textToSend, imagePaths }),
+      write: (piece) => {
+        written.push(piece);
+        world.log.push(['piece']);
+        return true;
+      },
+      onWritten: (outcome) => world.log.push(['onWritten', outcome]),
+    });
+    return { result, written };
+  };
+
+  const inputs = { claude: CLAUDE_CODE_INPUT, codex: codexInput('win32'), pi: PI_INPUT, antigravity: ANTIGRAVITY_INPUT, opencode: OPENCODE_INPUT };
+  const text = 'Revisa el PR:\nlinea dos con ESC \u001b[201~ adentro';
+  const different = [];
+  for (const [name, input] of Object.entries(inputs)) {
+    const images = input.imageReference === null ? [] : ['C:\\tmp\\uno.png', 'C:\\tmp\\dos.png'];
+    for (const sendFlag of [true, false]) {
+      const world = fake({ input });
+      const { result, written } = await send(world, text, images, { send: sendFlag });
+      const expected = buildSubmissionWrites(text, images, input, { send: sendFlag });
+      if (result?.kind !== 'written' || !same(written, expected)) different.push(`${name} send=${sendFlag}`);
+    }
+  }
+  check('S52 las mismas piezas que buildSubmissionWrites, con y sin Enter, para las cinco CLIs', same(different, []), different.join(', '));
+
+  {
+    const world = fake({ input: inputs.codex, launchedAt: NOW - 1000 });
+    await send(world, 'hola');
+    const writes = world.log.find((entry) => entry[0] === 'writePieces');
+    check('S52 la separacion entre piezas y la espera del arranque de Codex (3 s, a 1 s de lanzar: 2 s)',
+      writes?.[1] === inputs.codex.pieceGapMs && writes?.[2] === 2000, JSON.stringify(writes));
+    check('S52 noteSubmitted antes de la primera pieza',
+      world.log.findIndex((entry) => entry[0] === 'noteSubmitted') < world.log.findIndex((entry) => entry[0] === 'piece'));
+  }
+  {
+    const adapter = { label: 'Codex', capabilities: caps(), status: null };
+    const world = fake({ input: inputs.codex, adapter, blind: true, openTool: true });
+    const { refusal, written } = await send(world, 'hola');
+    check('S52 sin estado y con una herramienta abierta: rechazado antes de encolar, sin escribir',
+      refusal?.key === 'openToolSubmit' && written.length === 0, JSON.stringify(refusal));
+  }
+  {
+    const adapter = { label: 'Antigravity CLI', capabilities: caps({ permissionCycle: { approvesPendingOnCycle: true } }), status: {} };
+    const world = fake({ input: inputs.antigravity, adapter, waitingFor: 'permission prompt' });
+    const { refusal } = await send(world, 'hola');
+    check('S52 una confirmacion abierta que aprobaria el Enter: rechazado', refusal !== undefined && refusal !== null);
+  }
+  {
+    const input = { ...inputs.antigravity, startupDialog: /Do you trust/ };
+    const adapter = { label: 'Antigravity CLI', capabilities: caps(), status: {} };
+    const world = fake({ input, adapter, sessionId: '', screen: ['Do you trust the files in this folder?'] });
+    const { result, written } = await send(world, 'hola');
+    check('S52 el dialogo del arranque en pantalla: frenado sin escribir nada', result?.kind === 'blocked' && result.byDialog === true && written.length === 0,
+      JSON.stringify(result));
+  }
+  {
+    const adapter = { label: 'OpenCode', capabilities: caps({ waitingBlocksSubmit: true }), status: {} };
+    const world = fake({ input: inputs.opencode, adapter, activity: 'waiting' });
+    const { refusal } = await send(world, 'hola');
+    check('S52 la espera que bloquea el cuadro (D12): rechazado', refusal !== undefined && refusal !== null);
+  }
+  {
+    const adapter = { label: 'Pi', capabilities: caps(), status: {}, promptQueue: { source: 'app' }, queuedSubmits: {} };
+    const world = fake({ input: inputs.pi, adapter, activity: 'busy' });
+    await send(world, 'mensaje en cola', ['C:\\tmp\\uno.png']);
+    const queued = world.log.find((entry) => entry[0] === 'noteQueued');
+    check('S52 con la CLI trabajando y la cola de la app: se anota en cola con su texto y sus imagenes', same(queued, ['noteQueued', 'mensaje en cola', 1]), JSON.stringify(queued));
+    check('S52 y lo que la CLI devolveria al interrumpir', world.log.some((entry) => entry[0] === 'queuedSubmit'));
+    check('S52 el acuse sale antes de las anotaciones',
+      world.log.findIndex((entry) => entry[0] === 'onWritten') < world.log.findIndex((entry) => entry[0] === 'noteQueued'));
+    const slash = fake({ input: inputs.pi, adapter, activity: 'busy' });
+    await send(slash, '/model gpt');
+    check('S52 un comando de barra no hace cola', !slash.log.some((entry) => entry[0] === 'noteQueued'));
+  }
+  {
+    const world = fake({ input: inputs.claude, drop: true });
+    const { result, written } = await send(world, 'hola');
+    check('S52 descartado por una interrupcion antes de empezar: dropped, nada escrito', result?.kind === 'dropped' && written.length === 0);
+    const failed = fake({ input: inputs.claude });
+    const prep = await send(failed, 'hola', [], { prepareFails: true });
+    check('S52 no se pudieron guardar los adjuntos: prepare-failed, nada escrito', prep.result?.kind === 'prepare-failed' && prep.written.length === 0);
+    const empty = fake({ input: inputs.claude });
+    const none = await send(empty, '   ');
+    check('S52 un cuadro vacio no manda un Enter', none.result?.kind === 'nothing' && none.written.length === 0);
+  }
+}
+
 await rm(dir, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

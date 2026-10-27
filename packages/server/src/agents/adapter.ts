@@ -393,6 +393,14 @@ export interface SessionFollower {
    */
   hasOpenToolCall(launchedAt: number): boolean;
   /**
+   * true si la conversacion tiene un turno abierto (empezado y sin terminar),
+   * del proceso lanzado en `launchedAt` (epoch ms) o despues. Hito 52: lo
+   * declara la CLI que no publica si trabaja (Codex, §10.13), y lo pregunta el
+   * reloj de los mensajes programados antes de escribir. Un turno de un proceso
+   * anterior quedo huerfano y no cuenta. Ausente: la CLI publica su estado.
+   */
+  hasOpenTurn?(launchedAt: number): boolean;
+  /**
    * Los subagentes lanzados por el proceso de `launchedAt` (epoch ms) o despues
    * que todavia no terminaron, en orden de lanzamiento (§4.15).
    *
@@ -937,6 +945,45 @@ export interface AgentInput {
  */
 export type TranscriptReferenceStyle = 'at-quoted' | 'quoted-path';
 
+// ---- Los mensajes programados (hito 52) ------------------------------------------
+
+/** Como termino mandarle un mensaje programado por la API de la CLI. */
+export type ScheduledApiOutcome =
+  /** La CLI lo acepto. */
+  | 'sent'
+  /** No se mando nada: la CLI no tiene esa conversacion, o no hay con quien hablar. */
+  | 'not-sent'
+  /** La peticion fallo: no se sabe si lo tomo. */
+  | 'failed';
+
+/**
+ * Como se le manda un mensaje programado a una CLI que no avisa cuando esta
+ * lista (`readySignal`), y como se sabe que llego (hito 52, §6.39). Solo con la
+ * capacidad `scheduledSend`. Ausente con la capacidad: el camino de Claude Code
+ * (hito 51), que espera la senal de "lista" y da por enviado lo que escribio.
+ *
+ * Con estas CLIs, **enviado es verlo en la conversacion** (o el estado que pasa
+ * a trabajando, si la CLI lo publica) dentro de `confirmTimeoutMs`. Si no
+ * aparece, queda "no se sabe si llego" y no se reintenta.
+ */
+export type ScheduledSendSupport =
+  | {
+      /**
+       * Escribirlo en la pty, como el cuadro y con sus guardas, cuando la
+       * pantalla emulada muestra la CLI lista: Codex, Pi y Antigravity.
+       */
+      readonly kind: 'screen';
+      /** true si la pantalla (de arriba abajo) muestra la caja vacia y nada encima. Lo medido de cada CLI. */
+      readyScreen(lines: readonly string[]): boolean;
+      readonly confirmTimeoutMs: number;
+    }
+  | {
+      /** Por la API de la CLI, sin tocar la pantalla: OpenCode, por su `serve` (§11.12). */
+      readonly kind: 'api';
+      deliver(target: { cwd: string; sessionId: string }, text: string): Promise<ScheduledApiOutcome>;
+      readonly confirmTimeoutMs: number;
+    };
+
 // ---- El adaptador ---------------------------------------------------------------
 
 export interface AgentAdapter {
@@ -1021,6 +1068,12 @@ export interface AgentAdapter {
    * Solo con la capacidad `rewind`. Ver `RewindDriver`.
    */
   readonly rewind?: RewindDriver;
+  /**
+   * Presente si la CLI recibe mensajes programados sin senal de "lista"
+   * (hito 52, §6.39). Solo con la capacidad `scheduledSend`. Ver
+   * `ScheduledSendSupport`.
+   */
+  readonly scheduled?: ScheduledSendSupport;
   /**
    * Con que modelo y esfuerzo arranca una pestana de esa carpeta, segun la
    * configuracion de la CLI, o null si no se lee ninguna.

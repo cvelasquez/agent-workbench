@@ -184,6 +184,13 @@ const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && url.pathname === '/question') return json(response, 200, state.questions[directory] ?? []);
   if (request.method === 'POST' && /^\/question\/[^/]+\/reply$/.test(url.pathname)) return json(response, 200, true);
   if (request.method === 'POST' && /^\/session\/[^/]+\/abort$/.test(url.pathname)) return json(response, 200, true);
+  // Hito 52: 204 sin cuerpo, como la 1.19.4; una sesion que no existe, 404.
+  const promptAsync = /^\/session\/([^/]+)\/prompt_async$/.exec(url.pathname);
+  if (request.method === 'POST' && promptAsync !== null) {
+    if (promptAsync[1] === 'ses_missing00000000000000000') return json(response, 404, { name: 'NotFoundError', data: { message: 'Session not found' } });
+    response.writeHead(204);
+    return response.end();
+  }
   return json(response, 404, { error: 'not found' });
 });
 

@@ -45,6 +45,7 @@ import { PiLiveSessions, PiStatusSource, type PiLiveDeps } from './live.js';
 import { locatePi, type LocatePiDeps } from './locate.js';
 import { piAgentDir, piModelsStorePath } from './paths.js';
 import { createPiQueueEdit } from './queue-edit.js';
+import { piReadyScreen } from './ready-screen.js';
 import { PiTabWatch } from './tab-watch.js';
 
 /** Cada cuanto se mira `models-store.json` mientras alguien quiere enterarse de cambios. */
@@ -90,8 +91,11 @@ export const PI_BASE_CAPABILITIES: AgentCapabilities = {
     (§6.35.1). Medido en Windows; fuera, la tecla es Alt+Up y no esta medida.
   */
   editQueue: process.platform === 'win32',
-  // Hito 51: dice si trabaja, pero no cuando quedo lista despues de abrirla; lo mide el 52.
-  scheduledSend: false,
+  /*
+    Hito 52 (§16.21): por su pantalla, cuando muestra el editor vacio con la
+    cabecera ya dibujada (un Enter antes, Pi no lo manda), y libre por su estado.
+  */
+  scheduledSend: true,
   // Hito 49: sin `edit` ni `write` (`PI_REVIEW_TOOLS`), pero su consola puede escribir: a medias (§16.19).
   readOnlyLaunch: { mode: null, guard: 'tools' },
 };
@@ -230,6 +234,8 @@ export function createPiAdapter(options: PiAdapterOptions = {}): AgentAdapter {
       a mandar lo que devolvio a su editor (hito 45, §16.18).
     */
     promptQueue: { source: 'app', forceSend: 'interrupt-and-resend' },
+    // Hito 52 (§16.21): el mensaje entra a la sesion unos 50 ms despues del Enter.
+    scheduled: { kind: 'screen', readyScreen: piReadyScreen, confirmTimeoutMs: 60_000 },
 
     // Sacar la cola para editarla en el cuadro (§6.35.1): vuelve lo que la app le mando.
     queueEdit: createPiQueueEdit(),

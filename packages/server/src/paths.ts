@@ -137,6 +137,17 @@ export function scheduledClaimsDir(): string {
 }
 
 /**
+ * Un archivo por instancia de la app que esta corriendo, con su pid (hito 52,
+ * §6.39). El reloj de los mensajes programados lo mira antes de abrir una
+ * pestana dormida de una CLI que no dice si otro proceso tiene la conversacion:
+ * con otra instancia corriendo, espera un minuto a que la que la tiene abierta
+ * lo reserve.
+ */
+export function runningInstancesDir(): string {
+  return path.join(appConfigDir(), 'instances');
+}
+
+/**
  * Donde se copia, un instante, el indice de conversaciones de Antigravity CLI
  * para leerlo: una subcarpeta por lectura, que se borra al terminar.
  *

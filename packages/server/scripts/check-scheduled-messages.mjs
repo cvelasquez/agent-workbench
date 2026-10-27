@@ -17,6 +17,11 @@
  *  - **Perder lo programado**: el archivo relee antes de cada cambio, y lo de la
  *    otra instancia no se pisa.
  *
+ * Y desde el hito 52, con las CLIs que no avisan cuando estan listas
+ * (`delivery.ts`): **escribir sin la pantalla lista**, **dar por enviado lo que
+ * no aparecio** en la conversacion, **escribirle a Codex con el turno abierto** y
+ * **abrir una pestana dormida sin esperar a la otra instancia**.
+ *
  * No lanza ninguna CLI, no carga node-pty y no lee la configuracion real: la
  * carpeta es una temporal propia, y el reloj, las pestanas y la entrega son de
  * mentira.
@@ -609,6 +614,327 @@ const stateOf = (scheduler, messageId) => scheduler.snapshot().find((entry) => e
     /Si la cierras, no se envía/.test(ui.scheduledCloseWarning([wire(1)]) ?? '') &&
       ui.scheduledCloseWarning([wire(1, { state: 'failed' })]) === null && ui.scheduledCloseWarning([]) === null);
   check('5.14 mandandose no se toca', !ui.scheduledActionable(wire(1, { state: 'sending' })) && ui.scheduledActionable(wire(1)));
+}
+
+// --- 6. Hito 52: las CLIs sin senal de "lista" --------------------------------
+const { deliverScheduled, freenessOf, isUserMessageWith } = await import('../src/scheduled-messages/delivery.ts');
+const { RunningInstances } = await import('../src/scheduled-messages/instances.ts');
+const { SCHEDULED_OTHER_INSTANCE_GRACE_MS } = await import('../src/scheduled-messages/scheduler.ts');
+
+const userEvent = (text, at = 0) => ({ eventId: `e-${Math.random()}`, role: 'user', at, parts: [{ kind: 'text', text }], model: null, usage: null, effort: null, durationMs: null });
+
+/**
+ * Una pestana de mentira para `deliverScheduled`: un reloj que avanza con cada
+ * espera, una pantalla que cambia cuando se le dice, un seguidor que devuelve lo
+ * que la CLI "escribio" y un envio que anota lo que se escribio.
+ */
+function deliveryWorld({ hasStatus = true } = {}) {
+  const state = {
+    now: T0,
+    tab: { alive: true, sessionId: CODEX.sessionId, cwd: 'D:\\p', launchedAt: T0 - 10_000 },
+    activity: 'idle',
+    screens: [],
+    screen: ['nada'],
+    submitResult: { kind: 'written' },
+    written: [],
+    // Lo que el seguidor entrega en cada lectura despues de escribir.
+    echo: true,
+    echoText: null,
+    added: [],
+    openTurn: false,
+    openTool: false,
+    activityAfterWrite: null,
+    readyAfterWaits: 0,
+    waits: 0,
+  };
+  const follower = {
+    label: 'mentira',
+    start: async () => undefined,
+    poll: async () => {
+      const added = state.added;
+      state.added = [];
+      return { reset: false, added, turns: [], plans: [], parts: [] };
+    },
+    hasOpenToolCall: () => state.openTool,
+    hasOpenTurn: () => state.openTurn,
+  };
+  const deps = {
+    tab: () => state.tab,
+    activityOf: () => state.activity,
+    screen: () => ({ lines: () => state.screen, dispose: () => undefined }),
+    submit: async (_terminalId, text) => {
+      state.written.push(text);
+      if (state.echo) state.added.push(userEvent(state.echoText ?? text, state.now));
+      if (state.activityAfterWrite !== null) state.activity = state.activityAfterWrite;
+      return state.submitResult;
+    },
+    follow: () => follower,
+    now: () => state.now,
+    wait: async (ms) => {
+      state.now += ms;
+      state.waits += 1;
+      if (state.readyAfterWaits > 0 && state.waits >= state.readyAfterWaits) state.screen = ['listo'];
+    },
+  };
+  const screenSupport = { kind: 'screen', readyScreen: (lines) => lines[0] === 'listo', confirmTimeoutMs: 10_000 };
+  const run = (text = 'revisa los PR', extra = {}) =>
+    deliverScheduled(deps, { terminalId: 't1', text, support: screenSupport, hasStatus, readyTimeoutMs: 60_000, pollMs: 250, ...extra });
+  return { state, deps, run, screenSupport };
+}
+
+{
+  const w = deliveryWorld();
+  w.state.screen = ['listo'];
+  const outcome = await w.run();
+  check('6.1 libre y la pantalla lista dos veces: lo escribe y lo ve en la conversacion', outcome.kind === 'sent' && json(w.state.written) === json(['revisa los PR']), json(outcome));
+}
+{
+  const w = deliveryWorld();
+  w.state.screen = ['arrancando'];
+  w.state.readyAfterWaits = 4;
+  const outcome = await w.run();
+  check('6.2 espera a que la pantalla este lista, y recien ahi escribe', outcome.kind === 'sent' && w.state.waits >= 5, `${w.state.waits} esperas`);
+}
+{
+  const w = deliveryWorld();
+  w.state.screen = ['arrancando'];
+  const outcome = await w.run();
+  check('6.3 la pantalla nunca lista: no escribe nada', outcome.kind === 'not-ready' && w.state.written.length === 0, json(outcome));
+}
+{
+  const w = deliveryWorld();
+  w.state.screen = ['listo'];
+  w.state.activity = 'busy';
+  const outcome = await w.run();
+  check('6.4 el agente trabajando todo el plazo: no escribe, y vuelve a intentarlo (busy)', outcome.kind === 'busy' && w.state.written.length === 0, json(outcome));
+}
+{
+  const w = deliveryWorld();
+  w.state.screen = ['listo'];
+  w.state.echo = false;
+  const outcome = await w.run();
+  check('6.5 escrito y nunca visto en la conversacion: no se sabe si llego', outcome.kind === 'unconfirmed' && w.state.written.length === 1, json(outcome));
+}
+{
+  const w = deliveryWorld();
+  w.state.screen = ['listo'];
+  w.state.echo = false;
+  w.state.activityAfterWrite = 'busy';
+  const outcome = await w.run();
+  check('6.6 con estado: pasa a trabajando despues de escribirlo, llego', outcome.kind === 'sent', json(outcome));
+}
+{
+  const w = deliveryWorld();
+  w.state.screen = ['listo'];
+  w.state.echoText = 'otro mensaje';
+  const outcome = await w.run();
+  check('6.7 un mensaje del usuario con otro texto no confirma', outcome.kind === 'unconfirmed', json(outcome));
+}
+{
+  const w = deliveryWorld();
+  w.state.screen = ['listo'];
+  w.state.submitResult = { kind: 'refusal' };
+  check('6.8 rechazado por las guardas del cuadro antes de escribir: no lista', (await w.run()).kind === 'not-ready');
+  w.state.submitResult = { kind: 'blocked', byDialog: false, waitingNow: true };
+  check('6.8 frenado a mitad: pudo quedar en la caja (interrupted)', (await w.run()).kind === 'interrupted');
+}
+{
+  const w = deliveryWorld();
+  w.state.screen = ['listo'];
+  w.state.tab = { ...w.state.tab, sessionId: 'otra-conversacion' };
+  const original = w.deps.tab;
+  let calls = 0;
+  w.deps.tab = () => {
+    calls += 1;
+    return calls === 1 ? { ...w.state.tab, sessionId: CODEX.sessionId } : w.state.tab;
+  };
+  const outcome = await w.run();
+  w.deps.tab = original;
+  check('6.9 la pestana cambio de conversacion mientras esperaba: no escribe', outcome.kind === 'not-ready' && w.state.written.length === 0, json(outcome));
+}
+{
+  // Codex: sin estado, el turno abierto del historial dice si trabaja.
+  const w = deliveryWorld({ hasStatus: false });
+  w.state.screen = ['listo'];
+  w.state.activity = 'unknown';
+  w.state.openTurn = true;
+  const busy = await w.run();
+  check('6.10 sin estado y con el turno abierto: no escribe (busy)', busy.kind === 'busy' && w.state.written.length === 0, json(busy));
+  w.state.openTurn = false;
+  w.state.openTool = true;
+  check('6.10 una herramienta abierta tambien es ocupado', (await w.run()).kind === 'busy');
+  w.state.openTool = false;
+  check('6.10 turno cerrado y la caja lista: lo escribe', (await w.run()).kind === 'sent' && w.state.written.length === 1);
+  check('6.11 freenessOf: con estado manda la actividad; sin seguidor, no se sabe',
+    (await freenessOf(true, 'waiting', null, null)) === 'waiting' && (await freenessOf(true, null, null, null)) === 'unknown' &&
+      (await freenessOf(false, null, null, T0)) === 'unknown');
+}
+{
+  // OpenCode: por su API, sin mirar la pantalla.
+  const w = deliveryWorld();
+  w.state.screen = ['nada'];
+  const sent = [];
+  let reply = 'sent';
+  const api = {
+    kind: 'api',
+    confirmTimeoutMs: 10_000,
+    deliver: async (target, text) => {
+      sent.push({ target, text });
+      if (reply !== 'not-sent') w.state.added.push(userEvent(text, w.state.now));
+      return reply;
+    },
+  };
+  const first = await w.run('por la API', { support: api });
+  check('6.12 por la API: no mira la pantalla, manda la conversacion de la pestana y lo ve llegar',
+    first.kind === 'sent' && sent.length === 1 && sent[0].target.sessionId === CODEX.sessionId && sent[0].target.cwd === 'D:\\p' && w.state.written.length === 0, json(first));
+  reply = 'not-sent';
+  check('6.13 la API dice que no lo mando: no lista, sin "no se sabe"', (await w.run('x', { support: api })).kind === 'not-ready');
+  reply = 'failed';
+  check('6.14 la API fallo pero el mensaje aparecio: llego', (await w.run('y', { support: api })).kind === 'sent');
+  const silent = { ...api, deliver: async () => 'failed' };
+  check('6.14 la API fallo y no aparecio: no se sabe si llego', (await w.run('z', { support: silent })).kind === 'unconfirmed');
+  w.state.activity = 'busy';
+  check('6.15 por la API tambien espera a que este libre', (await w.run('w', { support: api })).kind === 'busy');
+}
+{
+  const w = deliveryWorld();
+  w.state.tab = null;
+  check('6.16 la pestana ya no esta', (await w.run()).kind === 'gone');
+  w.state.tab = { alive: false, sessionId: CODEX.sessionId, cwd: 'D:\\p', launchedAt: null };
+  check('6.16 sin proceso: no escribe', (await w.run()).kind === 'not-ready' && w.state.written.length === 0);
+}
+check('6.17 el texto se compara con los espacios juntados, y por su principio si llega recortado',
+  isUserMessageWith(userEvent('revisa\n los   PR'), 'revisa los PR') &&
+    isUserMessageWith(userEvent(`${'a'.repeat(250)}...`), `${'a'.repeat(300)} fin`) &&
+    !isUserMessageWith(userEvent('revisa los PR'), 'otra cosa') &&
+    !isUserMessageWith({ ...userEvent('revisa los PR'), role: 'assistant' }, 'revisa los PR'));
+
+// El reloj: el "libre" de freeNow, los resultados nuevos y la otra instancia.
+function world52(name) {
+  const statePath = path.join(dir, name, 'scheduled-messages.json');
+  const claimsDir = path.join(dir, name, 'claims');
+  const state = {
+    now: T0,
+    tabs: [],
+    free: 'idle',
+    others: false,
+    delivered: [],
+    woken: [],
+    outcomes: [],
+  };
+  const store = new ScheduledMessageStore({ statePath, claimsDir, pid: 3001, isAlive: () => true });
+  const scheduler = new MessageScheduler({
+    store,
+    now: () => state.now,
+    enabled: () => true,
+    tabs: () => state.tabs,
+    activityOf: () => 'unknown',
+    freeNow: async () => state.free,
+    othersRunning: async () => state.others,
+    tellsOpenElsewhere: (agent) => agent === 'claude-code',
+    agentOf: (agent) => ({ label: agent, scheduledSend: true }),
+    isOpenElsewhere: async () => false,
+    wake: async (terminalId) => {
+      state.woken.push(terminalId);
+      const tab = state.tabs.find((entry) => entry.terminalId === terminalId);
+      if (tab === undefined) return false;
+      tab.alive = true;
+      return true;
+    },
+    deliver: async (terminalId, text) => {
+      state.delivered.push({ terminalId, text });
+      return state.outcomes.shift() ?? { kind: 'sent' };
+    },
+    onChange: () => undefined,
+    setTimer: () => () => undefined,
+  });
+  return { state, store, scheduler };
+}
+{
+  const { state, store, scheduler } = world52('w52a');
+  await store.load();
+  state.tabs = [{ terminalId: 'c1', agent: 'codex', sessionId: CODEX.sessionId, alive: true }];
+  state.free = 'busy';
+  scheduler.start();
+  const created = await scheduler.create(CODEX, 'codex', 'sigue con lo tuyo', T0 + 1000);
+  state.now = T0 + 2000;
+  await pass(scheduler);
+  check('6.20 Codex trabajando (freeNow): espera, sin escribir', stateOf(scheduler, created.id)?.state === 'waiting' && state.delivered.length === 0,
+    json(stateOf(scheduler, created.id)));
+  state.free = 'idle';
+  state.outcomes.push({ kind: 'busy' });
+  await pass(scheduler);
+  check('6.21 la entrega dijo que siguio trabajando: no es una falla, sigue programado y espera', state.delivered.length === 1 &&
+    (await store.load(), store.get(created.id)) !== null && store.get(created.id)?.failure === undefined &&
+    stateOf(scheduler, created.id)?.state === 'waiting', json(stateOf(scheduler, created.id)));
+  state.now += 11_000;
+  state.outcomes.push({ kind: 'unconfirmed' });
+  await pass(scheduler);
+  await store.refresh();
+  check('6.22 escrito y no visto: "no se sabe si llego", y no se reintenta', store.get(created.id)?.failure?.key === 'scheduledUnconfirmed' && state.delivered.length === 2,
+    json(store.get(created.id)));
+  state.now += 60_000;
+  await pass(scheduler);
+  check('6.22 ... ni a la vuelta siguiente', state.delivered.length === 2);
+  await scheduler.stop();
+}
+{
+  const { state, store, scheduler } = world52('w52b');
+  await store.load();
+  state.tabs = [{ terminalId: 'p1', agent: 'pi', sessionId: CODEX.sessionId, alive: false }];
+  state.others = true;
+  scheduler.start();
+  const created = await scheduler.create(CODEX, 'pi', 'manana a las 9', T0 + 1000);
+  state.now = T0 + 2000;
+  await pass(scheduler);
+  check('6.23 otra instancia corriendo y una CLI que no dice si otro la tiene: espera, sin abrir la pestana',
+    state.woken.length === 0 && stateOf(scheduler, created.id)?.note?.key === 'scheduledWaitGrace', json(stateOf(scheduler, created.id)));
+  state.now = T0 + 2000 + SCHEDULED_OTHER_INSTANCE_GRACE_MS - 1000;
+  await pass(scheduler);
+  check('6.23 todavia dentro del minuto: sigue esperando', state.woken.length === 0);
+  state.now = T0 + 2000 + SCHEDULED_OTHER_INSTANCE_GRACE_MS + 100;
+  await pass(scheduler);
+  check('6.24 pasado el minuto: la abre y lo manda', json(state.woken) === json(['p1']) && state.delivered.length === 1);
+  await scheduler.stop();
+}
+{
+  const { state, store, scheduler } = world52('w52c');
+  await store.load();
+  state.tabs = [{ terminalId: 'k1', agent: 'claude-code', sessionId: CLAUDE.sessionId, alive: false }];
+  state.others = true;
+  scheduler.start();
+  await scheduler.create(CLAUDE, 'claude-code', 'sigue', T0 + 1000);
+  state.now = T0 + 2000;
+  await pass(scheduler);
+  check('6.25 Claude Code dice si otro proceso la tiene: no espera el minuto', json(state.woken) === json(['k1']) && state.delivered.length === 1);
+  await scheduler.stop();
+}
+{
+  const { state, store, scheduler } = world52('w52d');
+  await store.load();
+  state.tabs = [{ terminalId: 'p2', agent: 'pi', sessionId: CODEX.sessionId, alive: false }];
+  state.others = false;
+  scheduler.start();
+  await scheduler.create(CODEX, 'pi', 'sola', T0 + 1000);
+  state.now = T0 + 2000;
+  await pass(scheduler);
+  check('6.26 sin otra instancia, no espera', json(state.woken) === json(['p2']) && state.delivered.length === 1);
+  await scheduler.stop();
+}
+{
+  const instancesDir = path.join(dir, 'instances');
+  const alive = new Set([4001, 4002]);
+  const mine = new RunningInstances(instancesDir, 4001, (p) => alive.has(p));
+  const other = new RunningInstances(instancesDir, 4002, (p) => alive.has(p));
+  await mine.register();
+  check('6.27 sola: no hay otra instancia', (await mine.othersRunning()) === false);
+  await other.register();
+  check('6.27 con otra viva: la hay', (await mine.othersRunning()) === true && (await other.othersRunning()) === true);
+  alive.delete(4002);
+  check('6.28 la otra se cerro de golpe: ya no cuenta, y su archivo se borra',
+    (await mine.othersRunning()) === false && !(await readFile(path.join(instancesDir, '4002.json'), 'utf8').then(() => true, () => false)));
+  await mine.unregister();
+  check('6.29 al apagarse se saca', !(await readFile(path.join(instancesDir, '4001.json'), 'utf8').then(() => true, () => false)));
 }
 
 await rm(dir, { recursive: true, force: true });

@@ -1133,7 +1133,7 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
       // §6.35.1: Alt+Q y Ctrl+C, medidos en Windows con la 1.3.0.
       editQueue: process.platform === 'win32',
       // Hito 51: no se le programa nada todavia (el 52).
-      scheduledSend: false,
+      scheduledSend: true,
       // Hito 49: sin `edit` ni `write`, pero con la consola (§16.19).
       readOnlyLaunch: { mode: null, guard: 'tools' },
     }), show(piIndex.PI_BASE_CAPABILITIES));
@@ -1310,6 +1310,26 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
   }
   await adapter.dispose();
   check('P12 listar, resumir y seguir no deja ningun archivo nuevo en la carpeta de Pi', items.length > 0 && same(await listAll(agentDir), beforeRead));
+}
+
+// P52. Hito 52 (§16.21): la pantalla lista para un mensaje programado.
+{
+  const { piReadyScreen } = await import('../src/agents/pi/ready-screen.ts');
+  const border = '─'.repeat(60);
+  const footer = ['D:\\proyecto', '↑1.2k ↓5 $0.003 (sub) 0.5%/272k (auto)              gpt-5.6-terra • medium'];
+  const header = [' ▀▀█  v1.4.0', ' █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash ·', ' ctrl+o more'];
+  // Medidas con la 1.4.0 (medir-52.mjs), al reanudar.
+  const noHeaderYet = [border, border, ...footer];
+  const ready = [...header, ' Mensaje de prueba: no hagas nada.', ' UNO', border, border, ...footer];
+  const working = [...header, ' Mensaje de prueba: no hagas nada.', '── ⠼ Working ' + '─'.repeat(40), border, ...footer];
+  const typed = [...header, border, ' algo a medio escribir', border, ...footer];
+  const queued = [...header, ' Steering: otro mensaje', ' ↳ Alt+Q to edit all queued messages', border, border, ...footer];
+  check('P52 el primer cuadro al reanudar, sin la cabecera: no (un Enter ahi Pi no lo manda)', piReadyScreen(noHeaderYet) === false);
+  check('P52 la cabecera y la conversacion arriba, el editor vacio: lista', piReadyScreen(ready) === true);
+  check('P52 trabajando (el estado en el borde): no', piReadyScreen(working) === false);
+  check('P52 algo escrito en el editor: no', piReadyScreen(typed) === false);
+  check('P52 algo en cola: no', piReadyScreen(queued) === false);
+  check('P52 sin editor a la vista: no', piReadyScreen(header) === false && piReadyScreen([]) === false);
 }
 
 console.warn = realWarn;

@@ -562,6 +562,8 @@ const base = await createOpenCodeFixture(path.join(fixturesDir, 'base'), openCod
     imageParts: ['msg_c01'], imageUrlById: [{ $id: 'prt_c02g', $max: 100_000_000 }],
     // Hito 29 (O12): la pregunta de una tarjeta, por id y sesion.
     partCallById: [{ $id: 'prt_c03c', $s: 'ses_c_rica' }],
+    // Hito 52 (§11.16): el agente y el modelo del ultimo mensaje del usuario.
+    lastUserPrompt: [{ $s: 'ses_c_rica' }],
   };
   check('2 cada sentencia tiene sus parametros en este chequeo', same(Object.keys(params).sort(), Object.keys(OPENCODE_SQL).sort()));
   const leaks = [];
@@ -1386,7 +1388,7 @@ const historyOf = (file, extra = {}) => {
   check('13 capacidades iguales al literal', same(adapter.capabilities, {
     sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, models: null, efforts: null,
     questionCards: true, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
-    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: false, readOnlyLaunch: null,
+    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: true, readOnlyLaunch: null,
   }) && adapter.capabilities === OPENCODE_CAPABILITIES, show(adapter.capabilities));
   check('13 las capacidades sobreviven al viaje por la red', same(shared.parseAgentCapabilities(JSON.parse(JSON.stringify(adapter.capabilities))), adapter.capabilities));
   check('13 envio: imagenes por ruta pegada sola (medido en vivo), el Enter aparte, 400 ms y dos Esc', same(adapter.input, {
@@ -1746,8 +1748,28 @@ const historyOf = (file, extra = {}) => {
   check('T Codex importa el titulo del modulo comun', rolloutScan.includes("from '../session-title.js'") && !rolloutScan.includes('claude-code/session-scan'));
 }
 
+// 52. Hito 52 (§11.16): el agente, el modelo y la variante del ultimo mensaje del usuario.
+{
+  const { readLastUserPrompt } = await import('../src/agents/opencode/scheduled.ts');
+  const db = openDb(base.file);
+  base.insertSession({ id: 'ses_prog', directory: 'D:/Prog', title: 'Programado', time_created: 40000, time_updated: 40000 });
+  check('52 una sesion sin mensajes: no hay nada que repetir', readLastUserPrompt(db, 'ses_prog') === null);
+  base.insertMessage(messageRow('ses_prog', 'msg_p1', 40000, { role: 'user', agent: 'build', model: { providerID: 'opencode', modelID: 'viejo' }, time: { created: 40000 } }));
+  base.insertMessage(messageRow('ses_prog', 'msg_p2', 40100, { role: 'assistant', parentID: 'msg_p1', agent: 'build', providerID: 'opencode', modelID: 'viejo', time: { created: 40100 } }));
+  base.insertMessage(messageRow('ses_prog', 'msg_p3', 40200, { role: 'user', agent: 'plan', model: { providerID: 'opencode', modelID: 'nuevo' }, variant: 'high', time: { created: 40200 }, error: { name: 'APIError', data: { responseHeaders: { 'set-cookie': 'SECRETO' } } } }));
+  base.insertMessage(messageRow('ses_prog', 'msg_p4', 40300, { role: 'assistant', parentID: 'msg_p3', agent: 'plan', providerID: 'opencode', modelID: 'nuevo', time: { created: 40300 } }));
+  const last = readLastUserPrompt(db, 'ses_prog');
+  check('52 el ultimo mensaje del usuario, no el de la respuesta', same(last, { agent: 'plan', providerID: 'opencode', modelID: 'nuevo', variant: 'high' }), show(last));
+  check('52 no trae nada mas del mensaje (ni el error con sus cabeceras)', !JSON.stringify(db.all(OPENCODE_SQL.lastUserPrompt, { $s: 'ses_prog' })).includes('SECRETO'));
+  base.insertMessage(messageRow('ses_prog', 'msg_p5', 40400, { role: 'user', time: { created: 40400 } }));
+  check('52 un mensaje sin agente ni modelo: null en cada uno', same(readLastUserPrompt(db, 'ses_prog'), { agent: null, providerID: null, modelID: null, variant: null }));
+  check('52 de otra sesion, nada', readLastUserPrompt(db, 'ses_otra_que_no_existe') === null);
+  db.close();
+}
+
 historyFixture.close();
 base.close();
+
 await rm(root, { recursive: true, force: true });
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);
 process.exit(failures === 0 ? 0 : 1);

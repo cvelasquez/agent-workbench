@@ -31,6 +31,7 @@ import { commandNotFoundMessage, locateCommand } from '../locate.js';
 import { PlanLimitsBook } from '../plan-limits.js';
 import { CodexSessionDiscovery } from './discovery.js';
 import { createCodexHistory } from './history.js';
+import { codexReadyScreen } from './ready-screen.js';
 import { codexHome, isUuid } from './paths.js';
 
 /** Nombre del comando en el PATH. Dato de compatibilidad, no marca (regla 2.3). */
@@ -75,8 +76,11 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   // No hace cola: un mensaje con el agente trabajando le llega al modelo en el acto (hito 45).
   forceSend: false,
   editQueue: false,
-  // Hito 51: sin estado publicado ni senal de "lista", no se le manda nada solo (lo mide el 52).
-  scheduledSend: false,
+  /*
+    Hito 52 (§10.18): por su pantalla, cuando muestra la caja vacia y el
+    historial no tiene un turno abierto. Codex no publica si trabaja.
+  */
+  scheduledSend: true,
   /*
     Hito 49: `--sandbox read-only`, al abrir y al reanudar. Medido con la 0.162.1
     y un proveedor falso: con la sandbox de Windows del usuario, escribir fallo
@@ -198,6 +202,13 @@ export function createCodexAdapter(): AgentAdapter {
 
     history: createCodexHistory({ planLimits }),
     status: null,
+    /*
+      Hito 52 (§10.18): un mensaje programado se escribe cuando la pantalla
+      muestra la caja vacia. Con el daemon en frio lo escrito espera en la caja
+      ("Waiting for startup") y llego a los 40 s: la confirmacion espera dos
+      minutos.
+    */
+    scheduled: { kind: 'screen', readyScreen: codexReadyScreen, confirmTimeoutMs: 120_000 },
     planLimits,
 
     defaults: () => Promise.resolve(null),

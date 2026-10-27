@@ -51,6 +51,7 @@ import { toCliMode } from './mode-names.js';
 import { splitModelLabel } from './model-label.js';
 import { geminiHome, settingsPath } from './paths.js';
 import { createAntigravityQueueEdit } from './queue-edit.js';
+import { antigravityReadyScreen } from './ready-screen.js';
 import { readAntigravitySettings } from './settings.js';
 import { AntigravityStatusSource, AntigravityStatusStore, createFollowerStatusLine } from './status.js';
 import { installStatusLineScript, statusLineFragment, statusLineScriptPath } from './statusline-script.js';
@@ -121,7 +122,7 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
   forceSend: true,
   // La flecha arriba saca la cola al editor, y Ctrl+U Ctrl+K lo vacian sin cortar el turno (1.4.4, §6.35.1).
   editQueue: true,
-  // Hito 51: no avisa que esta lista, ni con status line (`READY_SIGNAL_SAFE`); lo mide el 52.
+  // Hito 52: sin status line no se sabe si trabaja, y no se le programa nada.
   scheduledSend: false,
   /*
     Hito 49: `--mode plan`. Medido con la 1.4.0 al lanzar: arranca en "Plan
@@ -137,6 +138,12 @@ export const ANTIGRAVITY_STATUS_LINE_CAPABILITIES: AgentCapabilities = {
   statusSource: true,
   readySignal: READY_SIGNAL_SAFE,
   contextWindowSource: 'status-line',
+  /*
+    Hito 52 (§12.17): con la status line si. Al retomar una conversacion, el
+    primer "libre" escrito despues de lanzarla llego cuando su pantalla ya
+    aceptaba un pegado (3 de 3), y la caja vacia lo confirma.
+  */
+  scheduledSend: true,
 };
 
 /**
@@ -376,6 +383,8 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
       es lo que la app le mando con el agente trabajando. "Enviar ya" es Alt+M.
     */
     promptQueue: { source: 'app', forceSend: 'alt-m' },
+    // Hito 52 (§12.17): con la status line, que dice si trabaja; lo escrito se confirma cuando pasa a trabajando.
+    scheduled: { kind: 'screen', readyScreen: antigravityReadyScreen, confirmTimeoutMs: 60_000 },
 
     // Sacar la cola para editarla en el cuadro (§6.35.1): vuelve lo que la app le mando.
     queueEdit: createAntigravityQueueEdit(),

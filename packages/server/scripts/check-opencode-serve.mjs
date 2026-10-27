@@ -478,6 +478,35 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
 }
 
 // ---------------------------------------------------------------------------
+// O52. Hito 52 (§11.16): un mensaje programado por `prompt_async`
+// ---------------------------------------------------------------------------
+
+{
+  const dir = 'D:\\Mi App';
+  const before = (await requestsOf(mainEndpoint)).length;
+  const sent = await client.promptAsync(dir, 'ses_promptAsync000000000000001', 'revisa los PR', {
+    agent: 'plan', providerID: 'opencode', modelID: 'modelo-x', variant: 'high',
+  });
+  const request = (await requestsOf(mainEndpoint)).slice(before).find((item) => item.path.endsWith('/prompt_async'));
+  check('O52 prompt_async: 204 es mandado', sent === 'sent');
+  check('O52 la ruta de la sesion, con la carpeta en la query y basic auth',
+    request?.method === 'POST' && request.path === '/session/ses_promptAsync000000000000001/prompt_async' &&
+      request.directory === dir && request.basic && request.authorized, show(request));
+  check('O52 el cuerpo: el texto, y el agente, el modelo y la variante del ultimo mensaje',
+    same(request?.body, { parts: [{ type: 'text', text: 'revisa los PR' }], agent: 'plan', model: { providerID: 'opencode', modelID: 'modelo-x' }, variant: 'high' }),
+    show(request?.body));
+  const bare = (await requestsOf(mainEndpoint)).length;
+  await client.promptAsync(dir, 'ses_promptAsync000000000000001', 'solo texto', null);
+  const plain = (await requestsOf(mainEndpoint)).slice(bare).find((item) => item.path.endsWith('/prompt_async'));
+  check('O52 sin lo del ultimo mensaje: solo el texto', same(plain?.body, { parts: [{ type: 'text', text: 'solo texto' }] }), show(plain?.body));
+  check('O52 una sesion que no existe (404): no mandado, sin lanzar',
+    (await client.promptAsync(dir, 'ses_missing00000000000000000', 'x', null)) === 'not-sent');
+  const hostile = await rejectionOf(client.promptAsync(dir, 'ses_x&calc', 'x', null));
+  check('O52 un id hostil lanza sin peticion', hostile instanceof Error &&
+    !(await requestsOf(mainEndpoint)).some((item) => item.path.includes('calc')));
+}
+
+// ---------------------------------------------------------------------------
 // O5. El lanzamiento con `attach`
 // ---------------------------------------------------------------------------
 
@@ -1067,7 +1096,7 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
   check('O11 OPENCODE_CAPABILITIES igual al literal de §5.3, sin promptApi (A4)', same(OPENCODE_CAPABILITIES, {
     sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, models: null, efforts: null,
     questionCards: true, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
-    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: false, readOnlyLaunch: null,
+    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: true, readOnlyLaunch: null,
   }) && !('promptApi' in OPENCODE_CAPABILITIES), show(OPENCODE_CAPABILITIES));
 
   const content = openCodeBaseContent();

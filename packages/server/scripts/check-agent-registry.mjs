@@ -816,19 +816,32 @@ const adapter = createClaudeCodeAdapter();
       return driver && registered.promptQueue !== undefined;
     }));
   /*
-    Hito 51: programar un mensaje, solo donde la app sabe que la CLI esta lista
+    Hito 51: programar un mensaje donde la app sabe que la CLI esta lista
     (`readySignal`), si esta libre (`statusSource`) y si otro proceso tiene la
-    conversacion (`status.isOpen`). Hoy, Claude Code y nadie mas: las otras
-    cuatro son del 52.
+    conversacion (`status.isOpen`): Claude Code. Hito 52: tambien la que declara
+    como se le manda sin esa senal (`scheduled`, por su pantalla o por su API):
+    Codex, OpenCode y Pi; Antigravity, solo con su status line (aca no la tiene).
   */
   const scheduling = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.scheduledSend);
-  check('51.2 scheduledSend: solo claude-code', sameShape(scheduling, ['claude-code']), scheduling.join(','));
-  check('51.2 la que lo declara sabe esperar "lista", publica su estado y dice si otro proceso tiene la conversacion',
+  check('51.2 scheduledSend: claude-code, codex, opencode y pi (antigravity sin status line, no)',
+    sameShape(scheduling, ['claude-code', 'codex', 'opencode', 'pi']), scheduling.join(','));
+  check('51.2 la que lo declara espera "lista" con su senal y dice si otro proceso tiene la conversacion, o declara como se le manda (52)',
     AGENT_IDS.every((id) => {
       const registered = appRegistry.adapter(id);
       if (!registered.capabilities.scheduledSend) return true;
+      if (registered.scheduled !== undefined) return true;
       return registered.capabilities.readySignal && registered.capabilities.statusSource &&
         typeof registered.status?.isOpen === 'function';
+    }));
+  check('52.1 Claude Code sigue por su senal de "lista" (51): no declara `scheduled`',
+    appRegistry.adapter('claude-code').scheduled === undefined);
+  check('52.1 Codex, Pi y Antigravity por su pantalla; OpenCode por su API',
+    appRegistry.adapter('codex').scheduled?.kind === 'screen' && appRegistry.adapter('pi').scheduled?.kind === 'screen' &&
+    appRegistry.adapter('antigravity').scheduled?.kind === 'screen' && appRegistry.adapter('opencode').scheduled?.kind === 'api');
+  check('52.1 la que no publica su estado (Codex) dice el turno abierto de su historial',
+    AGENT_IDS.every((id) => {
+      const registered = appRegistry.adapter(id);
+      return !registered.capabilities.scheduledSend || registered.status !== null || registered.id === 'codex';
     }));
   appRegistry.disposeAll();
 }

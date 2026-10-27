@@ -16,6 +16,15 @@
  * manda. Y **nunca manda dos veces**: lo que se corto escribiendo queda como
  * "no se sabe si llego", y solo lo vuelve a mandar el usuario.
  *
+ * Desde el hito 52 tambien manda a Codex, Pi, Antigravity y OpenCode, que no
+ * avisan cuando estan listas: como se les manda y como se confirma lo hace
+ * `delivery.ts`; aca solo cambia como se sabe si la CLI esta libre (`freeNow`:
+ * Codex no publica su estado, y lo dice el turno abierto de su historial) y que
+ * se hace con dos resultados nuevos: la CLI siguio trabajando (se vuelve a
+ * intentar) y lo escrito no aparecio (no se sabe si llego). Y con otra instancia
+ * de la app corriendo, una CLI que no dice si otro proceso tiene la conversacion
+ * espera un minuto antes de abrir una pestana dormida (`othersRunning`).
+ *
  * La hora de margen (`SCHEDULE_LATE_LIMIT_MS`) cuenta desde la primera vez que
  * este proceso vio el mensaje vencido: si fue mucho despues de su hora (la app
  * estaba cerrada, la PC suspendida), no lo manda solo. Un mensaje que vencio
@@ -38,6 +47,7 @@ import {
   type TerminalId,
 } from '@agent-workbench/shared';
 import type { DeliverOutcome } from '../deliver-when-ready.js';
+import type { ScheduledDeliveryOutcome } from './delivery.js';
 import type { ScheduleOwner, ScheduledMessageStore, StoredScheduledMessage } from './store.js';
 
 /** Cada cuanto se revisa, como mucho. Un mensaje se manda a su hora: el reloj tambien apunta a la siguiente. */
@@ -56,6 +66,17 @@ export const SCHEDULED_DELIVERY_TIMEOUT_MS = 60_000;
  * primero, y el segundo caia en el medio de su turno.
  */
 export const SCHEDULED_COOLDOWN_MS = 10_000;
+
+/**
+ * Hito 52. Con otra instancia de la app corriendo, cuanto espera, desde que lo
+ * vio vencido, antes de abrir una pestana dormida de una CLI que no dice si otro
+ * proceso tiene la conversacion: la instancia que la tiene abierta lo reserva en
+ * cuanto vence (51), y abrirla tambien serian dos procesos en la conversacion.
+ */
+export const SCHEDULED_OTHER_INSTANCE_GRACE_MS = 60_000;
+
+/** Si la CLI de una pestana esta libre ahora, para el reloj. */
+export type SchedulerFreeness = 'idle' | 'busy' | 'waiting' | 'unknown';
 
 /** Una pestana de agente con conversacion, como la ve el reloj. */
 export interface SchedulerTab {
@@ -76,14 +97,24 @@ export interface SchedulerDeps {
   /** Las pestanas de agente que tienen conversacion. */
   tabs: () => SchedulerTab[];
   activityOf: (terminalId: TerminalId) => TerminalActivity | null;
+  /**
+   * Hito 52. Si la CLI de una pestana viva esta libre. Ausente: lo dice
+   * `activityOf`, como en el 51. Con Codex, que no publica su estado, lo dice el
+   * turno abierto de su historial.
+   */
+  freeNow?: (tab: SchedulerTab) => Promise<SchedulerFreeness>;
+  /** Hito 52. Si otra instancia de la app esta corriendo sobre la misma carpeta de configuracion. */
+  othersRunning?: () => Promise<boolean>;
+  /** Hito 52. Si esa CLI dice cuando otro proceso tiene la conversacion (`isOpenElsewhere` sirve). */
+  tellsOpenElsewhere?: (agent: AgentId) => boolean;
   /** El nombre de la CLI y si declara `scheduledSend`. null si este servidor no la tiene. */
   agentOf: (agent: AgentId) => { label: string; scheduledSend: boolean } | null;
   /** Si algun otro proceso tiene esa conversacion abierta ahora. */
   isOpenElsewhere: (agent: AgentId, sessionId: string) => Promise<boolean>;
   /** Abre la CLI de una pestana dormida. false si la pestana ya no esta; lanza si no se pudo abrir. */
   wake: (terminalId: TerminalId) => Promise<boolean>;
-  /** Le manda el texto cuando la CLI esta lista, por la fila de la terminal. */
-  deliver: (terminalId: TerminalId, text: string) => Promise<DeliverOutcome>;
+  /** Le manda el texto cuando la CLI esta lista, y dice si llego (`delivery.ts`). */
+  deliver: (terminalId: TerminalId, text: string) => Promise<ScheduledDeliveryOutcome>;
   /** La lista cambio: va a todas las ventanas. */
   onChange: (messages: ScheduledMessage[]) => void;
   /** Inyectable para el chequeo. Devuelve como cancelarlo. */
@@ -120,9 +151,15 @@ export function scheduleCreateRefusal(input: ScheduleCreateInput): ServerText | 
   return null;
 }
 
-/** Que se anota de un envio que no termino bien, o null si llego. */
-export function scheduledFailureFor(outcome: DeliverOutcome): ServerText | null {
+/**
+ * Que se anota de un envio que no termino bien, o null si llego. `busy` no
+ * llega aca: no es una falla, se vuelve a intentar.
+ */
+export function scheduledFailureFor(outcome: DeliverOutcome | { kind: 'unconfirmed' }): ServerText | null {
   switch (outcome.kind) {
+    case 'unconfirmed':
+      // Se escribio y no aparecio en la conversacion: no se reintenta.
+      return serverText('scheduledUnconfirmed');
     case 'sent':
     case 'nothing':
       return null;
@@ -172,6 +209,8 @@ export class MessageScheduler {
   private readonly inFlightTabs = new Map<string, TerminalId>();
   /** Hasta cuando no se le manda otro a cada pestana (`SCHEDULED_COOLDOWN_MS`). */
   private readonly cooldownUntil = new Map<TerminalId, number>();
+  /** Hito 52. Hasta cuando espera cada mensaje a la otra instancia (`SCHEDULED_OTHER_INSTANCE_GRACE_MS`). */
+  private readonly graceUntil = new Map<string, number>();
   private ticking = false;
   private again = false;
   private stopped = true;
@@ -349,6 +388,7 @@ export class MessageScheduler {
   private forget(id: string): void {
     this.runtime.delete(id);
     this.firstDue.delete(id);
+    this.graceUntil.delete(id);
   }
 
   private set(id: string, state: ScheduledMessageState, note: ServerText | null): void {
@@ -396,6 +436,10 @@ export class MessageScheduler {
       }
       // Y apenas termina la espera de una pestana: el siguiente de ella sale ahi.
       for (const until of this.cooldownUntil.values()) {
+        if (until > now) wait = Math.min(wait, until - now + 20);
+      }
+      // Y apenas termina el minuto de espera a la otra instancia.
+      for (const until of this.graceUntil.values()) {
         if (until > now) wait = Math.min(wait, until - now + 20);
       }
     }
@@ -488,12 +532,12 @@ export class MessageScheduler {
         this.set(id, 'waiting', serverText('scheduledWaitOtherInstance'));
         return;
       }
-      const activity = this.deps.activityOf(tab.terminalId);
-      if (activity === 'idle' && !this.tabCooling(tab.terminalId, now)) {
+      const free = await this.freeNow(tab);
+      if (free === 'idle' && !this.tabCooling(tab.terminalId, now)) {
         this.startDelivery(message, tab, false);
         return;
       }
-      this.set(id, 'waiting', activity === 'waiting' ? serverText('scheduledWaitAnswer') : serverText('scheduledWaitBusy'));
+      this.set(id, 'waiting', free === 'waiting' ? serverText('scheduledWaitAnswer') : serverText('scheduledWaitBusy'));
       return;
     }
 
@@ -502,6 +546,21 @@ export class MessageScheduler {
       this.set(id, 'waiting', serverText('scheduledWaitBusy'));
       return;
     }
+
+    /*
+      Hito 52. Una CLI que no dice si otro proceso tiene la conversacion, con
+      otra instancia de la app corriendo: un minuto de espera, por si la tiene
+      abierta la otra, que lo reserva en cuanto vence.
+    */
+    if (!mine && this.deps.tellsOpenElsewhere?.(tab.agent) === false && (await this.deps.othersRunning?.()) === true) {
+      const graceEnd = firstDue + SCHEDULED_OTHER_INSTANCE_GRACE_MS;
+      if (now < graceEnd) {
+        this.graceUntil.set(id, graceEnd);
+        this.set(id, 'waiting', serverText('scheduledWaitGrace'));
+        return;
+      }
+    }
+    this.graceUntil.delete(id);
 
     // Dormida o terminada. Si otro proceso tiene la conversacion, abrirla serian dos.
     if (await this.deps.isOpenElsewhere(tab.agent, tab.sessionId)) {
@@ -523,6 +582,13 @@ export class MessageScheduler {
     this.startDelivery(message, tab, true);
   }
 
+  /** Si la CLI de la pestana esta libre: `freeNow`, o la actividad del registro. */
+  private async freeNow(tab: SchedulerTab): Promise<SchedulerFreeness> {
+    if (this.deps.freeNow !== undefined) return this.deps.freeNow(tab);
+    const activity = this.deps.activityOf(tab.terminalId);
+    return activity === 'idle' || activity === 'busy' || activity === 'waiting' ? activity : 'unknown';
+  }
+
   private startDelivery(message: StoredScheduledMessage, tab: SchedulerTab, wake: boolean): void {
     const { store } = this.deps;
     const { id } = message;
@@ -534,6 +600,8 @@ export class MessageScheduler {
       let failure: ServerText | null = null;
       let delivered = false;
       let cancelled = false;
+      // Hito 52: la CLI siguio trabajando todo el plazo; no se escribio nada y se vuelve a intentar.
+      let stillBusy = false;
       try {
         // Lo pudieron cancelar desde otra ventana o desde la otra instancia en el medio.
         await store.refresh();
@@ -544,8 +612,13 @@ export class MessageScheduler {
           await store.setPhase(id, 'writing');
           if (wake && !(await this.deps.wake(tab.terminalId))) failure = serverText('scheduledNoTab');
           if (failure === null) {
-            failure = scheduledFailureFor(await this.deps.deliver(tab.terminalId, message.text));
-            delivered = failure === null;
+            const outcome = await this.deps.deliver(tab.terminalId, message.text);
+            if (outcome.kind === 'busy') {
+              stillBusy = true;
+            } else {
+              failure = scheduledFailureFor(outcome);
+              delivered = failure === null;
+            }
           }
         }
       } catch (error) {
@@ -563,6 +636,7 @@ export class MessageScheduler {
         this.inFlightTabs.delete(id);
         if (!cancelled) this.cooldownUntil.set(tab.terminalId, this.deps.now() + SCHEDULED_COOLDOWN_MS);
         this.forget(id);
+        if (stillBusy) this.set(id, 'waiting', serverText('scheduledWaitBusy'));
         this.publish();
         this.nudge();
       }

@@ -1980,14 +1980,14 @@ const statusRecord = (id, over = {}) => ({
     forceSend: true,
     // §6.35.1: la flecha arriba y Ctrl+U Ctrl+K, medidos con la 1.4.4.
     editQueue: true,
-    // Hito 51: no se le programa nada todavia (el 52).
+    // Hito 52: sin status line no se sabe si trabaja, y no se le programa nada.
     scheduledSend: false,
     // Hito 49: `--mode plan`, medido al lanzar con la 1.4.0 (§12.14).
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };
   check('9 sin status line: capacidades iguales al literal', same(adapter.capabilities, expectedBase) && adapter.capabilities === ANTIGRAVITY_BASE_CAPABILITIES, show(adapter.capabilities));
-  check('9 con status line: estado y medidor, y lista para recibir sigue apagada (P0-4)',
-    same(ANTIGRAVITY_STATUS_LINE_CAPABILITIES, { ...expectedBase, statusSource: true, readySignal: false, contextWindowSource: 'status-line' }) && READY_SIGNAL_SAFE === false);
+  check('9 con status line: estado, medidor y mensajes programados (52), y lista para recibir sigue apagada (P0-4)',
+    same(ANTIGRAVITY_STATUS_LINE_CAPABILITIES, { ...expectedBase, statusSource: true, readySignal: false, contextWindowSource: 'status-line', scheduledSend: true }) && READY_SIGNAL_SAFE === false);
   check('9 las dos sobreviven al viaje por la red',
     same(shared.parseAgentCapabilities(JSON.parse(JSON.stringify(ANTIGRAVITY_BASE_CAPABILITIES))), expectedBase) &&
     same(shared.parseAgentCapabilities(JSON.parse(JSON.stringify(ANTIGRAVITY_STATUS_LINE_CAPABILITIES))), ANTIGRAVITY_STATUS_LINE_CAPABILITIES));
@@ -2533,6 +2533,23 @@ const claudeCycle = { modes: shared.PERMISSION_MODE_CYCLE, launchMode: 'auto', k
   const decodedMissing = shared.parseServerMessage(shared.encodeServerMessage({ type: 'agents', agents: [agyInfo('missing')], defaultAgent: null }))?.agents?.[0];
   check('D10 y sin configurar, el medidor ofrece Configurar', decodedMissing !== undefined &&
     ui.meterOffersSetup(ui.controlsFor(decodedMissing.capabilities).contextWindowSource, decodedMissing.statusLine));
+}
+
+// A52. Hito 52 (§12.17): la pantalla lista para un mensaje programado.
+{
+  const { antigravityReadyScreen } = await import('../src/agents/antigravity/ready-screen.ts');
+  const rule = '─'.repeat(60);
+  const banner = ['      ▄▀▀▄        Antigravity CLI 1.4.6', '     ▀▀▀▀▀▀       usuario@ejemplo.com', '    ▀▀▀▀▀▀▀▀      D:/proyecto'];
+  // Medidas con la 1.4.6 (medir-52.mjs), al retomar una conversacion.
+  const ready = [...banner, rule, '> Accept-edits mode: file edits auto-approved (shift+tab to cycle)', rule, '? for shortcuts                                               accept-edits'];
+  const typed = [...banner, rule, '> Mensaje de prueba: no hagas nada.', '  Responde solo con la palabra UNO.', rule, '               accept-edits · Gemini 3.8 Flash · high'];
+  const generating = [...banner, '⣷  Generating...', rule, '>', rule, 'esc to cancel  accept-edits · Gemini 3.8 Flash · high'];
+  const queued = [...banner, '▸ Mensaje B en cola (alt+m to send immediately)', rule, '>', rule, '  Press up to edit queued messages  accept-edits'];
+  check('A52 la caja con su texto de ayuda y "? for shortcuts": lista', antigravityReadyScreen(ready) === true);
+  check('A52 con texto escrito (el pie no dice "? for shortcuts"): no', antigravityReadyScreen(typed) === false);
+  check('A52 generando: no', antigravityReadyScreen(generating) === false);
+  check('A52 algo en cola: no', antigravityReadyScreen(queued) === false);
+  check('A52 sin caja: no', antigravityReadyScreen(banner) === false);
 }
 
 await rm(root, { recursive: true, force: true });

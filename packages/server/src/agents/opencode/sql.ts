@@ -172,6 +172,22 @@ FROM part WHERE id = $id AND json_extract(data, '$.type') = 'file'`,
    */
   partCallById: `SELECT message_id, json_extract(data, '$.callID') AS call_id
 FROM part WHERE id = $id AND session_id = $s AND json_extract(data, '$.tool') = 'question'`,
+
+  /**
+   * Hito 52 (§11.16). El agente, el modelo y la variante del ultimo mensaje del
+   * usuario de UNA sesion, para mandar un mensaje programado por `prompt_async`
+   * con los de la conversacion: sin agente, OpenCode usa el predeterminado
+   * (medido con la 1.19.4). Solo esos cuatro campos; `$s`. Los del ultimo
+   * instante, en el orden de siempre (regla 3): el ultimo de la lista es el que
+   * vale.
+   */
+  lastUserPrompt: `SELECT json_extract(data, '$.agent') AS agent,
+  json_extract(data, '$.model.providerID') AS provider_id,
+  json_extract(data, '$.model.modelID') AS model_id,
+  json_extract(data, '$.variant') AS variant
+FROM message WHERE session_id = $s AND json_extract(data, '$.role') = 'user'
+  AND time_created = (SELECT max(time_created) FROM message WHERE session_id = $s AND json_extract(data, '$.role') = 'user')
+ORDER BY time_created, id`,
 });
 
 export type OpenCodeStatement = keyof typeof OPENCODE_SQL;
@@ -300,4 +316,11 @@ export interface ImageUrlRow {
 export interface PartCallRow {
   message_id: string;
   call_id: string | null;
+}
+
+export interface LastUserPromptRow {
+  agent: string | null;
+  provider_id: string | null;
+  model_id: string | null;
+  variant: string | null;
 }

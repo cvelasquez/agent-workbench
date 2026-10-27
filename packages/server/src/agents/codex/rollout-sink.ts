@@ -73,6 +73,13 @@ export class CodexRolloutSink implements JsonlLineSink {
   private turns: TurnUpdate[] = [];
   /** Llamadas del turno en curso sin resultado todavia: `call_id` -> epoch ms. */
   private readonly openCalls = new Map<string, number>();
+  /**
+   * Desde cuando hay un turno abierto (epoch ms; 0 si su linea no trae hora), o
+   * null. Hito 52: Codex no publica si trabaja, y el reloj de los mensajes
+   * programados no le escribe con un turno abierto (§10.13: le cortaria la
+   * respuesta).
+   */
+  private turnOpenSince: number | null = null;
   private warnedForeignMeta = false;
 
   /**
@@ -116,7 +123,14 @@ export class CodexRolloutSink implements JsonlLineSink {
     return false;
   }
 
+  /** Ver `SessionFollower.hasOpenTurn`. Un turno sin hora no se sabe de que proceso es: cuenta. */
+  hasOpenTurn(launchedAt: number): boolean {
+    if (this.turnOpenSince === null) return false;
+    return this.turnOpenSince === 0 || this.turnOpenSince >= launchedAt;
+  }
+
   reset(): void {
+    this.turnOpenSince = null;
     this.model = null;
     this.effort = null;
     this.window = null;
@@ -229,6 +243,7 @@ export class CodexRolloutSink implements JsonlLineSink {
     if (TURN_START_TYPES.includes(kind)) {
       this.lastAssistantEventId = null;
       this.openCalls.clear();
+      this.turnOpenSince = at;
       const window = readWindow(payload['model_context_window']);
       if (window !== null) {
         this.window = window;
@@ -255,6 +270,7 @@ export class CodexRolloutSink implements JsonlLineSink {
 
     if (TURN_END_TYPES.includes(kind)) {
       this.openCalls.clear();
+      this.turnOpenSince = null;
       const duration = payload['duration_ms'];
       const eventId = this.lastAssistantEventId;
       this.lastAssistantEventId = null;

@@ -4,7 +4,8 @@
  * Habla solo con `127.0.0.1`, con basic auth, y solo con las rutas que esta
  * app usa: crear una sesion, el estado de las sesiones, los permisos y las
  * preguntas pendientes, contestar una pregunta, cortar una sesion y el flujo de
- * eventos. Nada de `/config`, `/provider`, `/auth`, `/file` ni `/pty`.
+ * eventos; desde el hito 52, mandar un mensaje programado (`prompt_async`,
+ * §11.16). Nada de `/config`, `/provider`, `/auth`, `/file` ni `/pty`.
  *
  * Reglas:
  *
@@ -47,6 +48,14 @@ export interface PendingQuestion {
 export interface PendingPermission {
   id: string;
   sessionID: string;
+}
+
+/** Lo que se repite del ultimo mensaje del usuario al mandar uno por `prompt_async` (hito 52). */
+export interface OpenCodePromptChoice {
+  agent: string | null;
+  providerID: string | null;
+  modelID: string | null;
+  variant: string | null;
 }
 
 /** Los eventos de `/global/event` que se usan. El resto se descarta al leer. */
@@ -249,6 +258,35 @@ export class OpenCodeServeClient {
   async abort(directory: string, sessionId: string): Promise<void> {
     if (!OPENCODE_SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid OpenCode session id.');
     await this.request('POST', `/session/${sessionId}/abort`, directory, {});
+  }
+
+  /**
+   * Hito 52 (§11.16). Manda un mensaje a la sesion sin esperar la respuesta:
+   * `POST /session/{id}/prompt_async`, que contesta 204 y deja el mensaje en la
+   * base en el acto; el TUI enganchado lo muestra como uno mas (medido con la
+   * 1.19.4, a los ~2 s). Sin agente, OpenCode usa el predeterminado y no el de
+   * la conversacion: por eso se le pasan el agente, el modelo y la variante del
+   * ultimo mensaje del usuario, si se conocen. `not-sent` si la sesion no existe
+   * (404): no se mando nada. Otro fallo lanza: no se sabe si lo tomo.
+   */
+  async promptAsync(
+    directory: string,
+    sessionId: string,
+    text: string,
+    choice: OpenCodePromptChoice | null,
+  ): Promise<'sent' | 'not-sent'> {
+    if (!OPENCODE_SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid OpenCode session id.');
+    const body: Record<string, unknown> = { parts: [{ type: 'text', text }] };
+    if (choice?.agent) body['agent'] = choice.agent;
+    if (choice?.providerID && choice.modelID) body['model'] = { providerID: choice.providerID, modelID: choice.modelID };
+    if (choice?.variant) body['variant'] = choice.variant;
+    try {
+      await this.request('POST', `/session/${sessionId}/prompt_async`, directory, body);
+      return 'sent';
+    } catch (error) {
+      if (error instanceof ServeRequestError && error.status === 404) return 'not-sent';
+      throw error;
+    }
   }
 
   /**

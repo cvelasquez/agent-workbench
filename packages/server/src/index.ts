@@ -44,6 +44,7 @@ import {
 import { NotesStore } from './notes-store.js';
 import { DraftStore, workspaceDraftOwners } from './draft-store.js';
 import { ScheduledMessageStore } from './scheduled-messages/store.js';
+import { RunningInstances } from './scheduled-messages/instances.js';
 import { locateShells, pickShell, type ShellLocation } from './shell-locator.js';
 import { AppSettingsService } from './app-settings-service.js';
 import { watchSessions } from './session-watcher.js';
@@ -420,6 +421,9 @@ async function main(): Promise<void> {
   // Los mensajes programados (hito 51, §6.39), por lo mismo: el primer mensaje de cada socket los lleva.
   const scheduled = new ScheduledMessageStore();
   await scheduled.load();
+  // Hito 52: esta instancia, anotada mientras corre, para que otra sepa que no esta sola.
+  const instances = new RunningInstances();
+  await instances.register();
   /*
     El reloj de los mensajes programados arranca cuando terminan de restaurarse
     las pestanas: antes no sabria cual es la de cada mensaje.
@@ -505,6 +509,7 @@ async function main(): Promise<void> {
     worktrees,
     scheduled,
     restored,
+    instances,
   });
 
   // El indice arranca en segundo plano: 3,2 s en frio no pueden demorar la URL.
@@ -598,6 +603,7 @@ async function main(): Promise<void> {
       drafts.flush(),
       // Lo que esta instancia tenia reservado sin haber escrito nada lo puede tomar otra (hito 51).
       scheduled.flush().then(() => scheduled.releaseReserved()),
+      instances.unregister(),
       remote.flush(),
       worktreeStore.flush(),
       agentsDisposed,

@@ -2551,7 +2551,7 @@ const throwsOn = (run) => {
     forceSend: false,
     editQueue: false,
     // Hito 51: no se le programa nada todavia (el 52).
-    scheduledSend: false,
+    scheduledSend: true,
     // Hito 49: la sandbox de solo lectura, medida con la 0.162.1 (§10.15).
     readOnlyLaunch: { mode: null, guard: 'cli' },
   }), show(adapter.capabilities));
@@ -3105,6 +3105,73 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
   check('W8 las que no lo nombran llevan la etiqueta delante', bare.cliVersion === 'Claude Code 2.1.263 · Codex ?', String(bare.cliVersion));
   const alone = summarizeAgents(onlyClaudeAgents.map((a) => (a.available ? { ...a, version: '2.1.270 (Claude Code)' } : a)), true);
   check('W8 con una sola, la version tal cual, como siempre', alone.cliVersion === '2.1.270 (Claude Code)', String(alone.cliVersion));
+}
+
+// R52. Hito 52 (§10.18): la pantalla lista para un mensaje programado, y el turno abierto.
+{
+  const { codexReadyScreen } = await import('../src/agents/codex/ready-screen.ts');
+  // Pantallas medidas con la 0.164 (medir-52.mjs), sin el banner de arriba.
+  const ready = [
+    '  >_ OpenAI Codex (v0.164.0)',
+    '     D:\\proyecto',
+    '',
+    '› Ask Codex to do anything',
+    '',
+    '  ? for shortcuts',
+  ];
+  const resumed = [
+    '     loading',
+    '  Resuming session…',
+    '     D:\\proyecto',
+    '› Mensaje de prueba: no hagas nada.',
+    '• UNO',
+    '  Worked for 4s • 21:12',
+    '',
+    '› Ask Codex to do anything',
+    '',
+    '  ← for agents · ? for shortcuts',
+  ];
+  const working = [
+    '› Mensaje de prueba: no hagas nada.',
+    '',
+    '◦ Working (1s • esc to interrupt)',
+    '',
+    '› Ask Codex to do anything',
+    '',
+    '  ← for agents · ? for shortcuts                 ⚠ 1 warning · f2 to view',
+  ];
+  const coldTyped = [
+    '› Mensaje de prueba: no hagas nada.',
+    '  Responde solo con la palabra UNO.',
+    '  Waiting for startup  · esc cancel',
+  ];
+  const menu = [
+    '  Approaching rate limits. Switch to gpt-6-luna for lower credit usage?',
+    '› 1. Switch to gpt-6-luna',
+    '  2. Keep current model',
+    '  Press enter to confirm or esc to go back',
+  ];
+  check('R52 la caja vacia con su pie: lista', codexReadyScreen(ready) === true);
+  check('R52 reanudada, con turnos arriba: lista', codexReadyScreen(resumed) === true);
+  check('R52 trabajando (la caja se ve igual): no', codexReadyScreen(working) === false);
+  check('R52 lo escrito esperando el arranque del daemon: no', codexReadyScreen(coldTyped) === false);
+  check('R52 un menu en lugar de la caja: no', codexReadyScreen(menu) === false);
+  check('R52 pantalla vacia: no', codexReadyScreen([]) === false && codexReadyScreen(['', '']) === false);
+
+  // El turno abierto: desde task_started hasta task_complete o turn_aborted, del proceso de ahora.
+  const id = cid(52);
+  const open = await sinkRead(sessionMeta({ id }) + taskStarted(BASE) + userPair(BASE + 1, 'uno'), id);
+  check('R52 task_started sin cerrar: turno abierto', open.sink.hasOpenTurn(BASE - 1000) === true);
+  check('R52 de un proceso anterior (lanzado despues del turno): no cuenta', open.sink.hasOpenTurn(BASE + 5000) === false);
+  const closed = await sinkRead(sessionMeta({ id }) + taskStarted(BASE) + userPair(BASE + 1, 'uno') + assistant(BASE + 3, 'a') + turnEnd(BASE + 4, 'task_complete', 1500), id);
+  check('R52 cerrado con task_complete: no', closed.sink.hasOpenTurn(BASE - 1000) === false);
+  const aborted = await sinkRead(sessionMeta({ id }) + taskStarted(BASE) + userPair(BASE + 1, 'uno') + turnEnd(BASE + 4, 'turn_aborted', 10), id);
+  check('R52 cortado (turn_aborted): no', aborted.sink.hasOpenTurn(BASE - 1000) === false);
+  const twice = await sinkRead(
+    sessionMeta({ id }) + taskStarted(BASE) + turnEnd(BASE + 4, 'task_complete', 10) + taskStarted(BASE + 10) + userPair(BASE + 11, 'dos'),
+    id,
+  );
+  check('R52 el segundo turno abierto despues de uno cerrado: si', twice.sink.hasOpenTurn(BASE - 1000) === true);
 }
 
 await rm(root, { recursive: true, force: true });
