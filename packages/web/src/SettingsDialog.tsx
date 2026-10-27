@@ -23,6 +23,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AgentId, AgentInfo, ConsoleShellId } from '@agent-workbench/shared';
+import { scheduledNeedsStatusLine } from './agent-ui.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { LocaleMenu } from './LocaleMenu.js';
 import { HIDEABLE_PANELS, type HideablePanel, type PanelVisibility } from './panel-visibility.js';
@@ -71,6 +72,8 @@ interface SettingsDialogProps {
   onOpenVault: (() => void) | null;
   /** null en una ventana remota, o con un servidor anterior al Hito 37. */
   onOpenRemote: (() => void) | null;
+  /** Abre el dialogo de la status line de esa CLI (27-10-2026). */
+  onConfigureStatusLine: (agent: AgentId) => void;
 }
 
 export function SettingsDialog({
@@ -84,6 +87,7 @@ export function SettingsDialog({
   remoteClient,
   onOpenVault,
   onOpenRemote,
+  onConfigureStatusLine,
 }: SettingsDialogProps): JSX.Element {
   const [confirmingConsole, setConfirmingConsole] = useState(false);
   const status = appSettings.status;
@@ -285,6 +289,8 @@ export function SettingsDialog({
               {/*
                 Hito 51 (§6.39): viene apagado, porque no es un uso comun. Apagarlo
                 no borra lo programado: queda en pausa, y vuelve a correr al encenderlo.
+                Con la casilla encendida se nombra cada CLI instalada a la que le
+                falta su status line para tener el reloj (27-10-2026).
               */}
               <h3 className="modal-section">{t('settings.section.scheduled')}</h3>
               <label className="settings-choice">
@@ -300,6 +306,15 @@ export function SettingsDialog({
                 {t('settings.scheduled.enable')}
               </label>
               <p className="modal-hint">{t('settings.scheduled.hint')}</p>
+              {shownScheduled &&
+                scheduledNeedsStatusLine(agents, shownDisabled).map((agent) => (
+                  <p key={agent.id} className="modal-hint">
+                    {t('settings.scheduled.needsStatusLine', { agent: agent.label })}{' '}
+                    <button className="link-button" onClick={() => onConfigureStatusLine(agent.id)}>
+                      {t('meter.configure')}
+                    </button>
+                  </p>
+                ))}
               {remoteClient && <p className="modal-hint">{t('settings.hostOnly')}</p>}
               {appSettings.problem !== null && (
                 <p className="settings-problem" role="alert">

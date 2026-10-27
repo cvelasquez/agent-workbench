@@ -25,6 +25,10 @@
  * gana y lo que guarda el script, y se suma que la CLI admite una sola status
  * line y que con una propia deja de mostrar algunas ayudas de su pie.
  *
+ * Desde el 27-10-2026 ofrece ademas copiar un pedido para que un agente de IA
+ * pegue la linea por el usuario (`statusLineAgentPrompt`): la app sigue sin
+ * escribir el archivo.
+ *
  * "Comprobar" pide que el servidor relea la configuracion; igual se entera solo
  * en un par de segundos. `Escape` cierra sin llegar a la terminal, como el
  * dialogo de atajos: si no, interrumpiria a la CLI.
@@ -32,7 +36,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { StatusLineSetupInfo } from '@agent-workbench/shared';
-import { statusLineNoFragmentText, statusLineStateText } from './agent-ui.js';
+import { statusLineAgentPrompt, statusLineNoFragmentText, statusLineStateText } from './agent-ui.js';
 import { t } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
 
@@ -62,7 +66,8 @@ export function StatusLineDialog({
   onRefresh,
   onClose,
 }: StatusLineDialogProps): JSX.Element {
-  const [copied, setCopied] = useState(false);
+  /** Cual de las dos copias muestra el tilde: la linea o el pedido para un agente. */
+  const [copied, setCopied] = useState<'line' | 'prompt' | null>(null);
   const [checking, setChecking] = useState(false);
   const copiedTimer = useRef<number | null>(null);
   const checkingTimer = useRef<number | null>(null);
@@ -95,15 +100,15 @@ export function StatusLineDialog({
     [],
   );
 
-  const copy = (text: string): void => {
+  const copy = (what: 'line' | 'prompt', text: string): void => {
     void navigator.clipboard
       .writeText(text)
       .then(() => {
-        setCopied(true);
+        setCopied(what);
         if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
-        copiedTimer.current = window.setTimeout(() => setCopied(false), COPIED_MS);
+        copiedTimer.current = window.setTimeout(() => setCopied(null), COPIED_MS);
       })
-      .catch(() => setCopied(false));
+      .catch(() => setCopied(null));
   };
 
   const check = (): void => {
@@ -116,6 +121,7 @@ export function StatusLineDialog({
   const active = info.state === 'active';
   const title = t('statusLine.title', { agent: agentLabel });
   const planLimits = purpose === 'plan-limits';
+  const agentPrompt = statusLineAgentPrompt(info, agentLabel);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -150,12 +156,23 @@ export function StatusLineDialog({
                 <pre className="tool-pre">{info.fragment}</pre>
                 <button
                   className="link-button"
-                  onClick={() => copy(info.fragment ?? '')}
+                  onClick={() => copy('line', info.fragment ?? '')}
                   title={t('statusLine.copyTitle')}
                 >
-                  {copied ? <>✓ {t('statusLine.copied')}</> : t('statusLine.copy')}
+                  {copied === 'line' ? <>✓ {t('statusLine.copied')}</> : t('statusLine.copy')}
                 </button>
               </div>
+              {agentPrompt !== null && (
+                <p className="modal-hint">
+                  <button
+                    className="link-button"
+                    onClick={() => copy('prompt', agentPrompt)}
+                    title={t('statusLine.copyPromptTitle')}
+                  >
+                    {copied === 'prompt' ? <>✓ {t('statusLine.promptCopied')}</> : t('statusLine.copyPrompt')}
+                  </button>
+                </p>
+              )}
             </>
           )}
 

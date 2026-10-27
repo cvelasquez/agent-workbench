@@ -18,6 +18,9 @@
  *  - **Una ventana remota** no cambia los ajustes del servidor.
  *  - **La consola y la barra de proyectos** (22-10-2026): una terminal solo si
  *    se pide, y la barra se esconde al abrir una sesion nueva desde ella.
+ *  - **La status line que falta para programar** (27-10-2026): la casilla de los
+ *    mensajes programados nombra solo a la CLI instalada que la necesita y no
+ *    la tiene, y el pedido para un agente lleva el fragmento tal cual.
  *
  * Sobre una carpeta temporal propia: no toca la configuracion real, no lanza
  * ninguna consola ni ninguna CLI.
@@ -34,7 +37,9 @@ import { AppSettingsChangeError, AppSettingsService } from '../src/app-settings-
 import { remoteRefusal } from '../src/remote-access.ts';
 import { vaultOnlySessions } from '../src/session-index.ts';
 import { DEFAULT_HIDDEN_PANELS, HIDEABLE_PANELS, parseHiddenPanels, serializeHiddenPanels, withPanelVisible } from '../../web/src/panel-visibility.ts';
-import { effectivePanelTab, visiblePanelTabs } from '../../web/src/agent-ui.ts';
+import { effectivePanelTab, scheduledNeedsStatusLine, statusLineAgentPrompt, visiblePanelTabs } from '../../web/src/agent-ui.ts';
+import { statusLineFragment } from '../src/agents/antigravity/statusline-script.ts';
+import { claudeStatusLineFragment } from '../src/agents/claude-code/statusline-script.ts';
 import { narrowViews } from '../../web/src/narrow-layout.ts';
 import { shellToOpenOnUnfold } from '../../web/src/console-shells.ts';
 
@@ -305,6 +310,63 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
   check('8.4 una sesion del historial no la esconde', handler('onOpenSession').length > 0 && !/hideSidebar/.test(handler('onOpenSession')));
   check('8.5 en la vista angosta no la toca: ahi es un cajon, que ya se cierra al elegir',
     /const hideSidebarAfterOpen = useCallback\(\(\) => \{\s*if \(narrow\) return;/.test(app));
+}
+
+// --- 9. La status line que falta para programar (27-10-2026) ---------------------------
+//
+// Pedido del usuario: la ayuda de la casilla nombraba a Antigravity CLI tambien
+// a quien no la usa o ya tiene su status line. Ahora la nombra una linea aparte,
+// solo con la casilla encendida y solo para la CLI instalada y prendida que la
+// necesita para programar. Lo que se rompe sin verse: que vuelva la frase fija,
+// que la linea salga con la status line activa, o que el pedido para un agente
+// cambie el comando (en Windows, una comilla de mas o de menos lo rompe).
+{
+  const missing = { state: 'missing', settingsPath: 's', scriptPath: 'x', fragment: '{}' };
+  const cli = (id, over = {}) => ({
+    id,
+    label: id,
+    available: true,
+    statusLine: missing,
+    capabilities: { scheduledSend: false },
+    ...over,
+  });
+  const ids = (agents, disabled = []) => json(scheduledNeedsStatusLine(agents, disabled).map((agent) => agent.id));
+  check('9.1 instalada, sin status line y sin programar: se nombra', ids([cli('antigravity')]) === json(['antigravity']));
+  for (const state of ['other-command', 'disabled', 'unreadable']) {
+    check(`9.2 con la status line "${state}" tambien`, ids([cli('antigravity', { statusLine: { ...missing, state } })]) === json(['antigravity']));
+  }
+  check('9.3 con la status line activa, no (el caso del usuario)',
+    ids([cli('antigravity', { statusLine: { ...missing, state: 'active' } })]) === '[]');
+  check('9.4 no instalada, no', ids([cli('antigravity', { available: false })]) === '[]');
+  check('9.5 apagada en Ajustes, no', ids([cli('antigravity')], ['antigravity']) === '[]');
+  check('9.6 sin status line opcional (Codex, OpenCode, Pi), no', ids([cli('codex', { statusLine: null })]) === '[]');
+  check('9.7 una CLI que ya programa sin ella, no', ids([cli('otra', { capabilities: { scheduledSend: true } })]) === '[]');
+  check('9.8 Claude Code: su status line del plan no cuenta (va en planLimitsSetup)',
+    ids([cli('claude-code', { statusLine: null, capabilities: { scheduledSend: true }, planLimitsSetup: missing })]) === '[]');
+
+  const locales = ['en', 'es', 'de', 'fr', 'pt-BR', 'ru', 'ja', 'ko', 'zh-CN'];
+  const named = [];
+  for (const locale of locales) {
+    const texts = JSON.parse(await readFile(new URL(`../../web/src/i18n/locales/${locale}.json`, import.meta.url), 'utf8'));
+    if (/Antigravity|Claude|Codex|OpenCode|\bPi\b/.test(texts['settings.scheduled.hint'])) named.push(locale);
+  }
+  check('9.9 la ayuda de la casilla no nombra ninguna CLI, en los nueve idiomas', named.length === 0, json(named));
+
+  const dialog = await readFile(new URL('../../web/src/SettingsDialog.tsx', import.meta.url), 'utf8');
+  check('9.10 la linea sale solo con la casilla encendida',
+    /\{shownScheduled &&\s*scheduledNeedsStatusLine\(agents, shownDisabled\)/.test(dialog));
+
+  for (const [label, fragment, settingsPath] of [
+    ['Antigravity CLI', statusLineFragment('C:\\Users\\u\\AppData\\Roaming\\agent-workbench\\integrations\\antigravity-statusline.mjs', 'win32'),
+      'C:\\Users\\u\\.gemini\\antigravity-cli\\settings.json'],
+    ['Claude Code', claudeStatusLineFragment('C:\\Users\\u\\AppData\\Roaming\\agent-workbench\\integrations\\claude-statusline.mjs', 'win32'),
+      'C:\\Users\\u\\.claude\\settings.json'],
+  ]) {
+    const prompt = statusLineAgentPrompt({ settingsPath, fragment }, label) ?? '';
+    check(`9.11 ${label}: el pedido lleva el fragmento tal cual, el archivo y la CLI`,
+      fragment !== null && prompt.includes(fragment) && prompt.includes(settingsPath) && prompt.includes(label), prompt.slice(0, 80));
+  }
+  check('9.12 sin fragmento posible no hay pedido', statusLineAgentPrompt({ settingsPath: 's', fragment: null }, 'X') === null);
 }
 
 await rm(workDir, { recursive: true, force: true });

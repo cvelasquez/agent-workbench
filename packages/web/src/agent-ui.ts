@@ -568,6 +568,44 @@ export function statusLineNoFragmentText(): string {
 }
 
 /**
+ * El pedido para que un agente de IA pegue la status line por el usuario, o
+ * null si no hay fragmento (pedido del usuario el 27-10-2026). La app sigue sin
+ * tocar el `settings.json` de la CLI (§2.1): el pedido lo copia y lo pasa el
+ * usuario. Lleva el fragmento tal cual y tres cuidados contra lo que un agente
+ * romperia por ayudar: el comando sin cambiarle comillas ni barras (de eso
+ * depende que corra en Windows, §4.17 y §12.9), no pisar otra status line, y
+ * no mostrar ni abrir nada mas de esa carpeta, que guarda la sesion de la CLI.
+ */
+export function statusLineAgentPrompt(
+  info: Pick<StatusLineSetupInfo, 'settingsPath' | 'fragment'>,
+  agentLabel: string,
+): string | null {
+  if (info.fragment === null) return null;
+  return t('statusLine.agentPrompt', { agent: agentLabel, path: info.settingsPath, fragment: info.fragment });
+}
+
+/**
+ * Las CLIs a las que les falta su status line para programar un mensaje
+ * (§6.39): prendidas, con la status line opcional que cambia capacidades
+ * (`AgentInfo.statusLine`) sin activar, y que hoy no programan. Ajustes nombra
+ * cada una debajo de la casilla encendida, con "Configurar". Antes era una
+ * frase fija que nombraba a una CLI tambien a quien no la usa o ya la tiene
+ * configurada (pedido del usuario el 27-10-2026).
+ */
+export function scheduledNeedsStatusLine<
+  T extends Pick<AgentInfo, 'id' | 'available' | 'statusLine' | 'capabilities'>,
+>(agents: readonly T[], disabled: readonly AgentId[]): T[] {
+  return agents.filter(
+    (agent) =>
+      agent.available &&
+      !disabled.includes(agent.id) &&
+      agent.statusLine !== null &&
+      agent.statusLine.state !== 'active' &&
+      !agent.capabilities.scheduledSend,
+  );
+}
+
+/**
  * Las solapas que se ofrecen.
  *
  * Solo Planes depende de la CLI. Memoria no se filtra: la memoria compartida

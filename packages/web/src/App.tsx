@@ -558,12 +558,19 @@ export function App(): JSX.Element {
   const consoleShellName = appSettings.status !== null ? appSettings.status.shellName : shellName;
   /** La primera vez que se esconde algo desde su barra, se dice donde vuelve. */
   const [hiddenHint, setHiddenHint] = useState<HideablePanel | null>(null);
-  /** El dialogo de la status line de la CLI de la pestana activa (hito 27). */
-  const [statusLineDialogVisible, setStatusLineDialogVisible] = useState(false);
-  // Una pestana de otra CLI cierra el dialogo: volver no tiene por que reabrirlo.
+  /**
+   * El dialogo de la status line de una CLI (hito 27): la de la pestana activa,
+   * desde el medidor, o la que nombra Ajustes junto a la casilla de los
+   * mensajes programados (27-10-2026), aunque no haya pestana suya.
+   */
+  const [statusLineDialogAgent, setStatusLineDialogAgent] = useState<AgentId | null>(null);
+  const statusLineDialogInfo = agents.find((info) => info.id === statusLineDialogAgent) ?? null;
+  // Si esa CLI deja de tener status line (o de estar), el dialogo se cierra.
   useEffect(() => {
-    if (activeStatusLine === null) setStatusLineDialogVisible(false);
-  }, [activeStatusLine]);
+    if (statusLineDialogAgent !== null && (statusLineDialogInfo?.statusLine ?? null) === null) {
+      setStatusLineDialogAgent(null);
+    }
+  }, [statusLineDialogAgent, statusLineDialogInfo]);
   /** El de la status line de los limites del plan (hito 47), con la misma regla. */
   const [planLimitsDialogVisible, setPlanLimitsDialogVisible] = useState(false);
   useEffect(() => {
@@ -1532,7 +1539,9 @@ export function App(): JSX.Element {
           }
           statusLineState={activeStatusLine?.state ?? null}
           onConfigureStatusLine={
-            activeStatusLine === null ? undefined : () => setStatusLineDialogVisible(true)
+            activeStatusLine === null || activeAgentInfo === null
+              ? undefined
+              : () => setStatusLineDialogAgent(activeAgentInfo.id)
           }
           activity={activeActivity}
           receipt={activeTerminalId === null ? null : (threadSignals.receipts.get(activeTerminalId) ?? null)}
@@ -1900,16 +1909,15 @@ export function App(): JSX.Element {
         />
       )}
       {/*
-        Se dibuja con la status line de la pestana activa, la de ahora: al
-        pegar el fragmento y comprobar, el estado de arriba cambia en el sitio.
-        Si la pestana activa pasa a ser de una CLI sin status line, se cierra.
+        Se dibuja con la status line de esa CLI, la de ahora: al pegar el
+        fragmento y comprobar, el estado de arriba cambia en el sitio.
       */}
-      {statusLineDialogVisible && activeStatusLine !== null && activeAgentInfo !== null && (
+      {statusLineDialogInfo !== null && statusLineDialogInfo.statusLine !== null && (
         <StatusLineDialog
-          info={activeStatusLine}
-          agentLabel={activeAgentInfo.label}
+          info={statusLineDialogInfo.statusLine}
+          agentLabel={statusLineDialogInfo.label}
           onRefresh={refreshAgents}
-          onClose={() => setStatusLineDialogVisible(false)}
+          onClose={() => setStatusLineDialogAgent(null)}
         />
       )}
       {planLimitsDialogVisible && activePlanSetup !== null && activeAgentInfo !== null && (
@@ -2017,6 +2025,10 @@ export function App(): JSX.Element {
                 }
               : null
           }
+          onConfigureStatusLine={(agent) => {
+            setSettingsVisible(false);
+            setStatusLineDialogAgent(agent);
+          }}
         />
       )}
 
