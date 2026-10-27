@@ -256,7 +256,8 @@ Woche). So sehen Sie sie neben der Kontextanzeige:
    neben der Kontextanzeige.
 2. Kopieren Sie die angezeigte Zeile und fügen Sie sie zu dem hinzu, was
    `~/.claude/settings.json` bereits enthält. Die App ändert diese Datei nicht:
-   Sie bearbeiten sie selbst.
+   Sie bearbeiten sie selbst. Oder bitten Sie mit **Anfrage für Ihren
+   Agenten kopieren** einen KI-Agenten, sie für Sie hinzuzufügen.
 3. Nach ein paar Sekunden oder mit **Prüfen** zeigt der Dialog **Konfiguriert**
    an. Die Limits erscheinen mit der nächsten Antwort.
 
@@ -285,7 +286,9 @@ leer. So schalten Sie sie ein:
    der Kontextanzeige.
 2. Kopieren Sie die angezeigte Zeile und fügen Sie sie zu dem hinzu, was
    `~/.gemini/antigravity-cli/settings.json` bereits enthält. Die App ändert
-   diese Datei nicht: Sie bearbeiten sie selbst.
+   diese Datei nicht: Sie bearbeiten sie selbst. Oder bitten Sie mit
+   **Anfrage für Ihren Agenten kopieren** einen KI-Agenten, sie für Sie
+   hinzuzufügen.
 3. Nach ein paar Sekunden oder mit **Prüfen** zeigt der Dialog **Konfiguriert**
    an.
 

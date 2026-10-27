@@ -2,7 +2,7 @@
 
 This policy covers Agent Workbench: the app you run on your computer (the npm
 package) and its Android app, published on Google Play by Axialab. Effective
-2026-10-24.
+2026-10-27.
 
 **Agent Workbench collects nothing.** There are no accounts, no analytics, no
 ads, no crash reports and no third-party SDKs. Neither the app nor its

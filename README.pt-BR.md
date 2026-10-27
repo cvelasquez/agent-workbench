@@ -244,7 +244,8 @@ medidor de contexto:
 
 1. Abra uma aba do Claude Code e clique em **Configurar**, ao lado do medidor.
 2. Copie a linha que aparece e adicione-a ao que `~/.claude/settings.json` já
-   tem. O app não edita esse arquivo: quem edita é você.
+   tem. O app não edita esse arquivo: quem edita é você. Ou, com **Copiar
+   pedido para o seu agente**, peça a um agente de IA que a adicione por você.
 3. Em alguns segundos, ou com **Verificar**, o diálogo mostra **Configurada**.
    Os limites aparecem com a próxima resposta.
 
@@ -270,7 +271,8 @@ desconhecido e os medidores ficam vazios. Para ativá-la:
 1. Abra uma aba do Antigravity e clique em **Configurar**, ao lado do medidor.
 2. Copie a linha que aparece e adicione-a ao que
    `~/.gemini/antigravity-cli/settings.json` já tem. O app não edita esse
-   arquivo: quem edita é você.
+   arquivo: quem edita é você. Ou, com **Copiar pedido para o seu agente**,
+   peça a um agente de IA que a adicione por você.
 3. Em alguns segundos, ou com **Verificar**, o diálogo mostra **Configurada**.
 
 A linha executa um pequeno script guardado na pasta do próprio app. Ele salva só

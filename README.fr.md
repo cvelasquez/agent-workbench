@@ -255,7 +255,8 @@ la semaine). Pour les voir à côté de la jauge de contexte :
    jauge.
 2. Copiez la ligne affichée et ajoutez-la à ce que contient déjà
    `~/.claude/settings.json`. L'application ne touche pas à ce fichier : c'est
-   vous qui le modifiez.
+   vous qui le modifiez. Ou, avec **Copier une demande pour votre agent**,
+   demandez à un agent d'IA de l'ajouter pour vous.
 3. En quelques secondes, ou avec **Vérifier**, la boîte de dialogue indique
    **Configurée**. Les limites apparaissent avec la réponse suivante.
 
@@ -284,7 +285,8 @@ elle, ses onglets fonctionnent normalement, mais le point de l'onglet indique un
    jauge.
 2. Copiez la ligne affichée et ajoutez-la à ce que contient déjà
    `~/.gemini/antigravity-cli/settings.json`. L'application ne touche pas à ce
-   fichier : c'est vous qui le modifiez.
+   fichier : c'est vous qui le modifiez. Ou, avec **Copier une demande pour
+   votre agent**, demandez à un agent d'IA de l'ajouter pour vous.
 3. En quelques secondes, ou avec **Vérifier**, la boîte de dialogue indique
    **Configurée**.
 

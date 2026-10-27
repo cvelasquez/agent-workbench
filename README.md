@@ -244,7 +244,8 @@ context meter:
 
 1. Open a Claude Code tab and click **Configure**, next to the meter.
 2. Copy the line it shows and add it to what `~/.claude/settings.json` already
-   has. The app doesn't edit that file: you do.
+   has. The app doesn't edit that file: you do. Or, with **Copy a request for
+   your agent**, ask an AI agent to add it for you.
 3. Within a couple of seconds, or with **Check**, the dialog says
    **Configured**. The limits show up with the next response.
 
@@ -269,7 +270,8 @@ unknown and the meters stay empty. To turn it on:
 1. Open an Antigravity tab and click **Configure**, next to the meter.
 2. Copy the line it shows and add it to what
    `~/.gemini/antigravity-cli/settings.json` already has. The app doesn't edit
-   that file: you do.
+   that file: you do. Or, with **Copy a request for your agent**, ask an AI
+   agent to add it for you.
 3. Within a couple of seconds, or with **Check**, the dialog says
    **Configured**.
 

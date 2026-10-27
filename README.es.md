@@ -247,7 +247,9 @@ medidor de contexto:
 1. Abre una pestaña de Claude Code y haz clic en **Configurar**, junto al
    medidor.
 2. Copia la línea que aparece y agrégala a lo que ya tiene
-   `~/.claude/settings.json`. La app no edita ese archivo: lo editas tú.
+   `~/.claude/settings.json`. La app no edita ese archivo: lo editas tú. O, con
+   **Copiar pedido para tu agente**, pídele a un agente de IA que la agregue
+   por ti.
 3. En un par de segundos, o con **Comprobar**, el diálogo dice **Configurada**.
    Los límites aparecen con la próxima respuesta.
 
@@ -274,7 +276,8 @@ el estado es desconocido y los medidores quedan vacíos. Para activarla:
    medidor.
 2. Copia la línea que aparece y agrégala a lo que ya tiene
    `~/.gemini/antigravity-cli/settings.json`. La app no edita ese archivo: lo
-   editas tú.
+   editas tú. O, con **Copiar pedido para tu agente**, pídele a un agente de IA
+   que la agregue por ti.
 3. En un par de segundos, o con **Comprobar**, el diálogo dice **Configurada**.
 
 La línea corre un pequeño script guardado en la carpeta propia de la app. Guarda
