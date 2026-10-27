@@ -4,10 +4,36 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
-## 0.9.0 - unreleased
+## 0.9.0 - 2026-10-27
 
 ### Added
 
+- **Schedule a message.** The clock in the message box sends what you wrote on
+  its own at the time you pick (in an hour, tomorrow at 9 AM, or a day and a
+  time up to 30 days ahead), in the same conversation, with its context. With
+  Claude Code, Codex, OpenCode, Pi and, once its status line is set up,
+  Antigravity CLI. It's off by default: turn on **Schedule messages** in
+  Settings.
+  - If the agent is working at that time, the message waits for it to finish;
+    if the tab is asleep, the app opens the CLI and sends it. Until then it
+    waits at the end of the conversation with **Send now** and **Cancel
+    sending**, which puts the text back in the message box, and the tab shows
+    a small clock.
+  - More than an hour late (the app was closed, the computer asleep), it isn't
+    sent on its own: it says it wasn't sent, with **Send now**. Two copies of
+    the app open at once never send it twice. Turning the setting off pauses
+    what's scheduled, and closing the tab cancels it, after asking.
+  - The CLIs that don't say when they're ready get it once the app sees them
+    idle with an empty input box, and it counts as sent when it shows up in the
+    conversation; if it doesn't, the app says it can't tell whether it arrived
+    and doesn't send it again. OpenCode gets it through its server, with the
+    conversation's agent and model.
+  - Text only: a message with images or files can't be scheduled.
+- **Copy a request for your agent**, in the status line dialog of Claude Code
+  and Antigravity CLI, copies a short request for an AI agent to add the line
+  to the CLI's settings for you, without touching the rest of the file. With
+  scheduled messages on, Settings names the CLI that still needs its status
+  line for the clock, with **Configure**.
 - **To message box** on a note puts its text and images in the message box of
   the active tab, to add to it and send it to the conversation you're in. The
   note stays. On the phone, the view switches to the chat.
@@ -25,6 +51,17 @@ change behavior.
 
 - The Android app is built with R8, as Google Play asks from February 2027:
   its code goes from 10.5 MB to 0.7 MB.
+
+### Fixed
+
+- A question card in a tab whose CLI isn't open (asleep or ended) no longer
+  takes your click, says "Answered" and then that the CLI didn't confirm: its
+  options are off, and the card says why.
+- A question left open when its CLI closed is no longer answered by typing into
+  the CLI opened later, which doesn't show that menu again and got a "1" at its
+  prompt: the card says "The CLI closed with this question open".
+- A Claude Code CLI killed abruptly no longer leaves its tab looking idle: the
+  status file it leaves behind counts only while its process is alive.
 
 ## 0.8.1 - 2026-10-23
 

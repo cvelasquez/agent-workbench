@@ -17,9 +17,9 @@ android {
         minSdk = 29
         // Play exige la API 36 para apps nuevas y actualizaciones desde el 31-08-2026.
         targetSdk = 36
-        // La misma version que el paquete de npm que la app necesita en la PC (§15.11).
-        versionCode = 1
-        versionName = "0.4.0"
+        // La version del paquete de npm con el que sale; versionCode sube en cada subida a Play (§15.11).
+        versionCode = 2
+        versionName = "0.9.0"
     }
 
     /*
