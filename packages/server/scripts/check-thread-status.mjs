@@ -1358,6 +1358,165 @@ const clearPairs = (data) => (data.length > 0 && data.replaceAll(CLEAR_LINE, '')
     !at({ wasAtEnd: false, scrollTop: 1_100 }) && !at({ wasAtEnd: false, distanceFromEnd: STICK_TO_BOTTOM_PX + 1, scrollTop: 1_000 }));
 }
 
+// --- 13. Lo mandado con la CLI libre: la burbuja "enviado" (§6.35.2) -----------------
+//
+// Pedido del usuario el 28-10-2026: que el mensaje mandado con el agente libre
+// se vea al instante, como el que espera en cola, y que se pueda corregir hasta
+// que el agente empiece. Medido con Claude Code 2.1.312 (c18): detenida antes
+// de escribir nada, tambien pensando con esfuerzo maximo, devuelve el mensaje.
+
+const event = (eventId, role, text, at, parts = [{ kind: 'text', text, truncated: false }]) => ({
+  eventId, role, at, parts, model: null, usage: null, effort: null, durationMs: null, queued: false,
+});
+
+{
+  const { SentPrompts } = await import('../src/sent-prompts.ts');
+  const sent = new SentPrompts();
+  const t0 = 1_000_000;
+  sent.note('t', { text: 'Corrige el titulo', images: 0, at: t0 });
+  const listed = sent.list('t', true);
+  check('13.1 recien mandado: una burbuja "enviado", editable, todavia sin evento del hilo',
+    listed.length === 1 && listed[0].sent === true && listed[0].editable === true && listed[0].eventId === undefined &&
+      listed[0].text === 'Corrige el titulo', json(listed));
+  check('13.2 con una CLI que no lo devuelve al detenerla, no se ofrece Editar', sent.list('t', false)[0]?.editable === undefined);
+
+  const earlier = event('u0', 'user', 'Corrige el titulo', t0 - 60_000);
+  const answer0 = event('a0', 'assistant', 'lo de antes', t0 - 50_000);
+  check('13.3 un mensaje igual de antes no es este', !sent.settle('t', [earlier, answer0]) && sent.list('t', true)[0]?.eventId === undefined);
+  const mine = event('u1', 'user', 'Corrige el titulo', t0 + 300);
+  check('13.4 la CLI lo escribio: sigue la burbuja, con el evento que el hilo esconde',
+    sent.settle('t', [earlier, answer0, mine]) && sent.list('t', true)[0]?.eventId === 'u1', json(sent.list('t', true)));
+  check('13.5 sin nada despues de el, no cambia', !sent.settle('t', [earlier, answer0, mine]) && sent.list('t', true).length === 1);
+  check('13.6 el agente escribio algo: se va',
+    sent.settle('t', [mine, event('a1', 'assistant', 'pensando', t0 + 5_000)]) && sent.list('t', true).length === 0);
+
+  sent.note('t', { text: 'segundo', images: 0, at: t0 + 10_000 });
+  sent.settle('t', [event('u2', 'user', 'segundo', t0 + 10_100)]);
+  check('13.7 su mensaje dejo de verse (Detener lo devolvio y el hilo lo escondio): se va',
+    sent.settle('t', [mine]) && sent.list('t', true).length === 0);
+  sent.note('t', { text: 'tercero', images: 0, at: t0 + 20_000 });
+  const third = event('u3', 'user', 'tercero', t0 + 20_050);
+  sent.settle('t', [third]);
+  check('13.8 la marca de interrupcion de la CLI despues tambien cuenta',
+    sent.settle('t', [third, event('u4', 'user', '[Request interrupted by user]', t0 + 21_000)]) && sent.list('t', true).length === 0);
+
+  sent.note('t', { text: 'a', images: 0, at: t0 + 30_000 });
+  sent.note('t', { text: 'b', images: 0, at: t0 + 40_000 });
+  check('13.9 dropBefore saca solo lo mandado antes', sent.dropBefore('t', t0 + 35_000) && sent.list('t', true).map((p) => p.text).join() === 'b');
+  check('13.10 clear saca todo, y una segunda vez no habia nada', sent.clear('t') && sent.list('t', true).length === 0 && !sent.clear('t'));
+  sent.note('t', { text: '   ', images: 0, at: t0 });
+  check('13.11 un envio vacio no deja burbuja', sent.list('t', true).length === 0);
+  sent.note('t', { text: '', images: 2, at: t0 });
+  const onlyImages = event('u5', 'user', '', t0 + 100, [{ kind: 'image' }, { kind: 'image' }]);
+  check('13.12 solo imagenes: se reconoce por la cantidad', sent.settle('t', [onlyImages]) && sent.list('t', true)[0]?.eventId === 'u5');
+  sent.clear('t');
+}
+
+// El hub: sale al instante aunque la CLI lleve libre un rato, va dentro del
+// append, se va cuando el agente empieza, y no se fuerza ni se saca con la cola.
+{
+  let added = [];
+  let tail = [];
+  let cliQueue = [];
+  const follower = {
+    label: 'enviado', start: async () => undefined,
+    poll: async () => ({ reset: false, added: added.splice(0), turns: [], plans: [], parts: [] }),
+    getState: () => 'live', getUsage: () => ({ ...shared.EMPTY_CONTEXT_USAGE }), getPermissionMode: () => null,
+    getTail: () => ({ events: tail, hasMore: false }), getPageBefore: () => ({ events: [], hasMore: false }),
+    getPlanFiles: () => [], readImage: async () => null, noticeChange: () => true, hasOpenToolCall: () => false,
+    queuedPrompts: () => cliQueue,
+  };
+  const adapter = {
+    id: 'claude-code', capabilities: { ...shared.NO_CAPABILITIES, sessionIdAtLaunch: true, forceSend: true }, status: null,
+    promptQueue: { source: 'session', forceSend: 'ctrl-x-ctrl-s' }, queuedSubmits: { returnReason: 'stopped-early' },
+    history: { follow: () => follower, plans: null },
+  };
+  const agents = { get: (id) => (id === 'claude-code' ? { adapter, location: null } : null) };
+  const registry = new EventEmitter();
+  let launchedAt = LAUNCHED_AT;
+  registry.get = (terminalId) => (terminalId === 't-env'
+    ? { terminalId, kind: 'agent', agent: 'claude-code', cwd: root, sessionId: 's', label: '', resumed: false, createdAt: 0, alive: true, exitCode: null, sleeping: false }
+    : null);
+  registry.launchedAtOf = () => launchedAt;
+  const UNTAKEN_MS = 400;
+  const hub = new ConversationHub(registry, agents, { sentUntakenMs: UNTAKEN_MS });
+  try {
+    await hub.subscribe('t-env');
+    // Libre mas que la red de la cola: sin el arreglo, la burbuja no saldria nunca.
+    registry.emit('activity', 't-env', 'idle', null);
+    const settledIdle = Date.now();
+    while (!hub.idleSettled.has('t-env') && Date.now() - settledIdle < IDLE_CLEARS_QUEUE_MS + 3_000) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    check('13.20 (fixture) la CLI lleva libre mas de la red de la cola', hub.idleSettled.has('t-env'));
+
+    const shown = nextEvent(hub, 'queue');
+    const sentAt = Date.now();
+    hub.noteSent('t-env', { text: 'Corrige el titulo', images: 0, at: sentAt });
+    const shownArgs = await shown;
+    check('13.21 sale al instante, "enviado" y editable con la CLI que lo devuelve al detenerla',
+      shownArgs?.[1].length === 1 && shownArgs[1][0].sent === true && shownArgs[1][0].editable === true, json(shownArgs));
+    check('13.22 no es algo que forzar ni que sacar de la cola', !hub.hasQueue('t-env') && hub.queueSnapshot('t-env').length === 0);
+    check('13.23 y lo lleva el reset', hub.getQueue('t-env')[0]?.sent === true);
+
+    registry.emit('activity', 't-env', 'busy', null);
+    const mine = event('u1', 'user', 'Corrige el titulo', sentAt + 300);
+    added = [mine];
+    tail = [mine];
+    const written = nextEvent(hub, 'append');
+    hub.onHistoryChanged('claude-code', 'x');
+    const writtenArgs = await written;
+    check('13.24 la CLI lo escribio: el mismo append trae la burbuja con su evento, que el hilo esconde',
+      writtenArgs?.[4]?.[0]?.eventId === 'u1' && writtenArgs[4][0].sent === true, json(writtenArgs?.[4]));
+
+    const reply = event('a1', 'assistant', 'ok', sentAt + 5_000);
+    added = [reply];
+    tail = [mine, reply];
+    const started = nextEvent(hub, 'append');
+    hub.onHistoryChanged('claude-code', 'x');
+    const startedArgs = await started;
+    check('13.25 el agente empezo: la burbuja se va en el mismo append que trae lo primero que escribio',
+      startedArgs !== null && json(startedArgs[4]) === '[]', json(startedArgs?.[4]));
+
+    // La app la creyo libre y la CLI lo encolo: se ve una vez, en la cola.
+    cliQueue = [{ id: 'q1', text: 'Mira  esto', truncated: false, images: 0, at: Date.now() }];
+    hub.noteSent('t-env', { text: 'Mira esto', images: 0, at: Date.now() });
+    const once = hub.getQueue('t-env');
+    check('13.26 enviado y encolado por la CLI: una sola burbuja, la de la cola', once.length === 1 && once[0].id === 'q1', json(once));
+    cliQueue = [];
+
+    const withdrawn = nextEvent(hub, 'queue');
+    hub.withdraw('t-env', 'u9');
+    check('13.27 Detener lo devolvio al cuadro (el hilo lo esconde): se va', (await withdrawn)?.[1].length === 0);
+
+    // La CLI no lo tomo: sigue libre pasado el plazo.
+    registry.emit('activity', 't-env', 'idle', null);
+    hub.noteSent('t-env', { text: 'nadie me toma', images: 0, at: Date.now() });
+    const untaken = nextEvent(hub, 'queue', UNTAKEN_MS + 2_000);
+    const untakenArgs = await untaken;
+    check('13.28 la CLI sigue libre pasado el plazo sin tomarlo: se va', untakenArgs !== null && untakenArgs[1].length === 0, json(untakenArgs));
+
+    registry.emit('activity', 't-env', 'busy', null);
+    hub.noteSent('t-env', { text: 'trabajando largo', images: 0, at: Date.now() });
+    await new Promise((resolve) => setTimeout(resolve, UNTAKEN_MS + 200));
+    check('13.29 trabajando (pensando, sin escribir nada) pasado el plazo: sigue', hub.getQueue('t-env').length === 1);
+
+    const offline = nextEvent(hub, 'queue');
+    registry.emit('activity', 't-env', 'offline', null);
+    check('13.30 sin proceso, se va', (await offline)?.[1].length === 0);
+  } finally {
+    hub.disposeAll();
+  }
+}
+
+// El protocolo: un cliente de antes ve una burbuja mas; editable solo con enviado.
+{
+  const read = shared.parseQueuedPrompt({ id: 'sent-1', text: 'hola', truncated: false, images: 0, at: 5, sent: true, editable: true, eventId: 'u1' });
+  check('13.40 sent, editable y su evento se leen', read?.sent === true && read.editable === true && read.eventId === 'u1', json(read));
+  const loose = shared.parseQueuedPrompt({ id: 'q-1', text: 'hola', truncated: false, images: 0, at: 5, editable: true });
+  check('13.41 editable sin sent no se lee: solo lo enviado se edita asi', loose !== null && loose.editable === undefined && loose.sent === undefined, json(loose));
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

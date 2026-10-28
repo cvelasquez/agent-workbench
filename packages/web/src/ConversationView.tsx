@@ -488,6 +488,8 @@ export function ConversationView({
     forcing,
     editQueue,
     editingQueue,
+    editSent,
+    editingSent,
     hasMore,
     loadingMore,
     loadMore,
@@ -1263,20 +1265,23 @@ export function ConversationView({
 
           {/*
             Los mensajes que esperan en la cola de la CLI (hito 45, §6.35), al
-            final, hasta que la CLI los entrega. Sin CLI no queda ninguno: la
-            cola vivia en su proceso.
+            final, hasta que la CLI los entrega; y antes, lo mandado con la CLI
+            libre hasta que el agente empieza (§6.35.2). Sin CLI no queda
+            ninguno: vivian en su proceso.
           */}
           {cliPresence === 'live' && queue.length > 0 && (
             <QueuedPrompts
               queue={queue}
-              canForce={forceSendAvailable && queue.some((prompt) => prompt.forced !== true)}
+              canForce={forceSendAvailable && queue.some((prompt) => prompt.sent !== true && prompt.forced !== true)}
               forceBlocked={waitingFor !== null}
               forcing={forcing}
               onForce={forceSend}
               // Lo forzado ya se le esta pasando al agente: no queda nada que sacar.
-              canEdit={queueEditAvailable && queue.every((prompt) => prompt.forced !== true)}
+              canEdit={queueEditAvailable && queue.every((prompt) => prompt.sent === true || prompt.forced !== true)}
               editing={editingQueue}
               onEdit={editQueue}
+              editingSent={editingSent}
+              onEditSent={editSent}
             />
           )}
 
@@ -1696,6 +1701,10 @@ function MessageBlock({
  * para todos: las CLIs entregan juntos los que esperan. Es para cuando el
  * agente va por mal camino; en lo demas, conviene dejar que la CLI elija el
  * momento, y por eso el boton es discreto.
+ *
+ * Antes, con "enviado", lo mandado con la CLI libre (§6.35.2): no espera en
+ * ninguna cola, asi que ni se fuerza ni sale con la cola. Se va cuando el
+ * agente empieza, y hasta entonces su "Editar" lo devuelve al cuadro.
  */
 function QueuedPrompts({
   queue,
@@ -1706,6 +1715,8 @@ function QueuedPrompts({
   canEdit,
   editing,
   onEdit,
+  editingSent,
+  onEditSent,
 }: {
   queue: readonly QueuedPrompt[];
   canForce: boolean;
@@ -1717,7 +1728,16 @@ function QueuedPrompts({
   canEdit: boolean;
   editing: boolean;
   onEdit: () => void;
+  /** Editar en una burbuja "enviado" (§6.35.2): Detener, que la devuelve al cuadro. */
+  editingSent: boolean;
+  onEditSent: () => void;
 }): JSX.Element {
+  const stateOf = (prompt: QueuedPrompt): { label: string; title: string } =>
+    prompt.sent === true
+      ? { label: t('thread.queue.sent'), title: t('thread.queue.sentTitle') }
+      : prompt.forced === true
+        ? { label: t('thread.queue.forced'), title: t('thread.queue.forcedTitle') }
+        : { label: t('thread.queue.label'), title: t('thread.queue.labelTitle') };
   return (
     <div className="queued-prompts">
       {queue.map((prompt) => (
@@ -1729,19 +1749,31 @@ function QueuedPrompts({
           <div className="turn-meta">
             <span className="turn-who">{t('thread.turn.you')}</span>
             {prompt.at > 0 && <span>{formatTime(prompt.at)}</span>}
-            <span
-              className="turn-pending-state"
-              title={prompt.forced === true ? t('thread.queue.forcedTitle') : t('thread.queue.labelTitle')}
-            >
-              {prompt.forced === true ? t('thread.queue.forced') : t('thread.queue.label')}
+            <span className="turn-pending-state" title={stateOf(prompt).title}>
+              {stateOf(prompt).label}
             </span>
-            {canEdit && (
+            {prompt.sent === true && prompt.editable === true && (
+              <button
+                className="queued-edit"
+                onClick={onEditSent}
+                disabled={editingSent || forceBlocked}
+                aria-busy={editingSent}
+                title={forceBlocked ? t('thread.queue.forceBlocked') : t('thread.queue.editSentTitle')}
+              >
+                {editingSent ? t('thread.queue.editing') : t('thread.queue.edit')}
+              </button>
+            )}
+            {prompt.sent !== true && canEdit && (
               <button
                 className="queued-edit"
                 onClick={onEdit}
                 disabled={editing || forcing || forceBlocked}
                 aria-busy={editing}
-                title={forceBlocked ? t('thread.queue.forceBlocked') : t('thread.queue.editTitle', { count: queue.length })}
+                title={
+                  forceBlocked
+                    ? t('thread.queue.forceBlocked')
+                    : t('thread.queue.editTitle', { count: queue.filter((each) => each.sent !== true).length })
+                }
               >
                 {editing ? t('thread.queue.editing') : t('thread.queue.edit')}
               </button>

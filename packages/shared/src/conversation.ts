@@ -440,6 +440,17 @@ export interface QueuedPrompt {
   eventId?: string;
   /** true si se forzo su envio y la CLI ya se lo paso al agente. */
   forced?: boolean;
+  /**
+   * true si no espera en ninguna cola (§6.35.2): la app se lo mando a la CLI
+   * libre y el agente todavia no escribio nada. La burbuja dice "enviado" y no
+   * se fuerza ni se saca con la cola: se va cuando el agente empieza.
+   */
+  sent?: boolean;
+  /**
+   * Solo en uno `sent`: Detener lo devuelve al cuadro, porque la CLI devuelve
+   * el mensaje si el agente no empezo (§4.16). La burbuja ofrece "Editar".
+   */
+  editable?: boolean;
 }
 
 /** Cuantos mensajes en cola viajan como mucho. */
@@ -780,6 +791,10 @@ export function parseQueuedPrompt(value: unknown): QueuedPrompt | null {
   const eventId = asNonEmptyString(record['eventId']);
   if (eventId !== null) prompt.eventId = eventId;
   if (record['forced'] === true) prompt.forced = true;
+  if (record['sent'] === true) {
+    prompt.sent = true;
+    if (record['editable'] === true) prompt.editable = true;
+  }
   return prompt;
 }
 

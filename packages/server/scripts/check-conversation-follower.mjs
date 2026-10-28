@@ -15,6 +15,8 @@ import { appendFile, mkdir, rm, writeFile, open } from 'node:fs/promises';
 import path from 'node:path';
 import { ConversationFollower } from '../src/agents/claude-code/conversation-follower.ts';
 import { ModelVariantRegistry } from '../src/agents/claude-code/model-variants.ts';
+import { JsonlFollower } from '../src/agents/jsonl-follower.ts';
+import { DISK_FILES } from '../src/jsonl-reader.ts';
 
 const dir = process.argv[2] ?? path.join(process.cwd(), '.check-follower');
 await mkdir(dir, { recursive: true });
@@ -1075,6 +1077,89 @@ check('8.5 la automatica dice "automaticamente", y sin respuestas antes no marca
   JSON.stringify(autoRead.added[0]));
 check('8.6 solo se descarta el comando: un texto que lo nombra, o lo que empieza parecido, se ve; con argumentos tambien es el comando',
   autoRead.added.map((event) => event.eventId).join(',') === 'cb0,au1,au2', autoRead.added.map((event) => event.eventId).join(','));
+
+// ---------------------------------------------------------------------------
+// 9. El archivo abierto mientras se sigue (§4.11.1)
+// ---------------------------------------------------------------------------
+//
+// Con un antivirus que revisa el archivo entero cada vez que otro proceso lo
+// abre despues de un cambio, abrir una sesion de 86 MB tardaba 68 s, en cada
+// lectura (medido el 28-10-2026). El hub pide `keepOpen`: se abre una vez, lo
+// que la CLI agrega se lee por ahi, y se suelta con `close()`. Si la CLI pone
+// otro archivo en la ruta, se nota por su numero de archivo, no por el tamano.
+
+/** El disco de siempre, contando cuantas veces se abre y se cierra. */
+const countingAccess = ({ withIdentity = true } = {}) => {
+  const stats = { opened: 0, closed: 0 };
+  const access = {
+    size: DISK_FILES.size,
+    open: async (filePath) => {
+      const handle = await DISK_FILES.open(filePath);
+      stats.opened += 1;
+      return { ...handle, close: async () => { stats.closed += 1; await handle.close(); } };
+    },
+  };
+  if (withIdentity) access.identity = DISK_FILES.identity;
+  return { stats, access };
+};
+const idSink = { consume: (record) => ({ eventId: String(record.id), role: 'user', at: 0, parts: [] }), reset() {} };
+const idLine = (id) => JSON.stringify({ id }) + '\n';
+const idsOf = (result) => result.added.map((event) => event.eventId).join(',');
+
+const heldFile = path.join(dir, 'abierto.jsonl');
+await writeFile(heldFile, idLine('h1') + idLine('h2'));
+const held = countingAccess();
+const heldFollower = new JsonlFollower(heldFile, idSink, { files: held.access, keepOpen: true });
+const heldFirst = await heldFollower.poll();
+check('9.1 con keepOpen, la primera lectura abre una vez y no cierra',
+  idsOf(heldFirst) === 'h1,h2' && held.stats.opened === 1 && held.stats.closed === 0, JSON.stringify(held.stats));
+await appendFile(heldFile, idLine('h3'));
+const heldNext = await heldFollower.poll();
+await appendFile(heldFile, idLine('h4'));
+const heldThird = await heldFollower.poll();
+check('9.2 lo que se agrega despues se lee por el mismo archivo abierto, sin abrir otra vez',
+  idsOf(heldNext) === 'h3' && idsOf(heldThird) === 'h4' && held.stats.opened === 1, JSON.stringify(held.stats));
+
+// Otro archivo, mas grande, en la misma ruta: el tamano no lo delata. Se borra
+// y se crea, porque en Windows un `rename` encima de un archivo abierto falla
+// (EPERM, medido): borrarlo o moverlo a otra carpeta, no.
+await rm(heldFile);
+await writeFile(heldFile, idLine('r1') + idLine('r2') + idLine('r3') + idLine('r4') + idLine('r5'));
+const afterReplace = await heldFollower.poll();
+check('9.3 otro archivo en la ruta: se reinicia, se suelta el viejo y se lee el nuevo entero',
+  afterReplace.reset === true && idsOf(afterReplace) === 'r1,r2,r3,r4,r5' && held.stats.opened === 2 && held.stats.closed === 1,
+  `${idsOf(afterReplace)} ${JSON.stringify(held.stats)}`);
+
+await heldFollower.close();
+check('9.4 close() suelta el archivo', held.stats.closed === 2, JSON.stringify(held.stats));
+await appendFile(heldFile, idLine('r6'));
+const afterClose = await heldFollower.poll();
+check('9.5 y una lectura despues de cerrar lo vuelve a abrir, sin perder el lugar',
+  afterClose.reset === false && idsOf(afterClose) === 'r6' && held.stats.opened === 3, `${idsOf(afterClose)} ${JSON.stringify(held.stats)}`);
+
+await rm(heldFile);
+const afterDelete = await heldFollower.poll();
+check('9.6 borrado: espera, descarta lo leido y no deja nada abierto',
+  afterDelete.reset === true && heldFollower.getState() === 'waiting' && held.stats.closed === 3, JSON.stringify(held.stats));
+
+// Sin la opcion, como siempre: una apertura por lectura.
+const plainFile = path.join(dir, 'sin-abrir.jsonl');
+await writeFile(plainFile, idLine('p1'));
+const unheld = countingAccess();
+const plainFollower = new JsonlFollower(plainFile, idSink, { files: unheld.access });
+await plainFollower.poll();
+await appendFile(plainFile, idLine('p2'));
+await plainFollower.poll();
+check('9.7 sin keepOpen, cada lectura abre y cierra', unheld.stats.opened === 2 && unheld.stats.closed === 2, JSON.stringify(unheld.stats));
+
+// Un acceso que no sabe que archivo es (el de los rollouts comprimidos de Codex) no lo deja abierto.
+const blind = countingAccess({ withIdentity: false });
+const blindFollower = new JsonlFollower(plainFile, idSink, { files: blind.access, keepOpen: true });
+await blindFollower.poll();
+await appendFile(plainFile, idLine('p3'));
+const blindNext = await blindFollower.poll();
+check('9.8 sin identidad, keepOpen no se aplica: abre y cierra en cada lectura',
+  idsOf(blindNext) === 'p3' && blind.stats.opened === 2 && blind.stats.closed === 2, JSON.stringify(blind.stats));
 
 await rm(dir, { recursive: true, force: true });
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLOS`);

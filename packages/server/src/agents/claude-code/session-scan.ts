@@ -14,7 +14,7 @@
 
 import { stat } from 'node:fs/promises';
 import type { SessionSummary, SessionTitleSource } from '@agent-workbench/shared';
-import { parseJsonlLine, readHeadLines, readTailLines } from '../../jsonl-reader.js';
+import { DISK_FILES, parseJsonlLine, readHeadLines, readTailLines, type JsonlFileAccess } from '../../jsonl-reader.js';
 import { toTitle, UNTITLED_SESSION_TITLE } from '../session-title.js';
 
 /** Cuantas lineas de la cabeza mirar buscando cwd y titulo. El cwd mas tardio medido esta en la 8. */
@@ -67,10 +67,30 @@ function isRealUserMessage(record: Record<string, unknown>): boolean {
 export async function scanSessionFile(filePath: string, sessionId: string): Promise<ScanResult> {
   const info = await stat(filePath);
 
-  const [headLines, tailLines] = await Promise.all([
-    readHeadLines(filePath, { maxLines: HEAD_MAX_LINES, maxBytes: HEAD_MAX_BYTES }),
-    readTailLines(filePath, { maxBytes: TAIL_MAX_BYTES }),
-  ]);
+  /*
+    Cabeza y cola por el mismo archivo abierto: cada apertura de una sesion
+    larga que la CLI acaba de cambiar espera la revision del antivirus, y ocupa
+    mientras tanto un hilo de disco (§4.11.1).
+  */
+  const handle = await DISK_FILES.open(filePath);
+  const shared: JsonlFileAccess = {
+    size: DISK_FILES.size,
+    open: async () => ({
+      read: (buffer, offset, length, position) => handle.read(buffer, offset, length, position),
+      stat: () => handle.stat(),
+      close: async () => undefined,
+    }),
+  };
+  let headLines: string[];
+  let tailLines: string[];
+  try {
+    [headLines, tailLines] = await Promise.all([
+      readHeadLines(filePath, { maxLines: HEAD_MAX_LINES, maxBytes: HEAD_MAX_BYTES }, shared),
+      readTailLines(filePath, { maxBytes: TAIL_MAX_BYTES }, shared),
+    ]);
+  } finally {
+    await handle.close();
+  }
 
   let cwd: string | null = null;
   let customTitle: string | null = null;

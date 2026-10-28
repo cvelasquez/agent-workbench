@@ -187,7 +187,13 @@ export class ConversationFollower implements JsonlLineSink {
     this.jsonl = new JsonlFollower(filePath, this, {
       maxEvents: options.maxEvents,
       isVisible: (event) => !this.branch.isHidden(event.eventId),
+      keepOpen: options.keepOpen,
     });
+  }
+
+  /** Suelta el archivo que se dejo abierto (`keepOpen`). */
+  close(): Promise<void> {
+    return this.jsonl.close();
   }
 
   /** La pestana cuyos documentos se reconocen. Ver el constructor. */

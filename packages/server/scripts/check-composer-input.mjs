@@ -890,6 +890,7 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
         checkOpenToolCall: async () => openTool,
         checkWaitingFor: async () => waitingFor,
         noteQueued: (_t, queued) => log.push(['noteQueued', queued.text, queued.images]),
+        noteSent: (_t, sent) => log.push(['noteSent', sent.text, sent.images]),
       },
       queuedSubmits: { note: (_t, noted) => log.push(['queuedSubmit', noted]) },
       enqueue: async (_t, job, options) => {
@@ -994,6 +995,34 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
     const slash = fake({ input: inputs.pi, adapter, activity: 'busy' });
     await send(slash, '/model gpt');
     check('S52 un comando de barra no hace cola', !slash.log.some((entry) => entry[0] === 'noteQueued'));
+  }
+  // La burbuja "enviado" (§6.35.2): lo que no va a ninguna cola.
+  {
+    const notes = (world) => world.log.filter((entry) => entry[0] === 'noteSent' || entry[0] === 'noteQueued');
+    const claude = { label: 'Claude Code', capabilities: caps(), status: {}, promptQueue: { source: 'session' }, queuedSubmits: {} };
+    const idle = fake({ input: inputs.claude, adapter: claude, activity: 'idle' });
+    await send(idle, 'corrige el titulo', ['C:\\tmp\\uno.png']);
+    check('S53 con la CLI libre: "enviado", con su texto y sus imagenes, y nada en cola',
+      same(notes(idle), [['noteSent', 'corrige el titulo', 1]]), JSON.stringify(notes(idle)));
+    check('S53 y despues del acuse del cuadro',
+      idle.log.findIndex((entry) => entry[0] === 'onWritten') < idle.log.findIndex((entry) => entry[0] === 'noteSent'));
+    const busy = fake({ input: inputs.claude, adapter: claude, activity: 'busy' });
+    await send(busy, 'otro');
+    check('S53 trabajando, con una CLI que escribe su cola: ni burbuja ni cola de la app (la CLI ya lo muestra en cola)',
+      notes(busy).length === 0, JSON.stringify(notes(busy)));
+    const pi = { label: 'Pi', capabilities: caps(), status: {}, promptQueue: { source: 'app' }, queuedSubmits: {} };
+    const piIdle = fake({ input: inputs.pi, adapter: pi, activity: 'idle' });
+    await send(piIdle, 'hola pi');
+    check('S53 la CLI cuya cola lleva la app, libre: "enviado", no en cola', same(notes(piIdle), [['noteSent', 'hola pi', 0]]), JSON.stringify(notes(piIdle)));
+    const codex = { label: 'Codex', capabilities: caps(), status: null };
+    const codexBusy = fake({ input: inputs.codex, adapter: codex, activity: 'unknown' });
+    await send(codexBusy, 'hola codex');
+    check('S53 una CLI sin cola: siempre "enviado"', same(notes(codexBusy), [['noteSent', 'hola codex', 0]]), JSON.stringify(notes(codexBusy)));
+    const slash = fake({ input: inputs.claude, adapter: claude, activity: 'idle' });
+    await send(slash, '  /compact');
+    const noEnter = fake({ input: inputs.claude, adapter: claude, activity: 'idle' });
+    await send(noEnter, 'sin enter', [], { send: false });
+    check('S53 ni un comando de barra ni lo escrito sin Enter dejan burbuja', notes(slash).length === 0 && notes(noEnter).length === 0);
   }
   {
     const world = fake({ input: inputs.claude, drop: true });

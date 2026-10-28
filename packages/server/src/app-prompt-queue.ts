@@ -35,7 +35,7 @@ import {
  * la entrada es la de la app al terminar de escribir, y la del hilo, la de la
  * CLI al recibirlo.
  */
-const CLOCK_SLACK_MS = 2_000;
+export const CLOCK_SLACK_MS = 2_000;
 
 interface Entry {
   id: string;
@@ -51,8 +51,8 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-/** El texto de un mensaje del hilo, o null si no es un mensaje del usuario. */
-function userTextOf(event: ConversationEvent): { text: string; images: number } | null {
+/** El texto de un mensaje del hilo, o null si no es un mensaje del usuario. Lo usa tambien `SentPrompts`. */
+export function userTextOf(event: ConversationEvent): { text: string; images: number } | null {
   if (event.role !== 'user') return null;
   const texts: string[] = [];
   let images = 0;
@@ -66,7 +66,7 @@ function userTextOf(event: ConversationEvent): { text: string; images: number } 
 }
 
 /** true si el mensaje del hilo es el de la entrada: su texto, o el texto con lo que la CLI le agrego. */
-function matches(entry: Entry, message: { text: string; images: number }): boolean {
+export function matches(entry: { text: string; images: number }, message: { text: string; images: number }): boolean {
   const wanted = normalize(entry.text);
   if (wanted.length === 0) return message.text.length === 0 && message.images >= entry.images && entry.images > 0;
   // Recortado por el tope de transporte, el hilo trae el principio.

@@ -11,6 +11,7 @@
  * lineas y otro de bytes, para que un archivo patologico no se lleve la memoria.
  */
 
+import type { BigIntStats } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
 
 /** Tamano de cada lectura. Ni tan chico que multiplique syscalls, ni tan grande. */
@@ -21,6 +22,8 @@ export interface JsonlHandle {
   read(buffer: Buffer, offset: number, length: number, position: number): Promise<{ bytesRead: number }>;
   stat(): Promise<{ size: number }>;
   close(): Promise<void>;
+  /** Que archivo es el abierto (ver `JsonlFileAccess.identity`). Solo lo sabe el disco. */
+  identity?(): Promise<string>;
 }
 
 /**
@@ -32,11 +35,37 @@ export interface JsonlFileAccess {
   /** Tamano en bytes de lo que se lee. Lanza si el archivo no existe. */
   size(filePath: string): Promise<number>;
   open(filePath: string): Promise<JsonlHandle>;
+  /**
+   * Que archivo hay hoy en esa ruta: su numero de archivo. Sirve para saber si
+   * uno que se tiene abierto sigue siendo el de la ruta, o la CLI lo reemplazo
+   * (§4.11.1). '' si el sistema de archivos no lo dice. Ausente: un acceso que
+   * no entrega el archivo tal cual, y entonces no se deja abierto.
+   */
+  identity?(filePath: string): Promise<string>;
+}
+
+/**
+ * El numero de archivo, en bigint: en `number`, el de NTFS pierde los bits de
+ * su secuencia, que es lo que cambia cuando se reusa el registro. Sin el
+ * volumen: en Windows, `stat` por ruta lo da en 0 y por archivo abierto no
+ * (medido con Node 22.14), y la ruta es la misma, asi que el volumen tambien.
+ */
+function identityOf(info: BigIntStats): string {
+  return info.ino === 0n ? '' : String(info.ino);
 }
 
 export const DISK_FILES: JsonlFileAccess = {
   size: async (filePath) => (await stat(filePath)).size,
-  open: (filePath) => open(filePath, 'r'),
+  open: async (filePath) => {
+    const handle = await open(filePath, 'r');
+    return {
+      read: (buffer, offset, length, position) => handle.read(buffer, offset, length, position),
+      stat: () => handle.stat(),
+      close: () => handle.close(),
+      identity: async () => identityOf(await handle.stat({ bigint: true })),
+    };
+  },
+  identity: async (filePath) => identityOf(await stat(filePath, { bigint: true })),
 };
 
 export interface HeadReadOptions {

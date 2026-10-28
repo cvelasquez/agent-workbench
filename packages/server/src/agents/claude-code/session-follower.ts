@@ -114,6 +114,8 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
       console.warn(
         `[conversation] session ${this.sessionId.slice(0, 8)} wrote to ${filePath}, not to the computed path; moving there.`,
       );
+      // El de la ruta vieja ya no se lee: si quedo algo abierto, se suelta.
+      void this.inner.close();
       // Sin registro de variantes, igual que antes de mudarse aca (D11); con los topes que se pidieron.
       this.inner = new ConversationFollower(filePath, undefined, {
         ...this.options,
@@ -181,5 +183,10 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
 
   withdrawnFrom(): string | null {
     return this.inner.withdrawnFrom();
+  }
+
+  /** Suelta el archivo que se dejo abierto con `keepOpen` (§4.11.1). */
+  close(): Promise<void> {
+    return this.inner.close();
   }
 }

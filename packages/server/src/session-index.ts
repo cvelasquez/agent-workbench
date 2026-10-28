@@ -507,6 +507,8 @@ export class SessionIndex extends EventEmitter {
   private status: IndexStatus = { state: 'idle', scannedFiles: 0, totalFiles: 0 };
   private scanning = false;
   private rescanQueued = false;
+  /** La relectura en curso de cada archivo (`refreshPath`), y si llego otro aviso mientras corria. */
+  private readonly refreshing = new Map<string, { again: boolean; done: Promise<void> }>();
   private cacheDirty = false;
   /**
    * Lo que aportaron las copias a la ultima barra completa que salio
@@ -979,8 +981,38 @@ export class SessionIndex extends EventEmitter {
    *
    * La fuente dice que sesiones toco ese archivo: con Claude Code es una, la
    * del propio archivo, pero con una base compartida pueden ser varias.
+   *
+   * **Una sola a la vez por archivo** (§4.11.1). Con el antivirus revisando el
+   * archivo entero en cada apertura, una sesion de 86 MB tardaba 68 s en
+   * abrirse, y la CLI avisa cada pocos cientos de ms: cada aviso dejaba otra
+   * lectura esperando en un hilo de disco, y con los cuatro de Node ocupados se
+   * paraba todo lo demas, el hilo de la conversacion incluido. Los avisos que
+   * llegan mientras corre se juntan en una vuelta mas, y quien espera la promesa
+   * espera tambien esa vuelta.
    */
-  async refreshPath(agent: AgentId, filePath: string): Promise<void> {
+  refreshPath(agent: AgentId, filePath: string): Promise<void> {
+    const key = `${agent}\u0000${filePath}`;
+    const running = this.refreshing.get(key);
+    if (running !== undefined) {
+      running.again = true;
+      return running.done;
+    }
+    const state = { again: false, done: Promise.resolve() };
+    state.done = (async () => {
+      try {
+        do {
+          state.again = false;
+          await this.refreshPathOnce(agent, filePath);
+        } while (state.again);
+      } finally {
+        this.refreshing.delete(key);
+      }
+    })();
+    this.refreshing.set(key, state);
+    return state.done;
+  }
+
+  private async refreshPathOnce(agent: AgentId, filePath: string): Promise<void> {
     const history = this.agents.adapter(agent).history;
     let refs: readonly string[] | null;
     try {

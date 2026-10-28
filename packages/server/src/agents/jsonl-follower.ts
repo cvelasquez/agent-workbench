@@ -24,16 +24,17 @@
  *    incluidas. De ahi sale el `eventId` de respaldo (`line-<n>`), y contar
  *    distinto cambiaria los ids de conversaciones que ya se entregaron.
  *
- * Y una opcion que solo usa quien la pide: la **huella** (`fingerprintBytes`,
- * hito 27). Una CLI que reescribe su historial entero —Antigravity al compactar
+ * Y dos opciones que solo usa quien las pide. La **huella** (`fingerprintBytes`,
+ * hito 27): una CLI que reescribe su historial entero —Antigravity al compactar
  * el contexto— puede dejarlo del mismo tamano o mas grande, y ahi el offset no
  * se entera. Con huella, los primeros bytes se comparan en cada lectura y si
  * cambiaron es un reinicio. Sin la opcion (Claude Code, Codex) no se lee nada de
- * mas.
+ * mas. Y **dejar el archivo abierto** (`keepOpen`, §4.11.1): abrirlo en cada
+ * lectura le cuesta a una sesion larga lo que tarde el antivirus en revisarla.
  */
 
 import type { ConversationEvent, ConversationState } from '@agent-workbench/shared';
-import { DISK_FILES, parseJsonlLine, type JsonlFileAccess } from '../jsonl-reader.js';
+import { DISK_FILES, parseJsonlLine, type JsonlFileAccess, type JsonlHandle } from '../jsonl-reader.js';
 import type { EventPage } from './adapter.js';
 
 /** Bloque de lectura. Las lineas largas (hasta 290 KB) igual se arman a mano. */
@@ -100,6 +101,16 @@ export interface JsonlFollowerOptions {
    * si la rama vuelve, y no salen ni en las paginas ni en lo nuevo de un `poll`.
    */
   isVisible?: (event: ConversationEvent) => boolean;
+  /**
+   * Deja el archivo abierto entre lecturas, y quien lo pide lo cierra con
+   * `close()` (§4.11.1). Medido el 28-10-2026: con un antivirus que revisa el
+   * archivo entero cuando otro proceso lo abre despues de un cambio, abrir una
+   * sesion de 86 MB tardaba 68 s, cada vez que la CLI escribia; leer por un
+   * archivo ya abierto, 0 ms. Solo con un acceso que sepa la identidad del
+   * archivo (`JsonlFileAccess.identity`): sin ella no se puede saber si la CLI
+   * lo reemplazo, y se abre en cada lectura como siempre.
+   */
+  keepOpen?: boolean;
 }
 
 export class JsonlFollower implements EventLookup {
@@ -117,6 +128,9 @@ export class JsonlFollower implements EventLookup {
   private fingerprint: Buffer | null = null;
   private readonly files: JsonlFileAccess;
   private readonly isVisible: ((event: ConversationEvent) => boolean) | null;
+  private readonly keepOpen: boolean;
+  /** El archivo que se deja abierto (`keepOpen`) y que archivo es; null si no hay ninguno abierto. */
+  private held: { handle: JsonlHandle; identity: string } | null = null;
 
   /**
    * `filePath` null: todavia no se sabe que archivo es (una CLI que pone el id
@@ -133,6 +147,7 @@ export class JsonlFollower implements EventLookup {
     this.fingerprintBytes = Math.max(0, Math.floor(options.fingerprintBytes ?? 0));
     this.files = options.files ?? DISK_FILES;
     this.isVisible = options.isVisible ?? null;
+    this.keepOpen = options.keepOpen === true && this.files.identity !== undefined;
   }
 
   get filePath(): string | null {
@@ -218,6 +233,7 @@ export class JsonlFollower implements EventLookup {
       size = await this.files.size(this.path);
     } catch {
       // Todavia no existe, o lo borraron. Si teniamos algo, se descarta.
+      await this.close();
       if (this.events.length > 0 || this.offset > 0) {
         this.reset();
         this.state = 'waiting';
@@ -228,7 +244,12 @@ export class JsonlFollower implements EventLookup {
     }
 
     let didReset = false;
-    if (size < this.offset) {
+    if (this.held !== null && !(await this.holdsFileAt(this.path, this.held.identity))) {
+      // La CLI puso otro archivo en la ruta: el abierto ya no es el de la sesion.
+      await this.close();
+      this.reset();
+      didReset = true;
+    } else if (size < this.offset) {
       // Reemplazado o truncado: lo que sabiamos ya no vale.
       this.reset();
       didReset = true;
@@ -257,21 +278,68 @@ export class JsonlFollower implements EventLookup {
     this.sink.reset();
   }
 
+  /**
+   * Cierra el archivo que se dejo abierto (`keepOpen`). Lo llama quien pidio
+   * dejarlo abierto, al soltar la sesion; la lectura siguiente, si la hay, lo
+   * vuelve a abrir. No lanza.
+   */
+  async close(): Promise<void> {
+    const held = this.held;
+    this.held = null;
+    await held?.handle.close().catch(() => undefined);
+  }
+
+  /** true si en `filePath` sigue el archivo de identidad `identity`. */
+  private async holdsFileAt(filePath: string, identity: string): Promise<boolean> {
+    try {
+      return (await this.files.identity?.(filePath)) === identity;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * El archivo para leer: el que se dejo abierto, o uno recien abierto. Con
+   * `keepOpen` y una identidad conocida, el recien abierto queda abierto; si no,
+   * quien lo pidio lo cierra con `done`.
+   */
+  private async acquire(filePath: string): Promise<JsonlHandle> {
+    if (this.held !== null) return this.held.handle;
+    const handle = await this.files.open(filePath);
+    if (!this.keepOpen) return handle;
+    const identity = await handle.identity?.().catch(() => '');
+    if (identity !== undefined && identity.length > 0) this.held = { handle, identity };
+    return handle;
+  }
+
+  /** Termino una lectura: se cierra lo abierto, salvo el que se deja abierto. */
+  private async done(handle: JsonlHandle, failed: boolean): Promise<void> {
+    if (this.held?.handle !== handle) {
+      await handle.close();
+      return;
+    }
+    // Una lectura que fallo no deja nada abierto: la siguiente empieza de cero.
+    if (failed) await this.close();
+  }
+
   /** true si el archivo todavia empieza con `expected`. */
   private async sameFingerprint(filePath: string, expected: Buffer): Promise<boolean> {
-    const handle = await this.files.open(filePath);
+    const handle = await this.acquire(filePath);
+    let failed = true;
     try {
       const head = Buffer.alloc(expected.length);
       const { bytesRead } = await handle.read(head, 0, expected.length, 0);
+      failed = false;
       return bytesRead === expected.length && head.equals(expected);
     } finally {
-      await handle.close();
+      await this.done(handle, failed);
     }
   }
 
   private async readFrom(filePath: string, size: number): Promise<ConversationEvent[]> {
     const added: ConversationEvent[] = [];
-    const handle = await this.files.open(filePath);
+    const handle = await this.acquire(filePath);
+    let failed = true;
 
     try {
       const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
@@ -305,8 +373,9 @@ export class JsonlFollower implements EventLookup {
         const { bytesRead } = await handle.read(head, 0, this.fingerprintBytes, 0);
         if (bytesRead === this.fingerprintBytes) this.fingerprint = head;
       }
+      failed = false;
     } finally {
-      await handle.close();
+      await this.done(handle, failed);
     }
 
     return added;

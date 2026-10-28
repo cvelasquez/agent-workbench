@@ -1594,13 +1594,14 @@ export function App(): JSX.Element {
           /*
             La flecha arriba con el cuadro vacio saca la cola, como en la CLI
             (§6.35.1): solo si hay algo que sacar y se puede. Si no, la flecha
-            hace lo de siempre.
+            hace lo de siempre. Lo "enviado" (§6.35.2) no cuenta: sacarlo es
+            detener al agente, y eso no va en una flecha.
           */
           onEditQueue={
             activeControls.editQueue &&
             activeTerminal.alive &&
-            conversation.queue.length > 0 &&
-            conversation.queue.every((prompt) => prompt.forced !== true) &&
+            conversation.queue.some((prompt) => prompt.sent !== true) &&
+            conversation.queue.every((prompt) => prompt.sent === true || prompt.forced !== true) &&
             conversation.waitingFor === null &&
             !conversation.editingQueue
               ? conversation.editQueue

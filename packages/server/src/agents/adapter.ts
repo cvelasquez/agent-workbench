@@ -419,19 +419,33 @@ export interface SessionFollower {
    * de un proceso anterior murio con ella. Ausente: la cola no sale de aca.
    */
   queuedPrompts?(launchedAt: number): readonly QueuedPrompt[];
+  /**
+   * Suelta lo que el seguidor dejo abierto con `FollowOptions.keepOpen`. Lo
+   * llama el hub al dejar de seguir la sesion. No lanza. Ausente: no deja nada
+   * abierto.
+   */
+  close?(): Promise<void>;
 }
 
 /**
  * Hito 28. Como se lee una sesion fuera del hilo (la copia propia).
  *
- * Sin opciones —que es como la sigue el hub— todo sale como siempre: los topes
- * de transporte y el tope de eventos del seguidor.
+ * Sin opciones todo sale como siempre: los topes de transporte y el tope de
+ * eventos del seguidor. El hub pide solo `keepOpen`.
  */
 export interface FollowOptions {
   /** Ausente: `TRANSPORT_LIMITS`. */
   limits?: EventLimits;
   /** Tope de eventos en memoria. Ausente: el del seguidor (4 000). `Infinity`: sin tope. */
   maxEvents?: number;
+  /**
+   * Dejar el archivo de la sesion abierto entre lecturas (§4.11.1), y quien lo
+   * pide lo suelta con `SessionFollower.close`. Lo pide solo el hub, que sigue
+   * la sesion mientras alguien la mira; un seguidor de una sola lectura lo
+   * dejaria abierto sin que nadie lo cierre. Hoy lo cumple Claude Code; las
+   * demas lo ignoran y abren el archivo en cada lectura.
+   */
+  keepOpen?: boolean;
 }
 
 export interface HistorySource {

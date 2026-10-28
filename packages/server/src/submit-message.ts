@@ -51,6 +51,7 @@ export interface SubmitMessageDeps {
     checkOpenToolCall(terminalId: TerminalId, launchedAt: number): Promise<boolean>;
     checkWaitingFor(terminalId: TerminalId): Promise<string | null>;
     noteQueued(terminalId: TerminalId, input: { text: string; images: number; at: number }): void;
+    noteSent(terminalId: TerminalId, input: { text: string; images: number; at: number }): void;
   };
   queuedSubmits: { note(terminalId: TerminalId, text: string, at: number, original?: string): void };
   enqueue(terminalId: TerminalId, job: (lane: WriteLane) => Promise<void>, options?: EnqueueOptions): Promise<void>;
@@ -212,15 +213,18 @@ export async function runSubmit(deps: SubmitMessageDeps, plan: SubmitPlan, reque
       const startAfterMs = submitStartDelayMs(deps.launchedAtOf(terminalId), deps.now(), input.readyAfterLaunchMs ?? 0);
       const outcome = await lane.writePieces(pieces, input.pieceGapMs, request.write, plan.pieceGuard, { startAfterMs });
       request.onWritten?.(outcome);
-      // La cola que lleva la app (hito 45, `source: 'app'`): un comando de barra no hace cola.
-      if (
-        outcome === 'written' &&
-        request.send &&
-        plan.promptQueueSource === 'app' &&
-        deps.activityOf(terminalId) === 'busy' &&
-        !request.text.trimStart().startsWith('/')
-      ) {
-        deps.conversations.noteQueued(terminalId, { text: request.text, images: request.imageCount, at: deps.now() });
+      /*
+        La burbuja del mensaje mandado, hasta que el agente lo lea. Un comando de
+        barra no es un mensaje del hilo: ni cola ni burbuja. Con el agente
+        trabajando y una CLI que hace cola, espera en la cola: la que lleva la app
+        (hito 45, `source: 'app'`) o la que escribe la CLI, que ya la muestra.
+        Si no, sale "enviado" (§6.35.2).
+      */
+      if (outcome === 'written' && request.send && !request.text.trimStart().startsWith('/')) {
+        const sent = { text: request.text, images: request.imageCount, at: deps.now() };
+        const queued = deps.activityOf(terminalId) === 'busy' && plan.promptQueueSource !== null;
+        if (queued && plan.promptQueueSource === 'app') deps.conversations.noteQueued(terminalId, sent);
+        else if (!queued) deps.conversations.noteSent(terminalId, sent);
       }
       // La CLI que devuelve a su editor lo que tenia en cola al interrumpir (hito 43).
       if (outcome === 'written' && request.send && plan.hasQueuedSubmits) {

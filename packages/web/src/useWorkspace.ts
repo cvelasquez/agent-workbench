@@ -40,6 +40,7 @@ import { serverTextMessage } from './i18n/server-text.js';
 import { useLocale } from './i18n/useLocale.js';
 import { isMemoryPanelRequest } from './useMemory.js';
 import { isWorktreeDialogRequest } from './useWorktrees.js';
+import { takeEditStop } from './sent-edit.js';
 
 const ACTIVE_TAB_KEY = 'agent-workbench.activeTab';
 
@@ -476,6 +477,8 @@ export function useWorkspace(): Workspace {
         case 'composer.prefill': {
           const id = nextPrefillId.current;
           nextPrefillId.current += 1;
+          // Lo que volvio porque el usuario apreto "Editar" en la burbuja "enviado" (§6.35.2).
+          const fromEdit = message.reason === 'stopped-early' && takeEditStop(message.terminalId);
           setPrefills((current) => [
             ...current,
             {
@@ -483,15 +486,17 @@ export function useWorkspace(): Workspace {
               terminalId: message.terminalId,
               text: message.text,
               pasted: message.pasted ?? [],
-              // Lo que el usuario saco para corregirlo: la cola (§6.35.1) o un mensaje programado (hito 51).
-              focus: message.reason === 'queue-edit' || message.reason === 'unscheduled',
+              // Lo que el usuario saco para corregirlo: la cola (§6.35.1), un mensaje programado (hito 51) o uno enviado (§6.35.2).
+              focus: message.reason === 'queue-edit' || message.reason === 'unscheduled' || fromEdit,
             },
           ]);
           const { reason } = message;
           /*
             Un mensaje que la CLI no llego a entregar y volvio al cuadro (hito
-            43): no es de ninguna continuacion, y tiene su propio aviso.
+            43): no es de ninguna continuacion, y tiene su propio aviso. Salvo
+            el que el usuario saco con "Editar": lo pidio, sin aviso.
           */
+          if (fromEdit) break;
           if (reason === 'returned-by-cli' || reason === 'stopped-early') {
             setReturnedMessages((current) =>
               current.get(message.terminalId) === reason ? current : new Map(current).set(message.terminalId, reason),

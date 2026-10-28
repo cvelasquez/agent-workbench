@@ -21,6 +21,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import {
   EMPTY_CONTEXT_USAGE,
+  MAX_QUEUED_PROMPTS,
   askedBeforeLaunch,
   blindToApprovals,
   launchModeFor,
@@ -51,6 +52,7 @@ import type {
 import type { AgentRegistry } from './agents/registry.js';
 import { AppPromptQueue } from './app-prompt-queue.js';
 import { debugLog } from './debug.js';
+import { SentPrompts } from './sent-prompts.js';
 import { LiveQuestionWatch, type LiveQuestionCheck } from './live-question.js';
 import { rewindTargetFrom, type RewindTarget } from './rewind-target.js';
 import type { TerminalRegistry } from './terminal-registry.js';
@@ -102,6 +104,15 @@ export const IDLE_CLEARS_QUEUE_MS = 3_000;
 
 /** Cuantos eventos del final se miran para saber si un mensaje de la cola de la app ya llego al hilo. */
 const QUEUE_SETTLE_LOOKBACK = 50;
+
+/**
+ * Cuanto puede seguir libre la CLI despues de un envio con la burbuja
+ * "enviado" (§6.35.2) antes de darla por perdida: la CLI no lo tomo (un menu
+ * se lo comio, o la tecla cayo en otro lado). Medido con Claude Code 2.1.312:
+ * dice "trabajando" y escribe el mensaje antes de 2,5 s, el primero de la
+ * sesion incluido.
+ */
+export const SENT_UNTAKEN_MS = 10_000;
 
 export interface ConversationSnapshot {
   sessionId: SessionId;
@@ -315,6 +326,14 @@ export class ConversationHub extends EventEmitter {
    * no sale del historial, y tiene que sobrevivir a que nadie mire la pestana.
    */
   private readonly appQueue = new AppPromptQueue();
+  /**
+   * Lo que la app mando con la CLI libre, hasta que el agente empieza (§6.35.2):
+   * la burbuja "enviado". Para todas las CLIs, y por la misma razon que la cola
+   * de arriba vive aca: no sale del historial.
+   */
+  private readonly sentPrompts = new SentPrompts();
+  /** El temporizador de cada pestana con algo enviado y la CLI libre (`SENT_UNTAKEN_MS`). */
+  private readonly sentTimers = new Map<TerminalId, NodeJS.Timeout>();
   /** La ultima cola avisada de cada pestana, por su clave: un aviso igual no se repite. */
   private readonly announcedQueues = new Map<TerminalId, string>();
   /** La ultima actividad vista de cada pestana: solo cuentan los cambios. */
@@ -353,6 +372,8 @@ export class ConversationHub extends EventEmitter {
      * de suscriptores.
      */
     private readonly agents: AgentRegistry,
+    /** Solo los chequeos: el plazo de la burbuja "enviado" (`SENT_UNTAKEN_MS`), para no esperarlo entero. */
+    private readonly options: { sentUntakenMs?: number } = {},
   ) {
     super();
     /*
@@ -374,7 +395,10 @@ export class ConversationHub extends EventEmitter {
       }
       // La cola vive en el proceso: sin pty no queda nada, y una pty nueva empieza vacia (hito 45).
       for (const terminalId of new Set([...this.entries.keys(), ...this.announcedQueues.keys()])) {
-        if (this.registry.launchedAtOf(terminalId) === null) this.appQueue.clear(terminalId);
+        if (this.registry.launchedAtOf(terminalId) === null) {
+          this.appQueue.clear(terminalId);
+          this.sentPrompts.clear(terminalId);
+        }
         this.refreshQueue(terminalId);
       }
     });
@@ -576,7 +600,8 @@ export class ConversationHub extends EventEmitter {
       cwd,
       agent,
       adapter,
-      follower: adapter.history.follow({ cwd, sessionId }),
+      // Abierto mientras alguien la mire: abrirlo en cada lectura le costaba a una sesion larga la revision del antivirus (§4.11.1).
+      follower: adapter.history.follow({ cwd, sessionId }, { keepOpen: true }),
       announcedMode: null,
       // Una pestana de revision (hito 49) arranca en el modo de solo lectura de su CLI.
       assumedMode: launchModeFor(adapter.capabilities, this.registry.get(terminalId)?.review === true),
@@ -699,9 +724,28 @@ export class ConversationHub extends EventEmitter {
     return follower?.queuedPrompts === undefined ? [] : [...follower.queuedPrompts(launchedAt)];
   }
 
+  /**
+   * Lo que se dibuja al final del hilo: lo enviado con la CLI libre que el
+   * agente todavia no empezo (§6.35.2), y despues la cola. Uno enviado cuyo
+   * texto ya esta en la cola de la CLI no se dibuja dos veces: la app la creyo
+   * libre y la CLI lo encolo. Lo que se fuerza o se saca para editar es solo la
+   * cola (`computeQueue`).
+   */
+  private computeShownQueue(terminalId: TerminalId): QueuedPrompt[] {
+    const queue = this.computeQueue(terminalId);
+    const descriptor = this.registry.get(terminalId);
+    if (descriptor === null || descriptor.agent === null || this.registry.launchedAtOf(terminalId) === null) return queue;
+    // Detener lo devuelve al cuadro solo con la CLI que devuelve el mensaje si el agente no empezo (§4.16).
+    const editable = this.agents.get(descriptor.agent)?.adapter.queuedSubmits?.returnReason === 'stopped-early';
+    const flat = (text: string): string => text.replace(/\s+/g, ' ').trim();
+    const queued = new Set(queue.map((prompt) => flat(prompt.text)));
+    const sent = this.sentPrompts.list(terminalId, editable).filter((prompt) => !queued.has(flat(prompt.text)));
+    return sent.length === 0 ? queue : [...sent, ...queue].slice(0, MAX_QUEUED_PROMPTS);
+  }
+
   /** La cola si cambio desde el ultimo aviso, que pasa a ser esta; null si es la misma. */
   private takeQueueChange(terminalId: TerminalId): QueuedPrompt[] | null {
-    const queue = this.computeQueue(terminalId);
+    const queue = this.computeShownQueue(terminalId);
     const key = JSON.stringify(queue);
     if ((this.announcedQueues.get(terminalId) ?? '[]') === key) return null;
     if (queue.length === 0) this.announcedQueues.delete(terminalId);
@@ -721,7 +765,7 @@ export class ConversationHub extends EventEmitter {
    */
   getQueue(terminalId: TerminalId): QueuedPrompt[] {
     this.takeQueueChange(terminalId);
-    return this.computeQueue(terminalId);
+    return this.computeShownQueue(terminalId);
   }
 
   /** true si la CLI de la pestana tiene algo en cola. Lo pregunta el socket antes de forzar el envio. */
@@ -753,6 +797,26 @@ export class ConversationHub extends EventEmitter {
     this.refreshQueue(terminalId);
   }
 
+  /**
+   * La app termino de escribirle un mensaje a la CLI sin que vaya a una cola
+   * (§6.35.2): la burbuja "enviado" sale ya y queda hasta que el agente
+   * empiece. Si a los `SENT_UNTAKEN_MS` la CLI sigue libre, no lo tomo, y se va.
+   */
+  noteSent(terminalId: TerminalId, input: { text: string; images: number; at: number }): void {
+    this.sentPrompts.note(terminalId, input);
+    this.refreshQueue(terminalId);
+    const previous = this.sentTimers.get(terminalId);
+    if (previous !== undefined) clearTimeout(previous);
+    const untakenMs = this.options.sentUntakenMs ?? SENT_UNTAKEN_MS;
+    const timer = setTimeout(() => {
+      this.sentTimers.delete(terminalId);
+      if (this.lastActivity.get(terminalId) !== 'idle') return;
+      if (this.sentPrompts.dropBefore(terminalId, Date.now() - untakenMs + 1)) this.refreshQueue(terminalId);
+    }, untakenMs);
+    timer.unref();
+    this.sentTimers.set(terminalId, timer);
+  }
+
   /** Lo que la app llevaba en cola ya no esta ahi: Detener se lo devolvio al cuadro, o se saco para editarlo. */
   clearQueued(terminalId: TerminalId): void {
     if (this.appQueue.clear(terminalId)) this.refreshQueue(terminalId);
@@ -777,14 +841,18 @@ export class ConversationHub extends EventEmitter {
 
     if (activity === 'offline') {
       this.appQueue.clear(terminalId);
+      this.sentPrompts.clear(terminalId);
       this.refreshQueue(terminalId);
       return;
     }
     if (activity === 'idle') {
+      const idleSince = Date.now();
       const idleTimer = setTimeout(() => {
         this.idleTimers.delete(terminalId);
         this.idleSettled.add(terminalId);
         this.appQueue.clear(terminalId);
+        // Lo enviado antes de que quedara libre ya no va a empezar; lo de despues lo espera `noteSent`.
+        this.sentPrompts.dropBefore(terminalId, idleSince);
         this.refreshQueue(terminalId);
       }, IDLE_CLEARS_QUEUE_MS);
       idleTimer.unref();
@@ -833,6 +901,7 @@ export class ConversationHub extends EventEmitter {
     };
     // Desde aca, una lectura de la entrada vieja que estaba en la cadena sale por su guardia.
     this.entries.set(terminalId, next);
+    this.closeFollower(entry);
     this.watchStatus(terminalId, next, descriptor.sessionId);
     this.startFollowTicker(terminalId, next);
     debugLog(
@@ -931,6 +1000,16 @@ export class ConversationHub extends EventEmitter {
     entry.stopWatchingStatus = null;
     this.stopLiveQuestion(entry);
     this.entries.delete(terminalId);
+    this.closeFollower(entry);
+  }
+
+  /**
+   * Suelta el archivo que el seguidor dejo abierto (§4.11.1), detras de la
+   * lectura que este en curso: cerrarlo a mitad de una la haria fallar. Las que
+   * esperan su turno salen solas, porque la entrada ya no es la vigente.
+   */
+  private closeFollower(entry: Entry): void {
+    void entry.polling.catch(() => undefined).then(() => entry.follower.close?.());
   }
 
   /** Un cliente deja de mirar. Con el ultimo, el seguimiento se apaga. */
@@ -949,6 +1028,10 @@ export class ConversationHub extends EventEmitter {
   drop(terminalId: TerminalId): void {
     this.withdrawals.delete(terminalId);
     this.appQueue.clear(terminalId);
+    this.sentPrompts.clear(terminalId);
+    const sentTimer = this.sentTimers.get(terminalId);
+    if (sentTimer !== undefined) clearTimeout(sentTimer);
+    this.sentTimers.delete(terminalId);
     this.announcedQueues.delete(terminalId);
     this.lastActivity.delete(terminalId);
     this.idleSettled.delete(terminalId);
@@ -968,6 +1051,8 @@ export class ConversationHub extends EventEmitter {
   withdraw(terminalId: TerminalId, eventId: string): boolean {
     const descriptor = this.registry.get(terminalId);
     if (descriptor === null) return false;
+    // Lo deshecho volvio al cuadro: la burbuja "enviado" ya no tiene que esperar a nadie (§6.35.2).
+    if (this.sentPrompts.clear(terminalId)) this.refreshQueue(terminalId);
     this.withdrawals.set(terminalId, {
       sessionId: descriptor.sessionId,
       eventId,
@@ -1255,10 +1340,13 @@ export class ConversationHub extends EventEmitter {
       this.stopFollowTicker(entry);
       entry.stopWatchingStatus?.();
       this.stopLiveQuestion(entry);
+      this.closeFollower(entry);
     }
     this.entries.clear();
     for (const timer of this.idleTimers.values()) clearTimeout(timer);
     this.idleTimers.clear();
+    for (const timer of this.sentTimers.values()) clearTimeout(timer);
+    this.sentTimers.clear();
   }
 
   private schedulePoll(terminalId: TerminalId, entry: Entry): void {
@@ -1320,6 +1408,8 @@ export class ConversationHub extends EventEmitter {
       if (entry.adapter.promptQueue?.source === 'app') {
         this.appQueue.settle(terminalId, entry.follower.getTail(QUEUE_SETTLE_LOOKBACK).events);
       }
+      // Lo enviado con la CLI libre (§6.35.2), con todas las CLIs: su mensaje llego, o el agente empezo.
+      this.sentPrompts.settle(terminalId, entry.follower.getTail(QUEUE_SETTLE_LOOKBACK).events);
 
       if (options.silent) return;
 

@@ -29,6 +29,7 @@ import type { AgentConnection } from './connection.js';
 import { t } from './i18n/index.js';
 import { serverTextMessage } from './i18n/server-text.js';
 import { liveCarryOvers, type LiveAnswerRecord } from './live-question-ui.js';
+import { EDIT_STOP_HOLD_MS, markEditStop } from './sent-edit.js';
 
 /** Sin configuracion leida todavia. El combo muestra "sin datos". */
 const NO_DEFAULTS: AgentDefaults = { model: null, effort: null, contextWindow: null };
@@ -115,6 +116,13 @@ export interface ConversationFeed {
   editQueue: () => void;
   /** true desde el pedido hasta su respuesta, o hasta que pasa un rato. */
   editingQueue: boolean;
+  /**
+   * "Editar" en la burbuja "enviado" (§6.35.2): lo mismo que Detener, y la CLI
+   * devuelve el mensaje al cuadro porque el agente no empezo (§4.16).
+   */
+  editSent: () => void;
+  /** true desde el clic hasta que la burbuja se va, o hasta que pasa un rato. */
+  editingSent: boolean;
   /**
    * Lo que la configuracion anuncia, para cuando el archivo todavia no dijo
    * nada. Es provisional: en cuanto llega una respuesta manda lo observado.
@@ -221,6 +229,14 @@ export function useConversation(
   /** El `requestId` del ultimo pedido de editar la cola, hasta su respuesta. */
   const editRequest = useRef<string | null>(null);
   const editTimer = useRef<number | null>(null);
+  const [editingSent, setEditingSent] = useState(false);
+  const editSentTimer = useRef<number | null>(null);
+
+  const stopEditingSent = useCallback(() => {
+    if (editSentTimer.current !== null) window.clearTimeout(editSentTimer.current);
+    editSentTimer.current = null;
+    setEditingSent(false);
+  }, []);
 
   const stopForcing = useCallback(() => {
     forceRequest.current = null;
@@ -678,14 +694,21 @@ export function useConversation(
     CLI lo entrego (la cola se vacio) o ya se lo esta pasando al agente.
   */
   useEffect(() => {
-    if (forcing && queue.every((prompt) => prompt.forced === true)) stopForcing();
+    // Lo enviado con la CLI libre no se fuerza (§6.35.2): solo cuenta lo que espera en la cola.
+    if (forcing && queue.every((prompt) => prompt.sent === true || prompt.forced === true)) stopForcing();
   }, [forcing, queue, stopForcing]);
+
+  // "Editar" termino cuando la burbuja se fue: el texto volvio al cuadro, o el agente ya habia empezado.
+  useEffect(() => {
+    if (editingSent && !queue.some((prompt) => prompt.sent === true)) stopEditingSent();
+  }, [editingSent, queue, stopEditingSent]);
 
   // El plazo es de esta pantalla: al desmontar no queda corriendo.
   useEffect(
     () => () => {
       if (forceTimer.current !== null) window.clearTimeout(forceTimer.current);
       if (editTimer.current !== null) window.clearTimeout(editTimer.current);
+      if (editSentTimer.current !== null) window.clearTimeout(editSentTimer.current);
     },
     [],
   );
@@ -709,6 +732,16 @@ export function useConversation(
     editTimer.current = window.setTimeout(stopEditing, QUEUE_EDIT_HOLD_MS);
     connection.send({ type: 'agent.editQueue', terminalId, requestId });
   }, [connection, terminalId, stopEditing]);
+
+  const editSent = useCallback(() => {
+    if (terminalId === null || editingSent) return;
+    setEditingSent(true);
+    if (editSentTimer.current !== null) window.clearTimeout(editSentTimer.current);
+    editSentTimer.current = window.setTimeout(stopEditingSent, EDIT_STOP_HOLD_MS);
+    // El texto vuelve con el motivo de Detener: sin aviso y con el foco, porque lo pidio el usuario.
+    markEditStop(terminalId);
+    connection.send({ type: 'agent.interrupt', terminalId });
+  }, [connection, terminalId, editingSent, stopEditingSent]);
 
   const loadMore = useCallback(() => {
     const before = oldestEventId.current;
@@ -776,6 +809,8 @@ export function useConversation(
     forcing,
     editQueue,
     editingQueue,
+    editSent,
+    editingSent,
     hasMore,
     loadingMore,
     loadMore,

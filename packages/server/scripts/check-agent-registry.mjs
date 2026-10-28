@@ -1968,7 +1968,8 @@ const { buildProjects, migrateIndexCache, SessionIndex } = await import('../src/
   /** Un adaptador real con el escaneo contado, y un gancho que corre durante cada lectura. */
   const countingAdapter = () => {
     const real = createClaudeCodeAdapter();
-    const counter = { scans: 0, probe: () => undefined };
+    // `gate`: una promesa que la lectura espera antes de leer, para tenerla en curso a proposito.
+    const counter = { scans: 0, probe: () => undefined, gate: null };
     const wrapped = {
       ...real,
       history: {
@@ -1976,6 +1977,7 @@ const { buildProjects, migrateIndexCache, SessionIndex } = await import('../src/
         scan: async (item) => {
           counter.scans += 1;
           counter.probe();
+          if (counter.gate !== null) await counter.gate;
           return real.history.scan(item);
         },
       },
@@ -2094,6 +2096,26 @@ const { buildProjects, migrateIndexCache, SessionIndex } = await import('../src/
   check('refreshPath de una sesion nueva la agrega leyendo solo ese archivo',
     byKey(replaces[replaces.length - 1], keyA)?.sessions.length === 5 && first.counter.scans === 1,
     `${first.counter.scans} lecturas`);
+
+  // Una sola relectura a la vez por archivo (§4.11.1): con el antivirus, abrir
+  // una sesion larga recien cambiada tardaba 68 s, y cada aviso de la CLI dejaba
+  // otra esperando en un hilo de disco. Los que llegan mientras corre se juntan.
+  let openGate = () => undefined;
+  first.counter.gate = new Promise((resolve) => { openGate = resolve; });
+  first.counter.scans = 0;
+  await writeFile(fileOf(folderA, ids.a4), userLine('u4', projectA, 'cuatro') + userLine('u5', projectA, 'cinco'));
+  const burst = [1, 2, 3, 4].map(() => index.refreshPath('claude-code', fileOf(folderA, ids.a4)));
+  const firstStarted = await waitFor(() => first.counter.scans === 1);
+  check('SF1 cuatro avisos seguidos del mismo archivo: una sola lectura en curso',
+    firstStarted && first.counter.scans === 1, `${first.counter.scans} lecturas`);
+  let burstDone = false;
+  void Promise.all(burst).then(() => { burstDone = true; });
+  first.counter.gate = null;
+  openGate();
+  check('SF2 los que llegaron mientras tanto se juntan en una vuelta mas, y esperan esa vuelta',
+    (await waitFor(() => burstDone)) && first.counter.scans === 2, `${first.counter.scans} lecturas`);
+  await index.refreshPath('claude-code', fileOf(folderA, ids.a4));
+  check('SF3 terminada, el aviso siguiente vuelve a leer', first.counter.scans === 3, `${first.counter.scans} lecturas`);
 
   const emitted = replaces.length;
   await index.refreshPath('claude-code', path.join(folderA, 'notas.txt'));
