@@ -22,6 +22,7 @@ import type { AgentId, GitFileChange, GitStatus, TerminalId, WorktreeKeptBranch,
 import { BranchIcon } from './BranchIcon.js';
 import { DiffView } from './DiffView.js';
 import { KIND_BADGE, KIND_TITLE, splitPath } from './git-kinds.js';
+import { actionWaits, type GitPanelAction } from './git-last-state.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { serverTextMessage } from './i18n/server-text.js';
 import { tRich } from './i18n/rich.js';
@@ -78,6 +79,8 @@ type OwnRow = WorktreeRow & { id: string };
 /** Las ramas aparte del repo de la pestana (hito 48, §6.38). */
 export interface GitPanelWorktrees {
   rows: readonly WorktreeRow[];
+  /** Las filas son las guardadas de la ultima vez (§6.2.1). */
+  rowsStale: boolean;
   /** Nueva sesion en una rama aparte, desde esta pestana. */
   onNew: () => void;
   /** Pasa a la pestana de esa carpeta, o abre una ahi. */
@@ -108,6 +111,15 @@ interface GitPanelProps {
   worktrees: GitPanelWorktrees;
 }
 
+/**
+ * Si una accion espera al estado de ahora (§6.2.1), y el titulo de su boton:
+ * el de siempre, o por que espera.
+ */
+interface Waiting {
+  waits: (action: GitPanelAction) => boolean;
+  title: (action: GitPanelAction, title: string) => string;
+}
+
 /** Lo que dijo el revisor, para el color de su linea. */
 function reviewTone(row: WorktreeRow): string {
   const review = row.review;
@@ -116,7 +128,7 @@ function reviewTone(row: WorktreeRow): string {
 }
 
 /** Una fila de "Ramas aparte": la rama, su estado contra la base y lo que se puede hacer. */
-function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPanelWorktrees }): JSX.Element {
+function WorktreeItem({ row, worktrees, waiting }: { row: WorktreeRow; worktrees: GitPanelWorktrees; waiting: Waiting }): JSX.Element {
   const status = rowStatusParts(row);
   const team = rowTeamLines(row);
   const id = row.id;
@@ -167,12 +179,22 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
             </button>
           )}
           {own !== null && actions.review && (
-            <button className="link-button" onClick={() => worktrees.onRequestReview(own)} title={t('worktree.actions.reviewTitle')}>
+            <button
+              className="link-button"
+              onClick={() => worktrees.onRequestReview(own)}
+              disabled={waiting.waits('requestReview')}
+              title={waiting.title('requestReview', t('worktree.actions.reviewTitle'))}
+            >
               {t('worktree.actions.review')}
             </button>
           )}
           {own !== null && actions.sendReview && (
-            <button className="link-button" onClick={() => worktrees.onSendReview(own)} title={t('worktree.actions.sendReviewTitle')}>
+            <button
+              className="link-button"
+              onClick={() => worktrees.onSendReview(own)}
+              disabled={waiting.waits('sendReview')}
+              title={waiting.title('sendReview', t('worktree.actions.sendReviewTitle'))}
+            >
               {t('worktree.actions.sendReview')}
             </button>
           )}
@@ -180,7 +202,8 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
             <button
               className="link-button"
               onClick={() => worktrees.onCatchUp(own)}
-              title={t('worktree.actions.catchUpTitle', { base: row.base })}
+              disabled={waiting.waits('catchUp')}
+              title={waiting.title('catchUp', t('worktree.actions.catchUpTitle', { base: row.base }))}
             >
               {t('worktree.actions.catchUp')}
             </button>
@@ -189,8 +212,8 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
             <button
               className="link-button"
               onClick={() => worktrees.onIntegrate(own)}
-              disabled={integrateBlocker !== null}
-              title={integrateBlocker ?? t('worktree.actions.integrateTitle', { base: row.base })}
+              disabled={integrateBlocker !== null || waiting.waits('integrate')}
+              title={waiting.title('integrate', integrateBlocker ?? t('worktree.actions.integrateTitle', { base: row.base }))}
             >
               {t('worktree.actions.integrate', { base: row.base })}
             </button>
@@ -199,7 +222,8 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
             <button
               className="link-button"
               onClick={() => worktrees.onRemove(own)}
-              title={t('worktree.rows.removeTitle')}
+              disabled={waiting.waits('remove')}
+              title={waiting.title('remove', t('worktree.rows.removeTitle'))}
             >
               {t('worktree.rows.remove')}
             </button>
@@ -215,7 +239,7 @@ function WorktreeItem({ row, worktrees }: { row: WorktreeRow; worktrees: GitPane
  * en el repo. Lo unico que se ofrece es borrarla; volver a abrirla es de sus
  * conversaciones, en la barra.
  */
-function KeptBranchItem({ kept, worktrees }: { kept: WorktreeKeptBranch; worktrees: GitPanelWorktrees }): JSX.Element {
+function KeptBranchItem({ kept, worktrees, waiting }: { kept: WorktreeKeptBranch; worktrees: GitPanelWorktrees; waiting: Waiting }): JSX.Element {
   const status = keptStatusText(kept);
   return (
     <li>
@@ -226,7 +250,12 @@ function KeptBranchItem({ kept, worktrees }: { kept: WorktreeKeptBranch; worktre
         </span>
         {status !== null && <span className="git-worktree-state">{status}</span>}
         <span className="git-worktree-actions">
-          <button className="link-button" onClick={() => worktrees.onDeleteBranch(kept)} title={t('worktree.rows.deleteBranchTitle')}>
+          <button
+            className="link-button"
+            onClick={() => worktrees.onDeleteBranch(kept)}
+            disabled={waiting.waits('deleteBranch')}
+            title={waiting.title('deleteBranch', t('worktree.rows.deleteBranchTitle'))}
+          >
             {t('worktree.rows.deleteBranch')}
           </button>
         </span>
@@ -238,6 +267,18 @@ function KeptBranchItem({ kept, worktrees }: { kept: WorktreeKeptBranch; worktre
 export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
   const { status, diff, loadingDiff, openDiff, closeDiff, refresh } = view;
 
+  /*
+    Con el estado guardado de la ultima vez (§6.2.1) se mira todo y no se hace
+    nada que cambie algo: esos botones quedan apagados, con el porque en el
+    titulo, hasta que llega el de ahora.
+  */
+  const freshness = { statusStale: view.stale, rowsStale: worktrees.rowsStale };
+  const waits = (action: GitPanelAction): boolean => actionWaits(action, freshness);
+  const waiting: Waiting = {
+    waits,
+    title: (action, title) => (waits(action) ? t('git.waitingTitle') : title),
+  };
+
   // "Ver cambios" de una rama (hito 49) reemplaza la lista, como el diff de un archivo.
   if (worktrees.changes !== null) {
     const changes = worktrees.changes;
@@ -248,7 +289,11 @@ export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
         onBack={worktrees.onCloseChanges}
         onOpenDiff={worktrees.onOpenChangeDiff}
         onCloseDiff={worktrees.onCloseChangeDiff}
-        onRequestReview={row === null || row.id === null ? null : () => worktrees.onRequestReview({ ...row, id: changes.worktreeId })}
+        onRequestReview={
+          row === null || row.id === null || waits('requestReview')
+            ? null
+            : () => worktrees.onRequestReview({ ...row, id: changes.worktreeId })
+        }
       />
     );
   }
@@ -294,13 +339,15 @@ export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
   const anyLinked = otherWorktrees.some((row) => !row.isMain) || worktrees.kept.length > 0;
 
   return (
-    <div className="panel-body">
+    <div className={`panel-body${view.stale ? ' git-stale' : ''}`} aria-busy={view.stale}>
       <div className="panel-subhead">
         <Headline status={status} />
+        {view.stale && <span className="git-updating">{t('git.updating')}</span>}
         <button
           className="icon-button"
           onClick={worktrees.onNew}
-          title={t('worktree.new')}
+          disabled={waits('newBranch')}
+          title={waiting.title('newBranch', t('worktree.new'))}
           aria-label={t('worktree.new')}
         >
           <BranchIcon />
@@ -380,7 +427,7 @@ export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
         {status.truncated && <p className="panel-note">{tRich('git.truncated')}</p>}
 
         {anyLinked && (
-          <section className="git-group">
+          <section className={`git-group${worktrees.rowsStale ? ' git-stale-rows' : ''}`}>
             {/*
               Se listan porque con varios worktrees del mismo repo es facil
               perder de vista en cual esta parada la pestana, y ahi se le pide
@@ -393,10 +440,10 @@ export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
             </h3>
             <ul className="git-list">
               {otherWorktrees.map((row) => (
-                <WorktreeItem key={row.path} row={row} worktrees={worktrees} />
+                <WorktreeItem key={row.path} row={row} worktrees={worktrees} waiting={waiting} />
               ))}
               {worktrees.kept.map((kept) => (
-                <KeptBranchItem key={kept.id} kept={kept} worktrees={worktrees} />
+                <KeptBranchItem key={kept.id} kept={kept} worktrees={worktrees} waiting={waiting} />
               ))}
             </ul>
           </section>
