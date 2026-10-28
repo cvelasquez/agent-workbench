@@ -22,7 +22,7 @@ import { appendFileSync, chmodSync, mkdirSync, rmSync, statSync, utimesSync, wri
 import path from 'node:path';
 import { buildOtherClis } from './other-clis.mjs';
 
-const CLI_VERSION = '2.1.270';
+const CLI_VERSION = '2.1.310';
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;

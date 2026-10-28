@@ -18,6 +18,10 @@ npx agent-workbench
 
 ![A tour: the conversation as cards, the changed files and a diff, one tab per CLI, and continuing a conversation with another CLI](assets/demo.webp)
 
+<a href="https://youtu.be/C0Iea1cKQ7o"><img src="assets/video-tutorial.jpg" width="420" alt="Video tutorial on YouTube: five coding agents in one window"></a>
+
+▶ **[Video tutorial](https://youtu.be/C0Iea1cKQ7o)**: the whole app in 6 minutes, with chapters to jump straight to what you need.
+
 ## How it works
 
 Agent Workbench doesn't talk to any AI service. It starts the CLI you already

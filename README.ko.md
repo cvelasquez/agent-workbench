@@ -15,6 +15,10 @@ npx agent-workbench
 
 ![둘러보기: 카드로 보는 대화, 변경된 파일과 diff, CLI마다 하나씩 열린 탭, 다른 CLI로 대화 이어 가기](assets/demo.webp)
 
+<a href="https://youtu.be/C0Iea1cKQ7o"><img src="assets/video-tutorial.jpg" width="420" alt="YouTube 동영상 튜토리얼: 다섯 코딩 에이전트를 한 창에서"></a>
+
+▶ **[동영상 튜토리얼](https://youtu.be/C0Iea1cKQ7o)**: 앱 전체를 6분 만에 보여 줍니다. 챕터로 필요한 부분에 바로 이동할 수 있습니다. 영어로 진행됩니다.
+
 ## 작동 방식
 
 Agent Workbench는 어떤 AI 서비스와도 통신하지 않습니다. 이미 설치된 CLI(`claude`, `codex`, `opencode`, `agy`, `pi`)를 실제 터미널 안에서 실행하고, 터미널만으로는 얻을 수 없는 것들을 그 주위에 더합니다. 탭, 지난 대화, 읽기 쉬운 카드로 정리된 대화, 컨텍스트 미터, 변경된 파일, 파일 트리가 그것입니다.

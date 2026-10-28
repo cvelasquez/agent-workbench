@@ -15,6 +15,10 @@ npx agent-workbench
 
 ![デモ：カード形式の会話、変更されたファイルと差分、CLI ごとのタブ、別の CLI での会話の続行](assets/demo.webp)
 
+<a href="https://youtu.be/C0Iea1cKQ7o"><img src="assets/video-tutorial.jpg" width="420" alt="YouTube の動画チュートリアル：5 つのコーディングエージェントを 1 つのウィンドウで"></a>
+
+▶ **[動画チュートリアル](https://youtu.be/C0Iea1cKQ7o)**：アプリ全体を 6 分で紹介します。チャプターから必要な部分へ直接移動できます（英語）。
+
 ## 仕組み
 
 Agent Workbench は、どの AI サービスとも通信しません。すでにお持ちの CLI（`claude`、`codex`、`opencode`、`agy`、`pi`）を本物のターミナルの中で起動し、その周りに、ターミナルだけでは得られないものを加えます：タブ、過去の会話、読みやすいカード形式の会話、コンテキストメーター、変更されたファイル、ファイルツリー。

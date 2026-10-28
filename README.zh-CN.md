@@ -15,6 +15,10 @@ npx agent-workbench
 
 ![功能概览：卡片形式的对话、改动的文件和差异、每个 CLI 一个标签页，以及用另一个 CLI 继续对话](assets/demo.webp)
 
+<a href="https://youtu.be/C0Iea1cKQ7o"><img src="assets/video-tutorial.jpg" width="420" alt="YouTube 视频教程：五个编程代理，一个窗口"></a>
+
+▶ **[视频教程](https://youtu.be/C0Iea1cKQ7o)**：6 分钟看完整个应用，带章节，可直接跳到需要的部分（英文）。
+
 ## 工作原理
 
 Agent Workbench 不和任何 AI 服务通信。它在一个真正的终端里启动你已有的 CLI（`claude`、`codex`、`opencode`、`agy` 或 `pi`），并在周围补上单靠终端给不了的东西：标签页、你的历史对话、以易读卡片呈现的对话、上下文用量条、改动过的文件，以及文件树。

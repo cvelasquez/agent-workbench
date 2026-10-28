@@ -29,9 +29,9 @@ const DAY = 24 * HOUR;
 
 /** Las versiones que contestan las CLIs simuladas: las medidas en CLAUDE.md 9. */
 export const SIMULATED_CLIS = [
-  { command: 'codex', version: 'codex-cli 0.154.0' },
-  { command: 'opencode', version: '1.18.30' },
-  { command: 'agy', version: '1.2.2' },
+  { command: 'codex', version: 'codex-cli 0.164.0' },
+  { command: 'opencode', version: '1.19.4' },
+  { command: 'agy', version: '1.4.6' },
 ];
 
 /** Una CLI simulada: `--version` contesta y cualquier otra cosa se queda en una consola. */
@@ -478,7 +478,7 @@ function writeAntigravity(home, conversations) {
 // ---------------------------------------------------------------------------
 
 /** La version de la Pi simulada: la medida en CLAUDE.md 16. */
-export const SIMULATED_PI_VERSION = '1.1.0';
+export const SIMULATED_PI_VERSION = '1.4.0';
 const PI_PACKAGE_NAME = '@earendil-works/pi-coding-agent';
 const PI_PROVIDER = 'openai-codex';
 const PI_MODEL = 'gpt-5.5';
