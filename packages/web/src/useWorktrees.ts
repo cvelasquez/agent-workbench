@@ -30,6 +30,7 @@ import type {
   WorktreeSource,
 } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { LastStateCache } from './git-last-state.js';
 import { serverTextMessage } from './i18n/server-text.js';
 import { filesAccepted, removeAction } from './worktree-ui.js';
 
@@ -62,9 +63,16 @@ function answersRequest(message: Pick<ServerComposerPrefillMessage, 'reason' | '
 export interface WorktreeRowsState {
   rows: WorktreeRow[];
   kept: WorktreeKeptBranch[];
+  /** Son las de la última vez que se miró esta pestaña: todavía no llegaron las de ahora (§6.2.1). */
+  stale: boolean;
 }
 
-const NO_ROWS: WorktreeRowsState = { rows: [], kept: [] };
+type SavedRows = Pick<WorktreeRowsState, 'rows' | 'kept'>;
+
+const NO_ROWS: SavedRows = { rows: [], kept: [] };
+
+/** Las últimas filas de cada pestaña, como el estado de git de Cambios (`useGit`). */
+const lastRows = new LastStateCache<SavedRows>();
 
 /** Las filas de "Ramas aparte" de la pestaña que se mira. Se vuelven a pedir con cada estado de git. */
 export function useWorktreeRows(
@@ -73,17 +81,25 @@ export function useWorktreeRows(
   /** El `updatedAt` del último estado de git: cambia cuando el panel se refresca. */
   gitUpdatedAt: number,
 ): WorktreeRowsState {
-  const [rows, setRows] = useState<WorktreeRowsState>(NO_ROWS);
+  const [rows, setRows] = useState<WorktreeRowsState>({ ...NO_ROWS, stale: false });
 
   useEffect(() => {
-    setRows(NO_ROWS);
-    if (terminalId === null) return;
+    if (terminalId === null) {
+      setRows({ ...NO_ROWS, stale: false });
+      return;
+    }
+    const entered = lastRows.enter(terminalId, NO_ROWS);
+    setRows({ ...entered.value, stale: entered.stale });
     const ask = (): void => {
       connection.send({ type: 'worktree.status', terminalId });
     };
     const offMessage = connection.onMessage((message) => {
-      // Un servidor anterior no manda las guardadas: ninguna.
-      if (message.type === 'worktree.rows' && message.terminalId === terminalId) setRows({ rows: message.rows, kept: message.kept ?? [] });
+      if (message.type === 'worktree.rows' && message.terminalId === terminalId) {
+        // Un servidor anterior no manda las guardadas: ninguna.
+        const fresh: SavedRows = { rows: message.rows, kept: message.kept ?? [] };
+        lastRows.store(terminalId, fresh);
+        setRows({ ...fresh, stale: false });
+      }
       if (message.type === 'worktree.changed') ask();
     });
     const offReopen = connection.onReopen(ask);

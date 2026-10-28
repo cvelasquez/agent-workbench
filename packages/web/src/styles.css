@@ -3261,6 +3261,24 @@ kbd {
   margin-bottom: 12px;
 }
 
+/*
+  Cambios con lo guardado de la ultima vez (§6.2.1): se lee y se mira, atenuado,
+  hasta que llega el estado de ahora. Las filas de "Ramas aparte" llegan aparte,
+  y una seccion ya atenuada no se atenua dos veces.
+*/
+.git-stale .git-headline,
+.git-stale .panel-scroll,
+.panel-body:not(.git-stale) .git-stale-rows {
+  opacity: 0.6;
+}
+
+.git-updating {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .git-group-title {
   display: flex;
   align-items: center;

@@ -688,6 +688,7 @@ export function App(): JSX.Element {
   const gitWorktrees: GitPanelWorktrees = {
     rows: worktreeRows.rows,
     kept: worktreeRows.kept,
+    rowsStale: worktreeRows.stale,
     onDeleteBranch: (kept) => worktreeDialogs.openDeleteBranch(kept.id, kept.branch),
     onNew: () => {
       if (activeTerminal === null) return;

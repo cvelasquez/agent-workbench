@@ -22,6 +22,8 @@ import { parsePorcelainV2, parseUnifiedDiff, parseWorktreeListZ, parseWorktrees 
 import { InvalidPathError, resolveInside } from '../src/path-guard.ts';
 import { NO_CLI_FOLDERS } from '../src/cli-folders.ts';
 import { existingPaths } from '../src/file-browser.ts';
+import { EMPTY_GIT_STATUS } from '@agent-workbench/shared';
+import { LastStateCache, actionWaits, rememberGitStatus } from '../../web/src/git-last-state.ts';
 
 const dir = process.argv[2] ?? path.join(process.cwd(), '.check-git');
 await rm(dir, { recursive: true, force: true });
@@ -246,6 +248,58 @@ check('sin rutas, ninguna; y con una carpeta de proyecto que ya no esta, tampoco
     JSON.stringify(await existingPaths(path.join(dir, 'no-existe'), ['src/a.ts', 'src'], NO_CLI_FOLDERS)) === none);
 
 await rm(dir, { recursive: true, force: true });
+
+// ---------------------------------------------------------------------------
+// Cambios al volver a una pestana: su ultimo estado, como viejo (§6.2.1)
+// ---------------------------------------------------------------------------
+
+{
+  const ready = (branch) => ({ ...EMPTY_GIT_STATUS, state: 'ready', branch, repoRoot: `/repos/${branch}` });
+  const cache = new LastStateCache(2);
+  const first = cache.enter('t1', EMPTY_GIT_STATUS);
+  check('cambios: la primera vez en una pestana, el panel vacio y no como viejo',
+    first.value === EMPTY_GIT_STATUS && first.stale === false, JSON.stringify(first));
+
+  rememberGitStatus(cache, 't1', ready('main'));
+  const back = cache.enter('t1', EMPTY_GIT_STATUS);
+  check('cambios: al volver, lo ultimo de esa pestana, marcado como viejo',
+    back.value.branch === 'main' && back.stale === true, JSON.stringify(back));
+
+  const other = cache.enter('t2', EMPTY_GIT_STATUS);
+  check('cambios: nunca lo de otra pestana (seria otro repo)', other.value === EMPTY_GIT_STATUS && other.stale === false);
+
+  rememberGitStatus(cache, 't1', { ...EMPTY_GIT_STATUS, state: 'error', message: { key: 'gitRunFailed' } });
+  const afterError = cache.enter('t1', EMPTY_GIT_STATUS);
+  check('cambios: un error de git no se guarda, y borra lo de antes',
+    afterError.value === EMPTY_GIT_STATUS && afterError.stale === false, JSON.stringify(afterError));
+
+  rememberGitStatus(cache, 't1', ready('a'));
+  rememberGitStatus(cache, 't2', ready('b'));
+  rememberGitStatus(cache, 't1', ready('a2'));
+  rememberGitStatus(cache, 't3', ready('c'));
+  check('cambios: con el tope lleno se olvida la que hace mas que no se actualiza',
+    cache.enter('t2', EMPTY_GIT_STATUS).stale === false &&
+      cache.enter('t1', EMPTY_GIT_STATUS).value.branch === 'a2' &&
+      cache.enter('t3', EMPTY_GIT_STATUS).value.branch === 'c');
+
+  const looking = ['openDiff', 'refresh', 'openBranch', 'viewChanges', 'showReviewer'];
+  const changing = ['newBranch', 'requestReview', 'sendReview', 'catchUp', 'integrate', 'remove', 'deleteBranch'];
+  const rowActions = changing.filter((action) => action !== 'newBranch');
+  const fresh = { statusStale: false, rowsStale: false };
+  const statusStale = { statusStale: true, rowsStale: false };
+  const rowsStale = { statusStale: false, rowsStale: true };
+  check('cambios: con todo al dia no espera nada',
+    [...looking, ...changing].every((action) => !actionWaits(action, fresh)));
+  check('cambios: con lo guardado se puede mirar (diff, ver cambios, abrir, revisor, releer)',
+    looking.every((action) => !actionWaits(action, statusStale) && !actionWaits(action, rowsStale)),
+    looking.filter((action) => actionWaits(action, statusStale) || actionWaits(action, rowsStale)).join(', '));
+  check('cambios: con el estado guardado espera todo lo que cambia algo',
+    changing.every((action) => actionWaits(action, statusStale)),
+    changing.filter((action) => !actionWaits(action, statusStale)).join(', '));
+  check('cambios: con las filas guardadas esperan las acciones de una fila, y crear una rama no',
+    rowActions.every((action) => actionWaits(action, rowsStale)) && !actionWaits('newBranch', rowsStale),
+    rowActions.filter((action) => !actionWaits(action, rowsStale)).join(', '));
+}
 
 console.log(`\n${failures === 0 ? 'TODO OK' : `${failures} FALLO(S)`}`);
 process.exit(failures === 0 ? 0 : 1);
