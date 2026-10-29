@@ -309,8 +309,11 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
 
 // B1. Claude Code: una sola pieza, byte por byte lo de antes.
 {
+  // Desde el 28-10-2026 declara tambien la tecla que aparta lo escrito en su caja (§5.3.1).
+  const { draftStash, ...claudeShape } = CLAUDE_CODE_INPUT;
   check('B1 claude-code declara una sola forma: at-quoted, sin separacion, con marcadores',
-    same(CLAUDE_CODE_INPUT, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1, transcriptReference: 'at-quoted' }),
+    same(claudeShape, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1, transcriptReference: 'at-quoted' }) &&
+      draftStash?.key === '\u0013',
     show(CLAUDE_CODE_INPUT));
   check('B1 la forma de escribir imagenes es la que se le promete a la interfaz',
     CLAUDE_CODE_INPUT.imageReference === CLAUDE_CODE_CAPABILITIES.imagesByPath);

@@ -1,0 +1,70 @@
+/**
+ * La tecla con la que Claude Code aparta lo escrito en su caja (§5.3.1, §4.4.4).
+ *
+ * Ctrl+S (`chat:stash` en su binario 2.1.312). Medido en vivo con Haiku
+ * (`docs/herramientas/borrador-cli/medir-borrador.mjs`):
+ *
+ * ```
+ *                                    › stashed     lo apartado, mientras dure
+ * ────────────────────────────────────────────
+ * ❯                                                la caja, vacia
+ * ────────────────────────────────────────────
+ * ```
+ *
+ *  - Con texto, lo aparta y vacia la caja en ~90 ms. Al enviar lo devuelve sola
+ *    ("Draft restored"): con el agente libre, trabajando (el mensaje va a su
+ *    cola) y despues de un `/effort`. Un `[Pasted text #1 +5 lines]` vuelve con
+ *    su contenido.
+ *  - Con la caja vacia, saca lo apartado: por eso se aprieta solo con texto.
+ *  - Aparta uno solo: con texto y algo ya apartado, lo pisa.
+ *  - La caja vacia muestra una ayuda atenuada (`Try "…"`); lo escrito no lo es.
+ *
+ * Puro: lo prueba `check-composer-input.mjs` con las pantallas medidas.
+ */
+
+import type { DraftBox, DraftStash } from '../adapter.js';
+
+const CTRL_S = '\x13';
+const MARKER = '❯';
+const RULE = /^─{8,}/;
+const SAVED = /›\s*stashed\b/;
+/** Con algo en cola, la caja vacia lo dice (§6.35.1). No es algo escrito, atenuado o no. */
+const QUEUE_HINT = 'Press up to edit queued messages';
+
+/**
+ * La caja de Claude Code: la ultima linea con la marca, entre dos reglas (la de
+ * justo arriba y la que la cierra abajo). Lo apartado se anuncia en la linea de
+ * los avisos, encima de la regla. Las lineas llegan sin el texto atenuado.
+ */
+export function readClaudeCodeDraftBox(lines: readonly string[]): DraftBox | null {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = (lines[index] ?? '').trim();
+    if (!line.startsWith(MARKER)) continue;
+    // Un menu tambien marca su opcion con la flecha, pero no entre reglas.
+    if (index === 0 || !RULE.test((lines[index - 1] ?? '').trim())) return null;
+    const box = [line.slice(MARKER.length).trim()];
+    let closed = false;
+    for (const next of lines.slice(index + 1)) {
+      const text = next.trim();
+      if (RULE.test(text)) {
+        closed = true;
+        break;
+      }
+      box.push(text);
+    }
+    // La ultima opcion de un menu de pregunta tambien queda bajo una regla, pero nada la cierra.
+    if (!closed) return null;
+    const written = box.join('\n').trim();
+    const notices = lines.slice(Math.max(0, index - 3), index - 1);
+    return {
+      text: written.length > 0 && !written.startsWith(QUEUE_HINT),
+      saved: notices.some((notice) => SAVED.test(notice)),
+    };
+  }
+  return null;
+}
+
+export const CLAUDE_CODE_DRAFT_STASH: DraftStash = {
+  key: CTRL_S,
+  readBox: readClaudeCodeDraftBox,
+};

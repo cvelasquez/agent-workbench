@@ -1037,6 +1037,170 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
   }
 }
 
+// S54. Lo escrito en la caja de la CLI (§5.3.1, 28-10-2026). Con texto ahi, lo
+// que pega el cuadro se sumaba y salia todo junto; Claude Code tiene Ctrl+S para
+// apartarlo, y lo devuelve sola despues del envio. Pantallas medidas con la
+// 2.1.312 (`fixtures/draft-screens.mjs`).
+{
+  const screens = await import('./fixtures/draft-screens.mjs');
+  const questions = await import('./fixtures/question-screens.mjs');
+  const { readClaudeCodeDraftBox, CLAUDE_CODE_DRAFT_STASH } = await import('../src/agents/claude-code/draft-stash.ts');
+  const { setCliDraftAside } = await import('../src/cli-draft.ts');
+  const { createPtyScreen } = await import('../src/pty-screen.ts');
+  const { prepareSubmit, runSubmit } = await import('../src/submit-message.ts');
+  const { CLAUDE_CODE_INPUT } = await import('../src/agents/claude-code/index.ts');
+  const { PI_INPUT } = await import('../src/agents/pi/index.ts');
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const box = (lines) => readClaudeCodeDraftBox(lines);
+
+  // El lector, contra lo medido. Un control por condicion de cada pantalla.
+  check('S54 control: la ayuda atenuada esta en la pantalla tal cual, y no en la limpia',
+    screens.PLACEHOLDER_WITH_FAINT.some((line) => line.includes('Try "')) && !screens.PLACEHOLDER.some((line) => line.includes('Try')));
+  check('S54 la caja vacia con la ayuda atenuada: nada escrito', same(box(screens.PLACEHOLDER), { text: false, saved: false }), JSON.stringify(box(screens.PLACEHOLDER)));
+  check('S54 sin quitar lo atenuado, la ayuda pareceria texto (por eso se lee sin ella)', box(screens.PLACEHOLDER_WITH_FAINT)?.text === true);
+  check('S54 texto tecleado: escrito, nada apartado', same(box(screens.TYPED), { text: true, saved: false }), JSON.stringify(box(screens.TYPED)));
+  check('S54 despues de Ctrl+S: la caja vacia y algo apartado', same(box(screens.STASHED_EMPTY), { text: false, saved: true }), JSON.stringify(box(screens.STASHED_EMPTY)));
+  check('S54 el texto de vuelta tras enviar, libre y trabajando',
+    same(box(screens.RESTORED), { text: true, saved: false }) && same(box(screens.RESTORED_BUSY), { text: true, saved: false }));
+  check('S54 control: "Draft restored" y "› stashed" comparten la linea de avisos',
+    screens.STASHED_BUSY.some((line) => /Draft restored · › stashed/.test(line)) && screens.TEXT_AND_SAVED.some((line) => /› stashed/.test(line)));
+  check('S54 trabajando, tras Ctrl+S: vacia y apartado', same(box(screens.STASHED_BUSY), { text: false, saved: true }), JSON.stringify(box(screens.STASHED_BUSY)));
+  check('S54 texto y otro ya apartado', same(box(screens.TEXT_AND_SAVED), { text: true, saved: true }), JSON.stringify(box(screens.TEXT_AND_SAVED)));
+  check('S54 un pegado largo cuenta como escrito', box(screens.PASTED)?.text === true);
+  const rule = '─'.repeat(110);
+  check('S54 la caja que dice que hay algo en cola (§4.4.3) no es algo escrito',
+    box(['', rule, '❯ Press up to edit queued messages', rule, '  ⏵⏵ auto mode on']).text === false);
+  const menus = Object.entries(questions).filter(([name, value]) => Array.isArray(value) && name !== 'BASIC_ANSWERED' && name !== 'INPUTS');
+  const misread = menus.filter(([, lines]) => box(lines)?.text === true).map(([name]) => name);
+  check(`S54 un menu de pregunta abierto (${menus.length} pantallas medidas) no se lee como caja con texto`, menus.length > 5 && misread.length === 0, misread.join(', '));
+  check('S54 sin la flecha en pantalla: no se ve la caja', box(['', 'cargando…', '']) === null);
+
+  // La pantalla emulada sin lo atenuado (SGR 2), con el emulador de verdad.
+  {
+    const screen = createPtyScreen(40, 3, '❯ \u001b[2mTry "algo"\u001b[22m\r\nabc\u001b[2mdef\u001b[22mghi');
+    const plain = await screen.lines();
+    const clean = await screen.linesWithoutFaint();
+    screen.dispose();
+    check('S54 linesWithoutFaint borra lo atenuado y deja lo demas en su lugar',
+      plain[0] === '❯ Try "algo"' && clean[0] === '❯' && plain[1] === 'abcdefghi' && clean[1] === 'abc   ghi', JSON.stringify({ plain, clean }));
+  }
+
+  // El paso comun, con una pantalla que cambia cuando se aprieta la tecla.
+  function world(initial, afterKey = initial, { pressResult = 'written', screen = true } = {}) {
+    let current = initial;
+    let clock = 0;
+    const presses = [];
+    let disposed = 0;
+    const deps = {
+      screen: () => (screen ? { linesWithoutFaint: async () => current, dispose: () => { disposed += 1; } } : null),
+      press: async (key) => {
+        presses.push(key);
+        if (pressResult === 'written') current = afterKey;
+        return pressResult;
+      },
+      wait: async (ms) => { clock += ms; },
+      now: () => clock,
+    };
+    return { deps, presses, disposed: () => disposed, elapsed: () => clock };
+  }
+  {
+    const empty = world(screens.PLACEHOLDER);
+    const result = await setCliDraftAside(CLAUDE_CODE_DRAFT_STASH, empty.deps);
+    check('S54 caja vacia: no se aprieta nada', result.kind === 'clear' && empty.presses.length === 0 && empty.disposed() === 1, JSON.stringify(result));
+    const saved = world(screens.STASHED_EMPTY);
+    check('S54 caja vacia con algo apartado: tampoco (la tecla lo sacaria y se sumaria al mensaje)',
+      (await setCliDraftAside(CLAUDE_CODE_DRAFT_STASH, saved.deps)).kind === 'clear' && saved.presses.length === 0);
+    const typed = world(screens.TYPED, screens.STASHED_EMPTY);
+    const set = await setCliDraftAside(CLAUDE_CODE_DRAFT_STASH, typed.deps);
+    check('S54 con texto: una Ctrl+S, y la caja vacia', set.kind === 'set-aside' && same(typed.presses, ['\u0013']) && typed.disposed() === 1, JSON.stringify(set));
+    const kept = world(screens.TEXT_AND_SAVED, screens.STASHED_EMPTY);
+    check('S54 texto y otro apartado: no se toca nada', (await setCliDraftAside(CLAUDE_CODE_DRAFT_STASH, kept.deps)).kind === 'kept' && kept.presses.length === 0);
+    const stuck = world(screens.TYPED, screens.TYPED);
+    const stuckResult = await setCliDraftAside(CLAUDE_CODE_DRAFT_STASH, stuck.deps);
+    check('S54 la tecla no vacia la caja (cambiada en su configuracion): stuck, con su plazo',
+      stuckResult.kind === 'stuck' && stuck.presses.length === 1 && stuck.elapsed() >= 3_000, JSON.stringify({ stuckResult, ms: stuck.elapsed() }));
+    const menu = world(questions.BASIC_OPEN);
+    check('S54 un menu abierto encima: se manda como siempre, sin tecla',
+      (await setCliDraftAside(CLAUDE_CODE_DRAFT_STASH, menu.deps)).kind === 'clear' && menu.presses.length === 0);
+    const none = world(screens.TYPED, screens.TYPED, { screen: false });
+    check('S54 sin pantalla (sin proceso): como siempre', (await setCliDraftAside(CLAUDE_CODE_DRAFT_STASH, none.deps)).kind === 'clear');
+    const cut = world(screens.TYPED, screens.TYPED, { pressResult: 'interrupted' });
+    const cutResult = await setCliDraftAside(CLAUDE_CODE_DRAFT_STASH, cut.deps);
+    check('S54 una interrupcion antes de la tecla: no escrita, y lo dice', cutResult.kind === 'not-written' && cutResult.outcome === 'interrupted', JSON.stringify(cutResult));
+  }
+
+  // El envio del cuadro entero: la tecla, despues el mensaje; o nada.
+  function tab(input, initial, afterKey) {
+    let current = initial;
+    let clock = 1_000_000;
+    const log = [];
+    const deps = {
+      adapterOf: () => null,
+      inputOf: () => input,
+      launchedAtOf: () => clock - 60_000,
+      activityOf: () => 'idle',
+      sessionIdOf: () => 's1',
+      watchScreen: () => ({ lines: async () => current, linesWithoutFaint: async () => current, dispose: () => undefined }),
+      noteSubmitted: () => log.push('noteSubmitted'),
+      conversations: {
+        isBlindToApprovals: () => false, getWaitingFor: () => null, hasOpenToolCall: () => false,
+        checkOpenToolCall: async () => false, checkWaitingFor: async () => null, noteQueued: () => undefined, noteSent: () => log.push('noteSent'),
+      },
+      queuedSubmits: { note: () => undefined },
+      enqueue: async (_t, job) => {
+        await job({
+          writePieces: async (pieces, _gap, write) => {
+            for (const piece of pieces) if (!write(piece)) return 'refused';
+            return 'written';
+          },
+        });
+      },
+      now: () => clock,
+      wait: async (ms) => { clock += ms; },
+    };
+    const run = async (text, send = true) => {
+      const plan = prepareSubmit(deps, 't1');
+      const written = [];
+      const result = await runSubmit(deps, plan, {
+        text, imageCount: 0, send,
+        prepare: async () => ({ fullText: text, imagePaths: [] }),
+        write: (piece) => {
+          written.push(piece);
+          log.push(piece === '\u0013' ? 'key' : 'piece');
+          if (piece === '\u0013') current = afterKey;
+          return true;
+        },
+        onWritten: (outcome) => log.push(`onWritten:${outcome}`),
+      });
+      return { result, written };
+    };
+    return { run, log };
+  }
+  {
+    const typed = tab(CLAUDE_CODE_INPUT, screens.TYPED, screens.STASHED_EMPTY);
+    const { result, written } = await typed.run('/effort max');
+    check('S54 Claude Code con texto en su caja: Ctrl+S y despues las piezas de siempre',
+      result.kind === 'written' && same(written, ['\u0013', ...buildSubmissionWrites('/effort max', [], CLAUDE_CODE_INPUT)]), JSON.stringify({ result, written }));
+    check('S54 noteSubmitted despues de la tecla y antes del mensaje', same(typed.log.slice(0, 3), ['key', 'noteSubmitted', 'piece']), JSON.stringify(typed.log));
+    const kept = tab(CLAUDE_CODE_INPUT, screens.TEXT_AND_SAVED, screens.STASHED_EMPTY);
+    const keptRun = await kept.run('hola');
+    check('S54 texto y otro apartado: cli-draft, nada escrito, sin acuse de escrito ni burbuja',
+      keptRun.result.kind === 'cli-draft' && keptRun.written.length === 0 && kept.log.length === 0, JSON.stringify({ keptRun, log: kept.log }));
+    const empty = tab(CLAUDE_CODE_INPUT, screens.PLACEHOLDER, screens.PLACEHOLDER);
+    const emptyRun = await empty.run('hola');
+    check('S54 la caja vacia: byte por byte lo de antes', emptyRun.result.kind === 'written' && same(emptyRun.written, buildSubmissionWrites('hola', [], CLAUDE_CODE_INPUT)));
+    const noEnter = tab(CLAUDE_CODE_INPUT, screens.TYPED, screens.STASHED_EMPTY);
+    const noEnterRun = await noEnter.run('agregado', false);
+    check('S54 lo que se pega sin Enter se suma a la caja, como siempre: sin tecla',
+      same(noEnterRun.written, buildSubmissionWrites('agregado', [], CLAUDE_CODE_INPUT, { send: false })), JSON.stringify(noEnterRun.written));
+    const pi = tab(PI_INPUT, screens.TYPED, screens.STASHED_EMPTY);
+    const piRun = await pi.run('hola');
+    check('S54 una CLI sin la tecla (Pi): nada cambia', same(piRun.written, buildSubmissionWrites('hola', [], PI_INPUT)), JSON.stringify(piRun.written));
+    check('S54 solo Claude Code declara la tecla',
+      CLAUDE_CODE_INPUT.draftStash === CLAUDE_CODE_DRAFT_STASH && PI_INPUT.draftStash === undefined);
+  }
+}
+
 await rm(dir, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

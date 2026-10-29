@@ -678,9 +678,13 @@ const adapter = createClaudeCodeAdapter();
   check('las capacidades sobreviven al viaje por la red',
     sameShape(parseAgentCapabilities(JSON.parse(JSON.stringify(adapter.capabilities))), expected));
   // El envio: una sola pieza con el Enter adentro, como siempre (hito 25, A2).
+  // Desde el 28-10-2026, con la tecla que aparta lo escrito en su caja (§5.3.1).
+  const { draftStash, ...inputRest } = adapter.input;
   check('envio de claude-code igual al literal',
-    sameShape(adapter.input, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1, transcriptReference: 'at-quoted' }),
+    sameShape(inputRest, { imageReference: 'at-quoted', pieceGapMs: 0, pasteMarkers: true, enterSeparately: false, interruptPresses: 1, transcriptReference: 'at-quoted' }),
     JSON.stringify(adapter.input));
+  check('y la tecla que aparta lo escrito en su caja es Ctrl+S (§5.3.1)',
+    draftStash?.key === '\u0013' && typeof draftStash?.readBox === 'function', JSON.stringify(draftStash));
   check('id, comando y etiqueta', adapter.id === 'claude-code' && adapter.command === 'claude' && adapter.label === 'Claude Code');
   check('AGENT_IDS nombra al adaptador', AGENT_IDS.includes(adapter.id));
 

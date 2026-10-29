@@ -852,6 +852,36 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
   const failedImageOutcome = await deliver(failedImage, { images });
   check('H8 una imagen que no se guarda: image-failed con el detalle y 0 escrituras',
     failedImageOutcome.kind === 'image-failed' && failedImageOutcome.detail === 'firma desconocida' && failedImage.writes.length === 0);
+  // §5.3.1: una nota a una pestana con algo escrito en la caja de la CLI.
+  {
+    const draftScreens = await import('./fixtures/draft-screens.mjs');
+    const withScreen = (initial, afterKey) => {
+      const setup = deliverSetup();
+      let current = initial;
+      setup.deps.watchScreen = () => ({ linesWithoutFaint: async () => current, dispose: () => undefined });
+      setup.deps.wait = async () => undefined;
+      const write = setup.write;
+      setup.write = (piece) => {
+        if (piece === '\u0013') current = afterKey;
+        return write(piece);
+      };
+      return setup;
+    };
+    const typed = withScreen(draftScreens.TYPED, draftScreens.STASHED_EMPTY);
+    const typedOutcome = await deliver(typed);
+    check('H8 (§5.3.1) con texto en la caja de Claude Code: Ctrl+S, y despues la nota',
+      typedOutcome.kind === 'sent' && JSON.stringify(typed.writes) === JSON.stringify(['\u0013', ...buildSubmissionWrites('Hola agente.', [], CLAUDE_CODE_INPUT)]),
+      show(typed.writes));
+    const kept = withScreen(draftScreens.TEXT_AND_SAVED, draftScreens.STASHED_EMPTY);
+    const keptOutcome = await deliver(kept);
+    check('H8 (§5.3.1) texto y otro ya apartado: cli-draft, nada escrito, y una continuacion iria al cuadro',
+      keptOutcome.kind === 'cli-draft' && kept.writes.length === 0 && prefillReasonFor(keptOutcome) === 'send-failed', show(keptOutcome));
+    const empty = withScreen(draftScreens.PLACEHOLDER, draftScreens.PLACEHOLDER);
+    await deliver(empty);
+    check('H8 (§5.3.1) la caja vacia: las piezas de siempre',
+      JSON.stringify(empty.writes) === JSON.stringify(buildSubmissionWrites('Hola agente.', [], CLAUDE_CODE_INPUT)), show(empty.writes));
+  }
+
   check('H8 prefillReasonFor: sent y nothing no prellenan', prefillReasonFor({ kind: 'sent' }) === null && prefillReasonFor({ kind: 'nothing' }) === null);
 }
 

@@ -177,6 +177,9 @@ export function scheduledFailureFor(outcome: DeliverOutcome | { kind: 'unconfirm
     case 'refused':
       // Pudo quedar a medias: no se sabe si llego.
       return serverText('scheduledUncertainWrite');
+    case 'cli-draft':
+      // La caja de la CLI tenia algo escrito que no se pudo apartar (§5.3.1). Nada escrito.
+      return serverText('scheduledCliDraft');
   }
 }
 

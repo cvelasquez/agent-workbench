@@ -750,6 +750,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     saveImage: async (terminalId, mediaType, data) => (await pasteStore.save(terminalId, mediaType, data)).path,
     noteSubmitted: (terminalId, text) => registry.noteSubmitted(terminalId, text),
     enqueue: (terminalId, job, enqueueOptions) => writeQueue.enqueue(terminalId, job, enqueueOptions),
+    // Para apartar lo escrito en la caja de la CLI antes de pegar (§5.3.1).
+    watchScreen: (terminalId) => registry.watchScreen(terminalId),
   };
 
   /** El envio del cuadro, con sus guardas (hito 52, `submit-message.ts`). Lo usa tambien el reloj. */
@@ -1377,6 +1379,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               // Descartado por una interrupcion antes de empezar, o cortado a mitad.
               if (result.kind === 'dropped' || result.kind === 'interrupted') {
                 sendError(socket, 'submit-failed', serverText('submitInterrupted'));
+              }
+              // Lo escrito en la caja de la CLI no se pudo apartar (§5.3.1): no se pego nada.
+              if (result.kind === 'cli-draft') {
+                // El comando de un combo no salio del cuadro: no vuelve a el, y el aviso no lo dice.
+                const label = submitting?.label ?? '';
+                sendError(socket, 'submit-failed', clearsDraft ? serverText('submitCliDraft', { label }) : serverText('submitCliDraftCommand', { label }));
+                if (clearsDraft) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'send-failed' });
               }
               if (result.kind === 'blocked' && result.byDialog) {
                 sendError(socket, 'submit-failed', serverText('submitStartupDialog', { label: submitting?.label ?? '' }));
@@ -2744,6 +2753,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 return;
               case 'interrupted':
                 sendError(socket, 'submit-failed', serverText('noteInterrupted'));
+                return;
+              case 'cli-draft':
+                sendError(socket, 'submit-failed', serverText('noteCliDraft', { label: adapterOf(message.terminalId)?.label ?? '' }));
                 return;
             }
           })();

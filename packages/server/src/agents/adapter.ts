@@ -947,6 +947,31 @@ export interface AgentInput {
    * esto deja de frenar, pero nunca frena de mas.
    */
   readonly startupDialog?: RegExp;
+  /**
+   * La tecla con la que la CLI aparta lo escrito en su caja y lo devuelve sola
+   * despues del envio siguiente (28-10-2026, §5.3.1). Ausente: la CLI no tiene
+   * una, y lo que se pega se junta con lo que hubiera en su caja, como siempre.
+   */
+  readonly draftStash?: DraftStash;
+}
+
+/** Lo que el envio necesita saber para apartar lo escrito en la caja de la CLI (§5.3.1). */
+export interface DraftStash {
+  /** La tecla, tal como se escribe en la pty. */
+  readonly key: string;
+  /**
+   * La caja de la CLI, leida de las lineas de la pantalla sin el texto atenuado
+   * (lo gris es ayuda o una sugerencia, no algo escrito). null si no se ve: un
+   * dialogo encima, o una pantalla que no se reconoce.
+   */
+  readBox(lines: readonly string[]): DraftBox | null;
+}
+
+export interface DraftBox {
+  /** Hay algo escrito en la caja. */
+  readonly text: boolean;
+  /** La CLI ya tiene algo apartado: la tecla lo pisaria. */
+  readonly saved: boolean;
 }
 
 /**

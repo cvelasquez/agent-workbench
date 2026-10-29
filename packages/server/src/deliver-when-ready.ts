@@ -22,6 +22,7 @@
 
 import type { AgentAdapter } from './agents/adapter.js';
 import type { ComposerPrefillReason, TerminalDescriptor, TerminalId } from '@agent-workbench/shared';
+import { setCliDraftAside, type DraftScreen } from './cli-draft.js';
 import { buildSubmissionWrites } from './pty-input.js';
 import type { EnqueueOptions, PieceWriter, WriteLane } from './terminal-write-queue.js';
 
@@ -43,6 +44,13 @@ export interface DeliverDeps {
    * para el chequeo, que no puede esperar quince segundos de verdad.
    */
   setTimer?: (callback: () => void, ms: number) => () => void;
+  /**
+   * La pantalla de la pestana (`TerminalRegistry.watchScreen`), para apartar lo
+   * escrito en la caja de la CLI antes de pegar (§5.3.1). Ausente: no se mira.
+   */
+  watchScreen?(terminalId: TerminalId): DraftScreen | null;
+  /** La espera entre lecturas de la pantalla. Por omision, un temporizador. */
+  wait?(ms: number): Promise<void>;
 }
 
 export interface DeliverRequest {
@@ -68,6 +76,8 @@ export interface DeliverRequest {
  *  - `image-failed`: no se pudo guardar una imagen. Nada escrito.
  *  - `interrupted`: una interrupcion lo descarto o lo corto.
  *  - `refused`: la terminal no acepto una pieza (se durmio o se cerro).
+ *  - `cli-draft`: la caja de la CLI tenia algo escrito que no se pudo apartar
+ *    (§5.3.1). Nada escrito.
  */
 export type DeliverOutcome =
   | { kind: 'sent' }
@@ -80,7 +90,10 @@ export type DeliverOutcome =
   | { kind: 'not-ready' }
   | { kind: 'image-failed'; detail: string }
   | { kind: 'interrupted' }
-  | { kind: 'refused' };
+  | { kind: 'refused' }
+  | { kind: 'cli-draft' };
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const defaultTimer = (callback: () => void, ms: number): (() => void) => {
   const timer = setTimeout(callback, ms);
@@ -166,6 +179,24 @@ export async function deliverWhenReady(deps: DeliverDeps, request: DeliverReques
         outcome = { kind: 'nothing' };
         return;
       }
+      // Lo escrito en la caja de la CLI se aparta antes de pegar (§5.3.1).
+      const watchScreen = deps.watchScreen;
+      if (input.draftStash !== undefined && watchScreen !== undefined) {
+        const aside = await setCliDraftAside(input.draftStash, {
+          screen: () => watchScreen(terminalId),
+          press: (key) => lane.writePieces([key], 0, request.write),
+          wait: deps.wait ?? delay,
+          now: Date.now,
+        });
+        if (aside.kind === 'kept' || aside.kind === 'stuck') {
+          outcome = { kind: 'cli-draft' };
+          return;
+        }
+        if (aside.kind === 'not-written') {
+          outcome = aside.outcome === 'interrupted' ? { kind: 'interrupted' } : { kind: 'refused' };
+          return;
+        }
+      }
       // Antes de la primera escritura: quien busca la sesion por este texto no
       // puede encontrar el archivo de la CLI antes que el texto.
       deps.noteSubmitted(terminalId, text);
@@ -207,6 +238,7 @@ export function prefillReasonFor(outcome: DeliverOutcome): ComposerPrefillReason
     case 'image-failed':
     case 'interrupted':
     case 'refused':
+    case 'cli-draft':
       return 'send-failed';
   }
 }

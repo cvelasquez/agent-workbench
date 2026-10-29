@@ -174,6 +174,8 @@ export async function deliverScheduled(deps: ScheduledDeliveryDeps, request: Sch
         return { kind: 'not-ready' };
       case 'nothing':
         return { kind: 'nothing' };
+      case 'cli-draft':
+        return { kind: 'cli-draft' };
       case 'refused':
         return { kind: 'refused' };
       case 'blocked':

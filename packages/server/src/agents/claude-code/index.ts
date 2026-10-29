@@ -44,6 +44,7 @@ import { createClaudeCodeHistory } from './history.js';
 import { ModelVariantRegistry } from './model-variants.js';
 import { autoAnswerResumeDialog } from './resume-dialog.js';
 import { createClaudeCodeHandback } from './handback.js';
+import { CLAUDE_CODE_DRAFT_STASH } from './draft-stash.js';
 import { sessionFilePath } from './paths.js';
 import { createClaudeCodeQueueEdit } from './queue-edit.js';
 import { createClaudeCodeRewind } from './rewind-menu.js';
@@ -122,6 +123,8 @@ export const CLAUDE_CODE_INPUT: AgentInput = {
   interruptPresses: 1,
   // La CLI adjunta el transcript sola y no pide permiso para leerlo fuera del proyecto.
   transcriptReference: 'at-quoted',
+  // Ctrl+S aparta lo escrito en su caja y lo devuelve despues del envio (§5.3.1).
+  draftStash: CLAUDE_CODE_DRAFT_STASH,
 };
 
 /**

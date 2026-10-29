@@ -22,18 +22,26 @@
  *    Enter caeria sobre la opcion resaltada.
  *  - **El dialogo del arranque** (§12.14): antes de la primera pieza de una
  *    pestana sin conversacion se mira la pantalla.
+ *
+ * Y, dentro del turno y antes de pegar, **lo escrito en la caja de la CLI** se
+ * aparta con su tecla, si la tiene (§5.3.1, `cli-draft.ts`).
  */
 
 import type { AgentAdapter, AgentInput } from './agents/adapter.js';
 import type { ServerText, TerminalActivity, TerminalId } from '@agent-workbench/shared';
+import { setCliDraftAside, type DraftAside } from './cli-draft.js';
 import { buildSubmissionWrites, screenShowsDialog, submissionPayload, submitRefusal, submitStartDelayMs } from './pty-input.js';
 import type { EnqueueOptions, PieceGuard, PieceWriter, WriteLane, WriteOutcome } from './terminal-write-queue.js';
 
 /** Lo justo de la pantalla emulada de una pestana (`TerminalRegistry.watchScreen`). */
 export interface SubmitScreen {
   lines(): readonly string[] | Promise<readonly string[]>;
+  /** Sin el texto atenuado, para leer la caja de la CLI (§5.3.1). */
+  linesWithoutFaint?(): Promise<readonly string[]>;
   dispose(): void;
 }
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface SubmitMessageDeps {
   adapterOf(terminalId: TerminalId): AgentAdapter | null;
@@ -56,6 +64,8 @@ export interface SubmitMessageDeps {
   queuedSubmits: { note(terminalId: TerminalId, text: string, at: number, original?: string): void };
   enqueue(terminalId: TerminalId, job: (lane: WriteLane) => Promise<void>, options?: EnqueueOptions): Promise<void>;
   now(): number;
+  /** La espera entre lecturas de la pantalla al apartar lo escrito. Por omision, un temporizador. */
+  wait?(ms: number): Promise<void>;
 }
 
 /** Lo que `prepareSubmit` deja decidido para `runSubmit`. */
@@ -106,6 +116,11 @@ export type SubmitResult =
   | { kind: 'interrupted' }
   | { kind: 'blocked'; byDialog: boolean; waitingNow: boolean }
   | { kind: 'dropped' }
+  /**
+   * La caja de la CLI tenia algo escrito que no se pudo apartar (§5.3.1): ya
+   * habia otra cosa apartada, o la tecla no la vacio. No se pego nada.
+   */
+  | { kind: 'cli-draft' }
   /** El trabajo lanzo despues de empezar: no se sabe cuanto se escribio. */
   | { kind: 'failed' };
 
@@ -206,12 +221,33 @@ export async function runSubmit(deps: SubmitMessageDeps, plan: SubmitPlan, reque
         result = { kind: 'nothing' };
         return;
       }
-      // Antes de la primera escritura: quien busca la sesion por este texto no
-      // puede encontrar el archivo de la CLI antes que el texto.
-      deps.noteSubmitted(terminalId, fullText);
       // Un envio justo despues de lanzar espera a que la CLI dibuje su pantalla (§10.11).
       const startAfterMs = submitStartDelayMs(deps.launchedAtOf(terminalId), deps.now(), input.readyAfterLaunchMs ?? 0);
-      const outcome = await lane.writePieces(pieces, input.pieceGapMs, request.write, plan.pieceGuard, { startAfterMs });
+      // Lo escrito en la caja de la CLI se aparta antes de pegar: si no, sale junto (§5.3.1).
+      const aside: DraftAside =
+        request.send && input.draftStash !== undefined
+          ? await setCliDraftAside(input.draftStash, {
+              screen: () => deps.watchScreen(terminalId),
+              press: (key) => lane.writePieces([key], 0, request.write, plan.pieceGuard, { startAfterMs }),
+              wait: deps.wait ?? delay,
+              now: () => deps.now(),
+            })
+          : { kind: 'clear' };
+      if (aside.kind === 'kept' || aside.kind === 'stuck') {
+        result = { kind: 'cli-draft' };
+        return;
+      }
+      let outcome: WriteOutcome;
+      if (aside.kind === 'not-written') {
+        outcome = aside.outcome;
+      } else {
+        // Antes de la primera escritura: quien busca la sesion por este texto no
+        // puede encontrar el archivo de la CLI antes que el texto.
+        deps.noteSubmitted(terminalId, fullText);
+        outcome = await lane.writePieces(pieces, input.pieceGapMs, request.write, plan.pieceGuard, {
+          startAfterMs: aside.kind === 'set-aside' ? 0 : startAfterMs,
+        });
+      }
       request.onWritten?.(outcome);
       /*
         La burbuja del mensaje mandado, hasta que el agente lo lea. Un comando de
