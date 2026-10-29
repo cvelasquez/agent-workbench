@@ -1139,6 +1139,8 @@
   "thread.tool.noOutput": "(sem saída)",
   "thread.tool.orphanResult": "resultado órfão",
   "thread.tool.result": "resultado",
+  "thread.tools.hide": "Ocultar a busca e os botões",
+  "thread.tools.show": "Mostrar a busca e os botões",
   "thread.truncated": "… (truncado)",
   "thread.turn.effort": "esforço {{effort}}",
   "thread.turn.queued": "enviada com o agente trabalhando",

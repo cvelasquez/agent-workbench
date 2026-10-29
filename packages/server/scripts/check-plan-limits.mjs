@@ -578,9 +578,22 @@ const limits = (fiveHour, sevenDay) => ({
   const css = await readFile(path.join(WEB_SRC, 'styles.css'), 'utf8');
   check('6.13 la fila del buscador es el contenedor del medidor del plan',
     /\.conversation-search \{[^}]*container-type: inline-size;[^}]*container-name: thread-toolbar;/.test(css));
+  const toolbarCut = (selector, what) =>
+    Number(css.match(new RegExp(`@container thread-toolbar \\(max-width: (\\d+)px\\) \\{\\s*${selector} \\.plan-meter \\.${what}[ ,]`))?.[1] ?? NaN);
+  const OPEN = '\\.conversation-search:not\\(\\.thread-tools-closed\\)';
+  const CLOSED = '\\.thread-tools-closed';
+  const cuts = {
+    openExtra: toolbarCut(OPEN, 'plan-window-extra'), openLabel: toolbarCut(OPEN, 'plan-label'),
+    closedExtra: toolbarCut(CLOSED, 'plan-window-extra'), closedLabel: toolbarCut(CLOSED, 'plan-label'),
+  };
   check('6.13 sin sitio se va primero la ventana que no es la prioritaria, y despues la palabra y la barra',
-    /@container thread-toolbar \(max-width: (\d+)px\) \{\s*\.plan-meter \.plan-window-extra \{\s*display: none;/.test(css) &&
-    /@container thread-toolbar \(max-width: (\d+)px\) \{\s*\.plan-meter \.plan-label,\s*\.plan-meter \.plan-bar \{\s*display: none;/.test(css));
+    cuts.openExtra === 760 && cuts.openLabel === 560 && cuts.closedExtra > cuts.closedLabel, JSON.stringify(cuts));
+  // Plegada (29-10-2026, §6.22.1) la fila es el boton y los medidores: los cortes
+  // bajan, pero no por debajo de lo que piden los medidores solos (566 y 390, en
+  // el idioma mas largo) mas el boton.
+  check('6.13 con la barra plegada los cortes bajan, sin llegar a lo que piden los medidores solos',
+    cuts.closedExtra < cuts.openExtra && cuts.closedLabel < cuts.openLabel && cuts.closedExtra >= 566 + 40 && cuts.closedLabel >= 390 + 40,
+    JSON.stringify(cuts));
   // En el telefono los medidores bajan a su linea: contra la fila entera, el del
   // plan quedaba en su forma corta con la linea casi vacia (19-10-2026).
   const conversationSource = await readFile(path.join(WEB_SRC, 'ConversationView.tsx'), 'utf8');

@@ -1229,6 +1229,8 @@
   "thread.tool.noOutput": "(нет вывода)",
   "thread.tool.orphanResult": "результат без вызова",
   "thread.tool.result": "результат",
+  "thread.tools.hide": "Скрыть поиск и кнопки",
+  "thread.tools.show": "Показать поиск и кнопки",
   "thread.truncated": "… (обрезано)",
   "thread.turn.effort": "усилие {{effort}}",
   "thread.turn.queued": "отправлено во время работы",

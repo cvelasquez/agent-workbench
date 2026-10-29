@@ -1139,6 +1139,8 @@
   "thread.tool.noOutput": "(sin salida)",
   "thread.tool.orphanResult": "resultado suelto",
   "thread.tool.result": "resultado",
+  "thread.tools.hide": "Ocultar la búsqueda y los botones",
+  "thread.tools.show": "Mostrar la búsqueda y los botones",
   "thread.truncated": "… (recortado)",
   "thread.turn.effort": "esfuerzo {{effort}}",
   "thread.turn.queued": "enviado mientras trabajaba",

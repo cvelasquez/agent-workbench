@@ -2091,6 +2091,25 @@ kbd {
   flex: 1 1 auto;
 }
 
+/*
+  El boton que pliega la barra del hilo (29-10-2026): la lupa dice que ahi esta
+  la busqueda, y la flecha, hacia donde va. Desplegada apunta arriba.
+*/
+.thread-tools-toggle {
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.thread-tools-chevron {
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.thread-tools-toggle[aria-expanded='true'] .thread-tools-chevron {
+  transform: rotate(180deg);
+}
+
 .conversation-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -3211,16 +3230,33 @@ kbd {
   Sin sitio para todo: primero se va la ventana que no es la prioritaria (la de
   5 horas queda, salvo que otra este al 90 %), y despues la palabra y la barra,
   hasta `11 % · 5d 10h`. El titulo dice siempre todas.
+
+  Con la barra plegada (29-10-2026) la fila es solo el boton y los medidores,
+  y los cortes bajan: los de la vista angosta (`thread-meters`), que se
+  midieron para los medidores solos, mas el boton.
 */
 @container thread-toolbar (max-width: 760px) {
-  .plan-meter .plan-window-extra {
+  .conversation-search:not(.thread-tools-closed) .plan-meter .plan-window-extra {
     display: none;
   }
 }
 
 @container thread-toolbar (max-width: 560px) {
-  .plan-meter .plan-label,
-  .plan-meter .plan-bar {
+  .conversation-search:not(.thread-tools-closed) .plan-meter .plan-label,
+  .conversation-search:not(.thread-tools-closed) .plan-meter .plan-bar {
+    display: none;
+  }
+}
+
+@container thread-toolbar (max-width: 630px) {
+  .thread-tools-closed .plan-meter .plan-window-extra {
+    display: none;
+  }
+}
+
+@container thread-toolbar (max-width: 450px) {
+  .thread-tools-closed .plan-meter .plan-label,
+  .thread-tools-closed .plan-meter .plan-bar {
     display: none;
   }
 }
@@ -6820,6 +6856,19 @@ kbd {
     gap: 4px;
     container-type: inline-size;
     container-name: thread-meters;
+  }
+
+  /*
+    Plegada (29-10-2026), una sola linea: el boton y los medidores, que se
+    quedan con todo lo demas. Los cortes de abajo miden esa linea.
+  */
+  .app-narrow .thread-tools-closed .thread-meters {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .app-narrow .thread-tools-closed .conversation-spacer {
+    display: none;
   }
 
   @container thread-meters (max-width: 570px) {

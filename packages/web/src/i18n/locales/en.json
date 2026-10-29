@@ -1139,6 +1139,8 @@
   "thread.tool.noOutput": "(no output)",
   "thread.tool.orphanResult": "orphan result",
   "thread.tool.result": "result",
+  "thread.tools.hide": "Hide search and buttons",
+  "thread.tools.show": "Show search and buttons",
   "thread.truncated": "… (truncated)",
   "thread.turn.effort": "effort {{effort}}",
   "thread.turn.queued": "sent while it was working",

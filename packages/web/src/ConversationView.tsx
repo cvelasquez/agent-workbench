@@ -91,6 +91,7 @@ import {
   type SubmitReceipt,
 } from './thread-status.js';
 import type { ThreadFontState } from './useThreadFont.js';
+import type { ThreadToolsState } from './useThreadTools.js';
 import { ContinueButton, ContinueIcon } from './ContinueButton.js';
 import { MoveBranchIcon } from './BranchIcon.js';
 import { pastedLineCount, splitPastedBlocks } from './composer-paste.js';
@@ -105,6 +106,27 @@ import { toolCategory, toolRunSummary } from './tool-categories.js';
 import { imageKey, type ConversationFeed } from './useConversation.js';
 import type { FileLinks } from './useFileLinks.js';
 import { isPromptEvent } from './rewind-ui.js';
+
+/**
+ * La lupa del boton que pliega la barra (29-10-2026): dice que ahi esta la
+ * busqueda. Dibujada a mano, como el icono de rama (`BranchIcon.tsx`).
+ */
+function SearchIcon(): JSX.Element {
+  return (
+    <svg
+      className="archive-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="10.5" cy="10.5" r="6" />
+      <path d="M15 15l5 5" />
+    </svg>
+  );
+}
 
 /** true si el final del hilo no esta a la vista. */
 function awayFromEndOf(container: HTMLElement): boolean {
@@ -371,6 +393,11 @@ interface ConversationViewProps {
   /** El tamano de letra del hilo y como pasar al siguiente (hito 33, §6.22). */
   threadFont?: ThreadFontState;
   /**
+   * La barra plegable (29-10-2026, `thread-tools.ts`): si se ve la busqueda con
+   * sus botones. Ausente: siempre a la vista, sin el boton de plegar.
+   */
+  threadTools?: ThreadToolsState;
+  /**
    * Con que CLIs se puede continuar esta conversacion (hito 29,
    * `continueTargets`). Vacia: no hay `↪` al lado del medidor.
    */
@@ -462,6 +489,7 @@ export function ConversationView({
   statusLineState = null,
   onConfigureStatusLine,
   threadFont,
+  threadTools,
   continueTargets = [],
   continueBlockedReason = null,
   onContinue,
@@ -513,15 +541,29 @@ export function ConversationView({
   const [matchIndex, setMatchIndex] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  const toolsOpen = threadTools?.open ?? true;
+  const setToolsOpen = threadTools?.setOpen;
+  /*
+    Plegar con algo escrito borra la busqueda, como cerrar la del navegador:
+    los aciertos marcados sin el cuadro que los nombra no se entienden.
+  */
+  const toggleTools = (): void => {
+    if (setToolsOpen === undefined) return;
+    if (toolsOpen) setQuery('');
+    setToolsOpen(!toolsOpen);
+  };
+
   /*
     Tambien al montar: si no habia ninguna pestana, la vista nace con la que
-    abrio el acierto, y el pedido la estaba esperando.
+    abrio el acierto, y el pedido la estaba esperando. Con la barra plegada, la
+    despliega: el texto buscado tiene que verse.
   */
   useEffect(() => {
     if (searchRequest === null) return;
     setQuery(searchRequest.query);
+    setToolsOpen?.(true);
     onSearchRequestApplied?.(searchRequest.seq);
-  }, [searchRequest, onSearchRequestApplied]);
+  }, [searchRequest, onSearchRequestApplied, setToolsOpen]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef(new Map<string, HTMLElement>());
@@ -1058,20 +1100,41 @@ export function ConversationView({
   return (
     <FileLinksContext.Provider value={fileLinks}>
     <div className="conversation-pane">
-      <div className="conversation-search">
-        <input
-          className="conversation-search-input"
-          type="search"
-          placeholder={t('thread.search.placeholder')}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') stepMatch(event.shiftKey ? -1 : 1);
-            event.stopPropagation();
-          }}
-          spellCheck={false}
-        />
-        {needle.length > 0 && (
+      <div className={`conversation-search${toolsOpen ? '' : ' thread-tools-closed'}`}>
+        {/*
+          Plegar la barra (29-10-2026), como la cinta de opciones de un
+          procesador de texto: se van la busqueda y los botones, y los
+          medidores quedan. En el telefono el hilo gana una linea entera.
+        */}
+        {threadTools !== undefined && (
+          <button
+            className="icon-button thread-tools-toggle"
+            onClick={toggleTools}
+            aria-expanded={toolsOpen}
+            title={toolsOpen ? t('thread.tools.hide') : t('thread.tools.show')}
+            aria-label={toolsOpen ? t('thread.tools.hide') : t('thread.tools.show')}
+          >
+            <SearchIcon />
+            <span className="thread-tools-chevron" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+        )}
+        {toolsOpen && (
+          <input
+            className="conversation-search-input"
+            type="search"
+            placeholder={t('thread.search.placeholder')}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') stepMatch(event.shiftKey ? -1 : 1);
+              event.stopPropagation();
+            }}
+            spellCheck={false}
+          />
+        )}
+        {toolsOpen && needle.length > 0 && (
           <>
             <span className="conversation-matches">
               {matches.length === 0 ? t('thread.search.none') : `${matchIndex + 1}/${matches.length}`}
@@ -1101,7 +1164,7 @@ export function ConversationView({
           no esta en el historial. El icono de intercambio y "CLI"; lo que hace
           lo dice el titulo, y el lector de pantalla lo lee entero.
         */}
-        {onContinue !== undefined && (
+        {toolsOpen && onContinue !== undefined && (
           <ContinueButton
             targets={continueTargets}
             className="icon-button conversation-continue"
@@ -1121,7 +1184,7 @@ export function ConversationView({
           "CLI": las dos llevan la conversacion a otro lado. El icono de rama
           con flecha y "Rama"; lo que hace lo dice el titulo.
         */}
-        {onMoveToBranch !== undefined && (
+        {toolsOpen && onMoveToBranch !== undefined && (
           <button
             className="icon-button conversation-continue"
             onClick={onMoveToBranch}
@@ -1136,7 +1199,7 @@ export function ConversationView({
           Tres tamanos de letra, y un boton que los rota (hito 33). Va aca y no
           en la cabecera de la app porque solo cambia el hilo.
         */}
-        {threadFont !== undefined && (
+        {toolsOpen && threadFont !== undefined && (
           <button
             className="icon-button thread-font-button"
             onClick={threadFont.cycle}

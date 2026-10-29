@@ -1094,6 +1094,8 @@
   "thread.tool.noOutput": "（出力なし）",
   "thread.tool.orphanResult": "呼び出し元のない結果",
   "thread.tool.result": "結果",
+  "thread.tools.hide": "検索とボタンを隠す",
+  "thread.tools.show": "検索とボタンを表示",
   "thread.truncated": "…（省略）",
   "thread.turn.effort": "推論レベル {{effort}}",
   "thread.turn.queued": "作業中に送信",

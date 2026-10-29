@@ -82,6 +82,7 @@ import {
   type NarrowView,
 } from './narrow-layout.js';
 import { useNarrow } from './useNarrow.js';
+import { useThreadTools } from './useThreadTools.js';
 import { requestedTab } from './session-token.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
@@ -376,6 +377,8 @@ export function App(): JSX.Element {
     de planes, y sin pestana quedan el chat —el estado vacio— y las notas.
   */
   const narrow = useNarrow();
+  // La barra del hilo plegable (29-10-2026): cada vista guarda la suya.
+  const threadTools = useThreadTools(narrow);
   /** Que paneles se ven: los escondidos en Ajustes no se ofrecen (Hito 41, §6.32). */
   const panels = usePanelVisibility();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1517,6 +1520,7 @@ export function App(): JSX.Element {
           view={conversation}
           terminalId={activeTerminalId}
           threadFont={threadFont}
+          threadTools={threadTools}
           fileLinks={fileLinks}
           /*
             Volver aqui e "Insertar como @ruta" le escriben a la terminal: sin

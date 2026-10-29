@@ -1094,6 +1094,8 @@
   "thread.tool.noOutput": "(출력 없음)",
   "thread.tool.orphanResult": "짝 없는 결과",
   "thread.tool.result": "결과",
+  "thread.tools.hide": "검색과 버튼 숨기기",
+  "thread.tools.show": "검색과 버튼 표시",
   "thread.truncated": "… (잘림)",
   "thread.turn.effort": "노력 수준 {{effort}}",
   "thread.turn.queued": "작업 중에 보냄",

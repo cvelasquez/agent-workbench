@@ -46,6 +46,14 @@ import {
   releaseVelocity,
   wholePixels,
 } from '../../web/src/touch-scroll.ts';
+import {
+  NARROW_THREAD_TOOLS_STORAGE_KEY,
+  THREAD_TOOLS_STORAGE_KEY,
+  defaultThreadToolsOpen,
+  parseStoredThreadTools,
+  threadToolsStorageKey,
+  threadToolsValue,
+} from '../../web/src/thread-tools.ts';
 import { setLocale, t } from '../../web/src/i18n/index.ts';
 
 // Los textos de la interfaz salen de `t()` (§6.23): se comparan con el español.
@@ -292,6 +300,34 @@ const json = (value) => JSON.stringify(value);
   check('y el mismo color de proyecto',
     /projectColor\(tabColorCwd\(terminal\)\)/.test(shell) && /projectColor\(tabColorCwd\(activeTerminal\)\)/.test(shell) &&
       /projectColor\(tabColorCwd\(terminal\)\)/.test(tabBar));
+}
+
+// --- 7. La barra del hilo plegable (29-10-2026) ---------------------------------------
+// Se pliegan la búsqueda y sus botones; los medidores quedan siempre. En el
+// teléfono empieza plegada, en la PC desplegada, y cada vista guarda la suya.
+{
+  check('la PC y la vista angosta guardan en claves distintas',
+    threadToolsStorageKey(false) === THREAD_TOOLS_STORAGE_KEY && threadToolsStorageKey(true) === NARROW_THREAD_TOOLS_STORAGE_KEY &&
+      THREAD_TOOLS_STORAGE_KEY !== NARROW_THREAD_TOOLS_STORAGE_KEY);
+  check('sin nada guardado: desplegada en la PC, plegada en el teléfono',
+    defaultThreadToolsOpen(false) === true && defaultThreadToolsOpen(true) === false);
+  check('lo guardado vuelve tal cual, y lo que no tiene forma no se toma',
+    parseStoredThreadTools(threadToolsValue(true)) === true && parseStoredThreadTools(threadToolsValue(false)) === false &&
+      parseStoredThreadTools('true') === null && parseStoredThreadTools('') === null);
+
+  const view = readFileSync(join(WEB, 'src', 'ConversationView.tsx'), 'utf8');
+  check('plegada se van la búsqueda, CLI, Rama y la letra',
+    /\{toolsOpen && \(\s*<input\s+className="conversation-search-input"/.test(view) &&
+      /\{toolsOpen && onContinue !== undefined && \(/.test(view) && /\{toolsOpen && onMoveToBranch !== undefined && \(/.test(view) &&
+      /\{toolsOpen && threadFont !== undefined && \(/.test(view));
+  check('los medidores no dependen de que esté desplegada',
+    /\n {8}<div className="thread-meters">/.test(view) && !/toolsOpen && \(\s*<div className="thread-meters">/.test(view));
+  check('plegarla borra la búsqueda, y un acierto del buscador general la despliega',
+    /if \(toolsOpen\) setQuery\(''\);/.test(view) && /setQuery\(searchRequest\.query\);\s*setToolsOpen\?\.\(true\);/.test(view));
+
+  const css = readFileSync(join(WEB, 'src', 'styles.css'), 'utf8');
+  check('en el teléfono, plegada, el botón y los medidores van en una sola línea',
+    /\n {2}\.app-narrow \.thread-tools-closed \.thread-meters \{\s*flex: 1 1 0;/.test(css));
 }
 
 console.log(failures === 0 ? '\nTodo bien.' : `\n${failures} fallo(s).`);

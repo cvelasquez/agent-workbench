@@ -1139,6 +1139,8 @@
   "thread.tool.noOutput": "(keine Ausgabe)",
   "thread.tool.orphanResult": "verwaistes Ergebnis",
   "thread.tool.result": "Ergebnis",
+  "thread.tools.hide": "Suche und Schaltflächen ausblenden",
+  "thread.tools.show": "Suche und Schaltflächen einblenden",
   "thread.truncated": "… (gekürzt)",
   "thread.turn.effort": "Aufwand {{effort}}",
   "thread.turn.queued": "während der Arbeit gesendet",

@@ -1094,6 +1094,8 @@
   "thread.tool.noOutput": "（无输出）",
   "thread.tool.orphanResult": "孤立的结果",
   "thread.tool.result": "结果",
+  "thread.tools.hide": "隐藏搜索和按钮",
+  "thread.tools.show": "显示搜索和按钮",
   "thread.truncated": "…（已截断）",
   "thread.turn.effort": "推理强度 {{effort}}",
   "thread.turn.queued": "在代理工作时发送",
