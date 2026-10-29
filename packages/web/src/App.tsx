@@ -91,7 +91,7 @@ import { WorktreeDeleteBranchDialog } from './WorktreeDeleteBranchDialog.js';
 import { WorktreeIntegrateDialog } from './WorktreeIntegrateDialog.js';
 import { WorktreeRemoveDialog } from './WorktreeRemoveDialog.js';
 import { WorktreeReviewDialog } from './WorktreeReviewDialog.js';
-import { tabColorCwd } from './worktree-ui.js';
+import { canMoveToBranch, moveTabOf, tabColorCwd } from './worktree-ui.js';
 import type { GitPanelWorktrees } from './GitPanel.js';
 import { useLocale } from './i18n/useLocale.js';
 import { t, type MessageKey } from './i18n/index.js';
@@ -116,6 +116,8 @@ import {
   type AgentId,
   type GlobalSearchHit,
   type ScheduledMessage,
+  type SessionSummary,
+  type TerminalDescriptor,
   type TerminalId,
 } from '@agent-workbench/shared';
 
@@ -692,25 +694,33 @@ export function App(): JSX.Element {
   const folderNameOf = (cwd: string): string => cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? cwd;
   const agentLabelOf = (agent: AgentId): string => agents.find((info) => info.id === agent)?.label ?? agent;
   /*
-    Hito 54: pasar a una rama aparte la conversacion de la pestana que se mira.
-    Solo con una CLI que lo permite, con una conversacion, y en un repositorio de
-    git: la pestana lleva su rama desde que se abre (§6.38).
+    Hito 54: pasar a una rama aparte la conversacion de una pestana. Solo con
+    una CLI que lo permite, con una conversacion, y en un repositorio de git:
+    la pestana lleva su rama desde que se abre (§6.38). Desde la barra del hilo
+    y Cambios, la que se mira; desde la barra de proyectos (29-10-2026), la de
+    esa fila, que pasa a ser la que se mira.
   */
+  const openMoveFor = (terminal: TerminalDescriptor): void => {
+    const projectCwd = tabColorCwd(terminal);
+    worktreeDialogs.openMove(
+      { terminalId: terminal.terminalId, tabBranch: terminal.worktree?.branch ?? null },
+      projectCwd,
+      folderNameOf(projectCwd),
+    );
+  };
   const openMoveToBranch =
-    activeTerminal === null ||
-    activeTerminal.kind !== 'agent' ||
-    !activeControls.moveToWorktree ||
-    activeTerminal.sessionId.length === 0 ||
-    activeTerminal.worktree === null
+    activeTerminal === null || !canMoveToBranch(activeTerminal, activeControls.moveToWorktree)
       ? null
-      : () => {
-          const projectCwd = tabColorCwd(activeTerminal);
-          worktreeDialogs.openMove(
-            { terminalId: activeTerminal.terminalId, tabBranch: activeTerminal.worktree?.branch ?? null },
-            projectCwd,
-            folderNameOf(projectCwd),
-          );
-        };
+      : () => openMoveFor(activeTerminal);
+  const moveToBranchOf = (session: Pick<SessionSummary, 'agent' | 'sessionId'>): (() => void) | null => {
+    const tab = moveTabOf(terminals, session, (agent) => controlsFor(capabilitiesFor(agent)).moveToWorktree);
+    if (tab === null) return null;
+    return () => {
+      leaveDrawer();
+      selectTab(tab.terminalId);
+      openMoveFor(tab);
+    };
+  };
   // Lo que impide pasarla ahora, para el dialogo: el agente trabajando, o algo esperandolo en el hilo.
   const moveTarget = worktreeDialogs.create?.move ?? null;
   const moveBlock =
@@ -1466,6 +1476,7 @@ export function App(): JSX.Element {
         leaveDrawer();
         worktreeDialogs.reopen(session.agent, session.sessionId, project.cwd, session.worktree?.branch ?? '');
       }}
+      moveToBranchOf={moveToBranchOf}
       onContinueSession={(session, target) => {
         leaveDrawer();
         continueSession(

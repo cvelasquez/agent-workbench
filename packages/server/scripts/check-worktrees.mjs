@@ -2291,6 +2291,28 @@ let reviewSession = '';
       ui.moveDefaultBase(inspected, 'main') === 'main' && ui.moveDefaultBase(inspected, 'no-esta') === 'main' &&
       ui.moveDefaultBase({ ...inspected, branches: [{ name: 'main', checkedOut: true }, { name: 'otra', checkedOut: false }] }, 'otra') === 'otra');
 
+  // Cuándo se ofrece el botón: en la barra del hilo y en Cambios, por la pestaña;
+  // en la fila de la barra de proyectos (29-10-2026), sólo si está abierta en una.
+  const rowRepo = { mainCwd: 'D:\\p', branch: 'main', linked: false };
+  const agentTab = { terminalId: 'a', kind: 'agent', agent: 'claude-code', sessionId: 's1', worktree: rowRepo };
+  const rowTabs = [
+    agentTab,
+    { terminalId: 'b', kind: 'agent', agent: 'codex', sessionId: 's2', worktree: rowRepo },
+    { terminalId: 'c', kind: 'agent', agent: 'claude-code', sessionId: 's3', worktree: null },
+    { terminalId: 'd', kind: 'shell', agent: null, sessionId: '', worktree: rowRepo },
+  ];
+  const onlyClaude = (agent) => agent === 'claude-code';
+  check('MV17 la pestaña: de agente, con la capacidad, con conversación y en un repo de git',
+    ui.canMoveToBranch(agentTab, true) && !ui.canMoveToBranch(agentTab, false) &&
+      !ui.canMoveToBranch({ ...agentTab, sessionId: '' }, true) && !ui.canMoveToBranch({ ...agentTab, worktree: null }, true) &&
+      !ui.canMoveToBranch(rowTabs[3], true));
+  check('MV17 la fila: la pestaña de esa conversación, y nada si está cerrada, es de otra CLI o no está en un repo',
+    ui.moveTabOf(rowTabs, { agent: 'claude-code', sessionId: 's1' }, onlyClaude)?.terminalId === 'a' &&
+      ui.moveTabOf(rowTabs, { agent: 'claude-code', sessionId: 'cerrada' }, onlyClaude) === null &&
+      ui.moveTabOf(rowTabs, { agent: 'codex', sessionId: 's2' }, onlyClaude) === null &&
+      ui.moveTabOf(rowTabs, { agent: 'claude-code', sessionId: 's3' }, onlyClaude) === null &&
+      ui.moveTabOf(rowTabs, { agent: 'codex', sessionId: 's1' }, () => true) === null);
+
   // El protocolo: la pestaña por su id, sin rutas, y todo lo demás obligatorio.
   const moveMessage = (extra) =>
     shared.parseClientMessage(JSON.stringify({ type: 'worktree.move', requestId: 'r', terminalId: 't', branch: 'b', base: 'main', mode: 'new', copyNotes: true, askChanges: true, ...extra }));

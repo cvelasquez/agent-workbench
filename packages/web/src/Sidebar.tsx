@@ -29,7 +29,7 @@ import {
   type VaultStatus,
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
-import { BranchIcon } from './BranchIcon.js';
+import { BranchIcon, MoveBranchIcon } from './BranchIcon.js';
 import { LongPressButton } from './LongPressButton.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import {
@@ -163,6 +163,12 @@ interface SidebarProps {
    * dibuja con algo que ofrecer (`continueTargets`).
    */
   onContinueSession: (session: SessionSummary, target: AgentId) => void;
+  /**
+   * Pasar una sesion a una rama aparte (hito 54, 29-10-2026): lo que hace su
+   * boton, o null si no se ofrece. Solo una abierta en una pestana
+   * (`moveTabOf`): lleva a esa pestana y abre el dialogo.
+   */
+  moveToBranchOf: (session: SessionSummary) => (() => void) | null;
   /**
    * El buscador global (hito 29), o null si no se ofrece
    * (`globalSearchVisible`): con null la barra es la de siempre, sin
@@ -442,6 +448,7 @@ export function Sidebar({
   exporting,
   lastExported,
   onContinueSession,
+  moveToBranchOf,
   globalSearch,
   onOpenSearchHit,
   onNewWorktree,
@@ -1039,6 +1046,7 @@ export function Sidebar({
                     // Hito 48: la de una rama quitada no se reanuda: su carpeta ya no esta.
                     const branchGone = session.worktree !== null && !session.worktree.exists;
                     const openable = vaultView.copy ? onOpenVaultSession !== null : canOpen && resumable && !branchGone;
+                    const moveToBranch = moveToBranchOf(session);
 
                     return (
                       <li
@@ -1112,6 +1120,24 @@ export function Sidebar({
                           </span>
                           <span className="session-meta">{formatWhen(session.updatedAt)}</span>
                         </LongPressButton>
+
+                        {/*
+                          Pasar a una rama aparte (hito 54, 29-10-2026), como
+                          "Rama" en la barra del hilo. Solo si esta abierta en
+                          una pestana: lo que se mueve tiene que estar a la
+                          vista. A la izquierda del `↪`, y como el, encima del
+                          final del titulo (ver el CSS).
+                        */}
+                        {moveToBranch !== null && !vaultView.copy && !branchGone && (
+                          <button
+                            className="icon-button session-move"
+                            onClick={moveToBranch}
+                            title={t('worktree.move.title')}
+                            aria-label={t('worktree.move.title')}
+                          >
+                            <MoveBranchIcon />
+                          </button>
+                        )}
 
                         {/*
                           Continuar con otra CLI (hito 29). Solo con otra

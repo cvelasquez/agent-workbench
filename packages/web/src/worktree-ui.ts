@@ -133,6 +133,36 @@ export function moveBlockText(block: WorktreeMoveBlock | null): string | null {
 }
 
 /**
+ * Hito 54. Si la conversación de esta pestaña se puede pasar a una rama aparte:
+ * una pestaña de agente cuya CLI lo permite, con una conversación, y en un
+ * repositorio de git (la pestaña lleva su rama desde que se abre, §6.38).
+ */
+export function canMoveToBranch(
+  terminal: Pick<TerminalDescriptor, 'kind' | 'sessionId' | 'worktree'>,
+  moveToWorktree: boolean,
+): boolean {
+  return terminal.kind === 'agent' && moveToWorktree && terminal.sessionId.length > 0 && terminal.worktree !== null;
+}
+
+/**
+ * La pestaña desde la que se pasa a una rama una conversación de la barra
+ * (29-10-2026), o null. Sólo una abierta en una pestaña, con o sin CLI: una
+ * cerrada no ofrece el botón, porque lo que se mueve tiene que estar a la
+ * vista. `moveToWorktree` dice si la CLI de esa pestaña lo permite.
+ */
+export function moveTabOf<T extends Pick<TerminalDescriptor, 'kind' | 'agent' | 'sessionId' | 'worktree'>>(
+  terminals: readonly T[],
+  session: { agent: string; sessionId: string },
+  moveToWorktree: (agent: AgentId) => boolean,
+): T | null {
+  const tab = terminals.find(
+    (terminal) => terminal.kind === 'agent' && terminal.agent === session.agent && terminal.sessionId === session.sessionId,
+  );
+  if (tab === undefined || tab.agent === null) return null;
+  return canMoveToBranch(tab, moveToWorktree(tab.agent)) ? tab : null;
+}
+
+/**
  * Hito 54. La base con que viene el diálogo de pasar una conversación: la rama
  * de la carpeta donde está la pestaña (decisión 4 del plan), si el repo la
  * tiene; si no, la de la carpeta principal.

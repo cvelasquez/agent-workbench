@@ -6385,6 +6385,39 @@ kbd {
   pointer-events: auto;
 }
 
+/*
+  Pasar a una rama aparte, en la fila de una sesion abierta en una pestana
+  (hito 54, 29-10-2026). Como el `↪`: aparece al pasar el mouse y no ocupa
+  lugar, encima del final del titulo. Va a su izquierda: con `↪` detras, el
+  margen descuenta los dos anchos y el del `↪` ya no descuenta nada.
+*/
+.session-move {
+  position: relative;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-left: -24px;
+  background: var(--chrome-alt);
+}
+
+.session-move:has(+ .session-continue) {
+  margin-left: -48px;
+}
+
+.session-move + .session-continue {
+  margin-left: 0;
+}
+
+.session-row:hover .session-move,
+.session-move:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* Continuar del hilo: el icono de intercambio y "CLI", del mismo alto que la busqueda. */
 .conversation-continue {
   gap: 4px;
@@ -7106,6 +7139,7 @@ kbd {
 @media (hover: none) {
   .session-action,
   .session-continue,
+  .session-move,
   .project-action,
   .tab-close,
   .chip-remove,
@@ -7126,12 +7160,15 @@ kbd {
     margin-left: 0;
   }
 
-  .session-continue {
+  .session-continue,
+  .session-move,
+  .session-move:has(+ .session-continue) {
     margin-left: 0;
   }
 
   .session-action,
   .session-continue,
+  .session-move,
   .project-action,
   .tree-action,
   .tab-close,
