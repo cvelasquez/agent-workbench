@@ -67,6 +67,8 @@ import { readDiff } from './git-repo.js';
 import { GlobalSearchSlot } from './global-search.js';
 import { deliverWhenReady, prefillReasonFor, type DeliverDeps } from './deliver-when-ready.js';
 import { prepareSubmit, runSubmit, type SubmitMessageDeps } from './submit-message.js';
+import { CliSuggestions } from './cli-suggestions.js';
+import { TabFocus } from './tab-focus.js';
 import { HANDOFF_DELIVERY_TIMEOUT_MS, continueSession, type ContinueDeps } from './handoff/handoff.js';
 import { InvalidPathError, resolveInside } from './path-guard.js';
 import { attachmentLine, attachmentReference, textWithAttachments } from './attachments.js';
@@ -313,6 +315,24 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     return agents.get(descriptor.agent)?.adapter ?? null;
   };
 
+  /*
+    Hito 53 (§5.3.2): la sugerencia que la CLI dibuja en gris en su caja, para el
+    cuadro. Se mira la pantalla de la pestana mientras esta libre.
+  */
+  const suggestions = new CliSuggestions({
+    readerOf: (terminalId) => adapterOf(terminalId)?.promptSuggestion ?? null,
+    openScreen: (terminalId) => registry.watchScreen(terminalId),
+    publish: (terminalId, text) => broadcast({ type: 'composer.suggestion', terminalId, text }),
+  });
+  /*
+    Y el foco que se le reporta a esa CLI: el de la pestana, que cada ventana
+    dice con `terminal.attention`. Sin foco, Claude Code no pide la sugerencia.
+  */
+  const tabFocus = new TabFocus({
+    appliesTo: (terminalId) => adapterOf(terminalId)?.focusByTab === true,
+    write: (terminalId, data) => registry.write(terminalId, data),
+  });
+
   /**
    * Como nombra imagenes la CLI de una pestana, o null despues de avisar por
    * que no se pueden mandar.
@@ -426,6 +446,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   ): void => {
     // Libre o sin proceso: el turno termino solo y lo que habia en cola ya se entrego.
     if (activity === 'idle' || activity === 'offline') queuedSubmits.forget(terminalId);
+    // Hito 53: libre se mira si la CLI sugiere el mensaje siguiente; trabajando, ya no vale.
+    suggestions.activity(terminalId, activity);
     broadcast(
       offlineReason === null
         ? { type: 'terminal.activity', terminalId, activity }
@@ -435,6 +457,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     if (registry.get(terminalId)?.review === true) worktrees.reviewActivity();
     // Hito 51: un mensaje que esperaba a que el agente terminara se manda en el acto.
     scheduler.nudge();
+  };
+
+  // Hito 53: la sugerencia se relee cuando la salida de su pestana se calma, y
+  // se mira si la CLI pide o deja de pedir los avisos de foco.
+  const onRegistryOutput = (terminalId: TerminalId, chunk: string): void => {
+    suggestions.output(terminalId);
+    tabFocus.output(terminalId, chunk);
   };
 
   const onIndexStatus = (status: IndexStatus): void =>
@@ -723,6 +752,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     }
     // Sin pestana no hay nada que seguir, la mire quien la mire.
     conversations.drop(terminalId);
+    suggestions.forget(terminalId);
+    tabFocus.forget(terminalId);
     repos.drop(terminalId);
     memory.drop(terminalId);
     queuedSubmits.drop(terminalId);
@@ -928,6 +959,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   registry.on('changed', onRegistryChanged);
   registry.on('exit', onRegistryExit);
   registry.on('activity', onRegistryActivity);
+  registry.on('output', onRegistryOutput);
   index.on('status', onIndexStatus);
   index.on('projects', onIndexProjects);
   conversations.on('append', onConversationAppend);
@@ -1182,6 +1214,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       los guarda, y solo desde ahi manda los suyos.
     */
     send(socket, { type: 'composer.drafts', drafts: draftEntriesOf(registry.list(), drafts) });
+    // La sugerencia de la CLI de cada pestana que tiene una (hito 53, §5.3.2): un F5 no la pierde.
+    for (const entry of suggestions.snapshot()) send(socket, { type: 'composer.suggestion', ...entry });
     // Los mensajes programados (hito 51), aunque no haya: tambien le dice que este servidor los tiene.
     send(socket, { type: 'schedule.list', messages: scheduler.snapshot() });
     send(socket, { type: 'vault.status', status: vault.status() });
@@ -1223,6 +1257,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           // de error quedaba arriba sin tener que ver con nada que el usuario
           // hubiera pedido. Que no hay CLI ya lo dicen el nombre tachado, el
           // punto y "Abrir CLI". El aviso sigue para lo que manda el cuadro.
+          // Salvo el foco que reporta la terminal de la pagina, con una CLI que recibe el de la pestana (hito 53).
+          if (tabFocus.isFocusReport(message.terminalId, message.data)) break;
           if (!registry.write(message.terminalId, message.data) && registry.get(message.terminalId) === null) {
             sendError(socket, 'unknown-terminal', serverText('terminalGone'));
           }
@@ -1328,7 +1364,11 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             imageCount: images.length,
             send: message.send !== false,
             write: pieceWriter(socket, terminalId),
-            onWritten: (outcome) => settle(outcome === 'written'),
+            onWritten: (outcome) => {
+              settle(outcome === 'written');
+              // La sugerencia que habia ya se uso o se descarto (hito 53).
+              if (outcome === 'written') suggestions.submitted(terminalId);
+            },
             prepare: async (input) => {
               const imagePaths: string[] = [];
               try {
@@ -2057,6 +2097,11 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
         case 'terminal.detach':
           registry.detach(message.terminalId, listener);
+          break;
+
+        // Hito 53: la pestana que mira esta ventana, o ninguna. Es el foco que se le reporta a su CLI.
+        case 'terminal.attention':
+          tabFocus.attend(socket, message.terminalId);
           break;
 
         case 'terminal.rename':
@@ -3310,6 +3355,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       }
       globalSearch.cancel();
       pickers.closeAll();
+      // La ventana ya no mira ninguna pestana (hito 53).
+      tabFocus.leave(socket);
       registry.detachAll(listener);
       for (const terminalId of subscriptions) conversations.unsubscribe(terminalId);
       subscriptions.clear();
@@ -3330,6 +3377,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     httpServer.off('upgrade', onUpgrade);
     registry.off('changed', onRegistryChanged);
     registry.off('activity', onRegistryActivity);
+    registry.off('output', onRegistryOutput);
+    suggestions.dispose();
     registry.off('exit', onRegistryExit);
     index.off('status', onIndexStatus);
     index.off('projects', onIndexProjects);

@@ -975,6 +975,19 @@ export interface DraftBox {
 }
 
 /**
+ * Leer de la pantalla la sugerencia que la CLI propone como mensaje siguiente
+ * (hito 53, §5.3.2). No esta en ningun archivo: la CLI solo la dibuja.
+ */
+export interface PromptSuggestionReader {
+  /**
+   * La sugerencia, o null si no hay. Llegan las dos mitades de la misma lectura
+   * de la pantalla (`PtyScreen.splitByFaint`): `clean`, sin lo atenuado, para
+   * ubicar la caja; `faint`, solo lo atenuado, para leer lo que esta en gris.
+   */
+  read(clean: readonly string[], faint: readonly string[]): string | null;
+}
+
+/**
  * Como se nombra un archivo para que el agente lo lea (hito 29, D18).
  *
  *  - `at-quoted`: `@"ruta"`. La CLI lo adjunta sola, sin pedir permiso para leer
@@ -1113,6 +1126,20 @@ export interface AgentAdapter {
    * `ScheduledSendSupport`.
    */
   readonly scheduled?: ScheduledSendSupport;
+  /**
+   * Presente si la app sabe leer la sugerencia que la CLI dibuja en gris en su
+   * caja vacia, para el cuadro de la conversacion (hito 53, §5.3.2). Ver
+   * `PromptSuggestionReader`.
+   */
+  readonly promptSuggestion?: PromptSuggestionReader;
+  /**
+   * true si la CLI decide cosas por el foco de su terminal y la app le reporta
+   * el de la pestana (la activa en una ventana con foco), no el de la terminal
+   * de la pagina (hito 53, §5.3.2, `tab-focus.ts`). Claude Code: sin foco no
+   * pide la sugerencia. Ausente: los avisos de foco de la terminal pasan como
+   * siempre.
+   */
+  readonly focusByTab?: boolean;
   /**
    * Con que modelo y esfuerzo arranca una pestana de esa carpeta, segun la
    * configuracion de la CLI, o null si no se lee ninguna.

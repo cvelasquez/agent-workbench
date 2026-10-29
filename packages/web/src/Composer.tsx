@@ -52,6 +52,7 @@ import type { ComposerPrefill } from './useWorkspace.js';
 import { useComposerAttachments, type Attachment, type ComposerImage } from './useComposerAttachments.js';
 import { useDragSize } from './useDragSize.js';
 import { useTouch } from './useNarrow.js';
+import { takesSuggestion, visibleSuggestion } from './composer-suggestion.js';
 import { parseStoredSize, readStored, writeStored } from './window-prefs.js';
 import type { AgentConnection } from './connection.js';
 
@@ -184,6 +185,12 @@ interface ComposerProps {
    * acto, como un envio.
    */
   onSchedule?: (terminalId: TerminalId, text: string, sendAt: number) => boolean;
+  /**
+   * La sugerencia que la CLI de la pestana muestra en gris en su caja (hito 53,
+   * §5.3.2), o null. Se pinta en el cuadro vacio sin contar como texto; Tab, o
+   * la flechita en una pantalla tactil, la escribe. Ver `composer-suggestion.ts`.
+   */
+  suggestion?: string | null;
 }
 
 /** Donde esta el cursor del cuadro y hasta donde se desplazo, para volver ahi (`DraftView`). */
@@ -218,6 +225,7 @@ export function Composer({
   noteInsertRef,
   onEditQueue,
   onSchedule,
+  suggestion = null,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -226,6 +234,15 @@ export function Composer({
   const attachments = useComposerAttachments(imagesAllowed);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const touch = useTouch();
+  // Hito 53 (§5.3.2): la sugerencia de la CLI se pinta en el cuadro vacio, sin contar como texto.
+  const shownSuggestion = visibleSuggestion({
+    suggestion,
+    text,
+    attachments: attachments.items.length,
+    disabled: terminalId === null || !alive,
+  });
+  const shownSuggestionRef = useRef(shownSuggestion);
+  shownSuggestionRef.current = shownSuggestion;
 
   // ---- alto del cuadro ----
 
@@ -255,14 +272,22 @@ export function Composer({
       la barra de scroll. La barra solo hace falta cuando el texto pasa el tope.
     */
     const border = element.offsetHeight - element.clientHeight;
+    /*
+      Con la sugerencia pintada (hito 53) el cuadro mide lo que mediria con ella
+      escrita: si no, una de dos lineas quedaria cortada en la primera. Se escribe
+      y se borra en el acto, sin eventos: el cuadro sigue vacio.
+    */
+    const ghost = element.value.length === 0 ? shownSuggestionRef.current : null;
+    if (ghost !== null) element.value = ghost;
     const needed = element.scrollHeight + border;
+    if (ghost !== null) element.value = '';
     const height = resizing ? maxHeight : Math.min(needed, maxHeight);
     element.style.height = `${height}px`;
     element.style.overflowY = needed > height ? 'auto' : 'hidden';
   }, [maxHeight, resizing]);
 
   // La letra del hilo tambien cambia el alto de una linea: se vuelve a medir.
-  useEffect(resize, [text, resize, fontSize]);
+  useEffect(resize, [text, resize, fontSize, shownSuggestion]);
 
   /*
     El divisor mide contra el borde de **abajo** del cuadro, que no se mueve: el
@@ -548,8 +573,43 @@ export function Composer({
     element.setSelectionRange(change.caret, change.caret);
   }, []);
 
+  /*
+    Escribe la sugerencia de la CLI en el cuadro (hito 53, §5.3.2): Tab, o la
+    flechita en una pantalla tactil. Como algo tecleado, para que Ctrl+Z la
+    saque; si el navegador no lo acepta, como un texto puesto, sin deshacer.
+  */
+  const takeSuggestion = useCallback(() => {
+    const value = shownSuggestionRef.current;
+    const element = textareaRef.current;
+    if (value === null || element === null) return;
+    element.focus();
+    let done = false;
+    try {
+      done = document.execCommand('insertText', false, value);
+    } catch {
+      done = false;
+    }
+    if (!done) setText(value);
+  }, []);
+
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // La sugerencia de la CLI, a la vista en el cuadro vacio: Tab la escribe, como en la CLI.
+      if (
+        shownSuggestionRef.current !== null &&
+        takesSuggestion({
+          key: event.key,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          isComposing: event.nativeEvent.isComposing,
+        })
+      ) {
+        event.preventDefault();
+        takeSuggestion();
+        return;
+      }
       // En una pantalla tactil, Enter salta de linea: se manda con el boton (§6.25).
       if (event.key === 'Enter' && enterSubmits(event, touch)) {
         event.preventDefault();
@@ -591,7 +651,7 @@ export function Composer({
         onEditQueue();
       }
     },
-    [submit, interrupt, touch, applyListEdit, onEditQueue, attachments.items.length],
+    [submit, interrupt, touch, applyListEdit, onEditQueue, attachments.items.length, takeSuggestion],
   );
 
   /*
@@ -828,7 +888,7 @@ export function Composer({
         mientras trabaja sigue valiendo. Con el cuadro vacío y el agente
         quieto, Enviar queda apagado: el lugar no salta al escribir.
       */}
-      <div className={`composer-field${showStop && showSend ? ' composer-field-two' : ''}`}>
+      <div className={`composer-field${(showStop && showSend) || shownSuggestion !== null ? ' composer-field-two' : ''}`}>
       <textarea
         ref={textareaRef}
         className="composer-input"
@@ -842,11 +902,14 @@ export function Composer({
           siguen en el dialogo del boton `?`.
         */
         placeholder={
-          !disabled
-            ? t('composer.placeholder.ready')
-            : sleeping
-              ? t('composer.placeholder.sleeping')
-              : t('composer.placeholder.ended')
+          // La sugerencia de la CLI va donde va la ayuda: en gris, y el cuadro sigue vacio (hito 53).
+          shownSuggestion !== null
+            ? shownSuggestion
+            : !disabled
+              ? t('composer.placeholder.ready')
+              : sleeping
+                ? t('composer.placeholder.sleeping')
+                : t('composer.placeholder.ended')
         }
         disabled={disabled}
         onChange={(event) => setText(event.target.value)}
@@ -855,6 +918,27 @@ export function Composer({
         spellCheck={false}
       />
         <div className="composer-field-actions">
+          {/*
+            Como se usa la sugerencia (hito 53): con un teclado, Tab, y se dice
+            con la tecla dibujada; en una pantalla tactil no hay Tab, y va la
+            flechita, que no le quita el foco al cuadro.
+          */}
+          {shownSuggestion !== null &&
+            (touch ? (
+              <button
+                className="composer-icon composer-suggestion-use"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={takeSuggestion}
+                title={t('composer.suggestion.use')}
+                aria-label={t('composer.suggestion.use')}
+              >
+                <span aria-hidden="true">↗</span>
+              </button>
+            ) : (
+              <kbd className="composer-suggestion-key" title={t('composer.suggestion.keyTitle')}>
+                {t('composer.suggestion.key')}
+              </kbd>
+            ))}
           {showStop && (
             <button
               className="composer-icon composer-stop"

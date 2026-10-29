@@ -819,6 +819,12 @@ const adapter = createClaudeCodeAdapter();
       if (!registered.capabilities.editQueue) return !driver || (id === 'pi' && process.platform !== 'win32');
       return driver && registered.promptQueue !== undefined;
     }));
+  // Hito 53 (§5.3.2): la sugerencia leida de la pantalla, solo donde se midio.
+  const suggesting = AGENT_IDS.filter((id) => appRegistry.adapter(id).promptSuggestion !== undefined);
+  check('53.1 promptSuggestion: solo claude-code', sameShape(suggesting, ['claude-code']), suggesting.join(','));
+  // Y el foco de la pestana en vez del de su terminal: solo la CLI que sin foco no la pide.
+  const byTab = AGENT_IDS.filter((id) => appRegistry.adapter(id).focusByTab === true);
+  check('53.2 focusByTab: solo claude-code', sameShape(byTab, ['claude-code']), byTab.join(','));
   /*
     Hito 51: programar un mensaje donde la app sabe que la CLI esta lista
     (`readySignal`), si esta libre (`statusSource`) y si otro proceso tiene la

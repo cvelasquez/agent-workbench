@@ -107,6 +107,7 @@ import { VaultDialog } from './VaultDialog.js';
 import { RewindDialog } from './RewindDialog.js';
 import { changedFilesAfter, rewindPreview } from './rewind-ui.js';
 import { useRewind } from './useRewind.js';
+import { useTabAttention } from './tab-attention.js';
 import type { ConnectionStatus } from './connection.js';
 import {
   blindToApprovals,
@@ -225,6 +226,8 @@ export function App(): JSX.Element {
     dismissHandoff,
     returnedMessages,
     dismissReturned,
+    suggestions,
+    dismissSuggestion,
     prefills,
     prefillApplied,
     drafts,
@@ -235,6 +238,8 @@ export function App(): JSX.Element {
 
   const theme = useTheme();
   const terminalTheme = useTerminalTheme(theme.resolved);
+  // Hito 53 (§5.3.2): la pestana que mira esta ventana, que es el foco que se le reporta a su CLI.
+  useTabAttention(connection, activeTerminalId, status === 'open');
   /*
     Lo que la notificacion del sistema (hito 37) necesita de las pestanas: como
     se llama la que aviso, y activarla cuando se hace clic en el aviso.
@@ -1583,8 +1588,11 @@ export function App(): JSX.Element {
             pestana. Y el envio se sigue hasta su acuse (§6.30): lo que llegue
             al hilo despues del ultimo evento de ahora es la respuesta.
           */
+          // La sugerencia de la CLI, en gris en el cuadro vacio (hito 53, §5.3.2).
+          suggestion={activeTerminalId === null ? null : (suggestions.get(activeTerminalId) ?? null)}
           onSubmitted={(terminalId, requestId, queued) => {
             dismissComposerNotice(terminalId);
+            dismissSuggestion(terminalId);
             const { events } = conversation;
             const lastEvent = terminalId === activeTerminalId ? events[events.length - 1] : undefined;
             threadSignals.track(terminalId, requestId, lastEvent?.eventId ?? null, queued);

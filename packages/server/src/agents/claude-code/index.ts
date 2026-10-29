@@ -49,6 +49,7 @@ import { sessionFilePath } from './paths.js';
 import { createClaudeCodeQueueEdit } from './queue-edit.js';
 import { createClaudeCodeRewind } from './rewind-menu.js';
 import { createClaudeCodeScreenQuestions } from './question-screen.js';
+import { CLAUDE_CODE_PROMPT_SUGGESTION } from './suggestion-screen.js';
 import {
   claudeStatusLineFragment,
   claudeStatusLineScriptPath,
@@ -290,6 +291,11 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
 
     // Sacar la cola para editarla en el cuadro (§6.35.1): lo que salio lo dice el JSONL.
     queueEdit: createClaudeCodeQueueEdit(),
+
+    // La sugerencia del mensaje siguiente, leida de la pantalla: no esta en ningun archivo (hito 53, §5.3.2).
+    promptSuggestion: CLAUDE_CODE_PROMPT_SUGGESTION,
+    // Sin foco no la pide (§4.4.5): el foco que se le reporta es el de la pestana.
+    focusByTab: true,
 
     defaults: (cwd, sessionModel) => readAgentDefaults(cwd, sessionModel ?? null),
 

@@ -109,6 +109,11 @@
  * `scheduledMessages` en Ajustes. Un servidor anterior no manda la lista ni la
  * capacidad, y la web no ofrece programar.
  *
+ * Y el hito 53, sin subir la version (§5.3.2): `composer.suggestion`, la
+ * sugerencia que la CLI muestra en gris en su caja, y `terminal.attention`, la
+ * pestana que mira cada ventana, que decide el foco que se le reporta a la CLI.
+ * Un servidor anterior no manda la sugerencia e ignora la atencion.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -496,6 +501,18 @@ export interface ClientResizeMessage {
   terminalId: TerminalId;
   cols: number;
   rows: number;
+}
+
+/**
+ * La pestana que mira esta ventana: la activa, si la ventana tiene el foco y se
+ * ve; null si ninguna (hito 53, §5.3.2). Con una CLI que lo declara, la pestana
+ * tiene el foco si alguna ventana la mira, y eso es lo que se le reporta: Claude
+ * Code sin foco no pide la sugerencia. La web lo manda al cambiar y al conectar.
+ * Un servidor anterior lo ignora.
+ */
+export interface ClientTerminalAttentionMessage {
+  type: 'terminal.attention';
+  terminalId: TerminalId | null;
 }
 
 /**
@@ -1376,6 +1393,7 @@ export interface ClientWorktreeDeleteBranchMessage {
 
 export type ClientMessage =
   | ClientInputMessage
+  | ClientTerminalAttentionMessage
   | ClientSubmitMessage
   | ClientAnswerMessage
   | ClientPermissionModeMessage
@@ -2273,6 +2291,20 @@ export interface ServerComposerDraftsMessage {
 }
 
 /**
+ * La sugerencia que la CLI de una pestana muestra en gris en su caja, como
+ * mensaje siguiente (hito 53, §5.3.2); `null` cuando deja de valer: la pestana
+ * trabaja, se le mando algo, se cerro. A todas las ventanas, y al conectar, una
+ * por pestana que tenga. La web la pinta en el cuadro vacio sin que cuente como
+ * texto, y Tab (o la flechita, en el telefono) la escribe en el cuadro. Un
+ * cliente anterior la ignora.
+ */
+export interface ServerComposerSuggestionMessage {
+  type: 'composer.suggestion';
+  terminalId: TerminalId;
+  text: string | null;
+}
+
+/**
  * Lo que va encontrando un `search.global` mientras recorre, solo al socket que
  * lo pidio: los aciertos nuevos y cuantas sesiones lleva. Como mucho uno cada
  * `GLOBAL_SEARCH_PROGRESS_MS`. Termina con `search.results`.
@@ -2532,6 +2564,7 @@ export type ServerMessage =
   | ServerSessionContinuedMessage
   | ServerComposerPrefillMessage
   | ServerComposerDraftsMessage
+  | ServerComposerSuggestionMessage
   | ServerGlobalSearchProgressMessage
   | ServerGlobalSearchMessage
   | ServerRemoteStatusMessage
@@ -2756,6 +2789,12 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'terminal.detach': {
       const terminalId = asNonEmptyString(record['terminalId']);
       return terminalId === null ? null : { type: 'terminal.detach', terminalId };
+    }
+    case 'terminal.attention': {
+      // Hito 53: null es "ninguna"; cualquier otra cosa que no sea un id, mal formado.
+      if (record['terminalId'] === null) return { type: 'terminal.attention', terminalId: null };
+      const terminalId = asNonEmptyString(record['terminalId']);
+      return terminalId === null ? null : { type: 'terminal.attention', terminalId };
     }
     case 'terminal.rename': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -3790,6 +3829,14 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       // Uno mal formado se descarta solo: no se lleva los de las demas pestanas.
       const drafts = asArrayFiltered(record['drafts'], parseComposerDraftEntry);
       return drafts === null ? null : { type: 'composer.drafts', drafts };
+    }
+    case 'composer.suggestion': {
+      // Hito 53: un texto vacio no es una sugerencia; null dice que ya no hay.
+      const terminalId = asNonEmptyString(record['terminalId']);
+      if (terminalId === null) return null;
+      if (record['text'] === null) return { type: 'composer.suggestion', terminalId, text: null };
+      const text = asNonEmptyString(record['text']);
+      return text === null ? null : { type: 'composer.suggestion', terminalId, text };
     }
     case 'search.progress': {
       const searchId = asNonEmptyString(record['searchId']);

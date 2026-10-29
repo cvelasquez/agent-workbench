@@ -26,25 +26,43 @@ export interface PtyScreen {
    * gris en su caja es ayuda o una sugerencia, no algo escrito (§5.3.1).
    */
   linesWithoutFaint(): Promise<string[]>;
+  /**
+   * De la misma lectura, las dos mitades: sin lo atenuado y solo lo atenuado,
+   * cada caracter en su columna. Para la sugerencia que la CLI dibuja en gris en
+   * su caja vacia (hito 53, §5.3.2): la caja se ubica en una y se lee en la otra.
+   */
+  splitByFaint(): Promise<FaintSplit>;
   dispose(): void;
+}
+
+export interface FaintSplit {
+  /** Las lineas sin el texto atenuado. */
+  clean: string[];
+  /** Solo el texto atenuado; lo demas, en blanco. */
+  faint: string[];
 }
 
 type HeadlessTerminal = InstanceType<typeof Terminal>;
 type BufferLine = NonNullable<ReturnType<HeadlessTerminal['buffer']['active']['getLine']>>;
 type BufferCell = ReturnType<HeadlessTerminal['buffer']['active']['getNullCell']>;
 
-/** Una linea sin el texto atenuado, sin los espacios del final. */
-function lineWithoutFaint(line: BufferLine, cols: number, cell: BufferCell): string {
-  let text = '';
+type SplitLine = [clean: string, faint: string];
+
+/** Una linea partida en lo que no esta atenuado y lo que si, sin los espacios del final. */
+function splitLine(line: BufferLine, cols: number, cell: BufferCell): SplitLine {
+  let clean = '';
+  let faint = '';
   for (let x = 0; x < cols; x += 1) {
     const current = line.getCell(x, cell);
     if (current === undefined) break;
     // La segunda mitad de un caracter ancho: ya va con la primera.
     if (current.getWidth() === 0) continue;
-    const chars = current.getChars();
-    text += current.isDim() !== 0 || chars === '' ? ' ' : chars;
+    const chars = current.getChars() === '' ? ' ' : current.getChars();
+    const dim = current.isDim() !== 0;
+    clean += dim ? ' ' : chars;
+    faint += dim ? chars : ' ';
   }
-  return text.trimEnd();
+  return [clean.trimEnd(), faint.trimEnd()];
 }
 
 export function createPtyScreen(cols: number, rows: number, replay: string): PtyScreen {
@@ -52,7 +70,7 @@ export function createPtyScreen(cols: number, rows: number, replay: string): Pty
   const term = new Terminal({ cols, rows, scrollback: 0, allowProposedApi: true });
   let disposed = false;
   if (replay.length > 0) term.write(replay);
-  const read = (render: (line: BufferLine, cell: BufferCell) => string): Promise<string[]> =>
+  const read = <T>(render: (line: BufferLine, cell: BufferCell) => T, empty: T): Promise<T[]> =>
     new Promise((resolve) => {
       if (disposed) {
         resolve([]);
@@ -65,10 +83,10 @@ export function createPtyScreen(cols: number, rows: number, replay: string): Pty
         try {
           const buffer = term.buffer.active;
           const cell = buffer.getNullCell();
-          const lines: string[] = [];
+          const lines: T[] = [];
           for (let y = 0; y < term.rows; y += 1) {
             const line = buffer.getLine(buffer.viewportY + y);
-            lines.push(line === undefined ? '' : render(line, cell));
+            lines.push(line === undefined ? empty : render(line, cell));
           }
           resolve(lines);
         } catch {
@@ -81,10 +99,14 @@ export function createPtyScreen(cols: number, rows: number, replay: string): Pty
       if (!disposed) term.write(chunk);
     },
     lines() {
-      return read((line) => line.translateToString(true));
+      return read((line) => line.translateToString(true), '');
     },
-    linesWithoutFaint() {
-      return read((line, cell) => lineWithoutFaint(line, term.cols, cell));
+    async linesWithoutFaint() {
+      return (await read<SplitLine>((line, cell) => splitLine(line, term.cols, cell), ['', ''])).map(([clean]) => clean);
+    },
+    async splitByFaint() {
+      const split = await read<SplitLine>((line, cell) => splitLine(line, term.cols, cell), ['', '']);
+      return { clean: split.map(([clean]) => clean), faint: split.map(([, faint]) => faint) };
     },
     dispose() {
       if (disposed) return;

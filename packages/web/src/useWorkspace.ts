@@ -41,6 +41,7 @@ import { useLocale } from './i18n/useLocale.js';
 import { isMemoryPanelRequest } from './useMemory.js';
 import { isWorktreeDialogRequest } from './useWorktrees.js';
 import { takeEditStop } from './sent-edit.js';
+import { withSuggestion } from './composer-suggestion.js';
 
 const ACTIVE_TAB_KEY = 'agent-workbench.activeTab';
 
@@ -211,6 +212,13 @@ export interface Workspace {
   returnedMessages: ReadonlyMap<TerminalId, ReturnedReason>;
   /** Cierra ese aviso: con la ×, o al mandar un mensaje. */
   dismissReturned: (terminalId: TerminalId) => void;
+  /**
+   * La sugerencia que la CLI de cada pestana muestra en gris en su caja (hito
+   * 53, §5.3.2): el cuadro la pinta mientras esta vacio.
+   */
+  suggestions: ReadonlyMap<TerminalId, string>;
+  /** Se mando algo desde el cuadro de esa pestana: la sugerencia que habia ya no vale. */
+  dismissSuggestion: (terminalId: TerminalId) => void;
   /** Textos para el cuadro de escritura que llegaron del servidor, en orden. */
   prefills: readonly ComposerPrefill[];
   /** El cuadro ya aplico ese texto. */
@@ -317,6 +325,8 @@ export function useWorkspace(): Workspace {
   const nextPrefillId = useRef(1);
   /** Hitos 43 y 44. Las pestanas con un mensaje devuelto al cuadro y su aviso todavia a la vista. */
   const [returnedMessages, setReturnedMessages] = useState<Map<TerminalId, ReturnedReason>>(new Map());
+  /** Hito 53. La sugerencia de la CLI de cada pestana, tal como la manda el servidor. */
+  const [suggestions, setSuggestions] = useState<ReadonlyMap<TerminalId, string>>(new Map());
 
   // Las pestanas que abrimos nosotros pasan a estar activas; las que abrio otra
   // ventana, no. Por eso se registran los requestId propios.
@@ -383,6 +393,8 @@ export function useWorkspace(): Workspace {
           break;
 
         case 'hello':
+          // Una conexion nueva trae las sugerencias que valen ahora: las de antes ya no.
+          setSuggestions(new Map());
           setAgents(message.agents);
           setDefaultAgent(message.defaultAgent);
           setHelloReceived(true);
@@ -526,6 +538,11 @@ export function useWorkspace(): Workspace {
         */
         case 'composer.drafts':
           drafts.restore(message.drafts);
+          break;
+
+        // Hito 53: la sugerencia de la CLI de una pestana, o que ya no hay (§5.3.2).
+        case 'composer.suggestion':
+          setSuggestions((current) => withSuggestion(current, message.terminalId, message.text));
           break;
 
         case 'terminal.opened': {
@@ -830,6 +847,15 @@ export function useWorkspace(): Workspace {
     });
   }, []);
 
+  /*
+    Hito 53. Al mandar, la sugerencia se va en el acto: el servidor tambien lo
+    dice, pero recien cuando la CLI recibio el mensaje, y mientras tanto el
+    cuadro vacio la volveria a pintar.
+  */
+  const dismissSuggestion = useCallback((terminalId: TerminalId) => {
+    setSuggestions((current) => withSuggestion(current, terminalId, null));
+  }, []);
+
   const prefillApplied = useCallback((id: number) => {
     setPrefills((current) => (current.some((item) => item.id === id) ? current.filter((item) => item.id !== id) : current));
   }, []);
@@ -918,6 +944,8 @@ export function useWorkspace(): Workspace {
     dismissHandoff,
     returnedMessages,
     dismissReturned,
+    suggestions,
+    dismissSuggestion,
     prefills,
     prefillApplied,
     drafts,

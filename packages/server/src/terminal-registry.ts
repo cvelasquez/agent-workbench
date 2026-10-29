@@ -997,6 +997,7 @@ export class TerminalRegistry extends EventEmitter {
       feed: (chunk) => screen.feed(chunk),
       lines: () => screen.lines(),
       linesWithoutFaint: () => screen.linesWithoutFaint(),
+      splitByFaint: () => screen.splitByFaint(),
       dispose: () => {
         entry.listeners.delete(listener);
         screen.dispose();

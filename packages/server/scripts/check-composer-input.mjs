@@ -1201,6 +1201,311 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
   }
 }
 
+// S55. La sugerencia de la CLI en el cuadro (hito 53, §5.3.2). Claude Code la
+// dibuja en gris en su caja vacia y no la escribe en ningun archivo: se lee de la
+// pantalla. Pantallas medidas con la 2.1.312 (`fixtures/suggestion-screens.mjs`).
+{
+  const shots = await import('./fixtures/suggestion-screens.mjs');
+  const questions = await import('./fixtures/question-screens.mjs');
+  const { readClaudeCodeSuggestion } = await import('../src/agents/claude-code/suggestion-screen.ts');
+  const { CliSuggestions, SUGGESTION_QUIET_MS } = await import('../src/cli-suggestions.ts');
+  const { createPtyScreen } = await import('../src/pty-screen.ts');
+  const { CLAUDE_CODE_PROMPT_SUGGESTION } = await import('../src/agents/claude-code/suggestion-screen.ts');
+  const { visibleSuggestion, takesSuggestion, withSuggestion } = await import('../../web/src/composer-suggestion.ts');
+  const { parseServerMessage } = await import('@agent-workbench/shared');
+  const read = (shot) => readClaudeCodeSuggestion(shot.clean, shot.faint);
+  const WANTED = 'Respuesta de prueba: ahora agregá una sección de uso';
+
+  // El lector, contra lo medido. Un control por condicion.
+  const boxLine = (shot) => shot.clean.findIndex((line) => line.trim().startsWith('❯'));
+  check('S55 control: en la medida, la sugerencia esta en lo atenuado y la caja limpia solo tiene la marca',
+    shots.SUGGESTION.faint[boxLine(shots.SUGGESTION)].trim() === WANTED && shots.SUGGESTION.clean[boxLine(shots.SUGGESTION)].trim() === '❯');
+  check('S55 la sugerencia se lee entera', read(shots.SUGGESTION) === WANTED, JSON.stringify(read(shots.SUGGESTION)));
+  check('S55 control: la ayuda de una sesion nueva tambien esta atenuada', shots.START.faint.some((line) => line.includes('Try "')));
+  check('S55 la ayuda de una sesion nueva (Try "…") no es una sugerencia', read(shots.START) === null, JSON.stringify(read(shots.START)));
+  check('S55 la caja vacia sin nada en gris: no hay', read(shots.AFTER_FIRST_TURN) === null);
+  check('S55 tecleado o pegado encima la tapa: no hay',
+    read(shots.TYPED_OVER) === null && read(shots.PASTED_OVER) === null);
+  check('S55 despues de Tab ya es texto escrito, no una sugerencia', read(shots.TAKEN_WITH_TAB) === null);
+  check('S55 al vaciar la caja vuelve', read(shots.CLEARED_AGAIN) === WANTED);
+  const rule = '─'.repeat(110);
+  check('S55 una que la CLI partio en dos lineas se junta con un espacio',
+    readClaudeCodeSuggestion(['', rule, '❯', '', rule, ''], ['', '', '  primera parte de la', '  sugerencia larga', '', '']) === 'primera parte de la sugerencia larga');
+  check('S55 con algo escrito en la caja, lo que siga en gris no es una sugerencia para el cuadro',
+    readClaudeCodeSuggestion(['', rule, '❯ hola', rule], ['', '', '       mundo', '']) === null);
+  check('S55 una cortada con "…" no se ofrece: no se sabe como sigue',
+    readClaudeCodeSuggestion(['', rule, '❯', rule], ['', '', '  una sugerencia cortad…', '']) === null);
+  check('S55 el aviso de la cola en gris no es una sugerencia',
+    readClaudeCodeSuggestion(['', rule, '❯', rule], ['', '', '  Press up to edit queued messages', '']) === null);
+  const menus = Object.entries(questions).filter(([name, value]) => Array.isArray(value) && name !== 'INPUTS' && name !== 'BASIC_ANSWERED');
+  const misread = menus.filter(([, lines]) => readClaudeCodeSuggestion(lines, lines) !== null).map(([name]) => name);
+  check(`S55 un menu de pregunta (${menus.length} pantallas medidas, todo como si fuera gris) no se lee como sugerencia`,
+    menus.length > 5 && misread.length === 0, misread.join(', '));
+  check('S55 el lector que declara Claude Code es este', CLAUDE_CODE_PROMPT_SUGGESTION.read === readClaudeCodeSuggestion);
+
+  // La pantalla emulada partida en lo atenuado y lo demas, con el emulador de verdad.
+  {
+    const screen = createPtyScreen(60, 4, `${rule.slice(0, 60)}\r\n❯ \u001b[2mhola mundo\u001b[22m\r\n${rule.slice(0, 60)}`);
+    const split = await screen.splitByFaint();
+    screen.dispose();
+    check('S55 splitByFaint: cada caracter en su columna, en una mitad o en la otra',
+      split.clean[1] === '❯' && split.faint[1] === '  hola mundo' && split.clean[0] === rule.slice(0, 60) && split.faint[0] === '',
+      JSON.stringify(split));
+    check('S55 y el lector sobre esa lectura', readClaudeCodeSuggestion(split.clean, split.faint) === 'hola mundo');
+  }
+
+  // El ciclo de vida, con una pantalla y un reloj de mentira.
+  function lifecycle({ reader = { read: (clean, faint) => readClaudeCodeSuggestion(clean, faint) }, screenAvailable = true } = {}) {
+    let shot = shots.SUGGESTION;
+    const timers = [];
+    const published = [];
+    let opened = 0;
+    let disposed = 0;
+    let pendingRead = null;
+    const suggestions = new CliSuggestions({
+      readerOf: () => reader,
+      openScreen: () => {
+        if (!screenAvailable) return null;
+        opened += 1;
+        return {
+          splitByFaint: () => (pendingRead === null ? Promise.resolve(shot) : pendingRead.promise),
+          dispose: () => { disposed += 1; },
+        };
+      },
+      publish: (terminalId, text) => published.push([terminalId, text]),
+      setTimer: (callback, ms) => {
+        const timer = { callback, ms, cancelled: false };
+        timers.push(timer);
+        return () => { timer.cancelled = true; };
+      },
+    });
+    const settle = () => new Promise((resolve) => setImmediate(resolve));
+    const fire = async () => {
+      const due = timers.splice(0).filter((timer) => !timer.cancelled);
+      for (const timer of due) timer.callback();
+      await settle();
+      return due;
+    };
+    return {
+      suggestions, published, timers, fire, settle,
+      show: (next) => { shot = next; },
+      hold: () => {
+        let resolve;
+        const promise = new Promise((done) => { resolve = done; });
+        pendingRead = { promise };
+        return () => { pendingRead = null; resolve(shot); };
+      },
+      opened: () => opened,
+      disposed: () => disposed,
+    };
+  }
+  {
+    const life = lifecycle();
+    life.suggestions.activity('t1', 'idle');
+    check('S55 libre: se abre la pantalla y se lee cuando se calma, no en el acto',
+      life.opened() === 1 && life.published.length === 0 && life.timers[0]?.ms === SUGGESTION_QUIET_MS);
+    await life.fire();
+    check('S55 y se avisa la sugerencia', JSON.stringify(life.published) === JSON.stringify([['t1', WANTED]]), JSON.stringify(life.published));
+    check('S55 la foto para la ventana que se conecta', JSON.stringify(life.suggestions.snapshot()) === JSON.stringify([{ terminalId: 't1', text: WANTED }]));
+    life.suggestions.output('t1');
+    await life.fire();
+    check('S55 releer lo mismo no vuelve a avisar', life.published.length === 1);
+    life.show(shots.TYPED_OVER);
+    life.suggestions.output('t1');
+    await life.fire();
+    check('S55 tecleado encima en la solapa CLI: ya no hay', JSON.stringify(life.published.at(-1)) === JSON.stringify(['t1', null]));
+    life.show(shots.CLEARED_AGAIN);
+    life.suggestions.output('t1');
+    await life.fire();
+    check('S55 la caja vaciada: vuelve', JSON.stringify(life.published.at(-1)) === JSON.stringify(['t1', WANTED]));
+    life.suggestions.submitted('t1');
+    check('S55 se mando algo desde el cuadro: ya no hay, en el acto', JSON.stringify(life.published.at(-1)) === JSON.stringify(['t1', null]));
+    await life.fire();
+    check('S55 y si la CLI la sigue mostrando (un comando que no abre turno), se vuelve a avisar',
+      JSON.stringify(life.published.at(-1)) === JSON.stringify(['t1', WANTED]));
+    life.suggestions.activity('t1', 'busy');
+    check('S55 trabajando: ya no hay, y la pantalla se suelta',
+      JSON.stringify(life.published.at(-1)) === JSON.stringify(['t1', null]) && life.disposed() === 1);
+    const before = life.published.length;
+    life.suggestions.output('t1');
+    const due = await life.fire();
+    check('S55 sin mirar, la salida no lee nada', due.length === 0 && life.published.length === before);
+    life.suggestions.activity('t1', 'idle');
+    life.suggestions.activity('t1', 'idle');
+    check('S55 libre otra vez: una pantalla nueva, y una sola aunque se repita el aviso', life.opened() === 2);
+    await life.fire();
+    life.suggestions.forget('t1');
+    check('S55 la pestana se cerro: ya no hay, y la pantalla se suelta',
+      JSON.stringify(life.published.at(-1)) === JSON.stringify(['t1', null]) && life.disposed() === 2 && life.suggestions.snapshot().length === 0);
+  }
+  {
+    const life = lifecycle();
+    life.suggestions.activity('t1', 'idle');
+    const release = life.hold();
+    life.timers.splice(0).forEach((timer) => timer.callback());
+    life.suggestions.activity('t1', 'waiting');
+    release();
+    await life.settle();
+    await life.settle();
+    check('S55 una lectura que termina despues de soltar la pantalla no avisa nada',
+      life.published.every(([, text]) => text === null), JSON.stringify(life.published));
+  }
+  {
+    const other = lifecycle({ reader: null });
+    other.suggestions.activity('t1', 'idle');
+    check('S55 una CLI sin sugerencia: no se abre ninguna pantalla', other.opened() === 0 && other.timers.length === 0);
+    const asleep = lifecycle({ screenAvailable: false });
+    asleep.suggestions.activity('t1', 'idle');
+    check('S55 sin proceso no hay pantalla: nada', asleep.timers.length === 0 && asleep.published.length === 0);
+    const failing = lifecycle({ reader: { read: () => { throw new Error('pantalla rara'); } } });
+    failing.suggestions.activity('t1', 'idle');
+    await failing.fire();
+    check('S55 un lector que falla no tira el servidor: no hay sugerencia', failing.published.length === 0);
+    const all = lifecycle();
+    all.suggestions.activity('t1', 'idle');
+    await all.fire();
+    all.suggestions.dispose();
+    check('S55 al apagar se sueltan las pantallas', all.disposed() === 1 && all.suggestions.snapshot().length === 0);
+  }
+
+  // El mensaje del protocolo.
+  {
+    const parse = (value) => parseServerMessage(JSON.stringify(value));
+    const ok = parse({ type: 'composer.suggestion', terminalId: 't1', text: WANTED });
+    const cleared = parse({ type: 'composer.suggestion', terminalId: 't1', text: null });
+    check('S55 composer.suggestion con texto y con null',
+      ok?.type === 'composer.suggestion' && ok.text === WANTED && cleared?.type === 'composer.suggestion' && cleared.text === null);
+    check('S55 sin pestana, con un texto vacio o que no es texto: se descarta',
+      parse({ type: 'composer.suggestion', text: WANTED }) === null &&
+        parse({ type: 'composer.suggestion', terminalId: 't1', text: '' }) === null &&
+        parse({ type: 'composer.suggestion', terminalId: 't1', text: 3 }) === null &&
+        parse({ type: 'composer.suggestion', terminalId: 't1' }) === null);
+  }
+
+  // El cuadro (web/src/composer-suggestion.ts): se pinta vacio, y solo Tab la escribe.
+  {
+    const view = (over) => visibleSuggestion({ suggestion: WANTED, text: '', attachments: 0, disabled: false, ...over });
+    check('S55 el cuadro vacio la pinta', view({}) === WANTED);
+    check('S55 con algo escrito, aunque sea un espacio, o con una ficha: no',
+      view({ text: ' ' }) === null && view({ text: 'hola' }) === null && view({ attachments: 1 }) === null);
+    check('S55 sin CLI, o sin sugerencia: no', view({ disabled: true }) === null && view({ suggestion: null }) === null && view({ suggestion: '   ' }) === null);
+    const key = (over) => takesSuggestion({ key: 'Tab', shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, ...over });
+    check('S55 Tab sola la escribe', key({}) === true);
+    check('S55 Shift+Tab, Ctrl+Tab, Alt+Tab, con el IME a mitad, o Enter: no',
+      !key({ shiftKey: true }) && !key({ ctrlKey: true }) && !key({ altKey: true }) && !key({ metaKey: true }) && !key({ isComposing: true }) && !key({ key: 'Enter' }));
+    const empty = new Map();
+    const one = withSuggestion(empty, 't1', WANTED);
+    check('S55 las de cada pestana: se agrega, se saca con null, y la misma si no cambio nada',
+      one.get('t1') === WANTED && withSuggestion(one, 't1', WANTED) === one && withSuggestion(one, 't1', null).size === 0 && withSuggestion(empty, 't1', null) === empty);
+  }
+}
+
+// S56. El foco que se le reporta a la CLI: el de la pestana (hito 53, §5.3.2).
+// Claude Code sin foco no pide la sugerencia, y la terminal de la pagina le
+// decia "foco afuera" en cuanto se escribia en el cuadro. Lo decidio el usuario:
+// la pestana activa, en una ventana con foco, es como tener la CLI abierta.
+{
+  const { TabFocus, FOCUS_IN, FOCUS_OUT } = await import('../src/tab-focus.ts');
+  const { attentionOf } = await import('../../web/src/tab-attention.ts');
+  const { parseClientMessage: parseClient } = await import('@agent-workbench/shared');
+  const ON = '\u001b[?1004h';
+  const OFF = '\u001b[?1004l';
+
+  function focusWorld({ applies = true, accepts = true } = {}) {
+    const writes = [];
+    const focus = new TabFocus({
+      appliesTo: () => applies,
+      write: (terminalId, data) => {
+        if (!accepts) return false;
+        writes.push([terminalId, data === FOCUS_IN ? 'in' : data === FOCUS_OUT ? 'out' : data]);
+        return true;
+      },
+    });
+    return { focus, writes };
+  }
+  const shown = (writes) => JSON.stringify(writes);
+  {
+    const { focus, writes } = focusWorld();
+    const w1 = {};
+    const w2 = {};
+    focus.attend(w1, 't1');
+    check('S56 antes de que la CLI pida los avisos de foco no se le escribe nada', writes.length === 0 && focus.focused('t1'));
+    focus.output('t1', `algo${ON}mas`);
+    check('S56 al pedirlos, se le dice el de ahora: alguien mira la pestana', shown(writes) === shown([['t1', 'in']]), shown(writes));
+    focus.attend(w2, 't1');
+    check('S56 otra ventana que mira la misma: nada nuevo', writes.length === 1);
+    focus.attend(w1, null);
+    check('S56 una de las dos deja de mirar: sigue con foco, sin escribir', writes.length === 1 && focus.focused('t1'));
+    focus.leave(w2);
+    check('S56 la ultima se cierra: foco afuera', shown(writes.at(-1)) === shown(['t1', 'out']) && !focus.focused('t1'));
+    focus.attend(w1, 't1');
+    focus.output('t2', ON);
+    check('S56 una CLI que pide los avisos sin nadie mirando: foco afuera', shown(writes.at(-1)) === shown(['t2', 'out']), shown(writes));
+    focus.attend(w1, 't2');
+    check('S56 cambiar de pestana: afuera la de antes y adentro la nueva',
+      shown(writes.slice(-2)) === shown([['t1', 'out'], ['t2', 'in']]), shown(writes));
+    const count = writes.length;
+    focus.output('t2', OFF);
+    focus.attend(w1, null);
+    check('S56 con los avisos apagados no se le escribe', writes.length === count);
+    focus.output('t2', ON);
+    check('S56 al volver a pedirlos (una CLI nueva, al abrirla otra vez), se le dice el de ahora', shown(writes.at(-1)) === shown(['t2', 'out']), shown(writes));
+  }
+  {
+    const { focus, writes } = focusWorld();
+    const watcher = {};
+    focus.attend(watcher, 't1');
+    focus.output('t1', 'texto \u001b[?10');
+    check('S56 control: el pedido cortado en dos trozos todavia no cuenta', writes.length === 0);
+    focus.output('t1', '04h y sigue');
+    check('S56 el pedido cortado entre dos trozos de salida se reconoce', shown(writes) === shown([['t1', 'in']]), shown(writes));
+    const both = focusWorld();
+    both.focus.attend(watcher, 't1');
+    both.focus.output('t1', '\u001b[?1000;1004;1006h');
+    check('S56 junto con otros modos en la misma secuencia, tambien', shown(both.writes) === shown([['t1', 'in']]), shown(both.writes));
+    const other = focusWorld();
+    other.focus.attend(watcher, 't1');
+    other.focus.output('t1', '\u001b[?2004h\u001b[?1049h');
+    check('S56 otros modos no son el de foco', other.writes.length === 0);
+  }
+  {
+    const { focus, writes } = focusWorld({ applies: false });
+    focus.attend({}, 't1');
+    focus.output('t1', ON);
+    check('S56 una CLI sin foco por pestana: no se le escribe nada', writes.length === 0);
+    check('S56 y los avisos de su terminal pasan como siempre', !focus.isFocusReport('t1', FOCUS_OUT) && !focus.isFocusReport('t1', FOCUS_IN));
+    const claude = focusWorld();
+    check('S56 con foco por pestana, los avisos de la terminal de la pagina no pasan',
+      claude.focus.isFocusReport('t1', FOCUS_OUT) && claude.focus.isFocusReport('t1', FOCUS_IN));
+    check('S56 lo demas que se teclea si pasa (Esc, una letra, un aviso con algo mas)',
+      !claude.focus.isFocusReport('t1', '\u001b') && !claude.focus.isFocusReport('t1', 'a') && !claude.focus.isFocusReport('t1', `${FOCUS_OUT}a`));
+    const asleep = focusWorld({ accepts: false });
+    asleep.focus.attend({}, 't1');
+    asleep.focus.output('t1', ON);
+    check('S56 una pty que no acepta la escritura no la da por dicha', asleep.writes.length === 0);
+  }
+  {
+    const { focus, writes } = focusWorld();
+    const watcher = {};
+    focus.attend(watcher, 't1');
+    focus.output('t1', ON);
+    focus.forget('t1');
+    focus.attend(watcher, 't2');
+    check('S56 una pestana cerrada se olvida, y su ventana puede mirar otra', !focus.focused('t1') && focus.focused('t2') && writes.length === 1);
+  }
+
+  check('S56 la ventana mira la pestana activa solo con foco y a la vista',
+    attentionOf({ activeTerminalId: 't1', focused: true, visible: true }) === 't1' &&
+      attentionOf({ activeTerminalId: 't1', focused: false, visible: true }) === null &&
+      attentionOf({ activeTerminalId: 't1', focused: true, visible: false }) === null &&
+      attentionOf({ activeTerminalId: null, focused: true, visible: true }) === null);
+  const attention = (value) => parseClient(JSON.stringify(value));
+  check('S56 terminal.attention con una pestana y con null',
+    attention({ type: 'terminal.attention', terminalId: 't1' })?.terminalId === 't1' && attention({ type: 'terminal.attention', terminalId: null })?.terminalId === null);
+  check('S56 terminal.attention mal formado se descarta',
+    attention({ type: 'terminal.attention', terminalId: 3 }) === null && attention({ type: 'terminal.attention' }) === null && attention({ type: 'terminal.attention', terminalId: '' }) === null);
+}
+
 await rm(dir, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);
