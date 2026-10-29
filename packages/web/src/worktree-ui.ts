@@ -3,7 +3,8 @@
  * se ve la etiqueta de la rama, qué dice cada fila, qué carpeta y qué comando
  * muestra el diálogo, y qué impide crear o quitar. Desde el hito 49, también
  * lo que dice cada fila de su base, de las otras ramas y de su revisión, cómo
- * arranca cada CLI para revisar y qué impide integrar.
+ * arranca cada CLI para revisar y qué impide integrar. Desde el hito 54, qué
+ * impide pasar una conversación a una rama y de qué rama sale.
  *
  * Todo es opcional para quien no las usa: sin ninguna rama aparte, ninguna
  * pestaña lleva etiqueta y ninguna fila cambia.
@@ -20,6 +21,7 @@ import {
   type AgentInfo,
   type BranchNameProblem,
   type ReadOnlyGuard,
+  type ServerTextKey,
   type TerminalDescriptor,
   type WorktreeCopySummary,
   type WorktreeCreateMode,
@@ -27,6 +29,7 @@ import {
   type WorktreeInspection,
   type WorktreeIntegratePlan,
   type WorktreeKeptBranch,
+  type WorktreeMoveBlock,
   type WorktreeRemovePlan,
   type WorktreeReviewSummary,
   type WorktreeRow,
@@ -35,6 +38,7 @@ import {
 } from '@agent-workbench/shared';
 import { formatBytes, formatList } from './i18n/format.js';
 import { t, type MessageKey } from './i18n/index.js';
+import { serverTextMessage } from './i18n/server-text.js';
 
 /**
  * La rama que va en la etiqueta de una pestaña, o null.
@@ -111,6 +115,31 @@ export function createBlocker(
   if (mode === 'existing' && found?.checkedOut === true) return t('worktree.create.branchInUse');
   if (!inspection.branches.some((entry) => entry.name === base)) return t('worktree.create.baseMissing');
   return null;
+}
+
+const MOVE_BLOCK_TEXTS: Readonly<Record<WorktreeMoveBlock, ServerTextKey>> = {
+  busy: 'worktreeMoveBusy',
+  waiting: 'worktreeMoveWaiting',
+  pending: 'worktreeMovePending',
+};
+
+/**
+ * Hito 54. Por qué no se puede pasar ahora la conversación a una rama, o null.
+ * Es el mismo texto con que se niega el servidor, que lo vuelve a mirar justo
+ * antes de cerrar la CLI.
+ */
+export function moveBlockText(block: WorktreeMoveBlock | null): string | null {
+  return block === null ? null : serverTextMessage({ key: MOVE_BLOCK_TEXTS[block] });
+}
+
+/**
+ * Hito 54. La base con que viene el diálogo de pasar una conversación: la rama
+ * de la carpeta donde está la pestaña (decisión 4 del plan), si el repo la
+ * tiene; si no, la de la carpeta principal.
+ */
+export function moveDefaultBase(inspection: WorktreeInspection, tabBranch: string | null): string {
+  if (tabBranch !== null && inspection.branches.some((entry) => entry.name === tabBranch)) return tabBranch;
+  return inspection.currentBranch ?? inspection.branches[0]?.name ?? '';
 }
 
 /** La carpeta que se va a crear, para mostrar. La arma de nuevo el servidor. */

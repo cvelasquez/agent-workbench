@@ -12,7 +12,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { TOKEN_QUERY_PARAM, type AgentInfo, type TerminalId } from '@agent-workbench/shared';
+import { TOKEN_QUERY_PARAM, worktreeMoveBlock, type AgentInfo, type TerminalId } from '@agent-workbench/shared';
 import { ArchivedSessions } from './archived-sessions.js';
 import { createAgentRegistry, type AgentRegistry } from './agents/registry.js';
 import { migrateLegacyConfigDir } from './config-dir-migration.js';
@@ -391,6 +391,8 @@ async function main(): Promise<void> {
         });
     },
     history: (agent) => agents.get(agent)?.adapter.history ?? null,
+    // Hito 54: pasar una conversacion a una rama cierra su CLI: no con el agente trabajando ni con algo esperandolo.
+    moveBlocker: (terminalId) => worktreeMoveBlock(registry.activityOf(terminalId), conversations.hasPending(terminalId)),
   });
   // Crear o quitar una rama cambia en que proyecto cae cada sesion y la etiqueta de cada pestana.
   worktrees.on('changed', () => {

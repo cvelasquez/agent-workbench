@@ -8,15 +8,20 @@
  * y si la carpeta principal tiene cambios sin commit, que la rama nueva no se
  * lleva.
  *
+ * Desde el hito 54, el mismo diálogo pasa a la rama la conversación de una
+ * pestaña (`dialog.move`): sin elegir CLI, que es la misma, con la base en la
+ * rama de su carpeta, y con lo que tiene sin commit, que no viaja solo y se le
+ * puede pedir al agente. Con el agente trabajando, dice por qué espera.
+ *
  * `Escape` cierra sin llegar a la terminal, como los demás diálogos.
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import type { AgentId, AgentInfo, WorktreeCreateMode } from '@agent-workbench/shared';
+import type { AgentId, AgentInfo, WorktreeCreateMode, WorktreeMoveBlock } from '@agent-workbench/shared';
 import { formatList } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import type { CreateDialog, WorktreeCreateChoice } from './useWorktrees.js';
-import { copySummaryText, createBlocker, createCommandPreview, folderPreview } from './worktree-ui.js';
+import { copySummaryText, createBlocker, createCommandPreview, folderPreview, moveBlockText, moveDefaultBase } from './worktree-ui.js';
 
 interface WorktreeDialogProps {
   dialog: CreateDialog;
@@ -25,12 +30,22 @@ interface WorktreeDialogProps {
   offerAgentChoice: boolean;
   /** La que viene elegida: la del proyecto, o la de por defecto. */
   agent: AgentId | null;
+  /** Hito 54, al pasar una conversación: por qué no se puede ahora, o null. */
+  moveBlock?: WorktreeMoveBlock | null;
   onSubmit: (choice: WorktreeCreateChoice) => void;
   onClose: () => void;
 }
 
-export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubmit, onClose }: WorktreeDialogProps): JSX.Element {
-  const { state } = dialog;
+export function WorktreeDialog({
+  dialog,
+  agents,
+  offerAgentChoice,
+  agent,
+  moveBlock = null,
+  onSubmit,
+  onClose,
+}: WorktreeDialogProps): JSX.Element {
+  const { state, move } = dialog;
   const inspection = state.phase === 'loading' ? null : state.inspection;
   const [mode, setMode] = useState<WorktreeCreateMode>('new');
   const [newBranch, setNewBranch] = useState('');
@@ -38,6 +53,8 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
   const [base, setBase] = useState('');
   const [chosenAgent, setChosenAgent] = useState<AgentId | null>(agent);
   const [copyNotes, setCopyNotes] = useState(true);
+  // Hito 54: marcada, porque sólo deja el pedido en el cuadro, sin mandarlo.
+  const [askChanges, setAskChanges] = useState(true);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -50,11 +67,11 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [onClose]);
 
-  // La base sale elegida: la rama de la carpeta principal.
+  // La base sale elegida: la rama de la carpeta principal; al pasar una conversación, la de su carpeta.
   useEffect(() => {
     if (inspection === null || base.length > 0) return;
-    setBase(inspection.currentBranch ?? inspection.branches[0]?.name ?? '');
-  }, [inspection, base]);
+    setBase(move !== null ? moveDefaultBase(inspection, move.tabBranch) : (inspection.currentBranch ?? inspection.branches[0]?.name ?? ''));
+  }, [inspection, base, move]);
 
   const freeBranches = useMemo(
     () => inspection?.branches.filter((entry) => !entry.checkedOut).map((entry) => entry.name) ?? [],
@@ -70,8 +87,12 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
   const effectiveBase = mode === 'new' ? base : (inspection?.currentBranch ?? base);
   const blocker = inspection === null ? null : createBlocker(inspection, branch, mode, effectiveBase);
   const busy = state.phase === 'creating';
+  // Hito 54: lo que impide pasar la conversación ahora (el agente trabaja); se ve aunque el nombre esté vacío.
+  const waitText = move === null ? null : moveBlockText(moveBlock);
+  // Lo sin commit que no viaja solo: el de la carpeta de la pestaña.
+  const leftBehind = move === null || inspection === null ? 0 : (inspection.sourceChanges ?? inspection.mainChanges);
   // Después de un fallo se puede volver a intentar: el diálogo sigue con lo que mostró.
-  const canCreate = inspection !== null && !busy && branch.length > 0 && blocker === null;
+  const canCreate = inspection !== null && !busy && branch.length > 0 && blocker === null && waitText === null;
 
   const submit = (): void => {
     if (!canCreate) return;
@@ -80,11 +101,12 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
       base: effectiveBase,
       mode,
       copyNotes,
-      ...(offerAgentChoice && chosenAgent !== null ? { agent: chosenAgent } : {}),
+      ...(move === null && offerAgentChoice && chosenAgent !== null ? { agent: chosenAgent } : {}),
+      ...(move !== null ? { askChanges: askChanges && leftBehind > 0 } : {}),
     });
   };
 
-  const title = t('worktree.create.title');
+  const title = move === null ? t('worktree.create.title') : t('worktree.move.title');
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal worktree-dialog" role="dialog" aria-label={title} onClick={(event) => event.stopPropagation()}>
@@ -96,7 +118,11 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
         </header>
 
         <div className="modal-body">
-          <p className="modal-hint">{t('worktree.create.intro', { project: dialog.projectName })}</p>
+          <p className="modal-hint">
+            {move === null
+              ? t('worktree.create.intro', { project: dialog.projectName })
+              : t('worktree.move.intro', { project: dialog.projectName })}
+          </p>
 
           {state.phase === 'loading' && <p className="modal-hint">{t('worktree.create.loading')}</p>}
 
@@ -165,7 +191,7 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
                 {freeBranches.length === 0 && <p className="modal-hint">{t('worktree.create.noFreeBranch')}</p>}
               </div>
 
-              {offerAgentChoice && installed.length > 1 && (
+              {move === null && offerAgentChoice && installed.length > 1 && (
                 <label className="worktree-field">
                   <span className="worktree-label">{t('worktree.create.agent')}</span>
                   <select
@@ -184,6 +210,7 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
               )}
 
               {blocker !== null && <p className="worktree-problem">{blocker}</p>}
+              {waitText !== null && <p className="worktree-problem">{waitText}</p>}
 
               <h3 className="modal-section">{t('worktree.create.copySection')}</h3>
               {inspection.notes.files === 0 ? (
@@ -212,8 +239,20 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
                     : t('worktree.create.include', { summary: copySummaryText(inspection.include) })}
                 </p>
               )}
-              {inspection.mainChanges > 0 && (
+              {move === null && inspection.mainChanges > 0 && (
                 <p className="worktree-warning">{t('worktree.create.mainChanges', { count: inspection.mainChanges })}</p>
+              )}
+              {move !== null && leftBehind > 0 && (
+                <>
+                  <p className="worktree-warning">{t('worktree.move.changes', { count: leftBehind })}</p>
+                  <label className="worktree-check">
+                    <input type="checkbox" checked={askChanges} onChange={(event) => setAskChanges(event.target.checked)} disabled={busy} />
+                    <span>
+                      {t('worktree.move.askChanges')}
+                      <span className="modal-hint"> {t('worktree.move.askChangesHint')}</span>
+                    </span>
+                  </label>
+                </>
               )}
 
               {branch.length > 0 && blocker === null && (
@@ -234,7 +273,13 @@ export function WorktreeDialog({ dialog, agents, offerAgentChoice, agent, onSubm
                   {t('common.cancel')}
                 </button>
                 <button type="submit" className="primary-button" disabled={!canCreate}>
-                  {busy ? t('worktree.create.creating') : t('worktree.create.submit')}
+                  {move === null
+                    ? busy
+                      ? t('worktree.create.creating')
+                      : t('worktree.create.submit')
+                    : busy
+                      ? t('worktree.move.moving')
+                      : t('worktree.move.submit')}
                 </button>
               </div>
             </form>

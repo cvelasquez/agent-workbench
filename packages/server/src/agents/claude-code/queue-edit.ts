@@ -35,7 +35,7 @@ import { parseJsonlLine, readTailLines } from '../../jsonl-reader.js';
 import type { QueueEditContext, QueueEditDriver, QueueEditOutcome, RewindIo } from '../adapter.js';
 import { waitForStableScreen, type ScreenWaitTiming } from '../screen-wait.js';
 import { readTimestamp } from './jsonl-events.js';
-import { sessionFilePath } from './paths.js';
+import { sessionFileOf } from './paths.js';
 import { queuedUserText } from './prompt-queue.js';
 
 const UP = '\x1b[A';
@@ -209,7 +209,7 @@ export function createClaudeCodeQueueEdit(timing: ClaudeCodeQueueEditTiming = DE
       runClaudeCodeQueueEdit(
         io,
         context,
-        { popped: (target, since) => readPoppedPrompts(sessionFilePath(target.cwd, target.sessionId), since) },
+        { popped: async (target, since) => readPoppedPrompts(await sessionFileOf(target.cwd, target.sessionId), since) },
         timing,
       ),
   };

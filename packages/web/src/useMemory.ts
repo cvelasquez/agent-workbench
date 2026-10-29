@@ -102,7 +102,8 @@ function importedText(copied: string[], skipped: string[]): string {
   });
 }
 
-export function useMemory(connection: AgentConnection, terminalId: TerminalId | null): MemoryView {
+/** `cwd`: la carpeta de la pestana. Si cambia (Hito 54), se vuelve a suscribir. */
+export function useMemory(connection: AgentConnection, terminalId: TerminalId | null, cwd: string | null = null): MemoryView {
   const [status, setStatus] = useState<MemoryStatus | null>(null);
   const [open, setOpen] = useState<MemoryNoteContent | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
@@ -245,7 +246,8 @@ export function useMemory(connection: AgentConnection, terminalId: TerminalId | 
       offReopen();
       connection.send({ type: 'memory.unsubscribe', terminalId });
     };
-  }, [connection, terminalId, issue]);
+    // `cwd` (Hito 54): la pestana que se paso a una rama aparte mira la memoria de su carpeta nueva.
+  }, [connection, terminalId, cwd, issue]);
 
   // Lo que se muestra de la accion anterior se borra al empezar otra: un
   // "Listo" viejo al lado de un pedido nuevo confunde sobre cual termino.

@@ -236,6 +236,13 @@ interface Entry {
    * el snapshot, y el cliente lo veria dos veces.
    */
   primed: boolean;
+  /**
+   * El arranque del seguidor (`start`): lo espera todo el que lea la entrada.
+   * Desde el Hito 54 el de Claude Code busca ahi donde esta el archivo, y una
+   * segunda suscripcion que llegaba mientras arrancaba la primera leia antes:
+   * la conversacion de una pestana mudada salia "esperando", sin eventos.
+   */
+  started: Promise<void>;
   /** Corta la suscripcion al vigilante de estado al soltar la pestana. */
   stopWatchingStatus: (() => void) | null;
   /**
@@ -460,15 +467,19 @@ export class ConversationHub extends EventEmitter {
       this.startFollowTicker(terminalId, entry);
       // Lo que el seguidor necesita antes de leer. Con Claude Code, la variante
       // que el archivo nunca dice: sin esto el medidor mostraria 200k un
-      // instante y 1M despues.
-      await entry.follower.start();
+      // instante y 1M despues. Y desde el Hito 54, donde esta el archivo.
+      entry.started = entry.follower.start();
+      await entry.started;
       debugLog(
         'conversation',
-        `following ${path.basename(entry.follower.label)} for ${terminalId.slice(0, 8)}`,
+        `following ${path.basename(path.dirname(entry.follower.label))}/${path.basename(entry.follower.label)} for ${terminalId.slice(0, 8)}`,
       );
-      // Si mientras arrancaba la pestana cambio de sesion, la cuenta va a la entrada nueva.
-      entry = this.entries.get(terminalId) ?? entry;
     }
+    // La que arranco otro pedido que llego antes, tambien: no se lee antes de que arranque.
+    await entry.started;
+    // Si mientras arrancaba la pestana cambio de sesion, la cuenta va a la entrada nueva, ya arrancada.
+    entry = this.entries.get(terminalId) ?? entry;
+    await entry.started;
 
     entry.refs += 1;
 
@@ -610,6 +621,7 @@ export class ConversationHub extends EventEmitter {
       refs: 0,
       timer: null,
       polling: Promise.resolve(),
+      started: Promise.resolve(),
       waitingFor: null,
       statusActivity: null,
       openToolCall: false,
@@ -773,6 +785,16 @@ export class ConversationHub extends EventEmitter {
     return this.computeQueue(terminalId).length > 0;
   }
 
+  /**
+   * true si algo espera al agente de la pestana: lo enviado que todavia no
+   * empezo (§6.35.2) o la cola. Lo pregunta el servicio de las ramas aparte
+   * antes de mudarla (Hito 54): cerrar la CLI para retomarla en otra carpeta se
+   * llevaria eso por delante.
+   */
+  hasPending(terminalId: TerminalId): boolean {
+    return this.computeShownQueue(terminalId).length > 0;
+  }
+
   /** La cola de ahora, sin tocar lo avisado. La mira el socket antes de sacarla para editarla (§6.35.1). */
   queueSnapshot(terminalId: TerminalId): QueuedPrompt[] {
     return this.computeQueue(terminalId);
@@ -872,12 +894,28 @@ export class ConversationHub extends EventEmitter {
    *
    * Solo si alguien la sigue: sin entrada, el proximo `subscribe` ya lee el
    * descriptor nuevo.
+   *
+   * Desde el hito 54, tambien la misma sesion en otra carpeta: la pestana se
+   * paso a una rama aparte (§6.38). Si el seguidor sigue el mismo archivo desde
+   * la carpeta nueva (`retarget`), no se reabre: con el antivirus, abrir uno que
+   * la CLI acaba de escribir espera su revision entera (§4.11.1), y el hilo de
+   * una sesion larga se quedaba esperando. Si no puede, uno nuevo, como siempre.
    */
   private async rebind(terminalId: TerminalId): Promise<void> {
     const entry = this.entries.get(terminalId);
     const descriptor = this.registry.get(terminalId);
     if (entry === undefined || descriptor === null || descriptor.agent === null) return;
-    if (descriptor.sessionId === entry.sessionId) return;
+    if (descriptor.sessionId === entry.sessionId) {
+      if (descriptor.cwd === entry.cwd) return;
+      const kept = (await entry.follower.retarget?.(descriptor.cwd)) === true;
+      // Otro cambio mientras se miraba ya hizo lo suyo.
+      if (this.entries.get(terminalId) !== entry || this.registry.get(terminalId)?.cwd !== descriptor.cwd) return;
+      if (kept) {
+        entry.cwd = descriptor.cwd;
+        debugLog('conversation', `${terminalId.slice(0, 8)} moved to ${descriptor.cwd}: same file, kept open`);
+        return;
+      }
+    }
     const adapter = this.agents.get(descriptor.agent)?.adapter ?? null;
     if (adapter === null) return;
 
@@ -908,7 +946,8 @@ export class ConversationHub extends EventEmitter {
       'conversation',
       `${terminalId.slice(0, 8)} changed session: following ${path.basename(next.follower.label)}`,
     );
-    await next.follower.start();
+    next.started = next.follower.start();
+    await next.started;
     next.primed = true;
     await this.runPoll(terminalId, next, { silent: true });
     // Otro cambio mientras tanto ya aviso por su cuenta.

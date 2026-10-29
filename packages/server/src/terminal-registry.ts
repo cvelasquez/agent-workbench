@@ -487,6 +487,71 @@ export class TerminalRegistry extends EventEmitter {
   }
 
   /**
+   * Muda una pestana de agente a otra carpeta con la misma conversacion: la de
+   * una rama aparte (Hito 54, §6.38). Es la misma pestana: mismo `terminalId` y
+   * mismo `sessionId`, con otra carpeta y otra rama.
+   *
+   * La pestana queda tomada (`launching`) de punta a punta: nadie la despierta
+   * ni le escribe en el medio. En este orden:
+   *  1. si tiene CLI, se cierra y se espera su salida, como al relanzar;
+   *  2. `prepare` arma la carpeta nueva (crea la rama) y la devuelve;
+   *  3. la pestana pasa a esa carpeta y avisa `session`: el hub vuelve a seguir
+   *     la conversacion desde ahi;
+   *  4. si tenia CLI, se abre otra vez ahi, retomando (`wake`). Dormida o
+   *     terminada, queda asi, y se retoma en la carpeta nueva al despertar.
+   *
+   * Si algo falla antes de mudarla, la pestana queda donde estaba, con su CLI
+   * otra vez abierta si la tenia, y el error sigue. Si lo que falla es abrir la
+   * CLI en la carpeta nueva, la pestana queda mudada y sin CLI, con "Abrir CLI":
+   * la rama ya existe. null si la pestana no esta, no es de agente o ya se
+   * estaba lanzando.
+   */
+  async relocate(terminalId: TerminalId, prepare: () => Promise<string>): Promise<TerminalDescriptor | null> {
+    const entry = this.terminals.get(terminalId);
+    if (entry === undefined || entry.descriptor.kind !== 'agent' || entry.launching) return null;
+    const hadCli = entry.session !== null;
+    let moved = false;
+    let failure: unknown = null;
+    entry.launching = true;
+    try {
+      if (hadCli && !(await this.endSessionForRestart(entry))) {
+        throw new TerminalOpenError('spawn-failed', serverText('relaunchCloseFailed'));
+      }
+      const cwd = await prepare();
+      if (this.terminals.get(terminalId) === entry) {
+        await this.assertDirectory(cwd);
+        const worktree = await this.worktreeFor('agent', cwd);
+        if (this.terminals.get(terminalId) === entry) {
+          entry.descriptor = { ...entry.descriptor, cwd, worktree, resumed: true };
+          moved = true;
+        }
+      }
+    } catch (error) {
+      failure = error;
+    } finally {
+      entry.launching = false;
+    }
+    // Cerrada en el medio: no queda nada que abrir.
+    if (this.terminals.get(terminalId) !== entry) {
+      if (failure !== null) throw failure;
+      return null;
+    }
+    if (moved) {
+      this.persist();
+      this.emit('changed');
+      this.emit('session', terminalId, entry.descriptor.sessionId);
+    }
+    // La CLI que tenia vuelve: en la carpeta nueva, o donde estaba si algo fallo.
+    if (hadCli && entry.session === null) {
+      await this.wake(terminalId).catch((error: unknown) => {
+        console.warn(`[registry] couldn't reopen the CLI of ${terminalId.slice(0, 8)} after moving it:`, error);
+      });
+    }
+    if (failure !== null) throw failure;
+    return entry.descriptor;
+  }
+
+  /**
    * Termina la CLI de una pestana que se va a relanzar y espera su salida, que
    * es la que la deja como terminada, suelta su gancho y deja de seguir su
    * estado (`onExit` de `spawn`). Sin esperar, la salida tardia de la vieja

@@ -16,7 +16,8 @@
  * nada que cargue `node-pty`.
  */
 
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setLocale } from '../../web/src/i18n/index.ts';
@@ -171,6 +172,13 @@ check('51.1 scheduledSend que no es true cae a false; true se lee',
   parseAgentCapabilities({ scheduledSend: 'true' }).scheduledSend === false &&
   parseAgentCapabilities({ scheduledSend: 1 }).scheduledSend === false &&
   parseAgentCapabilities({ scheduledSend: true }).scheduledSend === true);
+// Hito 54: un servidor anterior no la manda, y ahi ninguna conversacion se pasa a una rama.
+check('54.1 moveToWorktree ausente es false, y NO_CAPABILITIES la declara en false',
+  parseAgentCapabilities({ resume: true }).moveToWorktree === false && NO_CAPABILITIES.moveToWorktree === false);
+check('54.1 moveToWorktree que no es true cae a false; true se lee',
+  parseAgentCapabilities({ moveToWorktree: 'true' }).moveToWorktree === false &&
+  parseAgentCapabilities({ moveToWorktree: 1 }).moveToWorktree === false &&
+  parseAgentCapabilities({ moveToWorktree: true }).moveToWorktree === true);
 // Hito 49: un servidor anterior no la manda, y sin ella ninguna CLI se ofrece en solo lectura.
 check('49 readOnlyLaunch ausente es null, y NO_CAPABILITIES la declara null',
   parseAgentCapabilities({ statusSource: true }).readOnlyLaunch === null && NO_CAPABILITIES.readOnlyLaunch === null);
@@ -535,7 +543,7 @@ const {
 const { AgentRegistry, resolveAgentForOpen } = await import('../src/agents/registry.ts');
 const { createClaudeCodeAdapter } = await import('../src/agents/claude-code/index.ts');
 const { claudeCodeEnvironment } = await import('../src/agents/claude-code/environment.ts');
-const { sessionFilePath, sessionsRoot } = await import('../src/agents/claude-code/paths.ts');
+const { findSessionFile, sessionFilePath, sessionsRoot } = await import('../src/agents/claude-code/paths.ts');
 
 /** Espera a que `condition()` sea verdad, con plazo. Nunca un sleep fijo. */
 async function waitFor(condition, timeoutMs = 5000) {
@@ -671,6 +679,7 @@ const adapter = createClaudeCodeAdapter();
     forceSend: true,
     editQueue: true,
     scheduledSend: true,
+    moveToWorktree: true,
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };
   check('capacidades de claude-code iguales al literal', sameShape(adapter.capabilities, expected), JSON.stringify(adapter.capabilities));
@@ -853,6 +862,11 @@ const adapter = createClaudeCodeAdapter();
       const registered = appRegistry.adapter(id);
       return !registered.capabilities.scheduledSend || registered.status !== null || registered.id === 'codex';
     }));
+  // Hito 54: retomar desde otra carpeta del repo, medido solo con Claude Code (c19, c20).
+  const moving = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.moveToWorktree);
+  check('54.2 moveToWorktree: solo claude-code', sameShape(moving, ['claude-code']), moving.join(','));
+  check('54.2 la que se muda sigue el archivo sin reabrirlo (retarget)',
+    moving.every((id) => typeof appRegistry.adapter(id).history.follow({ cwd: home, sessionId: 'x' }).retarget === 'function'));
   appRegistry.disposeAll();
 }
 
@@ -1163,6 +1177,7 @@ const adapter = createClaudeCodeAdapter();
     controls.imagesAllowed && controls.rewind && controls.questionsAnswerable && controls.fileMentions &&
     controls.plansAvailable && controls.noteSendable && controls.forceSend && controls.editQueue, JSON.stringify(controls));
   check('claude-code: el reloj de programar (hito 51)', controls.scheduledSend === true, JSON.stringify(controls));
+  check('claude-code: pasar a una rama aparte (hito 54)', controls.moveToWorktree === true, JSON.stringify(controls));
   check('claude-code: el medidor mide con variantes', controls.contextWindowSource === 'usage-with-variants');
 
   // Hito 49: una pestana de revision arranco en plan, y el combo cuenta desde ahi.
@@ -1179,14 +1194,14 @@ const adapter = createClaudeCodeAdapter();
   check('sin capacidades: sin imagenes, volver aqui, preguntas, @ruta, planes, nota ni medidor',
     !none.imagesAllowed && !none.rewind && !none.questionsAnswerable && !none.fileMentions &&
     !none.plansAvailable && !none.noteSendable && !none.forceSend && !none.editQueue && !none.scheduledSend &&
-    none.contextWindowSource === null, JSON.stringify(none));
+    !none.moveToWorktree && none.contextWindowSource === null, JSON.stringify(none));
 
   // --- Cada capacidad apaga su control y ninguno mas ---
   const controlOf = {
     permissionCycle: 'modeCycle', models: 'models', efforts: 'efforts', imagesByPath: 'imagesAllowed',
     rewind: 'rewind', questionCards: 'questionsAnswerable', fileMentions: 'fileMentions', plans: 'plansAvailable',
     contextWindowSource: 'contextWindowSource', readySignal: 'noteSendable', forceSend: 'forceSend',
-    editQueue: 'editQueue', scheduledSend: 'scheduledSend',
+    editQueue: 'editQueue', scheduledSend: 'scheduledSend', moveToWorktree: 'moveToWorktree',
   };
   for (const [capability, control] of Object.entries(controlOf)) {
     const without = ui.controlsFor({ ...claude.capabilities, [capability]: NO_CAPABILITIES[capability] });
@@ -1757,6 +1772,144 @@ const recordHub = (hub) => {
 
   hub.disposeAll();
   hubAgents.disposeAll();
+}
+
+// ---------------------------------------------------------------------------
+// 54. Una conversacion que se paso a una rama aparte (§4.11.2, §6.38)
+// ---------------------------------------------------------------------------
+
+{
+  /*
+    Medido en c19: retomada desde la carpeta de la rama, Claude Code sigue
+    escribiendo el archivo de la carpeta de la principal. Con la ruta calculada
+    desde la carpeta de la pestana, el hilo quedaba vacio y despertarla arrancaba
+    otra conversacion con el mismo id.
+  */
+  const adapter54 = createClaudeCodeAdapter();
+  const agents54 = new AgentRegistry([adapter54]);
+  const mainCwd = path.join(root, 'proyecto-54');
+  const branchCwd = path.join(root, 'proyecto-54.worktrees', 'rama');
+  await mkdir(mainCwd, { recursive: true });
+  await mkdir(branchCwd, { recursive: true });
+  const sessionId = '54545454-5454-4545-8545-545454545454';
+  const file = sessionFilePath(mainCwd, sessionId);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, userLine('u1', mainCwd, 'hola') + assistantLine('a1', 'claude-opus-5', 5000));
+  check('54.3 el fixture: la carpeta de la rama no tiene archivo propio', !existsSync(sessionFilePath(branchCwd, sessionId)));
+
+  check('54.3 el archivo donde se calcula, si esta ahi', (await findSessionFile(mainCwd, sessionId)) === file);
+  check('54.3 desde la carpeta de la rama, el de la principal', (await findSessionFile(branchCwd, sessionId)) === file);
+  check('54.3 un id que no esta en ningun lado es null', (await findSessionFile(branchCwd, 'abababab-0000-4000-8000-000000000000')) === null);
+  check('54.3 un id que no es un id no arma ninguna ruta', (await findSessionFile(mainCwd, `..${path.sep}x`)) === null && (await findSessionFile(mainCwd, '')) === null);
+  check('54.3 sin carpeta no se busca: la copia propia la da por sin origen, como antes (C6)', (await findSessionFile('', sessionId)) === null);
+  check('54.4 exists ve la conversacion que se mudo: al despertar se retoma, no se arranca otra',
+    (await adapter54.history.exists(branchCwd, sessionId)) === true);
+
+  // Dos del mismo id en dos carpetas ajenas: gana el que la CLI escribio ultimo.
+  const twinId = '54545454-0000-4545-8545-000000000002';
+  const olderTwin = path.join(sessionsRoot(), 'D--vieja', `${twinId}.jsonl`);
+  const newerTwin = path.join(sessionsRoot(), 'D--nueva', `${twinId}.jsonl`);
+  await mkdir(path.dirname(olderTwin), { recursive: true });
+  await mkdir(path.dirname(newerTwin), { recursive: true });
+  await writeFile(olderTwin, userLine('u1', mainCwd, 'vieja'));
+  await writeFile(newerTwin, userLine('u1', mainCwd, 'nueva'));
+  await utimes(olderTwin, new Date(1_000_000), new Date(1_000_000));
+  await utimes(newerTwin, new Date(2_000_000), new Date(2_000_000));
+  check('54.3 con dos del mismo id, el mas reciente', (await findSessionFile(branchCwd, twinId)) === newerTwin);
+
+  // El seguidor de la pestana ya mudada lee el archivo de la principal.
+  const moved = adapter54.history.follow({ cwd: branchCwd, sessionId });
+  await moved.start();
+  await moved.poll();
+  check('54.5 la pestana en la rama lee la conversacion entera, del archivo de la principal',
+    moved.label === file && moved.getState() === 'live' && moved.getTail(10).events.length === 2, `${moved.label} ${moved.getState()}`);
+
+  // La pestana que se muda: el mismo archivo, sin reabrirlo.
+  const kept = adapter54.history.follow({ cwd: mainCwd, sessionId }, { keepOpen: true });
+  await kept.start();
+  await kept.poll();
+  check('54.6 retarget a la carpeta de la rama: el mismo archivo se sigue', (await kept.retarget(branchCwd)) === true && kept.label === file);
+  await appendFile(file, userLine('u2', branchCwd, 'desde la rama') + assistantLine('a2', 'claude-opus-5', 6000));
+  const afterMove = await kept.poll();
+  check('54.6 y lo que la CLI escribe despues se lee', afterMove.added.length >= 2, String(afterMove.added.length));
+  const ownFile = sessionFilePath(path.join(root, 'proyecto-54-otra'), sessionId);
+  await mkdir(path.dirname(ownFile), { recursive: true });
+  await writeFile(ownFile, userLine('u1', mainCwd, 'otra copia'));
+  check('54.6 a una carpeta con su propio archivo de ese id, no: hace falta otro seguidor',
+    (await kept.retarget(path.join(root, 'proyecto-54-otra'))) === false && kept.label === file);
+  await rm(ownFile);
+  await kept.close?.();
+
+  // El hub: la pestana cambia de carpeta y sigue el mismo archivo sin pedir otro seguidor.
+  const descriptor54 = descriptorOf('t-54', { cwd: mainCwd, sessionId });
+  let onSession = null;
+  const terminals54 = {
+    get: (terminalId) => (terminalId === 't-54' ? descriptor54 : null),
+    on: (event, listener) => {
+      if (event === 'session') onSession = listener;
+    },
+    launchedAtOf: () => null,
+  };
+  let follows = 0;
+  let retargeted = null;
+  const realFollow = adapter54.history.follow.bind(adapter54.history);
+  adapter54.history.follow = (target, options) => {
+    follows += 1;
+    const follower = realFollow(target, options);
+    const realRetarget = follower.retarget.bind(follower);
+    follower.retarget = async (cwd) => {
+      retargeted = await realRetarget(cwd);
+      return retargeted;
+    };
+    return follower;
+  };
+  const hub54 = new ConversationHub(terminals54, agents54);
+  const seen54 = recordHub(hub54);
+  await hub54.subscribe('t-54');
+  descriptor54.cwd = branchCwd;
+  onSession?.('t-54');
+  check('54.7 el hub sigue el mismo archivo desde la carpeta nueva, sin otro seguidor ni reinicio',
+    (await waitFor(() => retargeted !== null)) && retargeted === true && follows === 1 && seen54.reset.length === 0,
+    `${follows} seguidores, ${seen54.reset.length} reinicios, retarget ${retargeted}`);
+  await appendFile(file, userLine('u3', branchCwd, 'otra vez') + assistantLine('a3', 'claude-opus-5', 7000));
+  hub54.onHistoryChanged('claude-code', file);
+  check('54.7 y lo nuevo llega como siempre', await waitFor(() => seen54.append.length >= 1), String(seen54.append.length));
+  hub54.disposeAll();
+
+  // Dos suscripciones a la vez a la pestana mudada (la pagina y otra ventana): la segunda espera el arranque de la primera.
+  adapter54.history.follow = realFollow;
+  const twice = new ConversationHub(fakeTerminals([descriptorOf('t-54b', { cwd: branchCwd, sessionId })]), agents54);
+  const [firstView, secondView] = await Promise.all([twice.subscribe('t-54b'), twice.subscribe('t-54b')]);
+  check('54.9 dos suscripciones a la vez: las dos ven la conversacion, ninguna "esperando"',
+    firstView?.state === 'live' && secondView?.state === 'live' && firstView.events.length > 0 && secondView.events.length > 0,
+    `${firstView?.state}/${firstView?.events.length} ${secondView?.state}/${secondView?.events.length}`);
+  twice.disposeAll();
+
+  // La barra: la conversacion que la app mudo va en su rama, y se retoma ahi.
+  const { SessionIndex: Index54 } = await import('../src/session-index.ts');
+  const links54 = {
+    sessionLink: async (cwd) =>
+      cwd === branchCwd ? { mainCwd, worktree: { branch: 'rama', exists: true, reopenable: false } } : null,
+    isGitRepo: async () => true,
+  };
+  const placedIndex = new Index54(agents54, undefined, undefined, {
+    ...links54,
+    movedTo: (agent, id) => (agent === 'claude-code' && id === sessionId ? branchCwd : null),
+  });
+  await placedIndex.scan();
+  const placedRow = placedIndex.getProjects().flatMap((project) => project.sessions.map((session) => ({ project, session })))
+    .find(({ session }) => session.sessionId === sessionId);
+  check('54.8 la barra la muestra en la rama, dentro de su proyecto',
+    placedRow?.session.cwd === branchCwd && placedRow.session.worktree?.branch === 'rama' && placedRow.project.cwd === mainCwd,
+    JSON.stringify({ cwd: placedRow?.session.cwd, branch: placedRow?.session.worktree?.branch, project: placedRow?.project.cwd }));
+  check('54.8 y retomarla la abre en la rama', placedIndex.find('claude-code', sessionId)?.cwd === branchCwd);
+  const plainIndex = new Index54(agents54, undefined, undefined, links54);
+  await plainIndex.scan();
+  check('54.8 sin la anotacion, donde la ubica su archivo (como antes)', plainIndex.find('claude-code', sessionId)?.cwd === mainCwd);
+  placedIndex.dispose();
+  plainIndex.dispose();
+  adapter54.history.follow = realFollow;
+  agents54.disposeAll();
 }
 
 {

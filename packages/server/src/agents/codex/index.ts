@@ -81,6 +81,8 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
     historial no tiene un turno abierto. Codex no publica si trabaja.
   */
   scheduledSend: true,
+  // Hito 54: retomar desde otra carpeta no esta medido.
+  moveToWorktree: false,
   /*
     Hito 49: `--sandbox read-only`, al abrir y al reanudar. Medido con la 0.162.1
     y un proveedor falso: con la sandbox de Windows del usuario, escribir fallo

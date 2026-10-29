@@ -492,8 +492,12 @@ export class SessionIndex extends EventEmitter {
      * indice de siempre.
      */
     private readonly catalog?: VaultCatalogView,
-    /** Hito 48: de que proyecto y que rama es cada carpeta. Ausente: cada carpeta es su proyecto, como siempre. */
-    private readonly links?: Pick<WorktreeLinks, 'sessionLink' | 'isGitRepo'>,
+    /**
+     * Hito 48: de que proyecto y que rama es cada carpeta. Ausente: cada carpeta
+     * es su proyecto, como siempre. Hito 54: y a que rama paso la app cada
+     * conversacion (`movedTo`).
+     */
+    private readonly links?: Pick<WorktreeLinks, 'sessionLink' | 'isGitRepo'> & Partial<Pick<WorktreeLinks, 'movedTo'>>,
   ) {
     super();
     this.stopCatalog =
@@ -538,8 +542,26 @@ export class SessionIndex extends EventEmitter {
     return this.cwdLink.get(cwd) ?? null;
   }
 
+  /**
+   * Hito 54: una conversacion que la app paso a una rama aparte va en la barra
+   * a esa rama, y se retoma ahi. Su archivo no lo dice (sigue en la carpeta de
+   * la principal, y el `cwd` de sus lineas cambia tambien cuando el agente entra
+   * a una subcarpeta): lo dice el registro de las ramas. Se aplica al emitir,
+   * como archivar, y no en la cache: mudarla no cambia el archivo.
+   */
+  private placed(session: IndexedSession): IndexedSession {
+    const folder = this.links?.movedTo?.(session.agent, session.summary.sessionId) ?? null;
+    if (folder === null) return session;
+    return { ...session, cwd: folder, summary: { ...session.summary, cwd: folder } };
+  }
+
+  /** Las sesiones nativas, cada una donde va en la barra. */
+  private placedSessions(): IndexedSession[] {
+    return [...this.sessions.values()].map((session) => this.placed(session));
+  }
+
   private projectsWith(copies: readonly ProjectInput[]): ProjectSummary[] {
-    return buildProjects([...this.sessions.values(), ...copies], process.platform, (cwd) => this.linkOf(cwd))
+    return buildProjects([...this.placedSessions(), ...copies], process.platform, (cwd) => this.linkOf(cwd))
       .map((project) => this.finish(project))
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
@@ -607,7 +629,8 @@ export class SessionIndex extends EventEmitter {
   async refreshWorktrees(): Promise<void> {
     if (this.links === undefined) return;
     const cwds = new Set<string>();
-    for (const session of this.sessions.values()) if (session.cwd !== null) cwds.add(session.cwd);
+    // La carpeta de cada una donde va en la barra: la de una conversacion que se paso a una rama, tambien (Hito 54).
+    for (const session of this.placedSessions()) if (session.cwd !== null) cwds.add(session.cwd);
     for (const copy of this.catalog?.summaries() ?? []) if (copy.cwd.length > 0) cwds.add(copy.cwd);
     for (const cwd of cwds) await this.learnCwd(cwd, true);
     this.emitProjects();
@@ -656,7 +679,8 @@ export class SessionIndex extends EventEmitter {
    */
   find(agent: SessionAgentId, sessionId: string): SessionSummary | null {
     for (const session of this.sessions.values()) {
-      if (session.agent === agent && session.summary.sessionId === sessionId) return session.summary;
+      // Con la carpeta de la rama si la app la paso a una (Hito 54): de ahi se retoma.
+      if (session.agent === agent && session.summary.sessionId === sessionId) return this.placed(session).summary;
     }
     for (const copy of this.vaultCopies()) {
       if (copy.agent === agent && copy.summary.sessionId === sessionId) return copy.summary;
@@ -837,7 +861,8 @@ export class SessionIndex extends EventEmitter {
 
           // Una vez por `cwd` distinto, y antes de que la sesion sea visible.
           for (const session of batch) {
-            if (session.cwd !== null) await this.learnCwd(session.cwd);
+            const { cwd } = this.placed(session);
+            if (cwd !== null) await this.learnCwd(cwd);
           }
           /*
             El grupo entra entero y de una: una sesion sin `cwd` que se viera
@@ -853,8 +878,12 @@ export class SessionIndex extends EventEmitter {
             Cada proyecto tocado sale **ya fusionado** con lo de los grupos
             anteriores; uno parcial pisaria en el cliente al que ya estaba.
           */
-          const fresh = new Set(batch.map((session) => session.summary));
-          const touched = buildProjects(this.sessions.values(), process.platform, (cwd) => this.linkOf(cwd)).filter(
+          const all = this.placedSessions();
+          const batchKeys = new Set(batch.map((session) => cacheKey(session.agent, session.ref)));
+          const fresh = new Set(
+            all.filter((session) => batchKeys.has(cacheKey(session.agent, session.ref))).map((session) => session.summary),
+          );
+          const touched = buildProjects(all, process.platform, (cwd) => this.linkOf(cwd)).filter(
             (project) => project.sessions.some((summary) => fresh.has(summary)),
           );
           this.emit(
@@ -1062,7 +1091,8 @@ export class SessionIndex extends EventEmitter {
         continue;
       }
       // Siempre de nuevo: la carpeta pudo aparecer o borrarse desde el escaneo.
-      if (indexed.cwd !== null) await this.learnCwd(indexed.cwd, true);
+      const placedCwd = this.placed(indexed).cwd;
+      if (placedCwd !== null) await this.learnCwd(placedCwd, true);
       // Un `set` sobre una clave que ya estaba conserva su posicion.
       this.sessions.set(key, indexed);
       changed = true;

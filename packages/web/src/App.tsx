@@ -112,6 +112,7 @@ import type { ConnectionStatus } from './connection.js';
 import {
   blindToApprovals,
   normalizeCwdKey,
+  worktreeMoveBlock,
   type AgentId,
   type GlobalSearchHit,
   type ScheduledMessage,
@@ -690,6 +691,35 @@ export function App(): JSX.Element {
   useEffect(() => closeChanges(), [activeTerminalId, closeChanges]);
   const folderNameOf = (cwd: string): string => cwd.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? cwd;
   const agentLabelOf = (agent: AgentId): string => agents.find((info) => info.id === agent)?.label ?? agent;
+  /*
+    Hito 54: pasar a una rama aparte la conversacion de la pestana que se mira.
+    Solo con una CLI que lo permite, con una conversacion, y en un repositorio de
+    git: la pestana lleva su rama desde que se abre (§6.38).
+  */
+  const openMoveToBranch =
+    activeTerminal === null ||
+    activeTerminal.kind !== 'agent' ||
+    !activeControls.moveToWorktree ||
+    activeTerminal.sessionId.length === 0 ||
+    activeTerminal.worktree === null
+      ? null
+      : () => {
+          const projectCwd = tabColorCwd(activeTerminal);
+          worktreeDialogs.openMove(
+            { terminalId: activeTerminal.terminalId, tabBranch: activeTerminal.worktree?.branch ?? null },
+            projectCwd,
+            folderNameOf(projectCwd),
+          );
+        };
+  // Lo que impide pasarla ahora, para el dialogo: el agente trabajando, o algo esperandolo en el hilo.
+  const moveTarget = worktreeDialogs.create?.move ?? null;
+  const moveBlock =
+    moveTarget === null
+      ? null
+      : worktreeMoveBlock(
+          activity.get(moveTarget.terminalId) ?? null,
+          moveTarget.terminalId === activeTerminalId && conversation.queue.length > 0,
+        );
   const gitWorktrees: GitPanelWorktrees = {
     rows: worktreeRows.rows,
     kept: worktreeRows.kept,
@@ -700,6 +730,7 @@ export function App(): JSX.Element {
       const projectCwd = tabColorCwd(activeTerminal);
       worktreeDialogs.openCreate({ kind: 'terminal', terminalId: activeTerminal.terminalId }, projectCwd, folderNameOf(projectCwd));
     },
+    onMove: openMoveToBranch,
     // A la pestana que ya trabaja en esa carpeta, o una nueva ahi.
     onOpen: (row) => {
       const key = normalizeCwdKey(row.path, platform);
@@ -732,7 +763,8 @@ export function App(): JSX.Element {
     const project = projects.find((candidate) => candidate.key === source.projectKey);
     return project === undefined ? defaultAgent : projectAgent(terminals, project, platform, agents, defaultAgent);
   })();
-  const files = useFiles(connection, filesShown ? activeTerminalId : null);
+  // Con la carpeta: si la pestana se paso a una rama aparte (hito 54), el arbol es el de la rama.
+  const files = useFiles(connection, filesShown ? activeTerminalId : null, activeTerminal?.cwd ?? null);
   /*
     Los planes se escuchan siempre, no solo con la solapa delante: la lista
     llega con la conversacion —no se pide— y es lo que alimenta el contador de
@@ -753,7 +785,7 @@ export function App(): JSX.Element {
     al entrar—. El watcher del servidor mira un puñado de nombres del proyecto
     y no recorre nada, asi que tenerlo prendido no cuesta lo que un arbol.
   */
-  const memory = useMemory(connection, panelFollowing ? activeTerminalId : null);
+  const memory = useMemory(connection, panelFollowing ? activeTerminalId : null, activeTerminal?.cwd ?? null);
 
   /*
     La CLI esta a la vista si su solapa esta delante y el panel abierto. Si no,
@@ -1535,6 +1567,7 @@ export function App(): JSX.Element {
                     continuationTabLabel(activeSessionTitle ?? activeTerminal.label),
                   )
           }
+          onMoveToBranch={openMoveToBranch ?? undefined}
           searchRequest={threadSearch}
           onSearchRequestApplied={threadSearchApplied}
           toolCallNotice={toolCallNotice}
@@ -1946,6 +1979,7 @@ export function App(): JSX.Element {
           agents={agents}
           offerAgentChoice={offerAgentChoice}
           agent={worktreeAgent}
+          moveBlock={moveBlock}
           onSubmit={worktreeDialogs.submitCreate}
           onClose={worktreeDialogs.closeCreate}
         />

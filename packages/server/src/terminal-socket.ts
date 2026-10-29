@@ -2960,6 +2960,39 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           break;
         }
 
+        /*
+          Hito 54: pasar la conversacion de una pestana a una rama aparte. Es una
+          capacidad medida por CLI: con una que no la declara no se cierra nada.
+          El pedido para el agente, si hay, llega antes que la respuesta: el
+          dialogo se cierra con la respuesta y el cuadro ya lo tiene.
+        */
+        case 'worktree.move': {
+          const { requestId, terminalId } = message;
+          if (adapterOf(terminalId)?.capabilities.moveToWorktree !== true) {
+            sendError(socket, 'agent-unsupported', serverText('worktreeMoveUnavailable'), undefined, requestId);
+            break;
+          }
+          void worktrees
+            .move({
+              terminalId,
+              branch: message.branch,
+              base: message.base,
+              mode: message.mode,
+              copyNotes: message.copyNotes,
+              askChanges: message.askChanges,
+            })
+            .then(
+              ({ terminal, text }) => {
+                if (text !== null) {
+                  send(socket, { type: 'composer.prefill', terminalId: terminal.terminalId, text, reason: 'requested', requestId });
+                }
+                send(socket, { type: 'worktree.moved', requestId, terminal });
+              },
+              (error: unknown) => sendWorktreeError(socket, error, requestId),
+            );
+          break;
+        }
+
         case 'worktree.status': {
           const { terminalId } = message;
           // Con las ramas guardadas (20-10-2026): las que creo la app, sin carpeta y todavia en el repo.

@@ -18,7 +18,7 @@
 
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { SessionWorktree, TabWorktree } from '@agent-workbench/shared';
+import type { AgentId, SessionWorktree, TabWorktree } from '@agent-workbench/shared';
 import { mainCwdFor, readCheckout } from './checkout.js';
 import { branchCommit, commitExists } from './git.js';
 import { mainRootFromShape } from './names.js';
@@ -33,6 +33,8 @@ export interface WorktreeLink {
 
 export interface WorktreeRegistryView {
   byPath(folder: string): WorktreeRecord | null;
+  /** Hito 54. La carpeta a la que la app pasó una conversación. Ausente: ninguna. */
+  movedTo?(agent: AgentId, sessionId: string): string | null;
 }
 
 async function exists(candidate: string): Promise<boolean> {
@@ -62,6 +64,15 @@ function recordAbove(
 
 export class WorktreeLinks {
   constructor(private readonly registry: WorktreeRegistryView) {}
+
+  /**
+   * Hito 54. La carpeta de la rama aparte a la que la app pasó una
+   * conversación, o null: ahí va en la barra, y ahí se retoma. Sale sólo del
+   * registro de la app, sin tocar el disco.
+   */
+  movedTo(agent: AgentId, sessionId: string): string | null {
+    return this.registry.movedTo?.(agent, sessionId) ?? null;
+  }
 
   /** La rama aparte de una carpeta del historial, o null si es la de un proyecto (o no es de git). */
   async sessionLink(cwd: string): Promise<WorktreeLink | null> {

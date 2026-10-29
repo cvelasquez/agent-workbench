@@ -23,7 +23,7 @@ import type {
   SessionFollower,
 } from '../adapter.js';
 import type { ModelVariantRegistry } from './model-variants.js';
-import { sessionFilePath, sessionsRoot } from './paths.js';
+import { findSessionFile, sessionsRoot } from './paths.js';
 import { describePlans, readPlan } from './plans-store.js';
 import { ClaudeCodeSessionFollower } from './session-follower.js';
 import { scanSessionFile } from './session-scan.js';
@@ -148,9 +148,13 @@ export function createClaudeCodeHistory(variants: ModelVariantRegistry): History
      * Decide entre `--resume` y `--session-id` al despertar una pestana:
      * reanudar una sesion que nunca escribio nada deja a la CLI mostrando un
      * error, y la pestana en pantalla queda sin explicacion.
+     *
+     * En cualquier carpeta del historial (Hito 54): una conversacion que se paso
+     * a una rama aparte tiene su archivo en la de la principal, y con la ruta
+     * calculada despertarla arrancaba otra con el mismo id.
      */
     async exists(cwd: string, sessionId: string): Promise<boolean> {
-      return pathExists(sessionFilePath(cwd, sessionId));
+      return (await findSessionFile(cwd, sessionId)) !== null;
     },
 
     follow(target: { cwd: string; sessionId: string }, options?: FollowOptions): SessionFollower {

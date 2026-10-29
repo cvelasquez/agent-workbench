@@ -539,7 +539,7 @@ try {
       [...hostOnly, ...opensOnHost, 'input'].every((type) => remoteRefusal(type, false) === null));
     // Hito 48, decisión 5: las ramas aparte desde el teléfono, lo mismo que en la PC.
     check('las ramas aparte se atienden también desde un equipo remoto',
-      ['worktree.inspect', 'worktree.create', 'worktree.status', 'worktree.planRemove', 'worktree.remove', 'worktree.reopen', 'worktree.askNotes', 'worktree.askCommit']
+      ['worktree.inspect', 'worktree.create', 'worktree.move', 'worktree.status', 'worktree.planRemove', 'worktree.remove', 'worktree.reopen', 'worktree.askNotes', 'worktree.askCommit']
         .every((type) => remoteRefusal(type, true) === null));
   }
 

@@ -48,7 +48,7 @@ import { createInterface } from 'node:readline';
 import type { RewindDriver, RewindFailure, RewindIo, RewindOutcome, RewindRequest } from '../adapter.js';
 import { parseJsonlLine } from '../../jsonl-reader.js';
 import { cleanUserText } from './jsonl-events.js';
-import { sessionFilePath } from './paths.js';
+import { sessionFileOf } from './paths.js';
 
 const ESC = '\x1b';
 const UP = '\x1b[A';
@@ -307,7 +307,7 @@ export async function runRewind(
  * no esta.
  */
 export async function readPromptText(cwd: string, sessionId: string, uuid: string): Promise<string | null> {
-  const stream = createReadStream(sessionFilePath(cwd, sessionId), { encoding: 'utf8' });
+  const stream = createReadStream(await sessionFileOf(cwd, sessionId), { encoding: 'utf8' });
   const failed = new Promise<null>((resolve) => stream.once('error', () => resolve(null)));
   const lines = createInterface({ input: stream, crlfDelay: Infinity });
   const found = (async (): Promise<string | null> => {

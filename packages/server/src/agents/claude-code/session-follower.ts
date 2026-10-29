@@ -14,6 +14,11 @@
  *    watcher ve nacer un `<sessionId>.jsonl` en otra carpeta, el seguimiento se
  *    muda ahi. Es barato y cubre que la CLI normalice el `cwd` de una forma que
  *    no previmos.
+ *  - **El archivo donde este** (Hito 54, §4.11.2). Al arrancar, si la ruta
+ *    calculada no existe y el id tiene archivo en otra carpeta, se sigue ese: el
+ *    de una conversacion que se paso a una rama aparte queda en la carpeta de la
+ *    principal. Y la pestana que se muda sigue el mismo archivo sin reabrirlo
+ *    (`retarget`): reabrir uno que la CLI acaba de escribir espera al antivirus.
  */
 
 import path from 'node:path';
@@ -31,7 +36,7 @@ import { readAgentDefaults } from './agent-defaults.js';
 import { ConversationFollower } from './conversation-follower.js';
 import { loadConversationImage } from './conversation-image.js';
 import type { ModelVariantRegistry } from './model-variants.js';
-import { sessionFilePath } from './paths.js';
+import { findSessionFile, sessionFilePath } from './paths.js';
 
 /**
  * true si dos rutas nombran el mismo archivo, sin tocar el disco.
@@ -54,9 +59,9 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
 
   /** `options`: ver `FollowOptions`. Vale tambien para el seguidor del re-apuntado. */
   constructor(
-    private readonly cwd: string,
+    private cwd: string,
     private readonly sessionId: string,
-    variants: ModelVariantRegistry,
+    private readonly variants: ModelVariantRegistry,
     private readonly options: FollowOptions = {},
   ) {
     this.inner = new ConversationFollower(sessionFilePath(cwd, sessionId), variants, {
@@ -71,7 +76,39 @@ export class ClaudeCodeSessionFollower implements SessionFollower {
   }
 
   async start(): Promise<void> {
+    await this.locate();
     await this.applyDefaults();
+  }
+
+  /**
+   * Antes de la primera lectura: si el archivo no esta donde se calcula y el id
+   * tiene uno en otra carpeta, se sigue ese (Hito 54). Sin ninguno, la ruta
+   * calculada, que es donde va a escribir una sesion nueva.
+   */
+  private async locate(): Promise<void> {
+    const found = await findSessionFile(this.cwd, this.sessionId);
+    if (found === null || isSameFilePath(found, this.inner.filePath, process.platform)) return;
+    void this.inner.close();
+    this.inner = new ConversationFollower(found, this.variants, {
+      ...this.options,
+      target: { cwd: this.cwd, sessionId: this.sessionId },
+    });
+  }
+
+  /**
+   * La pestana se mudo a `cwd` con la misma conversacion (Hito 54, §6.38).
+   * true si el archivo sigue siendo el que se lee: se sigue leyendo por el que
+   * ya estaba abierto, y desde ahora los documentos y la configuracion son los
+   * de la carpeta nueva. false si es otro: quien llama arma un seguidor nuevo.
+   */
+  async retarget(cwd: string): Promise<boolean> {
+    const found = await findSessionFile(cwd, this.sessionId);
+    if (found === null || !isSameFilePath(found, this.inner.filePath, process.platform)) return false;
+    this.cwd = cwd;
+    this.inner.setTarget({ cwd, sessionId: this.sessionId });
+    await this.applyDefaults();
+    this.inner.recomputeModel();
+    return true;
   }
 
   async poll(): Promise<PollResult> {

@@ -2126,6 +2126,209 @@ let reviewSession = '';
 }
 
 // ---------------------------------------------------------------------------
+// M. Pasar una conversación a una rama aparte (hito 54)
+// ---------------------------------------------------------------------------
+
+{
+  const moveRepo = await makeRepo('mudanza');
+  // Dos cambios sin commit en la carpeta de donde sale: uno de git y uno nuevo.
+  await appendFile(path.join(moveRepo, 'README.md'), 'cambio\n');
+  await writeFile(path.join(moveRepo, 'otro.ts'), 'export {};\n');
+  const moveStore = new WorktreeStore(path.join(root, 'appdata', 'worktrees-mudanza.json'));
+  await moveStore.load();
+  const events = [];
+  let blocker = null;
+  let beforePrepare = null;
+  const tabs = [];
+  /*
+    Como `TerminalRegistry.relocate`, que carga node-pty y aca no se importa:
+    cierra la CLI, arma la carpeta, muda la pestaña y la vuelve a abrir; si
+    armar la carpeta falla, la vuelve a abrir donde estaba. Que el de verdad
+    haga eso en ese orden lo mira MV14, en su código.
+  */
+  const moveRegistry = {
+    async open() {
+      throw new Error('pasar una conversación no abre pestañas');
+    },
+    list: () => [...tabs],
+    get: (terminalId) => tabs.find((tab) => tab.terminalId === terminalId) ?? null,
+    async relocate(terminalId, prepare) {
+      const tab = tabs.find((candidate) => candidate.terminalId === terminalId);
+      if (tab === undefined) return null;
+      if (tab.alive) events.push('cerró');
+      let cwd;
+      try {
+        await beforePrepare?.();
+        cwd = await prepare();
+      } catch (error) {
+        if (tab.alive) events.push('abrió donde estaba');
+        throw error;
+      }
+      tab.cwd = cwd;
+      events.push('mudó');
+      if (tab.alive) events.push('abrió en la rama');
+      return tab;
+    },
+  };
+  const moveService = new WorktreeService({
+    store: moveStore,
+    registry: moveRegistry,
+    projectCwd: () => null,
+    findSession: () => null,
+    moveBlocker: () => blocker,
+  });
+  const tabOf = (terminalId, extra = {}) => ({
+    terminalId, kind: 'agent', agent: 'claude-code', cwd: moveRepo, sessionId: `conv-${terminalId}`, label: '', resumed: false,
+    createdAt: 0, alive: true, exitCode: null, sleeping: false, launchedAt: 1, worktree: null, review: false, ...extra,
+  });
+  tabs.push(tabOf('m1'), tabOf('m-sin-conv', { sessionId: '' }), tabOf('m-consola', { kind: 'shell', agent: null }));
+  const errorKey = async (run) => {
+    try {
+      await run();
+      return 'no falló';
+    } catch (error) {
+      return error instanceof WorktreeError ? error.text.key : String(error);
+    }
+  };
+  const request = (extra = {}) => ({ terminalId: 'm1', branch: 'mudada', base: 'main', mode: 'new', copyNotes: true, askChanges: true, ...extra });
+  const branches = () => git(moveRepo, 'branch', '--list').split('\n').map((line) => line.replace(/^[*+]?\s*/, '').trim()).filter(Boolean);
+
+  const inspected = await moveService.inspect({ kind: 'terminal', terminalId: 'm1' });
+  check('MV0 desde la pestaña, lo sin commit de su carpeta, que es lo que no viaja solo',
+    inspected.sourceChanges === 2 && inspected.mainChanges === 2, `${inspected.sourceChanges} ${inspected.mainChanges}`);
+  const fromProject = await service.inspect({ kind: 'project', projectKey: 'proyecto' });
+  check('MV0 desde un proyecto no hay pestaña: null', fromProject.sourceChanges === null);
+
+  const blockedKeys = [];
+  for (const reason of ['busy', 'waiting', 'pending']) {
+    blocker = reason;
+    blockedKeys.push(await errorKey(() => moveService.move(request())));
+  }
+  blocker = null;
+  check('MV1 con el agente trabajando, la CLI esperando o algo esperando al agente, no se cierra nada ni se crea nada',
+    JSON.stringify(blockedKeys) === JSON.stringify(['worktreeMoveBusy', 'worktreeMoveWaiting', 'worktreeMovePending']) &&
+      events.length === 0 && !branches().includes('mudada'),
+    `${blockedKeys.join(' ')} / ${events.join(' ')}`);
+  const unavailable = [
+    await errorKey(() => moveService.move(request({ terminalId: 'm-sin-conv' }))),
+    await errorKey(() => moveService.move(request({ terminalId: 'm-consola' }))),
+    await errorKey(() => moveService.move(request({ terminalId: 'no-existe' }))),
+  ];
+  check('MV2 sin conversación, una consola o una pestaña que no está: no se puede', unavailable.every((key) => key === 'worktreeMoveUnavailable'), unavailable.join(' '));
+  const invalid = [
+    await errorKey(() => moveService.move(request({ branch: 'main' }))),
+    await errorKey(() => moveService.move(request({ branch: 'a..b' }))),
+    await errorKey(() => moveService.move(request({ base: 'no-existe' }))),
+  ];
+  check('MV3 lo que no se puede crear dice por qué antes de cerrar la CLI',
+    JSON.stringify(invalid) === JSON.stringify(['worktreeBranchExists', 'worktreeBranchInvalid', 'worktreeBaseMissing']) && events.length === 0,
+    `${invalid.join(' ')} / ${events.join(' ')}`);
+
+  // Falla al armar la carpeta (alguien la creó en el medio): la pestaña queda donde estaba, con su CLI.
+  const stolen = worktreeFolderFor(path.resolve(moveRepo), 'robada');
+  beforePrepare = async () => {
+    await mkdir(stolen, { recursive: true });
+    await writeFile(path.join(stolen, 'ocupado.txt'), 'x');
+  };
+  const stolenKey = await errorKey(() => moveService.move(request({ branch: 'robada' })));
+  beforePrepare = null;
+  check('MV4 si crear la rama falla con la CLI ya cerrada, vuelve a abrirse donde estaba y no queda anotada',
+    stolenKey === 'worktreeGitFailed' && JSON.stringify(events) === JSON.stringify(['cerró', 'abrió donde estaba']) &&
+      tabs[0].cwd === moveRepo && moveStore.list().length === 0,
+    `${stolenKey} / ${events.join(' ')}`);
+  events.length = 0;
+
+  const moved = await moveService.move(request());
+  const movedFolder = worktreeFolderFor(path.resolve(moveRepo), 'mudada');
+  check('MV5 la misma pestaña pasa a la carpeta de la rama: cierra la CLI, crea la rama y la vuelve a abrir ahí',
+    moved.terminal.terminalId === 'm1' && moved.terminal.cwd === movedFolder &&
+      JSON.stringify(events) === JSON.stringify(['cerró', 'mudó', 'abrió en la rama']) && existsSync(path.join(movedFolder, 'CLAUDE.md')),
+    `${moved.terminal.cwd} / ${events.join(' ')}`);
+  const record = moveStore.byPath(movedFolder);
+  check('MV6 la conversación queda anotada en el registro de la rama, y la barra la busca ahí',
+    record?.movedSessions.length === 1 && record.movedSessions[0].agent === 'claude-code' && record.movedSessions[0].sessionId === 'conv-m1' &&
+      moveStore.movedTo('claude-code', 'conv-m1') === movedFolder && new WorktreeLinks(moveStore).movedTo('claude-code', 'conv-m1') === movedFolder &&
+      moveStore.movedTo('claude-code', 'otra') === null && moveStore.movedTo('codex', 'conv-m1') === null,
+    JSON.stringify(record?.movedSessions));
+  check('MV7 el pedido nombra lo que quedó sin commit allá, y le exige que todo lo del archivo sea suyo para deshacerlo',
+    moved.text !== null && moved.text.includes('README.md') && moved.text.includes('otro.ts') && moved.text.includes(path.resolve(moveRepo)) &&
+      moved.text.includes('undo a change only if everything that changed in that file is yours') && !moved.text.includes('commit them'),
+    String(moved.text));
+  check('MV8 la carpeta de donde salió no se tocó: sus cambios siguen ahí', git(moveRepo, 'status', '--porcelain').includes('README.md') &&
+    existsSync(path.join(moveRepo, 'otro.ts')));
+
+  // Una segunda mudanza, sin pedido, desde la rama a otra: la última es la que vale.
+  events.length = 0;
+  const again = await moveService.move(request({ branch: 'segunda', base: 'mudada', askChanges: false }));
+  const secondFolder = worktreeFolderFor(path.resolve(moveRepo), 'segunda');
+  check('MV9 sin pedido no hay texto, y desde una rama aparte también se puede',
+    again.text === null && again.terminal.cwd === secondFolder && moveStore.movedTo('claude-code', 'conv-m1') === secondFolder);
+  const sourceAfter = await moveService.inspect({ kind: 'terminal', terminalId: 'm1' });
+  check('MV10 desde una rama aparte, lo sin commit es el de su carpeta, no el de la principal',
+    sourceAfter.sourceChanges === 0 && sourceAfter.mainChanges === 2, `${sourceAfter.sourceChanges} ${sourceAfter.mainChanges}`);
+
+  // Lo que se guarda: viaja ida y vuelta, lo mal formado se descarta, un registro anterior no tiene ninguna.
+  const saved = parseWorktreesState(await readFile(path.join(root, 'appdata', 'worktrees-mudanza.json'), 'utf8'));
+  const savedRecord = saved.find((candidate) => candidate.branch === 'segunda');
+  const old = { ...savedRecord };
+  delete old.movedSessions;
+  const parsedOld = parseWorktreesState(JSON.stringify({ version: 1, worktrees: [old] }));
+  const parsedBad = parseWorktreesState(JSON.stringify({
+    version: 1,
+    worktrees: [{ ...savedRecord, movedSessions: [{ agent: 'no-existe', sessionId: 'x', movedAt: 1 }, { agent: 'codex', sessionId: '', movedAt: 1 }, { agent: 'pi', sessionId: 'p', movedAt: 2 }] }],
+  }));
+  check('MV11 la anotación se guarda; un registro anterior no tiene ninguna; una mal formada se descarta sola',
+    savedRecord?.movedSessions.length === 1 && parsedOld[0]?.movedSessions.length === 0 &&
+      JSON.stringify(parsedBad[0]?.movedSessions) === JSON.stringify([{ agent: 'pi', sessionId: 'p', movedAt: 2 }]));
+
+  // La regla de cuándo se puede, la misma en el servidor y en el diálogo.
+  check('MV12 trabajando, esperando o con algo pendiente no; libre, sin CLI o sin saber, sí',
+    shared.worktreeMoveBlock('busy', false) === 'busy' && shared.worktreeMoveBlock('waiting', false) === 'waiting' &&
+      shared.worktreeMoveBlock('idle', true) === 'pending' && shared.worktreeMoveBlock('idle', false) === null &&
+      shared.worktreeMoveBlock('offline', false) === null && shared.worktreeMoveBlock(null, false) === null);
+  check('MV12 el diálogo lo dice con el texto del servidor, y la base viene en la rama de la carpeta de la pestaña',
+    ui.moveBlockText(null) === null && ui.moveBlockText('busy')?.includes('trabajando') === true &&
+      ui.moveDefaultBase(inspected, 'main') === 'main' && ui.moveDefaultBase(inspected, 'no-esta') === 'main' &&
+      ui.moveDefaultBase({ ...inspected, branches: [{ name: 'main', checkedOut: true }, { name: 'otra', checkedOut: false }] }, 'otra') === 'otra');
+
+  // El protocolo: la pestaña por su id, sin rutas, y todo lo demás obligatorio.
+  const moveMessage = (extra) =>
+    shared.parseClientMessage(JSON.stringify({ type: 'worktree.move', requestId: 'r', terminalId: 't', branch: 'b', base: 'main', mode: 'new', copyNotes: true, askChanges: true, ...extra }));
+  check('MV13 pasar una conversación: el pedido entero, y sin una de sus partes no vale',
+    JSON.stringify(Object.keys(moveMessage({ path: 'C:\\x' }) ?? {}).sort()) ===
+      JSON.stringify(['askChanges', 'base', 'branch', 'copyNotes', 'mode', 'requestId', 'terminalId', 'type']) &&
+      moveMessage({ askChanges: undefined }) === null && moveMessage({ mode: 'otro' }) === null && moveMessage({ terminalId: '' }) === null);
+  const movedReply = shared.parseServerMessage(JSON.stringify({ type: 'worktree.moved', requestId: 'r', terminal: { terminalId: 't', kind: 'agent', agent: 'claude-code', cwd: 'D:\\x', sessionId: 's', label: '', resumed: true, createdAt: 0, alive: true } }));
+  check('MV13 la respuesta trae la misma pestaña', movedReply?.type === 'worktree.moved' && movedReply.terminal.terminalId === 't');
+  check('MV13 una inspección de un servidor anterior no trae lo de la pestaña: null',
+    shared.parseWorktreeInspection({ ...inspected, sourceChanges: undefined })?.sourceChanges === null);
+  check('MV15 el pedido con muchos archivos dice cuántos más',
+    review.moveChangesPrompt('D:\\p', ['a.ts', 'b.ts'], 5).includes('a.ts, b.ts and 3 more') && !review.moveChangesPrompt('D:\\p', ['a.ts'], 1).includes('more'));
+
+  // Cambios sigue a la pestaña que se mudó: el `.git` y el estado de la carpeta nueva, no los de la principal.
+  const { RepoHub } = await import('../src/repo-hub.ts');
+  const hubTab = { terminalId: 'git-1', cwd: moveRepo };
+  let onSession = null;
+  const repoHub = new RepoHub({
+    get: (terminalId) => (terminalId === hubTab.terminalId ? hubTab : null),
+    on: (event, listener) => {
+      if (event === 'session') onSession = listener;
+    },
+  });
+  const statuses = [];
+  repoHub.on('status', (terminalId, status) => statuses.push({ terminalId, status }));
+  const first = await repoHub.subscribe('git-1');
+  hubTab.cwd = movedFolder;
+  onSession?.('git-1');
+  const deadline = Date.now() + 15_000;
+  while (!statuses.some(({ status }) => status.branch === 'mudada') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  check('MV16 Cambios sigue a la pestaña que se mudó: el estado de la rama, no el de la principal',
+    first?.branch === 'main' && statuses.some(({ terminalId, status }) => terminalId === 'git-1' && status.branch === 'mudada'),
+    `${first?.branch} -> ${statuses.map(({ status }) => status.branch).join(',')}`);
+  repoHub.disposeAll();
+}
+
+// ---------------------------------------------------------------------------
 // G. Ningún comando de git que escriba fuera de worktrees/git.ts (§6.1)
 // ---------------------------------------------------------------------------
 
@@ -2166,6 +2369,21 @@ let reviewSession = '';
   // El rebase de ponerse al día lo hace el agente en su terminal, nunca la app (decisión 2 del hito 49).
   const rebasing = [...sources].filter(([, text]) => /'rebase'|"rebase"/.test(text)).map(([name]) => name);
   check('G7 ningún archivo del servidor arma un rebase', rebasing.length === 0, rebasing.join(' '));
+
+  /*
+    Hito 54. El registro de pestañas carga node-pty y un chequeo no lo importa:
+    que `relocate` cierre la CLI antes de crear la rama (así nada empieza un
+    turno en el medio) y la vuelva a abrir después, se mira en su código.
+  */
+  const relocateBody = sources.get('terminal-registry.ts').match(/async relocate\([\s\S]*?\r?\n {2}\}\r?\n/)?.[0] ?? '';
+  const order = ['endSessionForRestart(entry)', 'await prepare()', "this.emit('session'", 'this.wake(terminalId)'].map((needle) => relocateBody.indexOf(needle));
+  check('MV14 relocate cierra la CLI, arma la carpeta, muda la pestaña y la vuelve a abrir, en ese orden',
+    order.every((at) => at >= 0) && order.every((at, index) => index === 0 || at > (order[index - 1] ?? 0)), order.join(' '));
+  const moveCase = sources.get('terminal-socket.ts').match(/case 'worktree\.move': \{[\s\S]*?\r?\n {8}\}\r?\n/)?.[0] ?? '';
+  check('MV14 el socket: sólo con la capacidad medida, y el pedido para el agente queda en su cuadro, sin mandarse',
+    moveCase.includes('capabilities.moveToWorktree') && moveCase.includes("type: 'composer.prefill'") && moveCase.includes("reason: 'requested'") &&
+      !/write\(|submit|deliver/i.test(moveCase),
+    `${moveCase.length} caracteres`);
 }
 
 for (const child of children) child.kill();

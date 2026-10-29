@@ -20,7 +20,7 @@ import { AGENT_IDS, type AgentId, type ReadOnlyGuard } from './agents.js';
 import { GIT_CHANGE_KINDS, type GitChangeKind } from './git.js';
 // Sólo tipos: `models.ts` importa los parsers de acá, y un import de valores en
 // las dos direcciones es un ciclo.
-import type { TerminalId, TerminalKind } from './models.js';
+import type { TerminalActivity, TerminalId, TerminalKind } from './models.js';
 import {
   asArrayFiltered,
   asArrayOf,
@@ -170,6 +170,12 @@ export interface WorktreeInspection {
   branches: Array<{ name: string; checkedOut: boolean }>;
   /** Archivos con cambios sin commit en la carpeta principal: la rama nueva no se los lleva. */
   mainChanges: number;
+  /**
+   * Hito 54. Desde una pestaña, los archivos con cambios sin commit de su
+   * carpeta (la principal u otra rama aparte): al pasar su conversación a una
+   * rama, no viajan solos. null desde un proyecto, o de un servidor anterior.
+   */
+  sourceChanges: number | null;
   /** Lo que pide el `.worktreeinclude` de la carpeta principal; null si no tiene. */
   include: WorktreeCopySummary | null;
   /** Las instrucciones y la memoria que el repo ignora (`CLAUDE.md`, `AGENTS.md`, …). */
@@ -178,6 +184,27 @@ export interface WorktreeInspection {
 
 export type WorktreeCreateMode = 'new' | 'existing';
 export const WORKTREE_CREATE_MODES: readonly WorktreeCreateMode[] = ['new', 'existing'];
+
+/**
+ * Hito 54. Por qué no se puede pasar ahora la conversación de una pestaña a una
+ * rama aparte: cerrar su CLI para retomarla en la rama cortaría lo que hace.
+ * `busy`, el agente trabaja; `waiting`, la CLI espera una respuesta o un
+ * permiso; `pending`, hay algo enviado que todavía no empezó, o en cola.
+ */
+export type WorktreeMoveBlock = 'busy' | 'waiting' | 'pending';
+export const WORKTREE_MOVE_BLOCKS: readonly WorktreeMoveBlock[] = ['busy', 'waiting', 'pending'];
+
+/**
+ * Hito 54. Si se puede pasar ahora la conversación de una pestaña a una rama
+ * aparte, o por qué no. La usan el servidor, que lo hace cumplir justo antes de
+ * cerrar la CLI, y el diálogo, que lo dice antes. Sin CLI abierta (`offline`,
+ * o null) se puede: no hay nada que cortar.
+ */
+export function worktreeMoveBlock(activity: TerminalActivity | null, pending: boolean): WorktreeMoveBlock | null {
+  if (activity === 'busy') return 'busy';
+  if (activity === 'waiting') return 'waiting';
+  return pending ? 'pending' : null;
+}
 
 /** Una fila de "Ramas aparte" en Cambios. */
 export interface WorktreeRow {
@@ -673,6 +700,8 @@ export function parseWorktreeInspection(value: unknown): WorktreeInspection | nu
     currentBranch: asNonEmptyString(record['currentBranch']),
     branches,
     mainChanges,
+    // Ausente desde un proyecto, o de un servidor anterior al hito 54.
+    sourceChanges: asFiniteNumber(record['sourceChanges']),
     include,
     notes,
   };

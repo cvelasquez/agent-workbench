@@ -92,6 +92,7 @@ import {
 } from './thread-status.js';
 import type { ThreadFontState } from './useThreadFont.js';
 import { ContinueButton, ContinueIcon } from './ContinueButton.js';
+import { MoveBranchIcon } from './BranchIcon.js';
 import { pastedLineCount, splitPastedBlocks } from './composer-paste.js';
 import { noticeText } from './conversation-notice.js';
 import { formatDuration, formatTime } from './i18n/format.js';
@@ -378,6 +379,11 @@ interface ConversationViewProps {
   continueBlockedReason?: string | null;
   onContinue?: (target: AgentId) => void;
   /**
+   * Hito 54. "Pasar a una rama aparte": abre el diálogo para esta conversación.
+   * Ausente: la CLI no lo permite o la carpeta no es de git, y no se dibuja.
+   */
+  onMoveToBranch?: () => void;
+  /**
    * Un texto para el buscador del hilo, pedido desde afuera: el clic en un
    * acierto del buscador global (hito 29). `seq` distingue dos pedidos iguales.
    */
@@ -459,6 +465,7 @@ export function ConversationView({
   continueTargets = [],
   continueBlockedReason = null,
   onContinue,
+  onMoveToBranch,
   searchRequest = null,
   onSearchRequestApplied,
   activity = null,
@@ -1108,6 +1115,22 @@ export function ConversationView({
             blockedReason={continueBlockedReason}
             onPick={onContinue}
           />
+        )}
+        {/*
+          Pasar esta conversacion a una rama aparte (hito 54), al lado de
+          "CLI": las dos llevan la conversacion a otro lado. El icono de rama
+          con flecha y "Rama"; lo que hace lo dice el titulo.
+        */}
+        {onMoveToBranch !== undefined && (
+          <button
+            className="icon-button conversation-continue"
+            onClick={onMoveToBranch}
+            title={t('worktree.move.title')}
+            aria-label={t('worktree.move.title')}
+          >
+            <MoveBranchIcon />
+            <span>{t('thread.moveBranch')}</span>
+          </button>
         )}
         {/*
           Tres tamanos de letra, y un boton que los rota (hito 33). Va aca y no

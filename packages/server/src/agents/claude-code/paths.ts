@@ -12,6 +12,7 @@
  * que la conversacion nombro. Tampoco se escribe.
  */
 
+import { readdir, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -86,4 +87,59 @@ export function scratchRoot(cwd: string, sessionId: string): string {
  */
 export function sessionFilePath(cwd: string, sessionId: string): string {
   return path.join(sessionsRoot(), projectSlugFor(cwd), `${sessionId}.jsonl`);
+}
+
+/** Un id que puede ir en una ruta: el uuid de la CLI, sin separadores ni `..`. */
+const SESSION_FILE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+async function fileMtime(candidate: string): Promise<number | null> {
+  try {
+    const info = await stat(candidate);
+    return info.isFile() ? info.mtimeMs : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * El archivo de una sesion, este donde este (Hito 54, §4.11.2). null si no
+ * esta en ningun lado.
+ *
+ * Primero donde se calcula con el `cwd` de la pestana, que es donde esta casi
+ * siempre. Si no, en las demas carpetas de `projects/`: una conversacion que se
+ * paso a una rama aparte se retoma desde la carpeta de la rama y la CLI sigue
+ * escribiendo el archivo de donde empezo (c19), y `EnterWorktree` lo muda a la
+ * carpeta de la rama. Son `stat` por ruta, que el antivirus no frena (§4.11.1):
+ * no se abre ni se lee nada. Con dos del mismo id gana el mas reciente, que es
+ * el que la CLI sigue escribiendo.
+ *
+ * Sin carpeta no se busca: la copia propia da por "sin origen" una sesion cuyo
+ * resumen no dice donde esta (C6, §13), y eso no cambia con el Hito 54. Una
+ * pestana tiene siempre su carpeta.
+ */
+export async function findSessionFile(cwd: string, sessionId: string): Promise<string | null> {
+  if (cwd.length === 0 || !SESSION_FILE_ID.test(sessionId)) return null;
+  const own = sessionFilePath(cwd, sessionId);
+  if ((await fileMtime(own)) !== null) return own;
+
+  let folders: string[];
+  try {
+    folders = (await readdir(sessionsRoot(), { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return null;
+  }
+  let best: { file: string; mtimeMs: number } | null = null;
+  for (const folder of folders) {
+    const candidate = path.join(sessionsRoot(), folder, `${sessionId}.jsonl`);
+    const mtimeMs = await fileMtime(candidate);
+    if (mtimeMs !== null && (best === null || mtimeMs > best.mtimeMs)) best = { file: candidate, mtimeMs };
+  }
+  return best?.file ?? null;
+}
+
+/** El archivo de una sesion donde este, o donde va a estar si todavia no se escribio. */
+export async function sessionFileOf(cwd: string, sessionId: string): Promise<string> {
+  return (await findSessionFile(cwd, sessionId)) ?? sessionFilePath(cwd, sessionId);
 }

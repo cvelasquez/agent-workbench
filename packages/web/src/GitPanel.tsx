@@ -19,7 +19,7 @@
  */
 
 import type { AgentId, GitFileChange, GitStatus, TerminalId, WorktreeKeptBranch, WorktreeRow } from '@agent-workbench/shared';
-import { BranchIcon } from './BranchIcon.js';
+import { BranchIcon, MoveBranchIcon } from './BranchIcon.js';
 import { DiffView } from './DiffView.js';
 import { KIND_BADGE, KIND_TITLE, splitPath } from './git-kinds.js';
 import { actionWaits, type GitPanelAction } from './git-last-state.js';
@@ -83,6 +83,8 @@ export interface GitPanelWorktrees {
   rowsStale: boolean;
   /** Nueva sesion en una rama aparte, desde esta pestana. */
   onNew: () => void;
+  /** Hito 54. Pasar a una rama aparte la conversacion de esta pestana; null si su CLI no lo permite. */
+  onMove: (() => void) | null;
   /** Pasa a la pestana de esa carpeta, o abre una ahi. */
   onOpen: (row: WorktreeRow) => void;
   /** Solo las que creo la app (`id`). */
@@ -352,6 +354,17 @@ export function GitPanel({ view, worktrees }: GitPanelProps): JSX.Element {
         >
           <BranchIcon />
         </button>
+        {worktrees.onMove !== null && (
+          <button
+            className="icon-button"
+            onClick={worktrees.onMove}
+            disabled={waits('moveBranch')}
+            title={waiting.title('moveBranch', t('worktree.move.title'))}
+            aria-label={t('worktree.move.title')}
+          >
+            <MoveBranchIcon />
+          </button>
+        )}
         <button className="icon-button" onClick={refresh} title={t('git.refresh')}>
           ⟳
         </button>

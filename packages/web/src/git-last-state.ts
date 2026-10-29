@@ -66,6 +66,7 @@ export type GitPanelAction =
   | 'openDiff'
   | 'refresh'
   | 'newBranch'
+  | 'moveBranch'
   | 'openBranch'
   | 'viewChanges'
   | 'showReviewer'
@@ -85,6 +86,8 @@ const CHANGES_SOMETHING: Record<GitPanelAction, boolean> = {
   openDiff: false,
   refresh: false,
   newBranch: true,
+  // Hito 54: pasar la conversación a una rama la crea, como `newBranch`.
+  moveBranch: true,
   openBranch: false,
   viewChanges: false,
   showReviewer: false,
@@ -110,6 +113,6 @@ export interface GitFreshness {
  */
 export function actionWaits(action: GitPanelAction, freshness: GitFreshness): boolean {
   if (!CHANGES_SOMETHING[action]) return false;
-  if (action === 'newBranch') return freshness.statusStale;
+  if (action === 'newBranch' || action === 'moveBranch') return freshness.statusStale;
   return freshness.statusStale || freshness.rowsStale;
 }

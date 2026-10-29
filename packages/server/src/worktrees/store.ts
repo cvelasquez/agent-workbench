@@ -59,6 +59,27 @@ export interface WorktreeReviewRecord {
 }
 
 /**
+ * Una conversación que la app pasó a esta rama (Hito 54): la barra la muestra
+ * en la rama, y retomarla la abre ahí. Hace falta anotarla porque su archivo
+ * no lo dice: sigue en la carpeta de la principal, y el `cwd` de sus líneas
+ * cambia también cuando el agente entra a una subcarpeta (c20).
+ */
+export interface MovedSession {
+  agent: AgentId;
+  sessionId: string;
+  movedAt: number;
+}
+
+function parseMovedSession(value: unknown): MovedSession | null {
+  const record = asRecord(value);
+  const agent = asLiteral(record?.['agent'], AGENT_IDS);
+  const sessionId = asNonEmptyString(record?.['sessionId']);
+  const movedAt = asFiniteNumber(record?.['movedAt']);
+  if (agent === null || sessionId === null || movedAt === null) return null;
+  return { agent, sessionId, movedAt };
+}
+
+/**
  * Una nota que el usuario le pidió al agente de la rama que juntara (21-10-2026):
  * cómo estaban los dos lados en ese momento. Si después la principal cambió y
  * la rama no, el agente la juntó, y al quitar la rama ya no se pregunta.
@@ -112,6 +133,8 @@ export interface WorktreeRecord {
   reviewSessions: string[];
   /** Las notas que se le pidió al agente de la rama que juntara. Ausente en un registro anterior: ninguna. */
   notesAsked: NoteRequest[];
+  /** Hito 54. Las conversaciones que se pasaron a esta rama. Ausente en un registro anterior: ninguna. */
+  movedSessions: MovedSession[];
 }
 
 function parseNoteRequest(value: unknown): NoteRequest | null {
@@ -205,6 +228,7 @@ export function parseWorktreeRecord(value: unknown): WorktreeRecord | null {
     review: parseReview(record['review']),
     reviewSessions: asStringArray(record['reviewSessions'])?.filter((id) => id.length > 0) ?? [],
     notesAsked: asArrayFiltered(record['notesAsked'], parseNoteRequest) ?? [],
+    movedSessions: asArrayFiltered(record['movedSessions'], parseMovedSession) ?? [],
   };
 }
 
@@ -246,6 +270,21 @@ export class WorktreeStore {
   byPath(folder: string): WorktreeRecord | null {
     const matches = this.records.filter((record) => samePathShape(record.path, folder));
     return matches.find((record) => record.removedAt === null) ?? matches[matches.length - 1] ?? null;
+  }
+
+  /**
+   * La carpeta a la que la app pasó una conversación (Hito 54), o null. Con
+   * varias mudanzas de la misma, la última: es donde sigue.
+   */
+  movedTo(agent: AgentId, sessionId: string): string | null {
+    let latest: { path: string; movedAt: number } | null = null;
+    for (const record of this.records) {
+      for (const moved of record.movedSessions) {
+        if (moved.agent !== agent || moved.sessionId !== sessionId) continue;
+        if (latest === null || moved.movedAt >= latest.movedAt) latest = { path: record.path, movedAt: moved.movedAt };
+      }
+    }
+    return latest?.path ?? null;
   }
 
   async add(record: WorktreeRecord): Promise<void> {

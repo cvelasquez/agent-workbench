@@ -136,6 +136,18 @@ export interface CreateDialog {
   projectCwd: string;
   projectName: string;
   state: CreateDialogState;
+  /**
+   * Hito 54: el diálogo pasa a la rama la conversación de esta pestaña, en vez
+   * de abrir una sesión nueva. null: crear, como siempre.
+   */
+  move: MoveTarget | null;
+}
+
+/** La pestaña cuya conversación se pasa a una rama aparte (Hito 54). */
+export interface MoveTarget {
+  terminalId: TerminalId;
+  /** La rama de su carpeta: la base con que viene el diálogo. */
+  tabBranch: string | null;
 }
 
 export interface RemoveDialog {
@@ -170,6 +182,8 @@ export interface WorktreeCreateChoice {
   mode: WorktreeCreateMode;
   agent?: AgentId;
   copyNotes: boolean;
+  /** Hito 54, al pasar una conversación: dejarle al agente el pedido de llevarse sus cambios sin commit. */
+  askChanges?: boolean;
 }
 
 /** Lo que el workspace hace con una pestaña pedida desde acá: activarla al llegar, y la provisional. */
@@ -179,6 +193,8 @@ export interface WorktreeDialogs {
   create: CreateDialog | null;
   /** `onOpened`, si llega: se llama cuando la pestaña de la rama nueva ya está abierta. */
   openCreate: (source: WorktreeSource, projectCwd: string, projectName: string, onOpened?: () => void) => void;
+  /** Hito 54. El mismo diálogo, para pasar a una rama la conversación de una pestaña. */
+  openMove: (target: MoveTarget, projectCwd: string, projectName: string) => void;
   submitCreate: (choice: WorktreeCreateChoice) => void;
   closeCreate: () => void;
   remove: RemoveDialog | null;
@@ -236,6 +252,13 @@ export function useWorktreeDialogs(
               const opened = createOpened.current;
               createOpened.current = null;
               opened?.();
+            }
+            break;
+          case 'worktree.moved':
+            // Hito 54: la misma pestaña ya está en la rama; el pedido al agente, si hay, ya está en su cuadro.
+            if (message.requestId === createRequest.current) {
+              createRequest.current = null;
+              setCreate(null);
             }
             break;
           case 'worktree.removePlan':
@@ -306,7 +329,19 @@ export function useWorktreeDialogs(
       const requestId = claim();
       createRequest.current = requestId;
       createOpened.current = onOpened ?? null;
-      setCreate({ source, projectCwd, projectName, state: { phase: 'loading' } });
+      setCreate({ source, projectCwd, projectName, state: { phase: 'loading' }, move: null });
+      connection.send({ type: 'worktree.inspect', requestId, source });
+    },
+    [connection],
+  );
+
+  const openMove = useCallback(
+    (target: MoveTarget, projectCwd: string, projectName: string) => {
+      const requestId = claim();
+      createRequest.current = requestId;
+      createOpened.current = null;
+      const source: WorktreeSource = { kind: 'terminal', terminalId: target.terminalId };
+      setCreate({ source, projectCwd, projectName, state: { phase: 'loading' }, move: target });
       connection.send({ type: 'worktree.inspect', requestId, source });
     },
     [connection],
@@ -320,6 +355,20 @@ export function useWorktreeDialogs(
       const requestId = claim();
       createRequest.current = requestId;
       setCreate({ ...create, state: { phase: 'creating', inspection } });
+      if (create.move !== null) {
+        // La misma pestaña: no hay una en camino que dibujar.
+        connection.send({
+          type: 'worktree.move',
+          requestId,
+          terminalId: create.move.terminalId,
+          branch: choice.branch,
+          base: choice.base,
+          mode: choice.mode,
+          copyNotes: choice.copyNotes,
+          askChanges: choice.askChanges === true,
+        });
+        return;
+      }
       expectTab(requestId, { cwd: create.projectCwd, label: choice.branch, agent: choice.agent ?? null });
       connection.send({
         type: 'worktree.create',
@@ -461,6 +510,7 @@ export function useWorktreeDialogs(
   return {
     create,
     openCreate,
+    openMove,
     submitCreate,
     closeCreate,
     remove,

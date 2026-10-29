@@ -61,6 +61,29 @@ export class RepoHub extends EventEmitter {
 
   constructor(private readonly registry: TerminalRegistry) {
     super();
+    // Hito 54: una pestana que se paso a una rama aparte sigue el repo de su carpeta nueva.
+    registry.on('session', (terminalId: TerminalId) => this.follow(terminalId));
+  }
+
+  /**
+   * La pestana cambio de carpeta (Hito 54, §6.38: su conversacion se paso a una
+   * rama aparte). Se sigue el `.git` de la carpeta nueva, con los mismos que
+   * miraban, y su estado sale enseguida: Cambios muestra la rama, no la
+   * principal. Sin cambio de carpeta (una CLI que descubre su sesion) no hace
+   * nada.
+   */
+  private follow(terminalId: TerminalId): void {
+    const entry = this.entries.get(terminalId);
+    const cwd = this.registry.get(terminalId)?.cwd ?? null;
+    if (entry === undefined || cwd === null || cwd === entry.cwd) return;
+    if (entry.debounceTimer !== null) clearTimeout(entry.debounceTimer);
+    if (entry.pollTimer !== null) clearTimeout(entry.pollTimer);
+    void entry.watcher?.close();
+    const next: Entry = { ...entry, cwd, watcher: null, debounceTimer: null, pollTimer: null, status: null, reading: false };
+    this.entries.set(terminalId, next);
+    debugLog('git', `${terminalId.slice(0, 8)} moved to ${cwd}: following its repo`);
+    void this.startWatching(terminalId, next);
+    void this.read(terminalId, next, { silent: false });
   }
 
   /** Engancha un cliente y devuelve el estado actual. */

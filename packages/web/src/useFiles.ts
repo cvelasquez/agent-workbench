@@ -49,7 +49,8 @@ export interface FilesView {
   refresh: () => void;
 }
 
-export function useFiles(connection: AgentConnection, terminalId: TerminalId | null): FilesView {
+/** `cwd`: la carpeta de la pestana. Si cambia (Hito 54: se paso a una rama aparte), el arbol vuelve a empezar. */
+export function useFiles(connection: AgentConnection, terminalId: TerminalId | null, cwd: string | null = null): FilesView {
   const [listings, setListings] = useState<Map<string, DirectoryListing>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<Set<string>>(new Set());
@@ -149,7 +150,7 @@ export function useFiles(connection: AgentConnection, terminalId: TerminalId | n
       offMessage();
       offReopen();
     };
-  }, [connection, terminalId]);
+  }, [connection, terminalId, cwd]);
 
   // La busqueda sale sola al dejar de escribir. El texto vacio no pide nada:
   // limpia los resultados y devuelve el arbol.

@@ -124,6 +124,8 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
   editQueue: true,
   // Hito 52: sin status line no se sabe si trabaja, y no se le programa nada.
   scheduledSend: false,
+  // Hito 54: retomar desde otra carpeta no esta medido (pide la confianza en cada carpeta nueva).
+  moveToWorktree: false,
   /*
     Hito 49: `--mode plan`. Medido con la 1.4.0 al lanzar: arranca en "Plan
     mode: research & plan only" y el ciclo sigue desde ahi. Que hace con

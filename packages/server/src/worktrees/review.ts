@@ -74,6 +74,26 @@ export function commitPrompt(files: readonly string[], count: number): string {
 }
 
 /**
+ * "Pedirle al agente que se lleve los suyos" (Hito 54): la conversación pasó a
+ * esta rama, y lo que quedó sin commit en la carpeta de donde salió no viaja
+ * solo. La app no sabe qué cambió cada sesión; el agente sí, porque lo tiene en
+ * su conversación. Para deshacer algo allá, todo lo de ese archivo tiene que
+ * ser suyo: ahí puede estar trabajando otra sesión. Queda en el cuadro, sin
+ * mandar: lo manda el usuario.
+ */
+export function moveChangesPrompt(fromFolder: string, files: readonly string[], count: number): string {
+  const more = count > files.length ? ` and ${count - files.length} more` : '';
+  return (
+    `You were moved to this branch folder from \`${fromFolder}\`. ` +
+    `That folder has uncommitted changes in: ${files.join(', ')}${more}. ` +
+    'Some may be yours from this conversation and some may come from other sessions. ' +
+    'Bring here only the changes you made in this conversation. ' +
+    `In \`${fromFolder}\`, undo a change only if everything that changed in that file is yours; ` +
+    "if a file also has changes you didn't make, leave it as it is and tell me which ones."
+  );
+}
+
+/**
  * El texto de la última respuesta del agente: el último mensaje suyo con texto
  * y, hacia atrás, los que lo preceden sin herramientas de por medio (una CLI
  * escribe cada bloque de texto en una línea aparte). null si todavía no contestó.

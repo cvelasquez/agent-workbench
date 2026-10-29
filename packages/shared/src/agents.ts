@@ -295,6 +295,13 @@ export interface AgentCapabilities {
    */
   scheduledSend: boolean;
   /**
+   * Hito 54 (§6.38). "Pasar a una rama aparte": la misma conversacion sigue en
+   * la carpeta de una rama nueva. Medido por CLI: que se retome desde otra
+   * carpeta del repo con todo su contexto, y donde sigue escribiendo su archivo.
+   * Sin esto, el boton no aparece y el servidor rechaza mudar la pestana.
+   */
+  moveToWorktree: boolean;
+  /**
    * Hito 49. Como arranca la CLI que revisa una rama aparte sin tocarla, o null
    * si no tiene un modo medido para eso: ahi la pestana de revision arranca
    * como cualquier otra, y el dialogo lo dice antes de pedir nada.
@@ -341,6 +348,7 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   forceSend: false,
   editQueue: false,
   scheduledSend: false,
+  moveToWorktree: false,
   readOnlyLaunch: null,
 };
 
@@ -534,6 +542,8 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     editQueue: record['editQueue'] === true,
     // Ausente en un servidor anterior al hito 51: no se programa nada.
     scheduledSend: record['scheduledSend'] === true,
+    // Ausente en un servidor anterior al hito 54: ninguna conversacion se muda.
+    moveToWorktree: record['moveToWorktree'] === true,
     // Ausente en un servidor anterior al hito 49: ninguna CLI se ofrece en solo lectura.
     readOnlyLaunch: parseReadOnlyLaunch(record['readOnlyLaunch']),
   };

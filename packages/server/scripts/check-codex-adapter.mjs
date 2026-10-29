@@ -2555,6 +2555,8 @@ const throwsOn = (run) => {
     editQueue: false,
     // Hito 51: no se le programa nada todavia (el 52).
     scheduledSend: true,
+    // Hito 54: retomar desde otra carpeta no esta medido.
+    moveToWorktree: false,
     // Hito 49: la sandbox de solo lectura, medida con la 0.162.1 (§10.15).
     readOnlyLaunch: { mode: null, guard: 'cli' },
   }), show(adapter.capabilities));

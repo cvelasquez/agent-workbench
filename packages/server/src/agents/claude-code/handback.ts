@@ -191,8 +191,8 @@ export function settledAfter(status: CliSessionStatus | null, interruptedAt: num
 }
 
 export interface ClaudeCodeHandbackDeps {
-  /** El archivo de esa sesion. */
-  sessionFile: (cwd: string, sessionId: string) => string;
+  /** El archivo de esa sesion, donde este (Hito 54: el de una conversacion mudada queda en otra carpeta). */
+  sessionFile: (cwd: string, sessionId: string) => string | Promise<string>;
   /** El estado que la CLI publica para esa sesion, en el acto. */
   status: (sessionId: string) => Promise<CliSessionStatus | null>;
   now?: () => number;
@@ -206,7 +206,7 @@ export function createClaudeCodeHandback(deps: ClaudeCodeHandbackDeps): QueuedSu
     async check(target, submissions, interruptedAt) {
       try {
         const status = await deps.status(target.sessionId);
-        const lines = await readLastTurns(deps.sessionFile(target.cwd, target.sessionId));
+        const lines = await readLastTurns(await deps.sessionFile(target.cwd, target.sessionId));
         const found = findHandedBack(lines, submissions, interruptedAt);
         const settled = settledAfter(status, interruptedAt, now());
         debugLog('write', `handback check: status ${status?.status ?? 'none'}, settled ${settled}, handed back ${found.length}`);

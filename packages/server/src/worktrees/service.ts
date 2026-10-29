@@ -3,7 +3,8 @@
  * crear, el estado de cada una, el plan de quitar, quitar y volver a abrir. Y
  * desde el hito 49, trabajar como un equipo: el estado de cada rama contra su
  * base (cuánto avanzó, si choca, qué otra rama toca lo mismo), lo que trae, la
- * revisión de otro agente, ponerse al día e integrar.
+ * revisión de otro agente, ponerse al día e integrar. Y desde el hito 54, pasar
+ * a una rama nueva la conversación de una pestaña (`move`).
  *
  * Todo lo que cambia el disco va después de una confirmación del usuario, y el
  * servidor rehace lo que vio antes de hacer nada (como la memoria compartida,
@@ -67,6 +68,7 @@ import {
   type WorktreeIntegratePlan,
   type WorktreeKeptBranch,
   type WorktreeMerge,
+  type WorktreeMoveBlock,
   type WorktreeNotesPreview,
   type WorktreeOpenTab,
   type WorktreeRemoveOutcome,
@@ -118,8 +120,8 @@ import { askedNotesNow, copyToWorktree, hashOf, notesIn, planCopy, returnNotes, 
 import { worktreeFolderFor, worktreesParentFor } from './names.js';
 import { NoteBases } from './note-bases.js';
 import { overlapsFor, pathsTouching, type BranchFiles } from './overlap.js';
-import { catchUpPrompt, commitPrompt, lastReplyText, readVerdict, reviewPrompt, sendBackPrompt } from './review.js';
-import { withNoteRequests, withReviewSession, type WorktreeRecord, type WorktreeStore } from './store.js';
+import { catchUpPrompt, commitPrompt, lastReplyText, moveChangesPrompt, readVerdict, reviewPrompt, sendBackPrompt } from './review.js';
+import { withNoteRequests, withReviewSession, type MovedSession, type WorktreeRecord, type WorktreeStore } from './store.js';
 import { deleteUntracked, scanUntracked, type UntrackedScan } from './untracked.js';
 
 /** Un pedido de ramas aparte que no se pudo cumplir. El texto dice por qué (§6.23). */
@@ -164,7 +166,15 @@ export interface WorktreeServiceDeps {
     get(terminalId: TerminalId): TerminalDescriptor | null;
     /** Hito 49. Qué hace la CLI de una pestaña: la del revisor, la de la rama. */
     activityOf?(terminalId: TerminalId): TerminalActivity | null;
+    /** Hito 54. Muda una pestaña a la carpeta que arma `prepare`, con su conversación. Ver `TerminalRegistry.relocate`. */
+    relocate?(terminalId: TerminalId, prepare: () => Promise<string>): Promise<TerminalDescriptor | null>;
   };
+  /**
+   * Hito 54. Por qué no se puede pasar ahora la conversación de una pestaña a
+   * una rama: el agente trabaja, la CLI espera, o algo espera al agente. null si
+   * se puede. Ausente: siempre se puede.
+   */
+  moveBlocker?: (terminalId: TerminalId) => WorktreeMoveBlock | null;
   /** La carpeta de un proyecto de la barra, por su `key`; null si la barra no lo tiene. */
   projectCwd(projectKey: string): string | null;
   /** Una sesión de la barra, para volver a abrir su rama. */
@@ -187,6 +197,38 @@ export interface WorktreeCreateRequest {
   mode: WorktreeCreateMode;
   agent?: AgentId;
   copyNotes: boolean;
+}
+
+/** Hito 54. Pasar la conversación de una pestaña a una rama aparte. */
+export interface WorktreeMoveRequest {
+  terminalId: TerminalId;
+  branch: string;
+  base: string;
+  mode: WorktreeCreateMode;
+  copyNotes: boolean;
+  /** Dejarle al agente el pedido de llevarse sus cambios sin commit. */
+  askChanges: boolean;
+}
+
+/** Una rama aparte ya mirada, lista para crear (`checkNewBranch`). */
+interface NewBranchPlan {
+  mainRoot: string;
+  folder: string;
+  branch: string;
+  base: string;
+  mode: WorktreeCreateMode;
+}
+
+/** El error de cada motivo para no pasar una conversación ahora (Hito 54). */
+function moveBlockError(block: WorktreeMoveBlock): WorktreeError {
+  switch (block) {
+    case 'busy':
+      return new WorktreeError(serverText('worktreeMoveBusy'));
+    case 'waiting':
+      return new WorktreeError(serverText('worktreeMoveWaiting'));
+    case 'pending':
+      return new WorktreeError(serverText('worktreeMovePending'));
+  }
 }
 
 /** Dónde queda un pedido para el agente de la rama: su pestaña, o una que se abrió para eso. */
@@ -331,15 +373,26 @@ export class WorktreeService extends EventEmitter {
     return layout.mainRoot;
   }
 
+  /** La raíz del checkout de la carpeta de una pestaña: la principal u otra rama aparte. null fuera de git. */
+  private async tabCheckoutRoot(terminalId: TerminalId): Promise<string | null> {
+    const cwd = this.deps.registry.get(terminalId)?.cwd ?? null;
+    if (cwd === null) return null;
+    return (await repoLayout(cwd))?.toplevel ?? null;
+  }
+
   /** Lo que el diálogo de crear muestra. No escribe nada. */
   async inspect(source: WorktreeSource): Promise<WorktreeInspection> {
     const mainRoot = await this.mainRootOf(source);
-    const [current, branches, entries, changes, copy] = await Promise.all([
+    // Hito 54: desde una pestaña, lo sin commit de su carpeta, que es lo que no viaja al pasar su conversación.
+    const tabRoot = source.kind === 'terminal' ? await this.tabCheckoutRoot(source.terminalId) : null;
+    const ownFolder = tabRoot !== null && !samePathShape(tabRoot, mainRoot);
+    const [current, branches, entries, changes, copy, tabChanges] = await Promise.all([
       currentBranch(mainRoot),
       localBranches(mainRoot),
       listWorktrees(mainRoot),
       uncommittedPaths(mainRoot),
       planCopy(mainRoot),
+      ownFolder ? uncommittedPaths(tabRoot) : Promise.resolve(null),
     ]);
     const checkedOut = new Set(entries.map((entry) => entry.branch).filter((branch) => branch !== null));
     return {
@@ -349,6 +402,7 @@ export class WorktreeService extends EventEmitter {
       currentBranch: current,
       branches: branches.map((name) => ({ name, checkedOut: checkedOut.has(name) })),
       mainChanges: changes?.length ?? 0,
+      sourceChanges: tabRoot === null ? null : ((ownFolder ? tabChanges : changes)?.length ?? 0),
       include: copy?.include ? summarize(copy.include) : null,
       notes: copy === null ? { files: 0, bytes: 0, overCap: false, sample: [] } : summarize(copy.notes),
     };
@@ -356,9 +410,21 @@ export class WorktreeService extends EventEmitter {
 
   /** Crea la rama aparte, copia lo ignorado, la anota y abre la pestaña ahí. */
   async create(request: WorktreeCreateRequest): Promise<TerminalDescriptor> {
+    if (branchNameProblem(request.branch) !== null) throw new WorktreeError(serverText('worktreeBranchInvalid', { branch: request.branch }));
+    const mainRoot = await this.mainRootOf(request.source);
+    const plan = await this.checkNewBranch(mainRoot, request);
+    const folder = await this.addBranchFolder(plan, request.copyNotes, []);
+    return this.deps.registry.open({ cwd: folder, ...(request.agent !== undefined ? { agent: request.agent } : {}) });
+  }
+
+  /**
+   * Lo que se mira antes de crear una rama aparte, sin cambiar nada: el
+   * nombre, que la rama exista o no según el modo, la base, y que su carpeta
+   * esté libre. Lo comparten crear y pasar una conversación (Hito 54).
+   */
+  private async checkNewBranch(mainRoot: string, request: Pick<WorktreeCreateRequest, 'branch' | 'base' | 'mode'>): Promise<NewBranchPlan> {
     const { branch, base, mode } = request;
     if (branchNameProblem(branch) !== null) throw new WorktreeError(serverText('worktreeBranchInvalid', { branch }));
-    const mainRoot = await this.mainRootOf(request.source);
     if (!(await refFormatAccepts(mainRoot, branch))) throw new WorktreeError(serverText('worktreeBranchInvalid', { branch }));
 
     const existing = await branchCommit(mainRoot, branch);
@@ -371,13 +437,18 @@ export class WorktreeService extends EventEmitter {
 
     const folder = worktreeFolderFor(mainRoot, branch);
     if (await exists(folder)) throw new WorktreeError(serverText('worktreeFolderExists', { folder }));
+    return { mainRoot, folder, branch, base, mode };
+  }
 
+  /** Crea la rama y su carpeta, copia lo ignorado y la anota. Devuelve la carpeta. */
+  private async addBranchFolder(plan: NewBranchPlan, copyNotes: boolean, movedSessions: MovedSession[]): Promise<string> {
+    const { mainRoot, folder, branch, base, mode } = plan;
     const copy = await planCopy(mainRoot);
     await mkdir(path.dirname(folder), { recursive: true });
     const added = await addWorktree(mainRoot, folder, branch, mode === 'new' ? base : null);
     if (added.code !== 0) throw new WorktreeError(serverText('worktreeGitFailed', { detail: gitFailureText(added) }));
 
-    const { copied, copiedDirs } = await this.copyInto(mainRoot, folder, copy, request.copyNotes);
+    const { copied, copiedDirs } = await this.copyInto(mainRoot, folder, copy, copyNotes);
     await this.deps.store.add({
       id: randomUUID(),
       mainRoot,
@@ -386,7 +457,7 @@ export class WorktreeService extends EventEmitter {
       base,
       createdBranch: mode === 'new',
       startCommit: mode === 'new' ? await branchCommit(mainRoot, branch) : null,
-      copyNotes: request.copyNotes,
+      copyNotes,
       copied,
       copiedDirs,
       createdAt: this.now(),
@@ -395,9 +466,49 @@ export class WorktreeService extends EventEmitter {
       review: null,
       reviewSessions: [],
       notesAsked: [],
+      movedSessions,
     });
     this.changed();
-    return this.deps.registry.open({ cwd: folder, ...(request.agent !== undefined ? { agent: request.agent } : {}) });
+    return folder;
+  }
+
+  /**
+   * Hito 54. "Pasar a una rama aparte": la rama se crea igual que en `create`,
+   * y la misma pestaña pasa a su carpeta con su conversación (`relocate`): se
+   * cierra su CLI, se crea la rama y se vuelve a abrir ahí, retomando.
+   *
+   * Sólo con el agente libre y sin nada esperándolo: cerrar la CLI cortaría lo
+   * que hace. Se mira después de todo lo que tarda (git) y justo antes de
+   * cerrarla, que es desde cuando ya no puede empezar nada. La conversación
+   * queda anotada en el registro de la rama: la barra la muestra ahí (§6.38).
+   *
+   * Con `askChanges`, el pedido para el agente: lo sin commit de la carpeta de
+   * donde salió, mirado con la CLI ya cerrada. null si no hay nada.
+   */
+  async move(request: WorktreeMoveRequest): Promise<{ terminal: TerminalDescriptor; text: string | null }> {
+    if (branchNameProblem(request.branch) !== null) throw new WorktreeError(serverText('worktreeBranchInvalid', { branch: request.branch }));
+    const tab = this.deps.registry.get(request.terminalId);
+    const relocate = this.deps.registry.relocate;
+    if (tab === null || tab.kind !== 'agent' || tab.agent === null || tab.sessionId.length === 0 || relocate === undefined) {
+      throw new WorktreeError(serverText('worktreeMoveUnavailable'));
+    }
+    const { agent, sessionId } = tab;
+    const mainRoot = await this.mainRootOf({ kind: 'terminal', terminalId: request.terminalId });
+    const plan = await this.checkNewBranch(mainRoot, request);
+    const from = (await this.tabCheckoutRoot(request.terminalId)) ?? tab.cwd;
+
+    const block = this.deps.moveBlocker?.(request.terminalId) ?? null;
+    if (block !== null) throw moveBlockError(block);
+
+    const left: { paths: string[] | null } = { paths: null };
+    const terminal = await relocate.call(this.deps.registry, request.terminalId, async () => {
+      if (request.askChanges) left.paths = await uncommittedPaths(from);
+      return this.addBranchFolder(plan, request.copyNotes, [{ agent, sessionId, movedAt: this.now() }]);
+    });
+    if (terminal === null) throw new WorktreeError(serverText('worktreeMoveUnavailable'));
+    const paths = left.paths ?? [];
+    const text = paths.length === 0 ? null : moveChangesPrompt(from, paths.slice(0, WORKTREE_PLAN_PATHS_MAX), paths.length);
+    return { terminal, text };
   }
 
   private async copyInto(

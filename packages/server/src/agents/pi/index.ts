@@ -96,6 +96,8 @@ export const PI_BASE_CAPABILITIES: AgentCapabilities = {
     cabecera ya dibujada (un Enter antes, Pi no lo manda), y libre por su estado.
   */
   scheduledSend: true,
+  // Hito 54: retomar desde otra carpeta no esta medido.
+  moveToWorktree: false,
   // Hito 49: sin `edit` ni `write` (`PI_REVIEW_TOOLS`), pero su consola puede escribir: a medias (§16.19).
   readOnlyLaunch: { mode: null, guard: 'tools' },
 };

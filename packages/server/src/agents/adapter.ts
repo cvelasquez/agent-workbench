@@ -425,6 +425,13 @@ export interface SessionFollower {
    * abierto.
    */
   close?(): Promise<void>;
+  /**
+   * Hito 54 (§6.38). La pestana se mudo a otra carpeta con la misma sesion.
+   * true si el seguidor sigue el mismo archivo desde `cwd` sin reabrirlo; false
+   * si no puede, y el hub arma uno nuevo. Ausente: siempre uno nuevo. Lo declara
+   * la CLI que se puede mudar (`moveToWorktree`).
+   */
+  retarget?(cwd: string): Promise<boolean>;
 }
 
 /**

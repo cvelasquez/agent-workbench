@@ -197,7 +197,16 @@ export class ConversationFollower implements JsonlLineSink {
   }
 
   /** La pestana cuyos documentos se reconocen. Ver el constructor. */
-  private readonly target: { cwd: string; sessionId: string };
+  private target: { cwd: string; sessionId: string };
+
+  /**
+   * La pestana se mudo de carpeta con la misma conversacion (Hito 54): los
+   * documentos que se escriban desde ahora se reconocen en la nueva. Los que ya
+   * estaban en la lista quedan.
+   */
+  setTarget(target: { cwd: string; sessionId: string }): void {
+    this.target = target;
+  }
 
   /** La ruta que se sigue. Siempre fija: esta CLI la conoce al lanzar. */
   get filePath(): string {

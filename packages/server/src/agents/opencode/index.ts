@@ -127,6 +127,8 @@ export const OPENCODE_CAPABILITIES: AgentCapabilities = {
     pantalla del TUI, con el agente y el modelo del ultimo mensaje.
   */
   scheduledSend: true,
+  // Hito 54: retomar desde otra carpeta no esta medido.
+  moveToWorktree: false,
   /*
     Hito 49: ninguno. Su agente `plan` pide permiso antes de editar, pero la app
     abre el TUI con `opencode attach`, que segun su documentacion no acepta

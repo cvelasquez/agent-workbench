@@ -439,6 +439,8 @@ export interface AgentControlsView {
   editQueue: boolean;
   /** El reloj del cuadro: programar un mensaje (hito 51). Ademas hace falta encenderlo en Ajustes. */
   scheduledSend: boolean;
+  /** "Pasar a una rama aparte", en la barra del hilo y en Cambios (hito 54). Ademas hace falta un repo de git. */
+  moveToWorktree: boolean;
 }
 
 export function controlsFor(capabilities: AgentCapabilities, review = false): AgentControlsView {
@@ -464,6 +466,7 @@ export function controlsFor(capabilities: AgentCapabilities, review = false): Ag
     forceSend: capabilities.forceSend,
     editQueue: capabilities.editQueue,
     scheduledSend: capabilities.scheduledSend,
+    moveToWorktree: capabilities.moveToWorktree,
   };
 }
 

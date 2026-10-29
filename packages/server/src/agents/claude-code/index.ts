@@ -45,7 +45,7 @@ import { ModelVariantRegistry } from './model-variants.js';
 import { autoAnswerResumeDialog } from './resume-dialog.js';
 import { createClaudeCodeHandback } from './handback.js';
 import { CLAUDE_CODE_DRAFT_STASH } from './draft-stash.js';
-import { sessionFilePath } from './paths.js';
+import { sessionFileOf } from './paths.js';
 import { createClaudeCodeQueueEdit } from './queue-edit.js';
 import { createClaudeCodeRewind } from './rewind-menu.js';
 import { createClaudeCodeScreenQuestions } from './question-screen.js';
@@ -102,6 +102,12 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
     2.1.310) y cuando quedo lista despues de abrirla (§6.39).
   */
   scheduledSend: true,
+  /*
+    Hito 54: `--resume` desde una rama aparte del mismo repo retoma la
+    conversacion entera, sigue escribiendo el archivo de donde empezo y sin
+    perder la cache (c19 y c20, con la 2.1.312, §4.11.2).
+  */
+  moveToWorktree: true,
   /*
     Hito 49: `--permission-mode plan`. Medido con la 2.1.304 y el pedido de
     revision: corrio git log, diff y status sin pedir permiso, no ofrecio salir
@@ -276,7 +282,7 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
       y lo devuelve a su caja, y la app lo trae al cuadro (hito 44, §4.16).
     */
     queuedSubmits: createClaudeCodeHandback({
-      sessionFile: sessionFilePath,
+      sessionFile: sessionFileOf,
       status: (sessionId) => watcher.read(sessionId),
     }),
 

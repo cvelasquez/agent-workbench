@@ -1096,7 +1096,7 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
   check('O11 OPENCODE_CAPABILITIES igual al literal de §5.3, sin promptApi (A4)', same(OPENCODE_CAPABILITIES, {
     sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, models: null, efforts: null,
     questionCards: true, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
-    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: true, readOnlyLaunch: null,
+    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: true, moveToWorktree: false, readOnlyLaunch: null,
   }) && !('promptApi' in OPENCODE_CAPABILITIES), show(OPENCODE_CAPABILITIES));
 
   const content = openCodeBaseContent();

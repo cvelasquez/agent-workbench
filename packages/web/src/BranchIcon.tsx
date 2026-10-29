@@ -24,3 +24,29 @@ export function BranchIcon(): JSX.Element {
     </svg>
   );
 }
+
+/**
+ * "Pasar a una rama aparte" (hito 54): el tronco y una flecha que sale hacia la
+ * rama. Distinto del de sesión nueva: en Cambios van uno al lado del otro, y
+ * con el mismo dibujo no se distinguían.
+ */
+export function MoveBranchIcon(): JSX.Element {
+  return (
+    <svg
+      className="archive-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="6" cy="5" r="2.2" />
+      <circle cx="6" cy="19" r="2.2" />
+      <path d="M6 7.2v9.6" />
+      <path d="M8.5 12h11" />
+      <path d="M16 8.5l3.5 3.5-3.5 3.5" />
+    </svg>
+  );
+}

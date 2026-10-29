@@ -323,7 +323,8 @@ touch credentials.
   claim each instance takes before sending one (`scheduled-claims/`, so two
   instances never send it twice), a file per running instance with its pid
   (`instances/`, removed on shutdown), the paired devices of remote access (hashes only), the
-  separate branches it created (`worktrees.json`) with a copy of each text
+  separate branches it created and the conversations it moved to each
+  (`worktrees.json`) with a copy of each text
   note copied into them (`worktree-notes/`, to merge it later), the status line
   scripts of Claude Code and Antigravity CLI (`integrations/`) and what they
   publish (`agent-status/`), and the history copy (or the folder the user

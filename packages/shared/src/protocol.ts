@@ -1236,6 +1236,25 @@ export interface ClientWorktreeCreateMessage {
   unsupportedAgent?: string;
 }
 
+/**
+ * Hito 54. "Pasar a una rama aparte": crea la rama como `worktree.create` y la
+ * misma pestana pasa a su carpeta con la misma conversacion. Contesta
+ * `worktree.moved`, y antes, con `askChanges` y cambios sin commit en la
+ * carpeta de donde sale, un `composer.prefill` con el pedido para el agente.
+ */
+export interface ClientWorktreeMoveMessage {
+  type: 'worktree.move';
+  requestId: string;
+  terminalId: TerminalId;
+  branch: string;
+  /** De que rama sale una nueva; con `existing`, contra cual se mira si ya esta integrada. */
+  base: string;
+  mode: WorktreeCreateMode;
+  copyNotes: boolean;
+  /** Dejarle al agente, sin mandar, el pedido de llevarse a la rama sus cambios sin commit. */
+  askChanges: boolean;
+}
+
 /** El estado de las ramas del repo de una pestana, para Cambios. Contesta `worktree.rows`. */
 export interface ClientWorktreeStatusMessage {
   type: 'worktree.status';
@@ -1469,6 +1488,7 @@ export type ClientMessage =
   | ClientSettingsUpdateMessage
   | ClientWorktreeInspectMessage
   | ClientWorktreeCreateMessage
+  | ClientWorktreeMoveMessage
   | ClientWorktreeStatusMessage
   | ClientWorktreePlanRemoveMessage
   | ClientWorktreeRemoveMessage
@@ -2417,6 +2437,16 @@ export interface ServerWorktreeInspectedMessage {
   inspection: WorktreeInspection;
 }
 
+/**
+ * Hito 54. La conversacion de la pestana ya esta en la rama aparte: la pestana
+ * es la misma, con su carpeta y su rama nuevas. Tambien llega en `terminal.list`.
+ */
+export interface ServerWorktreeMovedMessage {
+  type: 'worktree.moved';
+  requestId: string;
+  terminal: TerminalDescriptor;
+}
+
 /** Las ramas del repo de una pestana, con su estado, para Cambios. */
 export interface ServerWorktreeRowsMessage {
   type: 'worktree.rows';
@@ -2575,6 +2605,7 @@ export type ServerMessage =
   | ServerRemotePairingCodeMessage
   | ServerRemotePhonePairingMessage
   | ServerWorktreeInspectedMessage
+  | ServerWorktreeMovedMessage
   | ServerWorktreeRowsMessage
   | ServerWorktreeRemovePlanMessage
   | ServerWorktreeRemovedMessage
@@ -3186,6 +3217,27 @@ export function parseClientMessage(raw: string): ClientMessage | null {
         else message.unsupportedAgent = String(rawAgent);
       }
       return message;
+    }
+    case 'worktree.move': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const branch = asNonEmptyString(record['branch']);
+      const base = asNonEmptyString(record['base']);
+      const mode = asLiteral(record['mode'], WORKTREE_CREATE_MODES);
+      const copyNotes = asBoolean(record['copyNotes']);
+      const askChanges = asBoolean(record['askChanges']);
+      if (
+        requestId === null ||
+        terminalId === null ||
+        branch === null ||
+        base === null ||
+        mode === null ||
+        copyNotes === null ||
+        askChanges === null
+      ) {
+        return null;
+      }
+      return { type: 'worktree.move', requestId, terminalId, branch, base, mode, copyNotes, askChanges };
     }
     case 'worktree.status': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -3883,6 +3935,11 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       const requestId = asNonEmptyString(record['requestId']);
       const inspection = parseWorktreeInspection(record['inspection']);
       return requestId === null || inspection === null ? null : { type: 'worktree.inspected', requestId, inspection };
+    }
+    case 'worktree.moved': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const terminal = parseTerminalDescriptor(record['terminal']);
+      return requestId === null || terminal === null ? null : { type: 'worktree.moved', requestId, terminal };
     }
     case 'worktree.rows': {
       const terminalId = asNonEmptyString(record['terminalId']);
