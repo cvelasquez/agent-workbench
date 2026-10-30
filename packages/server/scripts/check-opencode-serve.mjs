@@ -124,7 +124,7 @@ const { launchWithServe, attachArgs } = await import('../src/agents/opencode/ser
 const { createServeLaunchHook } = await import('../src/agents/opencode/serve-hook.ts');
 const { parseSseChunk, SSE_INITIAL_STATE } = await import('../src/agents/opencode/sse.ts');
 const { OpenCodeServeProcess, serveArgs, parseListeningLine } = serveProcess;
-const { OpenCodeServeClient, ServeAuthError, ServeRouteError, parseGlobalEvent } = serveClient;
+const { OpenCodeServeClient, ServeAuthError, ServeRouteError, ServeRequestError, OPENCODE_MOVE_SESSION_ROUTE, parseGlobalEvent } = serveClient;
 const { OpenCodeServeStatus, activityOfTracked } = serveStatus;
 const { OpenCodeQuestions, readPartCall, answersFor } = serveQuestions;
 
@@ -504,6 +504,43 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
   const hostile = await rejectionOf(client.promptAsync(dir, 'ses_x&calc', 'x', null));
   check('O52 un id hostil lanza sin peticion', hostile instanceof Error &&
     !(await requestsOf(mainEndpoint)).some((item) => item.path.includes('calc')));
+}
+
+// ---------------------------------------------------------------------------
+// O55. Hito 55 (§11.17): pasar una sesion a otra carpeta (`move-session`)
+// ---------------------------------------------------------------------------
+
+{
+  const dir = 'D:\\Mi App';
+  const to = 'D:\\Mi App.worktrees\\rama';
+  const before = (await requestsOf(mainEndpoint)).length;
+  check('O55 canMoveSession: la ruta esta en la especificacion del serve', (await client.canMoveSession(dir)) === true);
+  const doc = (await requestsOf(mainEndpoint)).slice(before).find((item) => item.path === '/doc');
+  check('O55 la especificacion se pide por GET, con la carpeta y basic auth',
+    doc?.method === 'GET' && doc.directory === dir && doc.authorized, show(doc));
+  await control(mainEndpoint, '/__fake/state', { moveRoute: false });
+  check('O55 una especificacion sin la ruta: no se puede', (await client.canMoveSession(dir)) === false);
+  await control(mainEndpoint, '/__fake/state', { moveRoute: true, html: ['/doc'] });
+  check('O55 una version sin /doc (responde la pagina web): no se puede, sin lanzar', (await client.canMoveSession(dir)) === false);
+  await control(mainEndpoint, '/__fake/state', { html: [] });
+
+  const sid = 'ses_moveSession00000000000001';
+  const mark = (await requestsOf(mainEndpoint)).length;
+  await client.moveSession(dir, sid, to);
+  const move = (await requestsOf(mainEndpoint)).slice(mark).find((item) => item.path === OPENCODE_MOVE_SESSION_ROUTE);
+  check('O55 moveSession: POST con la carpeta de antes en la query y basic auth',
+    move?.method === 'POST' && move.directory === dir && move.authorized, show(move));
+  check('O55 el cuerpo: la sesion, la carpeta nueva y sin llevarse cambios',
+    same(move?.body, { sessionID: sid, destination: { directory: to }, moveChanges: false }), show(move?.body));
+  const rejected = await rejectionOf(client.moveSession(dir, 'ses_missing00000000000000000', to));
+  check('O55 un rechazo (400) cita solo su mensaje',
+    rejected instanceof ServeRequestError && rejected.message.includes('Session not found') && !rejected.message.includes('secreto'), String(rejected));
+  await control(mainEndpoint, '/__fake/state', { html: [OPENCODE_MOVE_SESSION_ROUTE] });
+  check('O55 una version sin la ruta (la pagina web): ServeRouteError', (await rejectionOf(client.moveSession(dir, sid, to))) instanceof ServeRouteError);
+  await control(mainEndpoint, '/__fake/state', { html: [] });
+  const hostile = await rejectionOf(client.moveSession(dir, 'ses_x&calc', to));
+  check('O55 un id hostil lanza sin peticion', hostile instanceof Error &&
+    !(await requestsOf(mainEndpoint)).some((item) => item.path === OPENCODE_MOVE_SESSION_ROUTE && item.body?.sessionID === 'ses_x&calc'));
 }
 
 // ---------------------------------------------------------------------------
@@ -1096,7 +1133,7 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
   check('O11 OPENCODE_CAPABILITIES igual al literal de §5.3, sin promptApi (A4)', same(OPENCODE_CAPABILITIES, {
     sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, models: null, efforts: null,
     questionCards: true, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
-    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: true, moveToWorktree: false, readOnlyLaunch: null,
+    waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: true, moveToWorktree: true, readOnlyLaunch: null,
   }) && !('promptApi' in OPENCODE_CAPABILITIES), show(OPENCODE_CAPABILITIES));
 
   const content = openCodeBaseContent();
@@ -1227,6 +1264,19 @@ const client = new OpenCodeServeClient(mainEndpoint, undefined, { reconnectDelay
   await control(secondEndpoint, '/__fake/state', { status: { [cwd]: { [fakeId]: { type: 'busy' } } } });
   await control(secondEndpoint, '/__fake/emit', { directory: cwd, payload: { type: 'session.status', properties: { sessionID: fakeId, status: { type: 'busy' } } } });
   await waitFor(() => seenAgain.at(-1) === 'busy:');
+
+  // Hito 55 (§11.17): pasar la sesion a otra carpeta, por el `serve` que ya esta.
+  const branch = path.join(root, 'proyecto con espacios.worktrees', 'rama');
+  const target = { cwd, sessionId: fakeId };
+  const spawnedBeforeMove = spawned.length;
+  check('O55 el adaptador lo hace por su API (sessionMove)', typeof adapter.sessionMove?.move === 'function');
+  check('O55 sessionMove.available: lo dice el serve vigente', (await adapter.sessionMove.available(location, target)) === true);
+  await adapter.sessionMove.move(location, target, branch);
+  const moves = (await requestsOf(secondEndpoint)).filter((item) => item.path === OPENCODE_MOVE_SESSION_ROUTE);
+  check('O55 sessionMove.move: una peticion al serve vigente, con la carpeta de la pestana, sin lanzar otro',
+    spawned.length === spawnedBeforeMove && moves.length === 1 && moves[0].directory === cwd &&
+      same(moves[0].body, { sessionID: fakeId, destination: { directory: branch }, moveChanges: false }), show(moves));
+
   const lateHook = adapter.onSpawned(spawnedContext({ terminalId: 't3' }));
   const unhandledBefore = unhandled;
   const disposed = adapter.dispose();

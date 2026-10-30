@@ -81,8 +81,12 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
     historial no tiene un turno abierto. Codex no publica si trabaja.
   */
   scheduledSend: true,
-  // Hito 54: retomar desde otra carpeta no esta medido.
-  moveToWorktree: false,
+  /*
+    Hito 55 (§10.19): `resume -C .` retoma desde la carpeta de la rama en el
+    mismo rollout, sin dialogo, y el agente trabaja ahi. Sin `-C`, Codex pregunta
+    con la carpeta de antes marcada.
+  */
+  moveToWorktree: true,
   /*
     Hito 49: `--sandbox read-only`, al abrir y al reanudar. Medido con la 0.162.1
     y un proveedor falso: con la sandbox de Windows del usuario, escribir fallo
@@ -94,6 +98,9 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
 
 /** El argumento de la sandbox de solo lectura, que no lleva espacios: pasa entero por `cmd /c` (§3.1). */
 const READ_ONLY_SANDBOX = ['--sandbox', 'read-only'] as const;
+
+/** Hito 55 (§10.19): reanudar en la carpeta de la pestana, sin la pregunta de en que carpeta seguir. */
+const RESUME_HERE = ['-C', '.'] as const;
 
 /**
  * Como se le escribe un mensaje: cada imagen en su pegado, despues el texto, y
@@ -151,13 +158,17 @@ export function createCodexAdapter(): AgentAdapter {
     missingMessage: () => commandNotFoundMessage(CODEX_COMMAND, CODEX_INSTALL_URL),
 
     /**
-     * Sin argumentos para una sesion nueva, `resume <id>` para una del
+     * Sin argumentos para una sesion nueva, `resume -C . <id>` para una del
      * historial. `proposedSessionId` no se usa: el id lo pone Codex.
      *
-     * Sin `-C <cwd>`: el `cwd` ya es el de la pty, y un argumento con espacios
-     * detras de `cmd.exe /c` —el shim `codex.cmd` de npm— rompe el lanzamiento
-     * entero. Por lo mismo el id se valida antes de tocar la linea de comando:
-     * uno con espacios o comillas no llega nunca a `cmd`.
+     * `-C .` y no `-C <cwd>`: el `cwd` ya es el de la pty, y un argumento con
+     * espacios detras de `cmd.exe /c` (el shim `codex.cmd` de npm) rompe el
+     * lanzamiento entero. El punto es para la sesion que sigue en otra carpeta
+     * (hito 55, §10.19): sin `-C`, Codex pregunta en que carpeta seguir con la
+     * de antes marcada, y con el, sigue en la de la pestana sin preguntar. En la
+     * carpeta de siempre no cambia nada. Por lo mismo el id se valida antes de
+     * tocar la linea de comando: uno con espacios o comillas no llega nunca a
+     * `cmd`.
      */
     launch(input: LaunchInput): LaunchPlan {
       const { resumeSessionId } = input;
@@ -169,7 +180,7 @@ export function createCodexAdapter(): AgentAdapter {
       if (!isUuid(resumeSessionId)) throw new Error('Invalid Codex session id.');
       return {
         file: input.location.file,
-        args: [...input.location.prefixArgs, 'resume', ...sandbox, resumeSessionId],
+        args: [...input.location.prefixArgs, 'resume', ...RESUME_HERE, ...sandbox, resumeSessionId],
         session: { kind: 'known', sessionId: resumeSessionId },
       };
     },

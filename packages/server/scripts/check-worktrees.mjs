@@ -2351,6 +2351,165 @@ let reviewSession = '';
 }
 
 // ---------------------------------------------------------------------------
+// M55. La CLI que pasa la conversación por su API (OpenCode), y el candado de
+// la que no publica su estado (Codex) (hito 55)
+// ---------------------------------------------------------------------------
+
+{
+  const { moveBlockNow } = await import('../src/worktrees/move-block.ts');
+  const apiRepo = await makeRepo('mudanza-api');
+  const apiStore = new WorktreeStore(path.join(root, 'appdata', 'worktrees-mudanza-api.json'));
+  await apiStore.load();
+  const events = [];
+  const tab = {
+    terminalId: 'o1', kind: 'agent', agent: 'opencode', cwd: apiRepo, sessionId: 'ses_mudanza', label: '', resumed: false,
+    createdAt: 0, alive: true, exitCode: null, sleeping: false, launchedAt: 1, worktree: null, review: false,
+  };
+  // Como el de MV, con la pestaña de OpenCode.
+  const apiRegistry = {
+    async open() {
+      throw new Error('pasar una conversación no abre pestañas');
+    },
+    list: () => [tab],
+    get: (terminalId) => (terminalId === tab.terminalId ? tab : null),
+    async relocate(terminalId, prepare) {
+      if (terminalId !== tab.terminalId) return null;
+      events.push('cerró');
+      let cwd;
+      try {
+        cwd = await prepare();
+      } catch (error) {
+        events.push('abrió donde estaba');
+        throw error;
+      }
+      tab.cwd = cwd;
+      events.push('mudó', 'abrió en la rama');
+      return tab;
+    },
+  };
+  let can = true;
+  let failMove = null;
+  let blocker = null;
+  const moves = [];
+  const mover = {
+    label: 'OpenCode',
+    async available(target) {
+      events.push('preguntó');
+      if (can instanceof Error) throw can;
+      return can && target.sessionId === 'ses_mudanza';
+    },
+    async move(target, to) {
+      events.push('pasó');
+      moves.push({ target, to, folderExisted: existsSync(to) });
+      if (failMove !== null) throw failMove;
+    },
+  };
+  const apiService = new WorktreeService({
+    store: apiStore,
+    registry: apiRegistry,
+    projectCwd: () => null,
+    findSession: () => null,
+    // Desde el hito 55 puede tardar: con Codex lee su historial.
+    moveBlocker: async () => blocker,
+    sessionMover: (agent) => (agent === 'opencode' ? mover : null),
+  });
+  const textOf = async (run) => {
+    try {
+      await run();
+      return { key: 'no falló' };
+    } catch (error) {
+      return error instanceof WorktreeError ? error.text : { key: String(error) };
+    }
+  };
+  const request = (branch) => ({ terminalId: 'o1', branch, base: 'main', mode: 'new', copyNotes: false, askChanges: false });
+  const branches = () => git(apiRepo, 'branch', '--list').split('\n').map((line) => line.replace(/^[*+]?\s*/, '').trim()).filter(Boolean);
+
+  can = false;
+  const unsupported = await textOf(() => apiService.move(request('vieja')));
+  check('MV55.1 una versión de la CLI que no sabe: lo dice, sin cerrar la CLI ni crear la rama',
+    unsupported.key === 'worktreeMoveCliUnsupported' && unsupported.params?.cli === 'OpenCode' &&
+      JSON.stringify(events) === JSON.stringify(['preguntó']) && !branches().includes('vieja') && apiStore.list().length === 0,
+    `${JSON.stringify(unsupported)} / ${events.join(' ')}`);
+  events.length = 0;
+  can = new Error('the OpenCode server rejected the password');
+  const unreachable = await textOf(() => apiService.move(request('sin-serve')));
+  check('MV55.2 si no se pudo preguntar: lo dice con el motivo, sin cerrar ni crear nada',
+    unreachable.key === 'worktreeMoveCliCheckFailed' && unreachable.params?.detail === 'the OpenCode server rejected the password' &&
+      JSON.stringify(events) === JSON.stringify(['preguntó']) && !branches().includes('sin-serve'),
+    `${JSON.stringify(unreachable)} / ${events.join(' ')}`);
+  can = true;
+  events.length = 0;
+  blocker = 'busy';
+  const busy = await textOf(() => apiService.move(request('ocupada')));
+  blocker = null;
+  check('MV55.3 el candado que tarda (una promesa) también frena antes de cerrar la CLI',
+    busy.key === 'worktreeMoveBusy' && !events.includes('cerró') && !branches().includes('ocupada'), `${busy.key} / ${events.join(' ')}`);
+
+  events.length = 0;
+  failMove = new Error("OpenCode didn't move the session: Session not found: ses_mudanza");
+  const failed = await textOf(() => apiService.move(request('fallida')));
+  failMove = null;
+  const failedFolder = worktreeFolderFor(path.resolve(apiRepo), 'fallida');
+  check('MV55.4 si la CLI no la pasa: la rama queda creada, la pestaña donde estaba con su CLI, y el error nombra la rama y el motivo',
+    failed.key === 'worktreeMoveCliFailed' && failed.params?.branch === 'fallida' && failed.params?.cli === 'OpenCode' &&
+      String(failed.params?.detail).includes('Session not found') &&
+      JSON.stringify(events) === JSON.stringify(['preguntó', 'cerró', 'pasó', 'abrió donde estaba']) &&
+      tab.cwd === apiRepo && branches().includes('fallida'),
+    `${JSON.stringify(failed)} / ${events.join(' ')}`);
+  check('MV55.4 ... y la conversación no queda anotada en esa rama: la barra la sigue mostrando donde está',
+    apiStore.byPath(failedFolder)?.movedSessions.length === 0 && apiStore.movedTo('opencode', 'ses_mudanza') === null);
+
+  events.length = 0;
+  moves.length = 0;
+  const moved = await apiService.move(request('pasada'));
+  const movedFolder = worktreeFolderFor(path.resolve(apiRepo), 'pasada');
+  check('MV55.5 en orden: preguntar antes de cerrar, pasarla con la CLI cerrada y la carpeta creada, y recién ahí mudar la pestaña',
+    JSON.stringify(events) === JSON.stringify(['preguntó', 'cerró', 'pasó', 'mudó', 'abrió en la rama']) &&
+      moves.length === 1 && moves[0].folderExisted && moves[0].to === movedFolder &&
+      moves[0].target.cwd === apiRepo && moves[0].target.sessionId === 'ses_mudanza' && moved.terminal.cwd === movedFolder,
+    `${events.join(' ')} / ${JSON.stringify(moves)}`);
+  check('MV55.6 pasada, queda anotada en la rama como con las demás CLIs',
+    apiStore.movedTo('opencode', 'ses_mudanza') === movedFolder, String(apiStore.movedTo('opencode', 'ses_mudanza')));
+
+  // El candado, con la CLI que no publica su estado: lo dice su historial, con un seguidor que se suelta siempre.
+  const followerWith = (turn, tool) => {
+    const state = { started: 0, closed: 0, launchedAt: null };
+    return {
+      state,
+      follower: {
+        start: async () => void state.started++,
+        poll: async () => ({ reset: false, added: [], turns: [], plans: [], parts: [] }),
+        hasOpenTurn: (launchedAt) => ((state.launchedAt = launchedAt), turn),
+        hasOpenToolCall: () => tool,
+        close: async () => void state.closed++,
+      },
+    };
+  };
+  const working = followerWith(true, false);
+  const tooling = followerWith(false, true);
+  const free = followerWith(false, false);
+  const results = [
+    await moveBlockNow({ activity: 'unknown', pending: false, history: { follow: () => working.follower, launchedAt: 42 } }),
+    await moveBlockNow({ activity: 'unknown', pending: false, history: { follow: () => tooling.follower, launchedAt: 42 } }),
+    await moveBlockNow({ activity: 'unknown', pending: false, history: { follow: () => free.follower, launchedAt: 42 } }),
+  ];
+  check('MV55.7 sin estado publicado: un turno o una herramienta abiertos desde el lanzamiento es trabajando; si no, se puede',
+    JSON.stringify(results) === JSON.stringify(['busy', 'busy', null]) && working.state.launchedAt === 42, JSON.stringify(results));
+  check('MV55.7 ... y el seguidor de la consulta se suelta siempre',
+    [working, tooling, free].every(({ state }) => state.started === 1 && state.closed === 1));
+  const untouched = followerWith(true, true);
+  const statusFirst = [
+    await moveBlockNow({ activity: 'waiting', pending: false, history: { follow: () => untouched.follower, launchedAt: 1 } }),
+    await moveBlockNow({ activity: 'unknown', pending: true, history: { follow: () => untouched.follower, launchedAt: 1 } }),
+    await moveBlockNow({ activity: 'busy', pending: false, history: null }),
+    await moveBlockNow({ activity: 'idle', pending: false, history: null }),
+  ];
+  check('MV55.8 lo del Hito 54 decide primero, sin leer nada; sin historial que mirar, es lo de siempre',
+    JSON.stringify(statusFirst) === JSON.stringify(['waiting', 'pending', 'busy', null]) && untouched.state.started === 0,
+    JSON.stringify(statusFirst));
+}
+
+// ---------------------------------------------------------------------------
 // G. Ningún comando de git que escriba fuera de worktrees/git.ts (§6.1)
 // ---------------------------------------------------------------------------
 

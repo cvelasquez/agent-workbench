@@ -127,8 +127,12 @@ export const OPENCODE_CAPABILITIES: AgentCapabilities = {
     pantalla del TUI, con el agente y el modelo del ultimo mensaje.
   */
   scheduledSend: true,
-  // Hito 54: retomar desde otra carpeta no esta medido.
-  moveToWorktree: false,
+  /*
+    Hito 55 (§11.17): `attach --dir` desde la rama no alcanza, el agente sigue
+    en la carpeta guardada. Se pasa antes por la ruta experimental de su
+    `serve` (`sessionMove`), que se busca en cada mudanza.
+  */
+  moveToWorktree: true,
   /*
     Hito 49: ninguno. Su agente `plan` pide permiso antes de editar, pero la app
     abre el TUI con `opencode attach`, que segun su documentacion no acepta
@@ -244,6 +248,22 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
     return current.client;
   };
 
+  /**
+   * Una peticion al `serve` fuera de una pestana (hito 55): lo arranca si no
+   * esta y lo retiene mientras dura, porque la pestana que se muda ya cerro su
+   * TUI.
+   */
+  const withServe = async <T>(location: CliLocation, run: (client: OpenCodeServeClient) => Promise<T>): Promise<T> => {
+    const owner = serveFor(location);
+    const endpoint = await owner.ensure();
+    const release = owner.retain();
+    try {
+      return await run(clientFor(endpoint));
+    } finally {
+      release();
+    }
+  };
+
   const questions = new OpenCodeQuestions({
     lookupCall: (partId, sessionId) => readPartCall(db, partId, sessionId),
     client: () => current?.client ?? null,
@@ -340,6 +360,17 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
         }
         return client.promptAsync(target.cwd, target.sessionId, text, choice);
       },
+    },
+
+    /*
+      Hito 55 (§11.17): pasar a una rama aparte cambia la carpeta de la sesion
+      en OpenCode (`session.directory`) por la ruta experimental de su `serve`,
+      sin llevarse cambios. Antes de cada mudanza se busca la ruta en la
+      especificacion del `serve`: si una version la quita, no se toca nada.
+    */
+    sessionMove: {
+      available: (location, target) => withServe(location, (client) => client.canMoveSession(target.cwd)),
+      move: (location, target, to) => withServe(location, (client) => client.moveSession(target.cwd, target.sessionId, to)),
     },
 
     /**

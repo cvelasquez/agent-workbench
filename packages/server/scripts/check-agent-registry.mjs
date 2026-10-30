@@ -862,11 +862,23 @@ const adapter = createClaudeCodeAdapter();
       const registered = appRegistry.adapter(id);
       return !registered.capabilities.scheduledSend || registered.status !== null || registered.id === 'codex';
     }));
-  // Hito 54: retomar desde otra carpeta del repo, medido solo con Claude Code (c19, c20).
+  /*
+    Hito 54: retomar desde otra carpeta del repo, medido con Claude Code (c19,
+    c20). Hito 55, el 29-10-2026 (h55-medir): Codex con `resume -C .` y OpenCode
+    por su `serve`; Pi la copia y Antigravity sigue trabajando en la principal.
+  */
   const moving = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.moveToWorktree);
-  check('54.2 moveToWorktree: solo claude-code', sameShape(moving, ['claude-code']), moving.join(','));
-  check('54.2 la que se muda sigue el archivo sin reabrirlo (retarget)',
-    moving.every((id) => typeof appRegistry.adapter(id).history.follow({ cwd: home, sessionId: 'x' }).retarget === 'function'));
+  check('55 moveToWorktree: claude-code, codex y opencode', sameShape(moving, ['claude-code', 'codex', 'opencode']), moving.join(','));
+  check('54.2 Claude Code sigue el archivo sin reabrirlo (retarget); las demas, con un seguidor nuevo',
+    typeof appRegistry.adapter('claude-code').history.follow({ cwd: home, sessionId: 'x' }).retarget === 'function');
+  const movers = AGENT_IDS.filter((id) => appRegistry.adapter(id).sessionMove !== undefined);
+  check('55 la conversacion la pasa la CLI (sessionMove) solo en OpenCode, y solo con la capacidad',
+    sameShape(movers, ['opencode']) && movers.every((id) => appRegistry.adapter(id).capabilities.moveToWorktree), movers.join(','));
+  check('55 la que se muda sin publicar su estado (Codex) dice el turno abierto de su historial: el candado lo mira',
+    moving.every((id) => {
+      const registered = appRegistry.adapter(id);
+      return registered.status !== null || typeof registered.history.follow({ cwd: home, sessionId: 'x' }).hasOpenTurn === 'function';
+    }));
   appRegistry.disposeAll();
 }
 
@@ -901,9 +913,9 @@ const adapter = createClaudeCodeAdapter();
     sameShape(args('claude-code', null, true), ['--permission-mode', 'plan', '--session-id', uuid]) &&
       sameShape(args('claude-code', 'viejo', true), ['--permission-mode', 'plan', '--resume', 'viejo']),
     JSON.stringify(args('claude-code', null, true)));
-  check('49 codex: la sandbox de solo lectura al abrir, y despues de `resume` al reanudar',
+  check('49 codex: la sandbox de solo lectura al abrir, y despues de `resume -C .` al reanudar',
     sameShape(args('codex', null, true), ['--sandbox', 'read-only']) &&
-      sameShape(args('codex', uuid, true), ['resume', '--sandbox', 'read-only', uuid]),
+      sameShape(args('codex', uuid, true), ['resume', '-C', '.', '--sandbox', 'read-only', uuid]),
     JSON.stringify(args('codex', uuid, true)));
   check('49 antigravity: --mode plan en vez de accept-edits',
     sameShape(args('antigravity', null, true), ['--mode', 'plan']) && sameShape(args('antigravity', null), ['--mode', 'accept-edits']),

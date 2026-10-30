@@ -12,8 +12,9 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { TOKEN_QUERY_PARAM, worktreeMoveBlock, type AgentInfo, type TerminalId } from '@agent-workbench/shared';
+import { TOKEN_QUERY_PARAM, type AgentInfo, type TerminalId } from '@agent-workbench/shared';
 import { ArchivedSessions } from './archived-sessions.js';
+import type { CliLocation } from './agents/adapter.js';
 import { createAgentRegistry, type AgentRegistry } from './agents/registry.js';
 import { migrateLegacyConfigDir } from './config-dir-migration.js';
 import { ConversationHub } from './conversation-hub.js';
@@ -55,6 +56,7 @@ import { defaultVaultDir } from './vault/paths.js';
 import { VaultService } from './vault/service.js';
 import { WorkspaceStore } from './workspace-store.js';
 import { WorktreeLinks } from './worktrees/links.js';
+import { moveBlockNow } from './worktrees/move-block.js';
 import { WorktreeService } from './worktrees/service.js';
 import { WorktreeStore } from './worktrees/store.js';
 
@@ -392,7 +394,35 @@ async function main(): Promise<void> {
     },
     history: (agent) => agents.get(agent)?.adapter.history ?? null,
     // Hito 54: pasar una conversacion a una rama cierra su CLI: no con el agente trabajando ni con algo esperandolo.
-    moveBlocker: (terminalId) => worktreeMoveBlock(registry.activityOf(terminalId), conversations.hasPending(terminalId)),
+    moveBlocker: (terminalId) => {
+      const tab = registry.get(terminalId);
+      const adapter = tab === null || tab.agent === null ? null : (agents.get(tab.agent)?.adapter ?? null);
+      const launchedAt = registry.launchedAtOf(terminalId);
+      return moveBlockNow({
+        activity: registry.activityOf(terminalId),
+        pending: conversations.hasPending(terminalId),
+        // Hito 55: la CLI que no publica su estado (Codex) trabaja si su historial tiene un turno abierto.
+        history:
+          tab !== null && adapter !== null && adapter.status === null && launchedAt !== null && tab.sessionId.length > 0
+            ? { follow: () => adapter.history.follow({ cwd: tab.cwd, sessionId: tab.sessionId }), launchedAt }
+            : null,
+      });
+    },
+    // Hito 55: la CLI que pasa la conversacion a otra carpeta por su API (OpenCode), con su ubicacion de ahora.
+    sessionMover: (agent) => {
+      const entry = agents.get(agent);
+      const support = entry?.adapter.sessionMove;
+      if (entry === null || support === undefined) return null;
+      const location = (): CliLocation => {
+        if (entry.location === null) throw new Error(`${entry.adapter.label} isn't available.`);
+        return entry.location;
+      };
+      return {
+        label: entry.adapter.label,
+        available: async (target) => support.available(location(), target),
+        move: async (target, to) => support.move(location(), target, to),
+      };
+    },
   });
   // Crear o quitar una rama cambia en que proyecto cae cada sesion y la etiqueta de cada pestana.
   worktrees.on('changed', () => {

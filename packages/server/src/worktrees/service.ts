@@ -172,9 +172,16 @@ export interface WorktreeServiceDeps {
   /**
    * Hito 54. Por qué no se puede pasar ahora la conversación de una pestaña a
    * una rama: el agente trabaja, la CLI espera, o algo espera al agente. null si
-   * se puede. Ausente: siempre se puede.
+   * se puede. Ausente: siempre se puede. Desde el hito 55 puede tardar: con la
+   * CLI que no publica su estado (Codex) se lee su historial.
    */
-  moveBlocker?: (terminalId: TerminalId) => WorktreeMoveBlock | null;
+  moveBlocker?: (terminalId: TerminalId) => WorktreeMoveBlock | null | Promise<WorktreeMoveBlock | null>;
+  /**
+   * Hito 55. Lo que hace la CLI de una conversación para pasarla a otra carpeta
+   * (`AgentAdapter.sessionMove`), o null si alcanza con retomarla desde ahí.
+   * Ausente: siempre alcanza.
+   */
+  sessionMover?: (agent: AgentId) => WorktreeSessionMover | null;
   /** La carpeta de un proyecto de la barra, por su `key`; null si la barra no lo tiene. */
   projectCwd(projectKey: string): string | null;
   /** Una sesión de la barra, para volver a abrir su rama. */
@@ -210,6 +217,16 @@ export interface WorktreeMoveRequest {
   askChanges: boolean;
 }
 
+/** Hito 55. Pasar una conversación a otra carpeta por la CLI, con su ubicación ya puesta (`AgentAdapter.sessionMove`). */
+export interface WorktreeSessionMover {
+  /** El nombre de la CLI, para los mensajes. */
+  label: string;
+  /** true si esta versión de la CLI sabe hacerlo. No cambia nada; lanza si no se pudo preguntar. */
+  available(target: { cwd: string; sessionId: string }): Promise<boolean>;
+  /** Con la CLI cerrada y la carpeta creada. Lanza con el motivo. */
+  move(target: { cwd: string; sessionId: string }, to: string): Promise<void>;
+}
+
 /** Una rama aparte ya mirada, lista para crear (`checkNewBranch`). */
 interface NewBranchPlan {
   mainRoot: string;
@@ -229,6 +246,18 @@ function moveBlockError(block: WorktreeMoveBlock): WorktreeError {
     case 'pending':
       return new WorktreeError(serverText('worktreeMovePending'));
   }
+}
+
+/** Hito 55. Que la CLI sepa pasar la conversación, antes de crear la rama: si no, no se toca nada. */
+async function assertMoverAvailable(mover: WorktreeSessionMover, target: { cwd: string; sessionId: string }): Promise<void> {
+  let available: boolean;
+  try {
+    available = await mover.available(target);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new WorktreeError(serverText('worktreeMoveCliCheckFailed', { cli: mover.label, detail }));
+  }
+  if (!available) throw new WorktreeError(serverText('worktreeMoveCliUnsupported', { cli: mover.label }));
 }
 
 /** Dónde queda un pedido para el agente de la rama: su pestaña, o una que se abrió para eso. */
@@ -484,6 +513,13 @@ export class WorktreeService extends EventEmitter {
    *
    * Con `askChanges`, el pedido para el agente: lo sin commit de la carpeta de
    * donde salió, mirado con la CLI ya cerrada. null si no hay nada.
+   *
+   * Hito 55: con la CLI que guarda la conversación con su carpeta (OpenCode),
+   * la CLI la pasa a la carpeta nueva (`sessionMover`) entre crear la rama y
+   * mudar la pestaña. Antes de crear nada se pregunta si esta versión sabe:
+   * si no, no se toca nada. Si sabe y aun así falla, la rama queda creada y
+   * vacía, y la pestaña, donde estaba; la conversación se anota en la rama
+   * sólo si se pasó.
    */
   async move(request: WorktreeMoveRequest): Promise<{ terminal: TerminalDescriptor; text: string | null }> {
     if (branchNameProblem(request.branch) !== null) throw new WorktreeError(serverText('worktreeBranchInvalid', { branch: request.branch }));
@@ -496,14 +532,31 @@ export class WorktreeService extends EventEmitter {
     const mainRoot = await this.mainRootOf({ kind: 'terminal', terminalId: request.terminalId });
     const plan = await this.checkNewBranch(mainRoot, request);
     const from = (await this.tabCheckoutRoot(request.terminalId)) ?? tab.cwd;
+    const target = { cwd: tab.cwd, sessionId };
+    const mover = this.deps.sessionMover?.(agent) ?? null;
+    if (mover !== null) await assertMoverAvailable(mover, target);
 
-    const block = this.deps.moveBlocker?.(request.terminalId) ?? null;
+    const block = (await this.deps.moveBlocker?.(request.terminalId)) ?? null;
     if (block !== null) throw moveBlockError(block);
 
     const left: { paths: string[] | null } = { paths: null };
     const terminal = await relocate.call(this.deps.registry, request.terminalId, async () => {
       if (request.askChanges) left.paths = await uncommittedPaths(from);
-      return this.addBranchFolder(plan, request.copyNotes, [{ agent, sessionId, movedAt: this.now() }]);
+      const moved: MovedSession = { agent, sessionId, movedAt: this.now() };
+      if (mover === null) return this.addBranchFolder(plan, request.copyNotes, [moved]);
+      const folder = await this.addBranchFolder(plan, request.copyNotes, []);
+      try {
+        await mover.move(target, folder);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new WorktreeError(serverText('worktreeMoveCliFailed', { branch: plan.branch, cli: mover.label, detail }));
+      }
+      const record = this.deps.store.byPath(folder);
+      if (record !== null) {
+        await this.deps.store.update(record.id, { movedSessions: [moved] });
+        this.changed();
+      }
+      return folder;
     });
     if (terminal === null) throw new WorktreeError(serverText('worktreeMoveUnavailable'));
     const paths = left.paths ?? [];

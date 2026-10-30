@@ -19,7 +19,8 @@
  * Y el chequeo lo maneja por `/__fake/*`, con la misma autorizacion:
  *
  *  - `POST /__fake/state`: mezcla el estado (`status`, `permissions` y
- *    `questions` por carpeta, `sessionId`, `html`: rutas que responden HTML).
+ *    `questions` por carpeta, `sessionId`, `html`: rutas que responden HTML,
+ *    `moveRoute`: si `/doc` nombra la ruta de mover una sesion, hito 55).
  *  - `GET /__fake/requests`: lo anotado.
  *  - `POST /__fake/emit`: manda `{directory, payload}` a cada flujo abierto, y
  *    lo aplica al estado (un permiso o una pregunta quedan pendientes).
@@ -62,7 +63,9 @@ const state = {
   questions: {},
   sessionId: 'ses_fakeSession0000000000000001',
   html: [],
+  moveRoute: true,
 };
+const MOVE_SESSION_ROUTE = '/experimental/control-plane/move-session';
 const requests = [];
 const streams = new Set();
 
@@ -188,6 +191,21 @@ const server = http.createServer(async (request, response) => {
   const promptAsync = /^\/session\/([^/]+)\/prompt_async$/.exec(url.pathname);
   if (request.method === 'POST' && promptAsync !== null) {
     if (promptAsync[1] === 'ses_missing00000000000000000') return json(response, 404, { name: 'NotFoundError', data: { message: 'Session not found' } });
+    response.writeHead(204);
+    return response.end();
+  }
+  // Hito 55: la especificacion, con o sin la ruta de mover (`moveRoute`), y la ruta, como la 1.19.5.
+  if (request.method === 'GET' && url.pathname === '/doc') {
+    const paths = { '/session': { post: { operationId: 'session.create' } } };
+    if (state.moveRoute) paths[MOVE_SESSION_ROUTE] = { post: { operationId: 'experimental.controlPlane.moveSession' } };
+    return json(response, 200, { openapi: '3.1.1', paths });
+  }
+  if (request.method === 'POST' && url.pathname === MOVE_SESSION_ROUTE) {
+    const sessionID = body?.sessionID ?? '';
+    if (sessionID === 'ses_missing00000000000000000') {
+      // Un campo de mas que no se cita nunca: lo que sobra puede traer cualquier cosa.
+      return json(response, 400, { name: 'MoveSessionError', data: { message: `Session not found: ${sessionID}` }, responseBody: 'secreto' });
+    }
     response.writeHead(204);
     return response.end();
   }

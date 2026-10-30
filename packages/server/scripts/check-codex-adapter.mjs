@@ -2555,8 +2555,8 @@ const throwsOn = (run) => {
     editQueue: false,
     // Hito 51: no se le programa nada todavia (el 52).
     scheduledSend: true,
-    // Hito 54: retomar desde otra carpeta no esta medido.
-    moveToWorktree: false,
+    // Hito 55: `resume -C .` retoma desde la carpeta de una rama aparte (§10.19).
+    moveToWorktree: true,
     // Hito 49: la sandbox de solo lectura, medida con la 0.162.1 (§10.15).
     readOnlyLaunch: { mode: null, guard: 'cli' },
   }), show(adapter.capabilities));
@@ -2579,13 +2579,20 @@ const throwsOn = (run) => {
   check('E1 sesion nueva: sin argumentos, el id se descubre y el propuesto no se usa',
     fresh.file === '/bin/codex' && same(fresh.args, []) && same(fresh.session, { kind: 'discover' }), show(fresh));
   const resumed = adapter.launch({ location: plain, cwd: CWD, resumeSessionId: id, proposedSessionId: cid(91) });
-  check('E1 reanudar: resume <id> y la sesion es conocida',
-    same(resumed.args, ['resume', id]) && same(resumed.session, { kind: 'known', sessionId: id }), show(resumed));
+  /*
+    Hito 55 (§10.19): `-C .` en la carpeta de la pestana. Sin el, desde otra
+    carpeta Codex pregunta con la de antes marcada; y un `-C <cwd>` con espacios
+    romperia el lanzamiento detras de `cmd /c` (§3.1).
+  */
+  check('E1 reanudar: resume -C . <id> y la sesion es conocida',
+    same(resumed.args, ['resume', '-C', '.', id]) && same(resumed.session, { kind: 'known', sessionId: id }), show(resumed));
   const viaShim = adapter.launch({ location: shim, cwd: CWD, resumeSessionId: id, proposedSessionId: '' });
   const freshShim = adapter.launch({ location: shim, cwd: CWD, resumeSessionId: null, proposedSessionId: '' });
   check('E1 con el shim, los argumentos del interprete van primero',
-    viaShim.file === 'cmd.exe' && same(viaShim.args, ['/c', 'x.cmd', 'resume', id]) && same(freshShim.args, ['/c', 'x.cmd']),
+    viaShim.file === 'cmd.exe' && same(viaShim.args, ['/c', 'x.cmd', 'resume', '-C', '.', id]) && same(freshShim.args, ['/c', 'x.cmd']),
     show([viaShim.args, freshShim.args]));
+  check('55 ningun argumento de reanudar lleva espacios ni comillas (pasan enteros por cmd /c)',
+    viaShim.args.every((arg) => !/[\s"]/.test(arg)), show(viaShim.args));
   check('E1 un id con espacio, comilla o que no es uuid no llega a la linea de comando',
     throwsOn(() => adapter.launch({ location: shim, cwd: CWD, resumeSessionId: `${id} x`, proposedSessionId: '' })) &&
     throwsOn(() => adapter.launch({ location: shim, cwd: CWD, resumeSessionId: `"${id}"`, proposedSessionId: '' })) &&

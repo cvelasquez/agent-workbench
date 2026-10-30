@@ -1043,6 +1043,27 @@ export type ScheduledSendSupport =
       readonly confirmTimeoutMs: number;
     };
 
+// ---- Pasar una conversacion a otra carpeta (hito 55) ---------------------------
+
+/**
+ * Lo que hace falta para pasar una conversacion a la carpeta de una rama
+ * aparte en la CLI que la guarda con la carpeta donde nacio y, retomada desde
+ * otra, sigue trabajando en la de antes (hito 55, §6.38): OpenCode, por una
+ * ruta de su `serve` (§11.17). Solo con la capacidad `moveToWorktree`. Ausente
+ * con la capacidad: alcanza con retomarla desde la carpeta nueva (Claude Code,
+ * Codex).
+ */
+export interface SessionMoveSupport {
+  /**
+   * true si esta version de la CLI sabe pasarla. Se pregunta antes de crear la
+   * rama y de cerrar la CLI: con una version que no sabe, no se toca nada. No
+   * cambia nada; lanza si no se pudo preguntar.
+   */
+  available(location: CliLocation, target: { cwd: string; sessionId: string }): Promise<boolean>;
+  /** Pasa la conversacion a `to`, con la CLI de la pestana ya cerrada y la carpeta ya creada. Lanza con el motivo si no pudo. */
+  move(location: CliLocation, target: { cwd: string; sessionId: string }, to: string): Promise<void>;
+}
+
 // ---- El adaptador ---------------------------------------------------------------
 
 export interface AgentAdapter {
@@ -1147,6 +1168,11 @@ export interface AgentAdapter {
    * siempre.
    */
   readonly focusByTab?: boolean;
+  /**
+   * Presente si pasar una conversacion a una rama aparte necesita algo mas que
+   * retomarla desde la carpeta nueva (hito 55, §6.38). Ver `SessionMoveSupport`.
+   */
+  readonly sessionMove?: SessionMoveSupport;
   /**
    * Con que modelo y esfuerzo arranca una pestana de esa carpeta, segun la
    * configuracion de la CLI, o null si no se lee ninguna.

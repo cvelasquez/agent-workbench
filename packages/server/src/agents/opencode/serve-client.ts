@@ -5,7 +5,9 @@
  * app usa: crear una sesion, el estado de las sesiones, los permisos y las
  * preguntas pendientes, contestar una pregunta, cortar una sesion y el flujo de
  * eventos; desde el hito 52, mandar un mensaje programado (`prompt_async`,
- * §11.16). Nada de `/config`, `/provider`, `/auth`, `/file` ni `/pty`.
+ * §11.16); desde el hito 55, pasar una sesion a otra carpeta (`move-session`,
+ * con su especificacion `/doc` para saber si esta, §11.17). Nada de
+ * `/config`, `/provider`, `/auth`, `/file` ni `/pty`.
  *
  * Reglas:
  *
@@ -35,6 +37,16 @@ export const SERVE_REQUEST_TIMEOUT_MS = 5_000;
 
 /** Esperas antes de reconectar el flujo de eventos: 1, 2 y 5 s, y despues 5 s siempre. */
 export const SERVE_RECONNECT_DELAYS_MS: readonly number[] = Object.freeze([1_000, 2_000, 5_000]);
+
+/**
+ * Hito 55 (§11.17). La ruta experimental que pasa una sesion a otra carpeta, la
+ * unica de las que mide la app que OpenCode marca como experimental: por eso se
+ * busca en su especificacion antes de cada mudanza.
+ */
+export const OPENCODE_MOVE_SESSION_ROUTE = '/experimental/control-plane/move-session';
+
+/** Plazo de leer la especificacion (`/doc`), que es grande, y de mover una sesion. */
+const SERVE_SLOW_REQUEST_TIMEOUT_MS = 30_000;
 
 export type ServeSessionStatus = 'busy' | 'idle' | 'retry';
 
@@ -97,6 +109,22 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/**
+ * El motivo de un rechazo de `move-session` (hito 55), y nada mas: `data.message`
+ * de un `MoveSessionError` o `message` de un `InvalidRequestError`, cortado.
+ */
+function moveRejection(text: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const record = asRecord(parsed);
+  const message = asNonEmptyString(asRecord(record?.['data'])?.['message']) ?? asNonEmptyString(record?.['message']);
+  return message === null ? null : message.replace(/\s+/g, ' ').trim().slice(0, 300);
 }
 
 /** Un estado nativo desconocido cuenta como trabajando, como en `AgentStatus`. */
@@ -368,6 +396,50 @@ export class OpenCodeServeClient {
     };
   }
 
+  /**
+   * Hito 55 (§11.17). true si este `serve` tiene la ruta que pasa una sesion a
+   * otra carpeta: se busca en su propia especificacion (`/doc`), que no cambia
+   * nada. Una version sin `/doc` tampoco la tiene.
+   */
+  async canMoveSession(directory: string): Promise<boolean> {
+    let spec: unknown;
+    try {
+      spec = await this.request('GET', '/doc', directory, undefined, SERVE_SLOW_REQUEST_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ServeRouteError) return false;
+      throw error;
+    }
+    const route = asRecord(asRecord(asRecord(spec)?.['paths'])?.[OPENCODE_MOVE_SESSION_ROUTE]);
+    return asRecord(route?.['post']) !== null;
+  }
+
+  /**
+   * Hito 55 (§11.17). Pasa la sesion a la carpeta `to` sin llevarse cambios
+   * (`moveChanges: false`): lo sin commit queda donde estaba, como con las demas
+   * CLIs. Medido con la 1.19.4 y la 1.19.5: responde 204, el id no cambia,
+   * `session.directory` pasa a ser `to`, y el agente trabaja ahi desde el
+   * mensaje siguiente. De un rechazo (400) se cita solo su mensaje.
+   */
+  async moveSession(directory: string, sessionId: string, to: string): Promise<void> {
+    if (!OPENCODE_SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid OpenCode session id.');
+    const route = OPENCODE_MOVE_SESSION_ROUTE;
+    const response = await this.fetchImpl(`${this.base}${route}?directory=${encodeURIComponent(directory)}`, {
+      method: 'POST',
+      headers: { Authorization: this.authorization, Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionID: sessionId, destination: { directory: to }, moveChanges: false }),
+      signal: AbortSignal.timeout(SERVE_SLOW_REQUEST_TIMEOUT_MS),
+    });
+    if (response.status === 400 && !(response.headers.get('content-type') ?? '').includes('text/html')) {
+      const reason = moveRejection(await response.text().catch(() => ''));
+      throw new ServeRequestError(`OpenCode didn't move the session${reason === null ? '' : `: ${reason}`}`, 400);
+    }
+    try {
+      this.checkResponse(response, route);
+    } finally {
+      await response.body?.cancel().catch(() => {});
+    }
+  }
+
   private checkResponse(response: Response, route: string): void {
     if (response.status === 401) throw new ServeAuthError('The OpenCode server rejected the password.');
     const type = response.headers.get('content-type') ?? '';
@@ -379,14 +451,20 @@ export class OpenCodeServeClient {
     }
   }
 
-  private async request(method: 'GET' | 'POST', route: string, directory: string, body?: unknown): Promise<unknown> {
+  private async request(
+    method: 'GET' | 'POST',
+    route: string,
+    directory: string,
+    body?: unknown,
+    timeoutMs = this.requestTimeoutMs,
+  ): Promise<unknown> {
     const headers: Record<string, string> = { Authorization: this.authorization, Accept: 'application/json' };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const response = await this.fetchImpl(`${this.base}${route}?directory=${encodeURIComponent(directory)}`, {
       method,
       headers,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(this.requestTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     try {
       this.checkResponse(response, route);
