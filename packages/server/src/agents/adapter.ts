@@ -41,6 +41,7 @@ import type {
   SessionPlan,
   SessionSummary,
   StatusLineSetupInfo,
+  TerminalActivity,
   TerminalOfflineReason,
 } from '@agent-workbench/shared';
 import type { CliLocation } from './locate.js';
@@ -116,6 +117,8 @@ export interface SpawnedContext {
   /** El mismo `launchToken` que recibio `launch` para este proceso. */
   launchToken: string;
   readOutput(): string;
+  /** Pantalla emulada de esta terminal, si el proceso sigue vivo. */
+  watchScreen?(): import('../pty-screen.js').PtyScreen | null;
   /** false si la terminal ya no esta. */
   write(data: string): boolean;
   onDone(outcome: string): void;
@@ -806,12 +809,16 @@ export interface ScreenQuestion {
 export interface ScreenQuestionReader {
   /** La etiqueta de `waitingFor` con la que la CLI dice que espera la respuesta a una pregunta. */
   readonly waitingFor: string;
+  /** Otras esperas que se leen con el mismo controlador. */
+  readonly waitingForKinds?: readonly string[];
   /**
    * Lee la pantalla emulada, de arriba abajo. null si no hay una pregunta que
    * se pueda contestar desde el hilo: ningun menu, uno de varias preguntas, o
    * uno que no tiene la forma medida.
    */
   read(lines: readonly string[]): ScreenQuestion | null;
+  answerKeys?(shape: readonly { readonly multiSelect: boolean; readonly optionCount: number }[], selections: readonly AnswerSelection[], questions?: readonly ConversationQuestionItem[]): string[] | null;
+  readonly keyIntervalMs?: number;
 }
 
 // ---- Los limites del plan -------------------------------------------------------
@@ -954,6 +961,12 @@ export interface AgentInput {
    * esto deja de frenar, pero nunca frena de mas.
    */
   readonly startupDialog?: RegExp;
+  /** Con sesion viva, no escribir sobre una pantalla cuyo estado no se reconoce. */
+  readonly requireKnownActivity?: boolean;
+  /** Estado visible cuando todavia no hay id de sesion. */
+  readonly initialScreenActivity?: (lines: readonly string[]) => TerminalActivity;
+  /** Indicador visible de que el arranque aun no acepta todas las piezas. */
+  readonly startupPendingScreen?: RegExp;
   /**
    * La tecla con la que la CLI aparta lo escrito en su caja y lo devuelve sola
    * despues del envio siguiente (28-10-2026, §5.3.1). Ausente: la CLI no tiene

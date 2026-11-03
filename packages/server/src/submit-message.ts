@@ -77,6 +77,9 @@ export interface SubmitPlan {
   pieceGuard: PieceGuard | undefined;
   /** Si una pieza se freno por el dialogo del arranque (lo pone la guarda). */
   stoppedByDialog(): boolean;
+  stoppedByUnknownActivity(): boolean;
+  stoppedByWaiting(): boolean;
+  stoppedByStartup(): boolean;
   promptQueueSource: 'session' | 'app' | null;
   hasQueuedSubmits: boolean;
 }
@@ -114,7 +117,7 @@ export type SubmitResult =
   | { kind: 'written' }
   | { kind: 'refused' }
   | { kind: 'interrupted' }
-  | { kind: 'blocked'; byDialog: boolean; waitingNow: boolean }
+  | { kind: 'blocked'; byDialog: boolean; waitingNow: boolean; unknownActivity: boolean; starting: boolean }
   | { kind: 'dropped' }
   /**
    * La caja de la CLI tenia algo escrito que no se pudo apartar (§5.3.1): ya
@@ -150,6 +153,9 @@ export function prepareSubmit(deps: SubmitMessageDeps, terminalId: TerminalId): 
     if (refusal !== null) return { refusal };
   }
 
+  let stoppedByUnknownActivity = false;
+  let stoppedByWaiting = false;
+  let stoppedByStartup = false;
   // Otra vez antes de cada pieza, leyendo el archivo en el momento (§10.8).
   const approvalGuard =
     submitting !== null && (guardsPending || blocksWhileWaiting || isBlind())
@@ -157,7 +163,39 @@ export function prepareSubmit(deps: SubmitMessageDeps, terminalId: TerminalId): 
           const current = deps.launchedAtOf(terminalId);
           // Sin proceso no hay menu: la escritura la rechaza la terminal.
           if (current === null) return true;
-          if (blocksWhileWaiting && deps.activityOf(terminalId) === 'waiting') return false;
+          if (input.startupPendingScreen !== undefined) {
+            const screen = deps.watchScreen(terminalId);
+            if (screen !== null) {
+              try {
+                if ((await screen.lines()).some((line) => input.startupPendingScreen!.test(line))) {
+                  stoppedByStartup = true;
+                  return false;
+                }
+              } finally {
+                screen.dispose();
+              }
+            }
+          }
+          if (blocksWhileWaiting) {
+            const sessionId = deps.sessionIdOf(terminalId);
+            if (sessionId) await submitting.status?.refresh?.(sessionId);
+            if (deps.activityOf(terminalId) === 'waiting') { stoppedByWaiting = true; return false; }
+            if (sessionId && deps.inputOf(terminalId).requireKnownActivity && deps.activityOf(terminalId) === 'unknown') {
+              stoppedByUnknownActivity = true;
+              return false;
+            }
+            if (!sessionId && input.initialScreenActivity !== undefined) {
+              const screen = deps.watchScreen(terminalId);
+              if (screen === null) { stoppedByUnknownActivity = true; return false; }
+              try {
+                const activity = input.initialScreenActivity(await screen.lines());
+                if (activity === 'unknown') { stoppedByUnknownActivity = true; return false; }
+                if (activity === 'waiting') { stoppedByWaiting = true; return false; }
+              } finally {
+                screen.dispose();
+              }
+            }
+          }
           if (isBlind() && (await deps.conversations.checkOpenToolCall(terminalId, current))) return false;
           return !guardsPending || (await deps.conversations.checkWaitingFor(terminalId)) === null;
         }
@@ -167,13 +205,11 @@ export function prepareSubmit(deps: SubmitMessageDeps, terminalId: TerminalId): 
   // El dialogo del arranque (§12.14), antes de la primera pieza de una pestana sin conversacion.
   const startupDialog = input.startupDialog;
   const firstMessage = startupDialog !== undefined && (deps.sessionIdOf(terminalId) ?? '') === '';
-  let startupChecked = false;
   let stoppedByDialog = false;
   const pieceGuard =
     firstMessage || approvalGuard !== undefined
       ? async (): Promise<boolean> => {
-          if (firstMessage && startupDialog !== undefined && !startupChecked) {
-            startupChecked = true;
+          if (firstMessage && startupDialog !== undefined) {
             const screen = deps.watchScreen(terminalId);
             if (screen !== null) {
               try {
@@ -195,6 +231,9 @@ export function prepareSubmit(deps: SubmitMessageDeps, terminalId: TerminalId): 
     blocksWhileWaiting,
     pieceGuard,
     stoppedByDialog: () => stoppedByDialog,
+    stoppedByUnknownActivity: () => stoppedByUnknownActivity,
+    stoppedByWaiting: () => stoppedByWaiting,
+    stoppedByStartup: () => stoppedByStartup,
     promptQueueSource: submitting?.promptQueue?.source ?? null,
     hasQueuedSubmits: submitting?.queuedSubmits !== undefined,
   };
@@ -273,7 +312,9 @@ export async function runSubmit(deps: SubmitMessageDeps, plan: SubmitPlan, reque
         result = {
           kind: 'blocked',
           byDialog: plan.stoppedByDialog(),
-          waitingNow: plan.blocksWhileWaiting && deps.activityOf(terminalId) === 'waiting',
+          waitingNow: plan.stoppedByWaiting(),
+          unknownActivity: plan.stoppedByUnknownActivity(),
+          starting: plan.stoppedByStartup(),
         };
       }
     },

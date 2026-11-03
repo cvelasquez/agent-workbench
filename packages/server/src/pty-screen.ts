@@ -17,6 +17,8 @@ import headless from '@xterm/headless';
 const { Terminal } = headless;
 
 export interface PtyScreen {
+  /** Actualiza las dimensiones del emulador cuando cambia la terminal. */
+  resize?(cols: number, rows: number): void;
   /** Un trozo de salida de la pty. */
   feed(chunk: string): void;
   /** Las lineas visibles, de arriba abajo, con lo recibido hasta ahora ya aplicado. */
@@ -95,6 +97,9 @@ export function createPtyScreen(cols: number, rows: number, replay: string): Pty
       });
     });
   return {
+    resize(cols, rows) {
+      if (!disposed) term.resize(cols, rows);
+    },
     feed(chunk) {
       if (!disposed) term.write(chunk);
     },

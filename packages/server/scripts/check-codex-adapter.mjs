@@ -383,6 +383,7 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
   const { codexInput } = await import('../src/agents/codex/index.ts');
   const onWindows = codexInput('win32');
   const elsewhere = codexInput('linux');
+  check('Codex protege el dialogo de confianza al iniciar', onWindows.startupDialog?.test('Trust this folder?') === true);
   const END_ENTER = '\x1b[F\r';
   check('B8 codex en Windows: Fin antes del Enter y 3 s de arranque',
     onWindows.endBeforeSubmit === true && onWindows.readyAfterLaunchMs === 3000, show(onWindows));
@@ -674,6 +675,79 @@ const zlib = await import('node:zlib');
 const paths = await import('../src/agents/codex/paths.ts');
 const lines = await import('../src/agents/codex/rollout-lines.ts');
 const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts');
+{
+  const { codexModelOptions, supportsCodexModelCommand } = await import('../src/agents/codex/catalog.ts');
+  const models = codexModelOptions([
+    { model: 'gpt-example', displayName: 'Example', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }] },
+    { model: 'malicious\n/model', supportedReasoningEfforts: [] },
+    { model: 'hidden', hidden: true },
+  ]);
+  check('Codex obtiene modelos y esfuerzos del catalogo', models.length === 1 && same(models[0].supportedEfforts, ['low', 'high']));
+  check('Codex oculta controles si la version no admite argumentos', !supportsCodexModelCommand('codex-cli 0.163.0') && supportsCodexModelCommand('codex-cli 0.166.0') && !supportsCodexModelCommand(null));
+}
+{
+  const { codexScreenStatus, CodexScreenStatus } = await import('../src/agents/codex/screen-status.ts');
+  check('Codex detecta pregunta visible', codexScreenStatus(['Question 1/1', 'tab to add notes | enter to submit answer | esc to interrupt']).activity === 'waiting');
+  check('Codex detecta solicitud de ejecutar comando', codexScreenStatus(['Would you like to run the following command?', 'Press enter to confirm or esc to cancel']).waitingFor === 'permission prompt');
+  check('Codex protege el dialogo de limites', codexScreenStatus(['Approaching rate limits. Switch to gpt-6-luna?']).activity === 'waiting');
+  check('Codex detecta trabajo', codexScreenStatus(['Working (1s • esc to interrupt)']).activity === 'busy');
+  check('Codex detecta caja lista', codexScreenStatus(['› Ask Codex to do anything', '? for shortcuts']).activity === 'idle');
+  check('Codex reconoce caja escrita con pie de modelo y carpeta', codexScreenStatus(['› texto escrito', '  fake-model default · D:\\proyecto']).activity === 'idle');
+  check('Codex no confunde una ruta con el pie de la caja', codexScreenStatus(['› texto escrito', '  un mensaje D:\\proyecto']).activity === 'unknown');
+  check('Codex no inventa estado', codexScreenStatus(['Starting']).activity === 'unknown');
+  const statuses = new CodexScreenStatus();
+  const observed = [];
+  const stop = statuses.subscribe('s', (status) => observed.push(status?.activity));
+  statuses.attach('s', async () => statuses.set('s', { activity: 'waiting', waitingFor: 'permission prompt' }));
+  await statuses.refresh('s');
+  check('Codex relee la pantalla antes de escribir', same(observed, ['unknown', 'waiting']));
+  stop();
+  statuses.dispose();
+  const { readCodexQuestion, codexAnswerKeys } = await import('../src/agents/codex/question-screen.ts');
+  const screen = ['Question 1/1 (1 unanswered)', 'Que base usaremos?', '› 1. PostgreSQL         Existente', '  2. SQLite             Local', '  3. None of the above  Optionally, add details in notes (tab)', 'tab to add notes | enter to submit answer | esc to interrupt'];
+  const question = readCodexQuestion(screen);
+  check('Codex lee pregunta de la pantalla', question?.item.options[1]?.label === 'SQLite' && question.untouched);
+  check('Codex selecciona opcion con numero', same(codexAnswerKeys([{ multiSelect: false, optionCount: 2 }], [[1]]), ['2']));
+  check('Codex envia texto libre como nota de otra opcion', same(codexAnswerKeys([{ multiSelect: false, optionCount: 2 }], [{ text: 'otra' }]), ['\x1b[B', '\x1b[B', '\t', '\x1b[200~otra\x1b[201~', '\r']));
+  check('Codex ignora pregunta incompleta', readCodexQuestion(screen.slice(0, 4)) === null);
+  const multi = ['Question 2/2 (1 unanswered)', 'Que color?', '› 1. Azul    Claro', '  2. Verde    Oscuro', '  3. None of the above  Optionally, add details in notes (tab)', 'tab to add notes | enter to submit all | ←/→ to navigate questions | esc to interrupt'];
+  check('Codex lee una pregunta posterior', readCodexQuestion(multi)?.item.options[1]?.label === 'Verde' && codexScreenStatus(multi).activity === 'waiting');
+  const approval = ['Would you like to run the following command?', 'Environment: local', 'Reason: Ejecutar prueba', '$ echo prueba', '› 1. Yes, proceed (y)', '2. Yes, and don\'t ask again for commands that start with `echo prueba` (p)', '3. No, and tell Codex what to do differently (esc)', 'Press enter to confirm or esc to cancel'];
+  const permission = readCodexQuestion(approval);
+  check('Codex muestra comando y opciones de aprobacion', permission?.item.question.includes('$ echo prueba') && permission.item.options.length === 3);
+  check('Codex rechaza texto libre para una aprobacion', codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [{ text: 'no' }], permission ? [permission.item] : []) === null);
+  check('Codex omite aprobacion incompleta', readCodexQuestion(approval.slice(0, -2).concat(approval.at(-1))) === null);
+}
+{
+  const { describeCodexPlans, readCodexPlan } = await import('../src/agents/codex/plans.ts');
+  const sink = new CodexRolloutSink('');
+  const send = (plan) => sink.consume({ type: 'response_item', payload: {
+    type: 'function_call', call_id: 'plan', name: 'update_plan', arguments: JSON.stringify({ plan }),
+  } }, 1, { find: () => undefined });
+  send([{ step: 'Revisar', status: 'in_progress' }, { step: 'Probar', status: 'pending' }]);
+  const first = sink.takePlans();
+  const target = { cwd: work, sessionId: 'test' };
+  const content = await readCodexPlan(target, first[0]);
+  check('Codex muestra pasos del plan', first.length === 1 && content?.text.includes('Revisar') && content?.text.includes('- [ ] Probar'));
+  check('Codex describe plan de sesion', (await describeCodexPlans(target, sink.getPlanFiles())).length === 1);
+  send([{ step: 'Revisar', status: 'completed' }]);
+  const next = sink.takePlans();
+  check('Codex actualiza plan', next.length === 1 && next[0] !== first[0] && (await readCodexPlan(target, next[0]))?.text.includes('- [x] Revisar'));
+  sink.reset();
+  check('Codex descarta plan al reiniciar', sink.getPlanFiles().length === 0 && sink.takePlans().length === 0);
+  check('Codex rechaza referencias ajenas', await readCodexPlan(target, 'proj:secret.md') === null);
+  const docSink = new CodexRolloutSink('', undefined, undefined, work);
+  const patch = '*** Begin Patch\n*** Add File: informe.md\n+texto\n*** Add File: ../fuera.md\n+no\n*** End Patch';
+  docSink.consume({ type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'p', input: patch } }, 1, { find: () => undefined });
+  check('Codex espera resultado antes de anunciar documento', docSink.getPlanFiles().length === 0);
+  docSink.consume({ type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'p', output: 'Success.' } }, 2, { find: () => undefined });
+  await writeFile(path.join(work, 'informe.md'), '# Informe', 'utf8');
+  check('Codex incluye solo documentos del proyecto', same(docSink.takePlans(), ['proj:informe.md']));
+  check('Codex abre documento de la conversacion', (await readCodexPlan(target, 'proj:informe.md'))?.text === '# Informe');
+  docSink.consume({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '<proposed_plan>\n# Plan de trabajo\nRevisar.\n</proposed_plan>' }] } }, 3, { find: () => undefined });
+  const proposed = docSink.takePlans().find((ref) => ref.startsWith('codex-plan:'));
+  check('Codex incluye el plan propuesto', proposed !== undefined && (await readCodexPlan(target, proposed))?.text.includes('# Plan de trabajo'));
+}
 const { CodexSessionFollower } = await import('../src/agents/codex/session-follower.ts');
 const { findCompressedRollout, findRollout } = await import('../src/agents/codex/find-rollout.ts');
 const { loadRolloutImage } = await import('../src/agents/codex/rollout-image.ts');
@@ -1376,7 +1450,7 @@ async function waitFor(condition, timeoutMs = 5000) {
   // `codex resume` descomprime: sin esto, despertar su pestana abria una sesion nueva (§10.12).
   check('E2 exists de una sesion que solo esta comprimida: true', (await history.exists(CWD, cid(25))) === true);
   check('E2 list trae la comprimida', (listed ?? []).some((entry) => entry.sessionId === cid(25)));
-  check('E2 sin planes', history.plans === null);
+  check('E2 fuente de planes', history.plans !== null);
 }
 
 // Z. Rollouts comprimidos (§10.12): la app de escritorio de Codex comprime los
@@ -2544,13 +2618,13 @@ const throwsOn = (run) => {
     permissionCycle: null,
     models: null,
     efforts: null,
-    questionCards: false,
+    questionCards: true,
     imagesByPath: 'bare-path-paste',
     fileMentions: null,
     rewind: false,
     contextWindowSource: 'token-count',
-    plans: false,
-    waitingBlocksSubmit: false,
+    plans: true,
+    waitingBlocksSubmit: true,
     forceSend: false,
     editQueue: false,
     // Hito 51: no se le programa nada todavia (el 52).
@@ -2565,6 +2639,8 @@ const throwsOn = (run) => {
     same(adapter.input, {
       imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1,
       transcriptReference: 'quoted-path', endBeforeSubmit: onWindows, readyAfterLaunchMs: onWindows ? 3000 : 0,
+      startupDialog: /trust this folder|do you trust|allow Codex to work/i, requireKnownActivity: true,
+      startupPendingScreen: /Waiting for startup/i,
     }),
     show(adapter.input));
   check('E1 lo que se escribe coincide con lo que se le promete a la interfaz',
@@ -2633,7 +2709,7 @@ const throwsOn = (run) => {
   hook?.cancel();
 
   check('E1 sin configuracion que leer', (await adapter.defaults(CWD)) === null);
-  check('E1 no publica su estado', adapter.status === null);
+  check('E1 publica estado de la pantalla', adapter.status !== null);
   check('E1 el historial lee el CODEX_HOME temporal', adapter.history.roots()[0]?.path === sessionsRoot, show(adapter.history.roots()));
   const dirs = adapter.protectedDirs();
   check('E1 protege el CODEX_HOME y la carpeta de siempre del home',

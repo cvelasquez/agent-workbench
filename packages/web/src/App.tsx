@@ -1689,6 +1689,7 @@ export function App(): JSX.Element {
                 effortProvisional={effortProvisional}
                 savesChoice={savesModelChoiceFor(activeAgent)}
                 effortCommandName={effortCommandFor(activeAgent)}
+                effortUsesModel={activeAgent === 'codex'}
                 disabled={!activeTerminal.alive}
                 onCommand={sendCommand}
               />

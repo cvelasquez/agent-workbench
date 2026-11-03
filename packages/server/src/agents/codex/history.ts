@@ -34,6 +34,7 @@ import { codexArchivedRoot, codexSessionsRoot, parseCompressedRolloutFileName, p
 import type { PlanLimitsBook } from '../plan-limits.js';
 import { scanRollout } from './rollout-scan.js';
 import { CodexSessionFollower } from './session-follower.js';
+import { describeCodexPlans, readCodexPlan } from './plans.js';
 
 async function pathExists(candidate: string): Promise<boolean> {
   try {
@@ -185,7 +186,7 @@ export function createCodexHistory(options: CodexHistoryOptions = {}): HistorySo
     // `follow` respeta `FollowOptions`: la copia propia puede leer de aca (hito 28).
     wholeRead: true,
 
-    plans: null,
+    plans: { describe: describeCodexPlans, read: readCodexPlan },
 
     /*
       Codex escribe el rollout con el archivo abierto todo el turno, y en

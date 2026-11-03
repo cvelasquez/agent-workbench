@@ -316,6 +316,30 @@ const local = (text, items = []) => ({ text, items });
 const chip = (number, text) => ({ id: `c${number}`, kind: 'text', number, text, lines: 1 });
 const image = { id: 'img', kind: 'image', mediaType: 'image/png', base64: 'AAAA', dataUrl: 'data:', bytes: 3, name: 'a.png' };
 
+{
+  const { drafts } = make();
+  const original = local('pregunta', [image]);
+  drafts.submitted('t1', true, 'r1', original);
+  drafts.submittedAck('t1', 'r1', false);
+  check('un envio rechazado recupera texto e imagen', json(drafts.get('t1')) === json(original));
+  drafts.submitted('t1', true, 'r2', original);
+  drafts.put('t1', local('nuevo'));
+  drafts.submittedAck('t1', 'r2', false);
+  check('un rechazo conserva lo escrito despues y la imagen', drafts.get('t1')?.text === 'pregunta\n\nnuevo' && drafts.get('t1')?.items[0] === image);
+  drafts.submitted('t1', true, 'r3', original);
+  drafts.submittedAck('t1', 'r3', true);
+  drafts.submittedAck('t1', 'r3', false);
+  check('un acuse exitoso no vuelve ni acepta otro acuse', drafts.get('t1') === undefined);
+  drafts.submitted('t1', true, 'r4', original);
+  check('el prefill del mismo envio se reconoce antes del acuse', drafts.consumeSubmitPrefill('t1', 'r4'));
+  drafts.submittedAck('t1', 'r4', false);
+  check('el envio se recupera una sola vez', json(drafts.get('t1')) === json(original));
+  drafts.submitted('t1', true, 'r5', original);
+  drafts.submittedAck('t1', 'r5', false);
+  check('el prefill del mismo envio se reconoce despues del acuse', drafts.consumeSubmitPrefill('t1', 'r5'));
+  check('no se suprime un prefill de otra pestana', !drafts.consumeSubmitPrefill('t2', 'r5'));
+}
+
 // --- 8. La página: cuándo manda y qué no pisa ------------------------------------------
 {
   check('lo que se guarda: el texto y los textos pegados, sin imágenes ni archivos',

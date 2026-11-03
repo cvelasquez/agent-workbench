@@ -22,6 +22,8 @@
  */
 
 export interface ModelOption {
+  /** Niveles que declara el catalogo de esta opcion, si existen. */
+  supportedEfforts?: readonly string[];
   /** Lo que se le pasa a `/model`. */
   value: string;
   /** Nombre de la familia, sin la ventana. La etiqueta la arma `modelOptionLabel`. */

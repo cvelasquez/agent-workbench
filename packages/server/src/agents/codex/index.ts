@@ -8,8 +8,8 @@
  *    id y el descubrimiento lo encuentra con el primer mensaje
  *    (`discovery.ts`). El adaptador es dueno de **un** descubrimiento, igual
  *    que el de Claude Code es dueno de un solo vigilante de estado.
- *  - **No publica su estado.** No hay barra "esperando", ni punto de actividad,
- *    ni "lista para recibir".
+ *  - **No publica su estado en disco.** La pantalla permite detectar estados
+ *    conocidos, pero se conserva la guarda para aprobaciones no reconocidas.
  *  - **No se lee su configuracion.** `config.toml` trae el entorno de los MCP,
  *    que puede llevar secretos (regla 2.1): sin modelo por defecto que mostrar.
  *
@@ -33,6 +33,11 @@ import { CodexSessionDiscovery } from './discovery.js';
 import { createCodexHistory } from './history.js';
 import { codexReadyScreen } from './ready-screen.js';
 import { codexHome, isUuid } from './paths.js';
+import { codexScreenStatus, CodexScreenStatus } from './screen-status.js';
+import { createCodexScreenQuestions } from './question-screen.js';
+import { loadCodexModels, supportsCodexModelCommand } from './catalog.js';
+import type { CliLocation } from '../locate.js';
+import type { ModelOption } from '@agent-workbench/shared';
 
 /** Nombre del comando en el PATH. Dato de compatibilidad, no marca (regla 2.3). */
 export const CODEX_COMMAND = 'codex';
@@ -49,18 +54,19 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   sessionIdAtLaunch: false,
   // `codex resume <id>` anexa al mismo archivo.
   resume: true,
-  // Nada en disco dice si trabaja, espera o esta libre.
+  // La pantalla no reconoce todas las aprobaciones: conserva la guarda ciega.
+  // La pantalla no reconoce todas las aprobaciones: se conserva la guarda ciega.
   statusSource: false,
-  // Sin estado no hay "lista": una nota no se manda sola.
+  // La pantalla no garantiza que la CLI este lista para recibir una nota.
   readySignal: false,
   // Su `shift+tab` cicla el modo de colaboracion (por defecto y Plan), no permisos.
   permissionCycle: null,
-  // `/model` no acepta argumento: abre un selector.
+  // El catalogo se consulta de forma asincrona, despues de localizar la CLI.
   models: null,
-  // El esfuerzo solo cambia con teclas, y el archivo no lo dice hasta el turno siguiente.
+  // El getter lo llena junto con el catalogo.
   efforts: null,
-  // Una pregunta no se escribe al archivo hasta que se contesta: no hay nada que dibujar.
-  questionCards: false,
+  // Las preguntas y aprobaciones reconocidas se leen de la pantalla.
+  questionCards: true,
   // Cada imagen en su propio pegado, con la ruta sola: la TUI adjunta si el pegado entero es la ruta.
   imagesByPath: 'bare-path-paste',
   // `@` abre el buscador de archivos de la TUI: teclear `@ruta ` navegaria un menu.
@@ -69,10 +75,10 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   rewind: false,
   // La ventana exacta viene en el archivo, junto a los tokens.
   contextWindowSource: 'token-count',
-  // `update_plan` es una lista de pasos, no un archivo.
-  plans: false,
-  // Sin estado publicado no hay espera que mirar: manda el candado de 10.8.
-  waitingBlocksSubmit: false,
+  // Los pasos de update_plan se muestran en la solapa de planes.
+  plans: true,
+  // Un envio normal no debe responder una pregunta o aprobacion abierta.
+  waitingBlocksSubmit: true,
   // No hace cola: un mensaje con el agente trabajando le llega al modelo en el acto (hito 45).
   forceSend: false,
   editQueue: false,
@@ -132,6 +138,11 @@ export function codexInput(platform: NodeJS.Platform): AgentInput {
     transcriptReference: 'quoted-path',
     endBeforeSubmit: windows,
     readyAfterLaunchMs: windows ? 3000 : 0,
+    // Evita que el primer envio conteste el dialogo de confianza de la CLI.
+    startupDialog: /trust this folder|do you trust|allow Codex to work/i,
+    requireKnownActivity: true,
+    initialScreenActivity: (lines) => codexScreenStatus(lines).activity,
+    startupPendingScreen: /Waiting for startup/i,
   };
 }
 
@@ -139,6 +150,23 @@ export const CODEX_INPUT: AgentInput = codexInput(process.platform);
 
 export function createCodexAdapter(): AgentAdapter {
   const discovery = new CodexSessionDiscovery();
+  const status = new CodexScreenStatus();
+  let location: CliLocation | null = null;
+  let models: ModelOption[] = [];
+  let disposed = false;
+  let pendingReload: Promise<boolean> | null = null;
+  const listeners = new Set<() => void>();
+  const reload = (): Promise<boolean> => {
+    if (pendingReload !== null) return pendingReload;
+    if (location === null || !supportsCodexModelCommand(location.version)) return Promise.resolve(false);
+    pendingReload = loadCodexModels(location).then((next) => {
+      if (disposed || next.length === 0 || JSON.stringify(next) === JSON.stringify(models)) return false;
+      models = next;
+      for (const listener of listeners) listener();
+      return true;
+    }).finally(() => { pendingReload = null; });
+    return pendingReload;
+  };
   /*
     Los limites del plan de la cuenta (hito 47, §10.14): los escribe Codex en
     cada `token_count`, y se juntan aca a medida que los seguidores leen.
@@ -150,10 +178,14 @@ export function createCodexAdapter(): AgentAdapter {
     label: 'Codex',
     command: CODEX_COMMAND,
     installUrl: CODEX_INSTALL_URL,
-    capabilities: CODEX_CAPABILITIES,
+    get capabilities(): AgentCapabilities {
+      if (models.length === 0) return CODEX_CAPABILITIES;
+      const levels = [...new Set(models.flatMap((model) => model.supportedEfforts ?? []))];
+      return { ...CODEX_CAPABILITIES, models, efforts: levels.map((value) => ({ value, label: value })) };
+    },
     input: CODEX_INPUT,
 
-    locate: () => locateCommand(CODEX_COMMAND),
+    locate: async () => { location = await locateCommand(CODEX_COMMAND); return location; },
 
     missingMessage: () => commandNotFoundMessage(CODEX_COMMAND, CODEX_INSTALL_URL),
 
@@ -204,17 +236,45 @@ export function createCodexAdapter(): AgentAdapter {
       suelte con el primer mensaje, que es justo cuando aparece la sesion.
     */
     onSpawned(context: SpawnedContext): LaunchHook | null {
-      if (context.resumed) return discovery.watchLive({ terminalId: context.terminalId, cwd: context.cwd });
-      return discovery.register({
+      let sessionId = context.sessionId;
+      const screen = context.watchScreen?.() ?? null;
+      let reading = false;
+      let stopped = false;
+      const refresh = async () => {
+        if (screen === null || stopped) return;
+        const lines = await screen.lines();
+        if (!stopped) status.set(sessionId, codexScreenStatus(lines));
+      };
+      status.attach(sessionId, refresh);
+      const timer = screen === null ? null : setInterval(() => {
+        if (reading || stopped) return;
+        reading = true;
+        void refresh().finally(() => { reading = false; });
+      }, 500);
+      timer?.unref();
+      const inner = context.resumed ? discovery.watchLive({ terminalId: context.terminalId, cwd: context.cwd }) : discovery.register({
         terminalId: context.terminalId,
         cwd: context.cwd,
         launchedAt: context.launchedAt,
-        reportSessionId: (sessionId) => context.reportSessionId(sessionId),
+        reportSessionId: (id) => {
+          status.remove(sessionId);
+          sessionId = id;
+          if (!stopped) status.attach(id, refresh);
+          context.reportSessionId(id);
+        },
       });
+      const dispose = () => { stopped = true; if (timer !== null) clearInterval(timer); screen?.dispose(); status.remove(sessionId); };
+      return {
+        cancel: () => { dispose(); inner?.cancel(); },
+        onExit: () => { dispose(); if (inner?.onExit) inner.onExit(); else inner?.cancel(); },
+        onInput: (data) => inner?.onInput?.(data),
+        ...(inner?.onSubmitted ? { onSubmitted: (text: string) => inner.onSubmitted?.(text) } : {}),
+      };
     },
 
     history: createCodexHistory({ planLimits }),
-    status: null,
+    status,
+    screenQuestions: createCodexScreenQuestions(),
     /*
       Hito 52 (§10.18): un mensaje programado se escribe cuando la pantalla
       muestra la caja vacia. Con el daemon en frio lo escrito espera en la caja
@@ -225,6 +285,9 @@ export function createCodexAdapter(): AgentAdapter {
     planLimits,
 
     defaults: () => Promise.resolve(null),
+    prepare: async () => { void reload(); },
+    refreshSetup: reload,
+    subscribeChanges: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
 
     /**
      * La carpeta de Codex, y ademas la de siempre del home. No se listan ni se
@@ -242,7 +305,10 @@ export function createCodexAdapter(): AgentAdapter {
     },
 
     dispose: () => {
+      disposed = true;
+      listeners.clear();
       discovery.dispose();
+      status.dispose();
       planLimits.dispose();
     },
   };

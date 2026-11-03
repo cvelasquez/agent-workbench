@@ -743,6 +743,7 @@ export class TerminalRegistry extends EventEmitter {
         launchedAt,
         launchToken,
         readOutput: () => buffer.read(),
+        watchScreen: () => this.watchScreen(terminalId),
         write: (data) => {
           const target = this.terminals.get(terminalId);
           if (target === undefined || target.session === null) return false;
@@ -1056,13 +1057,19 @@ export class TerminalRegistry extends EventEmitter {
     const entry = this.terminals.get(terminalId);
     if (entry === undefined || entry.session === null) return null;
     const screen = createPtyScreen(entry.size.cols, entry.size.rows, entry.buffer.read());
-    const listener: OutputListener = (_terminalId, chunk) => screen.feed(chunk);
+    let { cols, rows } = entry.size;
+    const syncSize = () => {
+      if (cols === entry.size.cols && rows === entry.size.rows) return;
+      ({ cols, rows } = entry.size);
+      screen.resize?.(cols, rows);
+    };
+    const listener: OutputListener = (_terminalId, chunk) => { syncSize(); screen.feed(chunk); };
     entry.listeners.add(listener);
     return {
       feed: (chunk) => screen.feed(chunk),
-      lines: () => screen.lines(),
-      linesWithoutFaint: () => screen.linesWithoutFaint(),
-      splitByFaint: () => screen.splitByFaint(),
+      lines: () => { syncSize(); return screen.lines(); },
+      linesWithoutFaint: () => { syncSize(); return screen.linesWithoutFaint(); },
+      splitByFaint: () => { syncSize(); return screen.splitByFaint(); },
       dispose: () => {
         entry.listeners.delete(listener);
         screen.dispose();

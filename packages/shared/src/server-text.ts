@@ -127,6 +127,8 @@ export const SERVER_TEXTS = {
   noteTooLong: ['max'],
   notesMax: ['max'],
   openToolSubmit: ['label'],
+  submitUnknownActivity: ['label'],
+  submitStartupPending: ['label'],
   operationFailed: ['detail'],
   pasteImageFailed: [],
   pathMissing: [],

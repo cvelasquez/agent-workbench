@@ -490,7 +490,8 @@ function parseModelOption(value: unknown): ModelOption | null {
   ) {
     return null;
   }
-  return { value: optionValue, label, family, long, window };
+  const supportedEfforts = asArrayOf(record['supportedEfforts'], asNonEmptyString);
+  return { value: optionValue, label, family, long, window, ...(supportedEfforts === null ? {} : { supportedEfforts }) };
 }
 
 function parseEffortOption(value: unknown): EffortOption | null {

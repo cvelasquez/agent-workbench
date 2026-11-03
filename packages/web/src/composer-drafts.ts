@@ -52,6 +52,7 @@ import {
 } from '@agent-workbench/shared';
 import { mergePrefill } from './agent-ui.js';
 import { nextPasteNumber, pasteReference, pastedLineCount, referencedPasteNumbers } from './composer-paste.js';
+import { assembleMessage } from './composer-paste.js';
 import type { Attachment } from './useComposerAttachments.js';
 
 /** Cuanto se espera despues de la ultima tecla para guardar. */
@@ -182,6 +183,8 @@ export interface ComposerDraftsDeps {
 
 export class ComposerDrafts {
   private readonly local = new Map<TerminalId, LocalDraft>();
+  private readonly sentDrafts = new Map<string, { terminalId: TerminalId; draft: LocalDraft; prefillSeen: boolean }>();
+  private readonly failedPrefills = new Map<string, TerminalId>();
   /** El cursor y el scroll de cada pestana, al dejarla (`DraftView`). */
   private readonly views = new Map<TerminalId, DraftView>();
   /**
@@ -234,7 +237,8 @@ export class ComposerDrafts {
    * mandado. `sentNow`: el envio salio por el socket en el acto, y no quedo en
    * la cola de la conexion.
    */
-  submitted(terminalId: TerminalId, sentNow: boolean): void {
+  submitted(terminalId: TerminalId, sentNow: boolean, requestId?: string, draft?: LocalDraft): void {
+    if (requestId !== undefined && draft !== undefined) this.sentDrafts.set(requestId, { terminalId, draft, prefillSeen: false });
     this.cancel(terminalId);
     this.local.delete(terminalId);
     this.views.delete(terminalId);
@@ -242,6 +246,37 @@ export class ComposerDrafts {
     // Lo que esperaba su eco queda atras: el servidor lo vacia despues de guardarlo.
     this.unconfirmed.delete(terminalId);
     this.submitting.set(terminalId, sentNow ? 'sent' : 'queued');
+  }
+
+  /** Recupera un envio rechazado sin borrar lo que se escribio despues. */
+  submittedAck(terminalId: TerminalId, requestId: string, delivered: boolean): void {
+    const sent = this.sentDrafts.get(requestId);
+    if (sent === undefined || sent.terminalId !== terminalId) return;
+    this.sentDrafts.delete(requestId);
+    if (delivered) return;
+    if (!sent.prefillSeen) {
+      this.failedPrefills.set(requestId, terminalId);
+      if (this.failedPrefills.size > 256) this.failedPrefills.delete(this.failedPrefills.keys().next().value!);
+    }
+    const current = this.local.get(terminalId);
+    let restored = sent.draft;
+    if (current !== undefined && (current.text.length > 0 || current.items.length > 0)) {
+      const folded = sent.draft.items.flatMap((item) => item.kind === 'text' ? [{ number: item.number, text: item.text }] : []);
+      const body = assembleMessage(folded, sent.draft.text);
+      restored = { text: body.length === 0 ? current.text : mergePrefill(current.text, body), items: [...sent.draft.items.filter((item) => item.kind !== 'text'), ...current.items] };
+    }
+    this.put(terminalId, restored);
+    for (const listener of this.listeners) listener(terminalId);
+  }
+
+  /** El servidor tambien envia prefill por compatibilidad: esta pagina ya recupera el envio completo. */
+  consumeSubmitPrefill(terminalId: TerminalId, requestId: string | undefined): boolean {
+    if (requestId === undefined) return false;
+    const sent = this.sentDrafts.get(requestId);
+    if (sent?.terminalId === terminalId) { sent.prefillSeen = true; return true; }
+    if (this.failedPrefills.get(requestId) !== terminalId) return false;
+    this.failedPrefills.delete(requestId);
+    return true;
   }
 
   /**
@@ -286,6 +321,8 @@ export class ComposerDrafts {
   /** Solo quedan estas pestanas: lo de las demas se olvida, y lo que esperaba salir no sale. */
   retain(terminalIds: readonly TerminalId[]): void {
     const keep = new Set(terminalIds);
+    for (const [requestId, sent] of this.sentDrafts) if (!keep.has(sent.terminalId)) this.sentDrafts.delete(requestId);
+    for (const [requestId, terminalId] of this.failedPrefills) if (!keep.has(terminalId)) this.failedPrefills.delete(requestId);
     for (const terminalId of new Set([
       ...this.local.keys(),
       ...this.views.keys(),

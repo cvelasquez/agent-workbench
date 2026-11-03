@@ -964,6 +964,48 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
       refusal?.key === 'openToolSubmit' && written.length === 0, JSON.stringify(refusal));
   }
   {
+    let activity = 'idle';
+    const adapter = { label: 'Codex', capabilities: caps({ waitingBlocksSubmit: true }), status: { refresh: async () => { activity = 'waiting'; } } };
+    const world = fake({ input: inputs.codex, adapter, blind: true });
+    world.deps.activityOf = () => activity;
+    const { result, written } = await send(world, 'hola');
+    check('Codex relee el permiso antes de pegar y no escribe', result?.kind === 'blocked' && result.waitingNow && !result.unknownActivity && written.length === 0);
+  }
+  {
+    const adapter = { label: 'Codex', capabilities: caps({ waitingBlocksSubmit: true }), status: { refresh: async () => undefined } };
+    const world = fake({ input: inputs.codex, adapter, blind: true, activity: 'unknown' });
+    const { result, written } = await send(world, 'hola');
+    check('Codex no escribe si la pantalla viva no se reconoce', result?.kind === 'blocked' && result.unknownActivity && !result.waitingNow && written.length === 0);
+  }
+  {
+    const adapter = { label: 'Codex', capabilities: caps({ waitingBlocksSubmit: true }), status: {} };
+    for (const screen of [[], ['Confirm an unfamiliar prompt', 'Press enter to continue']]) {
+      const world = fake({ input: inputs.codex, adapter, sessionId: '', screen });
+      const { result, written } = await send(world, 'hola');
+      check('Codex sin sesion no escribe en una pantalla desconocida', result?.kind === 'blocked' && result.unknownActivity && written.length === 0);
+    }
+    const world = fake({ input: inputs.codex, adapter, sessionId: '', screen: ['› Ask Codex to do anything', '? for shortcuts'] });
+    const { result } = await send(world, 'hola');
+    check('Codex sin sesion admite el cuadro reconocido', result?.kind === 'written');
+    const waiting = fake({ input: inputs.codex, adapter, sessionId: '', screen: ['tab to add notes | enter to submit answer | esc to interrupt'] });
+    const blocked = await send(waiting, 'hola');
+    check('Codex sin sesion identifica la pregunta sin atribuirla a una herramienta',
+      blocked.result?.kind === 'blocked' && blocked.result.waitingNow && !blocked.result.unknownActivity && blocked.written.length === 0);
+  }
+  {
+    const adapter = { label: 'Codex', capabilities: caps({ waitingBlocksSubmit: true }), status: {} };
+    const world = fake({ input: inputs.codex, adapter, sessionId: '' });
+    world.deps.watchScreen = () => ({
+      lines: () => world.log.some((entry) => entry[0] === 'piece')
+        ? ['› C:\\tmp\\uno.png', 'Waiting for startup · esc cancel']
+        : ['› Ask Codex to do anything', '? for shortcuts'],
+      dispose: () => undefined,
+    });
+    const { result, written } = await send(world, 'describe la imagen', ['C:\\tmp\\uno.png']);
+    check('Codex detiene el texto y Enter si el arranque espera tras pegar la imagen',
+      result?.kind === 'blocked' && result.starting && written.length === 1);
+  }
+  {
     const adapter = { label: 'Antigravity CLI', capabilities: caps({ permissionCycle: { approvesPendingOnCycle: true } }), status: {} };
     const world = fake({ input: inputs.antigravity, adapter, waitingFor: 'permission prompt' });
     const { refusal } = await send(world, 'hola');

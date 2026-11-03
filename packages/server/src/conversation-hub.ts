@@ -555,7 +555,7 @@ export class ConversationHub extends EventEmitter {
   private syncLiveQuestion(terminalId: TerminalId, entry: Entry): void {
     const reader = entry.adapter.screenQuestions;
     if (reader === undefined || !entry.adapter.capabilities.questionCards) return;
-    if (entry.waitingFor === reader.waitingFor) {
+    if (entry.waitingFor === reader.waitingFor || (entry.waitingFor !== null && reader.waitingForKinds?.includes(entry.waitingFor))) {
       if (entry.live !== null) return;
       const watch = new LiveQuestionWatch({
         openScreen: () => this.registry.watchScreen(terminalId),

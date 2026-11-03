@@ -784,12 +784,12 @@ const adapter = createClaudeCodeAdapter();
   // Hito 29, paso 5 (D12): OpenCode por `serve`, que publica su espera; con Claude Code no cambia nada.
   // Y Pi desde el hito 43: su dialogo de confianza aceptaria el Enter de un mensaje.
   const blocking = AGENT_IDS.filter((id) => appRegistry.adapter(id).capabilities.waitingBlocksSubmit !== false);
-  check('29 waitingBlocksSubmit: true solo para opencode y pi, false para las demas CLIs registradas',
-    sameShape(blocking, ['opencode', 'pi']) && appRegistry.adapter('opencode').capabilities.waitingBlocksSubmit === true, blocking.join(','));
+  check('waitingBlocksSubmit protege las preguntas de codex, opencode y pi',
+    sameShape(blocking, ['codex', 'opencode', 'pi']) && appRegistry.adapter('opencode').capabilities.waitingBlocksSubmit === true, blocking.join(','));
   // 20-10-2026 (§12.14): la CLI cuyo dialogo de arranque se come lo escrito sin publicarlo. Las demas, como siempre.
   const startupDialogs = AGENT_IDS.filter((id) => appRegistry.adapter(id).input.startupDialog !== undefined);
-  check('S1 startupDialog: solo antigravity mira su pantalla antes del primer mensaje',
-    sameShape(startupDialogs, ['antigravity']), startupDialogs.join(','));
+  check('S1 startupDialog protege la confianza en codex y antigravity',
+    sameShape(startupDialogs, ['codex', 'antigravity']), startupDialogs.join(','));
   /*
     Hito 45: forzar el envio, solo donde se midio una forma. La capacidad y la
     forma del adaptador dicen lo mismo, y la fuente de la cola es la medida.

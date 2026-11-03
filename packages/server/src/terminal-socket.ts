@@ -1425,17 +1425,21 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 // El comando de un combo no salio del cuadro: no vuelve a el, y el aviso no lo dice.
                 const label = submitting?.label ?? '';
                 sendError(socket, 'submit-failed', clearsDraft ? serverText('submitCliDraft', { label }) : serverText('submitCliDraftCommand', { label }));
-                if (clearsDraft) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'send-failed' });
+                if (clearsDraft) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'send-failed', ...(message.requestId ? { requestId: message.requestId } : {}) });
               }
               if (result.kind === 'blocked' && result.byDialog) {
                 sendError(socket, 'submit-failed', serverText('submitStartupDialog', { label: submitting?.label ?? '' }));
                 // Lo que salio del cuadro vuelve a el; un comando de un combo no salio de ahi.
-                if (clearsDraft) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'not-ready' });
+                if (clearsDraft) send(socket, { type: 'composer.prefill', terminalId, text, reason: 'not-ready', ...(message.requestId ? { requestId: message.requestId } : {}) });
               } else if (result.kind === 'blocked') {
                 sendError(
                   socket,
                   'submit-failed',
-                  result.waitingNow
+                  result.starting
+                    ? serverText('submitStartupPending', { label: submitting?.label ?? '' })
+                    : result.unknownActivity
+                    ? serverText('submitUnknownActivity', { label: submitting?.label ?? '' })
+                    : result.waitingNow
                     ? submitting === null
                       ? serverText('submitStoppedWaitingNoLabel')
                       : serverText('submitStoppedWaiting', { label: submitting.label })
@@ -1533,7 +1537,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                   multiSelect: question.multiSelect,
                   optionCount: question.options.length,
                 }));
-                const keys = buildAnswerKeys(shape, message.selections);
+                const keys = answering?.screenQuestions?.answerKeys
+                  ? answering.screenQuestions.answerKeys(shape, message.selections, live.questions)
+                  : buildAnswerKeys(shape, message.selections);
                 if (keys === null) {
                   sendError(socket, 'answer-failed', answerKeysRefusal(shape, message.selections));
                   return;
@@ -1543,7 +1549,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                   sendError(socket, 'answer-failed', check === 'gone' ? ANSWER_NOT_PENDING_TEXT : ANSWER_MENU_CHANGED_TEXT);
                   return;
                 }
-                const outcome = await lane.writePieces(keys, ANSWER_KEY_INTERVAL_MS, answerWriter(socket, message.terminalId));
+                const outcome = await lane.writePieces(keys, answering?.screenQuestions?.keyIntervalMs ?? ANSWER_KEY_INTERVAL_MS, answerWriter(socket, message.terminalId));
                 if (outcome === 'interrupted') interruptedAnswer();
               },
               { onDropped: interruptedAnswer },

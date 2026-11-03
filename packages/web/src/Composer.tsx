@@ -507,7 +507,7 @@ export function Composer({
       requestId,
     });
     // Mandado ya no es borrador: el servidor lo borra al recibirlo (§6.29).
-    drafts.submitted(terminalId, sentNow);
+    drafts.submitted(terminalId, sentNow, requestId, { text, items: attachments.items });
     setText('');
     attachments.clear();
     onSubmitted?.(terminalId, requestId, !sentNow);

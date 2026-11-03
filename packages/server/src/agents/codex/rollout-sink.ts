@@ -32,6 +32,7 @@ import {
 } from '@agent-workbench/shared';
 import type { TurnUpdate } from '../adapter.js';
 import type { EventLookup, JsonlLineSink } from '../jsonl-follower.js';
+import { patchDocuments, planRef, proposedPlanRef } from './plans.js';
 import { cut, TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import {
   readRateLimits,
@@ -50,6 +51,17 @@ const TURN_END_TYPES: readonly string[] = ['task_complete', 'turn_complete', 'tu
 const TURN_START_TYPES: readonly string[] = ['task_started', 'turn_started'];
 
 export class CodexRolloutSink implements JsonlLineSink {
+  private plan: string | null = null;
+  private planChanged = false;
+  private readonly documents: string[] = [];
+  private readonly pendingDocuments = new Map<string, string[]>();
+
+  getPlanFiles(): readonly string[] { return this.plan === null ? this.documents : [...this.documents, this.plan]; }
+  takePlans(): string[] {
+    if (!this.planChanged) return [];
+    this.planChanged = false;
+    return [...this.getPlanFiles()];
+  }
   private model: string | null = null;
   private effort: string | null = null;
   private window: number | null = null;
@@ -92,6 +104,7 @@ export class CodexRolloutSink implements JsonlLineSink {
     private readonly sessionId: string,
     private readonly limits: EventLimits = TRANSPORT_LIMITS,
     private readonly onPlanLimits?: (windows: PlanLimitWindow[]) => void,
+    private readonly cwd = '',
   ) {}
 
   getUsage(): ContextUsage {
@@ -130,6 +143,10 @@ export class CodexRolloutSink implements JsonlLineSink {
   }
 
   reset(): void {
+    this.plan = null;
+    this.planChanged = false;
+    this.documents.length = 0;
+    this.pendingDocuments.clear();
     this.turnOpenSince = null;
     this.model = null;
     this.effort = null;
@@ -200,6 +217,16 @@ export class CodexRolloutSink implements JsonlLineSink {
       if (typeof callId !== 'string' || callId.length === 0) return null;
       this.openCalls.delete(callId);
       const output = readToolOutput(payload['output'], this.limits.toolResultMaxChars);
+      const documents = this.pendingDocuments.get(callId);
+      this.pendingDocuments.delete(callId);
+      if (!output.isError && documents !== undefined) {
+        for (const ref of documents) {
+          if (!this.documents.includes(ref)) {
+            this.documents.push(ref);
+            this.planChanged = true;
+          }
+        }
+      }
       return this.event('user', lineNumber, at, [
         {
           kind: 'tool-result',
@@ -324,6 +351,11 @@ export class CodexRolloutSink implements JsonlLineSink {
       if (block === null || block['type'] !== 'output_text') continue;
       const text = block['text'];
       if (typeof text === 'string' && text.length > 0) {
+        const plan = proposedPlanRef(text);
+        if (plan !== null && plan !== this.plan) {
+          this.plan = plan;
+          this.planChanged = true;
+        }
         parts.push({ kind: 'text', ...cut(text, this.limits.textMaxChars) });
       }
     }
@@ -341,6 +373,18 @@ export class CodexRolloutSink implements JsonlLineSink {
     const name = payload['name'];
     if (typeof callId !== 'string' || callId.length === 0) return null;
     if (typeof name !== 'string' || name.length === 0) return null;
+
+    if (name === 'update_plan' && typeof payload['arguments'] === 'string') {
+      const ref = planRef(payload['arguments']);
+      if (ref !== null && ref !== this.plan) {
+        this.plan = ref;
+        this.planChanged = true;
+      }
+    }
+
+    if (name === 'apply_patch' && kind === 'custom_tool_call' && typeof payload['input'] === 'string') {
+      this.pendingDocuments.set(callId, patchDocuments(payload['input'], this.cwd));
+    }
 
     let input: string;
     if (kind === 'function_call') {

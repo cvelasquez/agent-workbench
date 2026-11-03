@@ -67,6 +67,16 @@ export function PlansPanel({ view, docs, onInsertPath }: PlansPanelProps): JSX.E
     if (missing && activeDoc !== null) docs.reload(activeDoc.key);
   }, [missing, activeDoc?.key]);
 
+  // Un plan virtual cambia de referencia al actualizarse; la vista sigue el nuevo.
+  useEffect(() => {
+    if (activeDoc === null || !activeDoc.key.startsWith('codex-plan:') || view.listFor !== docs.terminalId) return;
+    if (plans.some((plan) => plan.fileName === activeDoc.key)) return;
+    const latest = plans.find((plan) => plan.fileName.startsWith('codex-plan:'));
+    if (latest === undefined) return;
+    docs.close(activeDoc.key);
+    docs.open({ key: latest.fileName, title: latest.title });
+  }, [activeDoc?.key, view.listFor, docs.terminalId, plans]);
+
   /** El encabezado del plan si ya se leyo; si no, el nombre del archivo. La ref no se muestra nunca. */
   const labelOf = (doc: OpenDoc): string => {
     const loaded = docs.content(doc.key)?.loaded;
@@ -172,7 +182,7 @@ function PlanRow({
         <span className="plan-name">{plan.title}</span>
         {where !== null && <span className="plan-path">{where}</span>}
         <span className="plan-meta">
-          {formatWhen(plan.modifiedAt)} · {formatBytes(plan.sizeBytes)}
+          {plan.modifiedAt > 0 ? `${formatWhen(plan.modifiedAt)} · ` : ''}{formatBytes(plan.sizeBytes)}
         </span>
       </button>
       {plan.absolutePath.length > 0 && (

@@ -87,6 +87,8 @@ interface AgentControlsProps {
    * Ausente: `/effort`.
    */
   effortCommandName?: string;
+  /** Codex cambia esfuerzo con el comando /model. */
+  effortUsesModel?: boolean;
   disabled: boolean;
   /** Manda el comando por el mismo camino que un mensaje del cuadro. */
   onCommand: (command: string) => void;
@@ -101,10 +103,14 @@ export function AgentControls({
   effortProvisional = false,
   savesChoice = false,
   effortCommandName = DEFAULT_EFFORT_COMMAND,
+  effortUsesModel = false,
   disabled,
   onCommand,
 }: AgentControlsProps): JSX.Element {
   const option = models === null ? null : modelOptionIn(models, model);
+  const availableEfforts = effortUsesModel && option?.supportedEfforts
+    ? efforts?.filter((entry) => option.supportedEfforts?.includes(entry.value)) ?? null
+    : efforts;
   // Un modelo que no esta en la tabla igual se muestra, con su nombre crudo:
   // se vio un `gpt-5.6-terra` en una sesion importada.
   const unknown = option === null && model !== null;
@@ -145,13 +151,17 @@ export function AgentControls({
         </select>
       )}
 
-      {efforts !== null && (
+      {availableEfforts !== null && (
         <select
           className="agent-select"
           value={effort ?? ''}
           disabled={disabled}
           onChange={(event) => {
-            if (event.target.value.length > 0) onCommand(effortCommand(event.target.value, effortCommandName));
+            if (event.target.value.length > 0) {
+              onCommand(effortUsesModel
+                ? `/model --reasoning=${event.target.value}`
+                : effortCommand(event.target.value, effortCommandName));
+            }
           }}
           title={
             effort === null
@@ -164,7 +174,7 @@ export function AgentControls({
           }
         >
           {effort === null && <option value="">{t('controls.effort.placeholder')}</option>}
-          {efforts.map((entry) => (
+          {availableEfforts.map((entry) => (
             <option key={entry.value} value={entry.value}>
               {effortLabel(entry)}
             </option>

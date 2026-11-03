@@ -75,7 +75,7 @@ export class CodexSessionFollower implements SessionFollower {
     private readonly sessionId: string,
     options: CodexFollowerOptions = {},
   ) {
-    this.sink = new CodexRolloutSink(sessionId, options.limits, options.onPlanLimits);
+    this.sink = new CodexRolloutSink(sessionId, options.limits, options.onPlanLimits, cwd);
     this.maxEvents = options.maxEvents;
     this.jsonl = this.followerFor(null);
     this.now = options.now ?? Date.now;
@@ -117,7 +117,7 @@ export class CodexSessionFollower implements SessionFollower {
       reset = true;
     }
     const fresh = new Set(added.map((event) => event.eventId));
-    return { reset, added, turns: this.sink.takeTurns(fresh), plans: [], parts: [] };
+    return { reset, added, turns: this.sink.takeTurns(fresh), plans: this.sink.takePlans(), parts: [] };
   }
 
   /**
@@ -210,6 +210,6 @@ export class CodexSessionFollower implements SessionFollower {
   }
 
   getPlanFiles(): readonly string[] {
-    return [];
+    return this.sink.getPlanFiles();
   }
 }

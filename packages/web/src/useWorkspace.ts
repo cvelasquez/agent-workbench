@@ -382,6 +382,9 @@ export function useWorkspace(): Workspace {
     });
     const offMessage = connection.onMessage((message: ServerMessage) => {
       switch (message.type) {
+        case 'agent.submitted':
+          drafts.submittedAck(message.terminalId, message.requestId, message.delivered);
+          break;
         /*
           La lista de CLIs otra vez: cambio lo que anuncia alguna —el usuario
           configuro su status line (hito 27)—, o es la respuesta a "Comprobar".
@@ -487,6 +490,7 @@ export function useWorkspace(): Workspace {
           manda sola, o que no se pudo mandar. Nunca se manda desde aca.
         */
         case 'composer.prefill': {
+          if (drafts.consumeSubmitPrefill(message.terminalId, message.requestId)) break;
           const id = nextPrefillId.current;
           nextPrefillId.current += 1;
           // Lo que volvio porque el usuario apreto "Editar" en la burbuja "enviado" (§6.35.2).
