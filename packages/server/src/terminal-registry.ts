@@ -620,14 +620,14 @@ export class TerminalRegistry extends EventEmitter {
     let launch: LaunchSpec;
     let adapter: AgentAdapter | null = null;
     let launchedSessionId = sessionId;
+    const env = this.agents.composedEnvironment(process.env);
     // Uno por proceso: con el, el adaptador casa lo que preparo al lanzar con su gancho.
     const launchToken = randomUUID();
     if (launcher.kind === 'agent') {
       adapter = launcher.agent.adapter;
       const { location } = launcher.agent;
       const launching = adapter;
-      const plan: LaunchPlan = await resolveLaunchPlan(() =>
-        launching.launch({
+      const launchInput = {
           location,
           cwd,
           resumeSessionId: options.resume ? sessionId : null,
@@ -635,8 +635,11 @@ export class TerminalRegistry extends EventEmitter {
           launchToken,
           // Hito 49: la de revision, en su modo de solo lectura. Solo va si es de revision: el resto lanza igual que antes.
           ...(review ? { readOnly: true } : {}),
-        }),
-      );
+      };
+      const plan: LaunchPlan = await resolveLaunchPlan(async () => {
+        await launching.beforeLaunch?.(launchInput, env);
+        return launching.launch(launchInput);
+      });
       // Cerrada, o el servidor se apago, mientras se preparaba: no se lanza nada.
       if (this.terminals.get(terminalId) !== entry) return false;
       launch = { file: plan.file, args: plan.args };
@@ -647,8 +650,6 @@ export class TerminalRegistry extends EventEmitter {
     } else {
       launch = { file: launcher.shell.file, args: [...launcher.shell.args] };
     }
-    const env = this.agents.composedEnvironment(process.env);
-
     const launchedAt = Date.now();
     let session: PtySession;
     try {

@@ -45,7 +45,13 @@ function readCommandApproval(rows: readonly string[]): ScreenQuestion | null {
     options.push({ label: match[3] ?? '', description: '' });
   }
   if (options.length !== 3 || !options[0]?.label.startsWith('Yes, proceed') || !options[2]?.label.startsWith('No,')) return null;
-  const item: ConversationQuestionItem = { header: 'Approval', question: `${rows[start]}\n\n${body.slice(0, first).join('\n')}`, options, multiSelect: false };
+  const item: ConversationQuestionItem = {
+    header: 'Approval',
+    question: `${rows[start]}\n\n${body.slice(0, first).join('\n')}`,
+    options,
+    multiSelect: false,
+    allowWriteIn: false,
+  };
   return { item, key: JSON.stringify(item), untouched: selected === 1 };
 }
 
@@ -53,8 +59,13 @@ function readCommandApproval(rows: readonly string[]): ScreenQuestion | null {
 export function codexAnswerKeys(_shape: readonly { readonly multiSelect: boolean; readonly optionCount: number }[], selections: readonly AnswerSelection[], questions?: readonly ConversationQuestionItem[]): string[] | null {
   if (_shape.length !== 1 || selections.length !== 1 || _shape[0]?.multiSelect || (_shape[0]?.optionCount ?? 0) < 1 || (_shape[0]?.optionCount ?? 0) > 8) return null;
   const selected = selections[0];
+  if (questions?.[0]?.allowWriteIn === false) {
+    if (!Array.isArray(selected) || selected.length !== 1 || _shape[0]?.optionCount !== questions[0].options.length) return null;
+    const index = selected[0];
+    if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= _shape[0].optionCount) return null;
+    return [...Array(index).fill('\x1b[B'), '\r'];
+  }
   if (selected && !Array.isArray(selected)) {
-    if (questions?.[0]?.header === 'Approval') return null;
     const text = sanitizeForPaste(selected.text).trim();
     if (!text || text.length > 400 || /[\r\n]/.test(text)) return null;
     return [...Array(_shape[0]?.optionCount ?? 0).fill('\x1b[B'), '\t', `\x1b[200~${text}\x1b[201~`, '\r'];

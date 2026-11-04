@@ -82,6 +82,8 @@ export interface ConversationQuestionItem {
   /** Etiqueta corta; es lo que la CLI dibuja como solapa. */
   header: string;
   multiSelect: boolean;
+  /** false si la CLI solo acepta una opción explícita y no texto libre. */
+  allowWriteIn?: boolean;
   options: ConversationQuestionOption[];
 }
 
@@ -133,6 +135,7 @@ export function sameQuestionItem(a: ConversationQuestionItem, b: ConversationQue
   return (
     comparableQuestionText(a.question) === comparableQuestionText(b.question) &&
     a.multiSelect === b.multiSelect &&
+    (a.allowWriteIn ?? true) === (b.allowWriteIn ?? true) &&
     a.options.length === b.options.length &&
     a.options.every((option, index) => {
       const left = comparableQuestionText(option.label);
@@ -664,6 +667,7 @@ function parseQuestionItem(value: unknown): ConversationQuestionItem | null {
     question,
     header: asString(record['header']) ?? '',
     multiSelect: record['multiSelect'] === true,
+    ...(record['allowWriteIn'] === false ? { allowWriteIn: false } : {}),
     options,
   };
 }

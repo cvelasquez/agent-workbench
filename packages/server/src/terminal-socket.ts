@@ -11,6 +11,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   PROTOCOL_VERSION,
+  CODEX_QUEUE_MAX_TEXT_LENGTH,
   REMOTE_REVOKED_CLOSE_CODE,
   ServerTextError,
   WS_PATH,
@@ -18,6 +19,7 @@ import {
   isEmptyComposerDraft,
   launchModeFor,
   parseClientMessage,
+  sameComposerDraft,
   serverText,
   type AgentDefaults,
   type AppSettingsStatus,
@@ -243,6 +245,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     demas CLIs no se anota nada.
   */
   const queuedSubmits = new QueuedSubmitBook();
+  const codexQueuePending = new Set<TerminalId>();
 
   // noServer: manejamos el upgrade a mano para no pisarnos con el WebSocket de
   // HMR de Vite, que vive en el mismo servidor HTTP.
@@ -258,6 +261,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     for (const socket of clients) {
       if (socket.readyState === socket.OPEN) socket.send(payload);
     }
+  };
+
+  const clearComposerDraft = (terminalId: TerminalId): void => {
+    const owner = draftOwnerOf(registry.get(terminalId));
+    if (owner === null) return;
+    drafts.delete(owner);
+    broadcast({ type: 'composer.drafts', drafts: draftEntriesOf(registry.list(), drafts, owner) });
   };
 
   /**
@@ -1451,6 +1461,68 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             })
             // Lo que no llego al Enter se contesta como no entregado.
             .finally(() => settle(false));
+          break;
+        }
+
+        case 'agent.codexQueue': {
+          const { terminalId, requestId, text } = message;
+          void (async () => {
+            const descriptor = registry.get(terminalId);
+            const sessionId = descriptor?.sessionId ?? '';
+            const submittedOwner = draftOwnerOf(descriptor);
+            const submittedDraft = submittedOwner === null ? null : drafts.get(submittedOwner);
+            let result: 'queued' | 'failed' | 'unavailable' | 'not-busy' = 'unavailable';
+            const adapter = adapterOf(terminalId);
+            if (
+              descriptor !== null &&
+              descriptor.kind === 'agent' &&
+              descriptor.alive &&
+              descriptor.agent === 'codex' &&
+              adapter?.capabilities.codexNativeQueue === true &&
+              adapter.queueText !== undefined &&
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId) &&
+              text.trim().length > 0 &&
+              text.length <= CODEX_QUEUE_MAX_TEXT_LENGTH
+            ) {
+              if (codexQueuePending.has(terminalId)) {
+                result = 'not-busy';
+              } else {
+                codexQueuePending.add(terminalId);
+                try {
+                  const launchedAt = registry.launchedAtOf(terminalId);
+                  const openTurn = launchedAt !== null && await conversations.checkOpenTurn(terminalId, launchedAt);
+                  const current = registry.get(terminalId);
+                  if (current === null || !current.alive || current.sessionId !== sessionId) {
+                    result = 'unavailable';
+                  } else if (
+                    (registry.activityOf(terminalId) !== 'busy' && !openTurn) ||
+                    conversations.getWaitingFor(terminalId) !== null
+                  ) {
+                    result = 'not-busy';
+                  } else {
+                    await adapter.queueText({ cwd: current.cwd, sessionId }, text);
+                    result = 'queued';
+                    conversations.noteCodexQueued(terminalId, sessionId, { text, at: Date.now() });
+                    const currentOwner = draftOwnerOf(current);
+                    const currentDraft = submittedOwner === null ? null : drafts.get(submittedOwner);
+                    if (
+                      currentOwner?.agent === submittedOwner?.agent &&
+                      currentOwner?.sessionId === submittedOwner?.sessionId &&
+                      currentDraft !== null &&
+                      submittedDraft !== null &&
+                      sameComposerDraft(currentDraft, submittedDraft)
+                    ) clearComposerDraft(terminalId);
+                  }
+                } catch {
+                  // La salida del CLI puede contener texto privado del mensaje: no se registra ni se reenvia.
+                  result = 'failed';
+                } finally {
+                  codexQueuePending.delete(terminalId);
+                }
+              }
+            }
+            send(socket, { type: 'agent.codexQueueResult', terminalId, sessionId, requestId, result });
+          })();
           break;
         }
 

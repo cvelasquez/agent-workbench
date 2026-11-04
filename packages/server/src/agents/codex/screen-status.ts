@@ -23,6 +23,8 @@ export function codexScreenStatus(lines: readonly string[]): AgentStatus {
 
 export class CodexScreenStatus implements StatusSource {
   private readonly states = new Map<string, AgentStatus>();
+  private readonly screens = new Map<string, AgentStatus>();
+  private readonly openTurns = new Set<string>();
   private readonly readers = new Map<string, () => Promise<void>>();
   private readonly listeners = new Map<string, Set<(status: AgentStatus | null) => void>>();
   subscribe(id: string, listener: (status: AgentStatus | null) => void): () => void {
@@ -34,6 +36,20 @@ export class CodexScreenStatus implements StatusSource {
   }
   set(id: string, status: AgentStatus): void {
     if (!id) return;
+    this.screens.set(id, status);
+    this.publish(id);
+  }
+  setTurnOpen(id: string, open: boolean): void {
+    if (!id) return;
+    if (open) this.openTurns.add(id);
+    else this.openTurns.delete(id);
+    this.publish(id);
+  }
+  private publish(id: string): void {
+    const screen = this.screens.get(id) ?? { activity: 'unknown', waitingFor: null };
+    const status = screen.activity === 'waiting' || screen.activity === 'busy'
+      ? screen
+      : this.openTurns.has(id) ? { activity: 'busy' as const, waitingFor: null } : screen;
     const previous = this.states.get(id);
     if (previous?.activity === status.activity && previous.waitingFor === status.waitingFor) return;
     this.states.set(id, status);
@@ -41,7 +57,7 @@ export class CodexScreenStatus implements StatusSource {
   }
   attach(id: string, reader: () => Promise<void>): void { if (id) this.readers.set(id, reader); }
   async refresh(id: string): Promise<void> { await this.readers.get(id)?.(); }
-  remove(id: string): void { this.states.delete(id); this.readers.delete(id); }
+  remove(id: string): void { this.states.delete(id); this.screens.delete(id); this.openTurns.delete(id); this.readers.delete(id); }
   waitUntilReady(): Promise<boolean> { return Promise.resolve(false); }
-  dispose(): void { this.states.clear(); this.readers.clear(); this.listeners.clear(); }
+  dispose(): void { this.states.clear(); this.screens.clear(); this.openTurns.clear(); this.readers.clear(); this.listeners.clear(); }
 }

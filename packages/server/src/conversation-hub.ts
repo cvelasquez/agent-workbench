@@ -333,6 +333,10 @@ export class ConversationHub extends EventEmitter {
    * no sale del historial, y tiene que sobrevivir a que nadie mire la pestana.
    */
   private readonly appQueue = new AppPromptQueue();
+  /** Mensajes confirmados con `codex queue`; se rastrean aparte de los envios normales de Codex. */
+  private readonly codexQueue = new AppPromptQueue();
+  /** Sesion a la que pertenece cada cola nativa confirmada localmente. */
+  private readonly codexQueueSessions = new Map<TerminalId, SessionId>();
   /**
    * Lo que la app mando con la CLI libre, hasta que el agente empieza (§6.35.2):
    * la burbuja "enviado". Para todas las CLIs, y por la misma razon que la cola
@@ -388,7 +392,13 @@ export class ConversationHub extends EventEmitter {
       lanzar, o se relanzo con otra— tiene que seguir la nueva. Con Claude Code
       no pasa nunca: el id se fija al lanzar.
     */
-    registry.on('session', (terminalId) => void this.rebind(terminalId));
+    registry.on('session', (terminalId, sessionId) => {
+      if (this.codexQueueSessions.has(terminalId) && this.codexQueueSessions.get(terminalId) !== sessionId) {
+        this.clearCodexQueue(terminalId);
+        this.refreshQueue(terminalId);
+      }
+      void this.rebind(terminalId);
+    });
     /*
       Lanzar o terminar una pty cambia contra que proceso se mide una llamada
       abierta: la de un proceso anterior quedo huerfana. Y los subagentes, que
@@ -398,12 +408,18 @@ export class ConversationHub extends EventEmitter {
     registry.on('changed', () => {
       for (const [terminalId, entry] of this.entries) {
         this.refreshOpenToolCall(terminalId, entry);
+        this.refreshTurnActivity(terminalId, entry);
         this.refreshSubagents(terminalId, entry);
       }
       // La cola vive en el proceso: sin pty no queda nada, y una pty nueva empieza vacia (hito 45).
-      for (const terminalId of new Set([...this.entries.keys(), ...this.announcedQueues.keys()])) {
+      for (const terminalId of new Set([
+        ...this.entries.keys(),
+        ...this.announcedQueues.keys(),
+        ...this.codexQueueSessions.keys(),
+      ])) {
         if (this.registry.launchedAtOf(terminalId) === null) {
           this.appQueue.clear(terminalId);
+          this.clearCodexQueue(terminalId);
           this.sentPrompts.clear(terminalId);
         }
         this.refreshQueue(terminalId);
@@ -547,10 +563,9 @@ export class ConversationHub extends EventEmitter {
   }
 
   /**
-   * Prende o apaga la lectura de la pregunta en pantalla (§5.5.4) segun lo que
-   * la CLI dice que espera. Solo con una CLI que tiene lector y tarjetas de
-   * pregunta, y solo mientras espera la respuesta a una pregunta: un permiso o
-   * un dialogo no se leen.
+   * Prende o apaga la lectura de preguntas y aprobaciones reconocidas (§5.5.4)
+   * segun lo que la CLI dice que espera. Solo con una CLI que tiene lector y
+   * tarjetas, y solo mientras espera una clase que su lector declara.
    */
   private syncLiveQuestion(terminalId: TerminalId, entry: Entry): void {
     const reader = entry.adapter.screenQuestions;
@@ -697,6 +712,19 @@ export class ConversationHub extends EventEmitter {
   }
 
   /**
+   * Codex puede dejar visible el compositor mientras transmite una respuesta.
+   * Su rollout sí marca el inicio y cierre del turno, y esa señal complementa
+   * la lectura de pantalla para el estado de actividad.
+   */
+  private refreshTurnActivity(terminalId: TerminalId, entry: Entry): void {
+    const setTurnOpen = entry.adapter.status?.setTurnOpen;
+    if (setTurnOpen === undefined) return;
+    const launchedAt = this.registry.launchedAtOf(terminalId);
+    const open = launchedAt !== null && entry.follower.hasOpenTurn?.(launchedAt) === true;
+    setTurnOpen.call(entry.adapter.status, entry.sessionId, open);
+  }
+
+  /**
    * Recalcula los subagentes que siguen trabajando y avisa si cambiaron
    * (§4.15). Solo los del proceso vivo: sin pty no queda ninguno, y los de un
    * proceso anterior murieron con el sin escribir el aviso de fin. Una CLI cuyo
@@ -728,12 +756,24 @@ export class ConversationHub extends EventEmitter {
   private computeQueue(terminalId: TerminalId): QueuedPrompt[] {
     const descriptor = this.registry.get(terminalId);
     if (descriptor === null || descriptor.agent === null) return [];
-    const support = this.agents.get(descriptor.agent)?.adapter.promptQueue;
+    const adapter = this.agents.get(descriptor.agent)?.adapter;
+    const support = adapter?.promptQueue;
+    const codexNativeQueue = descriptor.agent === 'codex' && adapter?.capabilities.codexNativeQueue === true;
     const launchedAt = this.registry.launchedAtOf(terminalId);
-    if (support === undefined || launchedAt === null || this.idleSettled.has(terminalId)) return [];
-    if (support.source === 'app') return this.appQueue.list(terminalId);
+    if ((support === undefined && !codexNativeQueue) || launchedAt === null || this.idleSettled.has(terminalId)) return [];
+    if (support?.source === 'app') return this.appQueue.list(terminalId);
+    if (codexNativeQueue) {
+      return this.codexQueueSessions.get(terminalId) === descriptor.sessionId ? this.codexQueue.list(terminalId) : [];
+    }
+    if (support === undefined) return [];
     const follower = this.entries.get(terminalId)?.follower;
     return follower?.queuedPrompts === undefined ? [] : [...follower.queuedPrompts(launchedAt)];
+  }
+
+  private clearCodexQueue(terminalId: TerminalId): boolean {
+    const changed = this.codexQueue.clear(terminalId);
+    this.codexQueueSessions.delete(terminalId);
+    return changed;
   }
 
   /**
@@ -819,6 +859,27 @@ export class ConversationHub extends EventEmitter {
     this.refreshQueue(terminalId);
   }
 
+  /** Registra en el hilo un mensaje que `codex queue` confirmó para esta sesión viva. */
+  noteCodexQueued(terminalId: TerminalId, sessionId: SessionId, input: { text: string; at: number }): void {
+    const descriptor = this.registry.get(terminalId);
+    const adapter = descriptor?.agent === 'codex' ? this.agents.get('codex')?.adapter : undefined;
+    if (
+      descriptor === null ||
+      descriptor === undefined ||
+      descriptor.agent !== 'codex' ||
+      descriptor.sessionId !== sessionId ||
+      !descriptor.alive ||
+      this.registry.launchedAtOf(terminalId) === null ||
+      adapter?.capabilities.codexNativeQueue !== true ||
+      input.text.trim().length === 0
+    ) return;
+    const previousSession = this.codexQueueSessions.get(terminalId);
+    if (previousSession !== undefined && previousSession !== sessionId) this.codexQueue.clear(terminalId);
+    this.codexQueueSessions.set(terminalId, sessionId);
+    this.codexQueue.note(terminalId, { ...input, images: 0 });
+    this.refreshQueue(terminalId);
+  }
+
   /**
    * La app termino de escribirle un mensaje a la CLI sin que vaya a una cola
    * (§6.35.2): la burbuja "enviado" sale ya y queda hasta que el agente
@@ -863,6 +924,7 @@ export class ConversationHub extends EventEmitter {
 
     if (activity === 'offline') {
       this.appQueue.clear(terminalId);
+      this.clearCodexQueue(terminalId);
       this.sentPrompts.clear(terminalId);
       this.refreshQueue(terminalId);
       return;
@@ -873,6 +935,7 @@ export class ConversationHub extends EventEmitter {
         this.idleTimers.delete(terminalId);
         this.idleSettled.add(terminalId);
         this.appQueue.clear(terminalId);
+        this.clearCodexQueue(terminalId);
         // Lo enviado antes de que quedara libre ya no va a empezar; lo de despues lo espera `noteSent`.
         this.sentPrompts.dropBefore(terminalId, idleSince);
         this.refreshQueue(terminalId);
@@ -965,6 +1028,23 @@ export class ConversationHub extends EventEmitter {
    */
   hasOpenToolCall(terminalId: TerminalId, launchedAt: number): boolean {
     return this.entries.get(terminalId)?.follower.hasOpenToolCall(launchedAt) ?? false;
+  }
+
+  /** true si el rollout de esta sesion tiene un turno abierto del proceso vivo. */
+  hasOpenTurn(terminalId: TerminalId, launchedAt: number): boolean {
+    return this.entries.get(terminalId)?.follower.hasOpenTurn?.(launchedAt) ?? false;
+  }
+
+  /** Relee el rollout antes de decidir si Codex todavia acepta texto en su cola. */
+  async checkOpenTurn(terminalId: TerminalId, launchedAt: number): Promise<boolean> {
+    const entry = this.entries.get(terminalId);
+    if (entry === undefined) return false;
+    if (entry.primed) {
+      if (entry.timer !== null) clearTimeout(entry.timer);
+      entry.timer = null;
+      await this.runPoll(terminalId, entry, { silent: false });
+    }
+    return this.hasOpenTurn(terminalId, launchedAt);
   }
 
   /**
@@ -1067,6 +1147,7 @@ export class ConversationHub extends EventEmitter {
   drop(terminalId: TerminalId): void {
     this.withdrawals.delete(terminalId);
     this.appQueue.clear(terminalId);
+    this.clearCodexQueue(terminalId);
     this.sentPrompts.clear(terminalId);
     const sentTimer = this.sentTimers.get(terminalId);
     if (sentTimer !== undefined) clearTimeout(sentTimer);
@@ -1438,6 +1519,7 @@ export class ConversationHub extends EventEmitter {
         lo mismo que el snapshot que llega detras—. Los subagentes, igual.
       */
       this.refreshOpenToolCall(terminalId, entry);
+      this.refreshTurnActivity(terminalId, entry);
       this.refreshSubagents(terminalId, entry);
       /*
         Lo que la app llevaba en cola y ya aparecio en el hilo sale (hito 45).
@@ -1446,6 +1528,9 @@ export class ConversationHub extends EventEmitter {
       */
       if (entry.adapter.promptQueue?.source === 'app') {
         this.appQueue.settle(terminalId, entry.follower.getTail(QUEUE_SETTLE_LOOKBACK).events);
+      }
+      if (this.codexQueueSessions.get(terminalId) === entry.sessionId) {
+        this.codexQueue.settle(terminalId, entry.follower.getTail(QUEUE_SETTLE_LOOKBACK).events);
       }
       // Lo enviado con la CLI libre (§6.35.2), con todas las CLIs: su mensaje llego, o el agente empezo.
       this.sentPrompts.settle(terminalId, entry.follower.getTail(QUEUE_SETTLE_LOOKBACK).events);

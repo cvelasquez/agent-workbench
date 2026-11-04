@@ -102,6 +102,7 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
     2.1.310) y cuando quedo lista despues de abrirla (§6.39).
   */
   scheduledSend: true,
+  codexNativeQueue: false,
   /*
     Hito 54: `--resume` desde una rama aparte del mismo repo retoma la
     conversacion entera, sigue escribiendo el archivo de donde empezo y sin

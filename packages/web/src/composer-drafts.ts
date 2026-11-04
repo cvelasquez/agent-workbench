@@ -57,6 +57,7 @@ import type { Attachment } from './useComposerAttachments.js';
 
 /** Cuanto se espera despues de la ultima tecla para guardar. */
 export const DRAFT_SAVE_DELAY_MS = 800;
+const MAX_PENDING_SUBMIT_DRAFTS = 256;
 
 /** Lo escrito en una pestana, tal como esta en el cuadro. */
 export interface LocalDraft {
@@ -238,7 +239,12 @@ export class ComposerDrafts {
    * la cola de la conexion.
    */
   submitted(terminalId: TerminalId, sentNow: boolean, requestId?: string, draft?: LocalDraft): void {
-    if (requestId !== undefined && draft !== undefined) this.sentDrafts.set(requestId, { terminalId, draft, prefillSeen: false });
+    if (requestId !== undefined && draft !== undefined) {
+      this.sentDrafts.set(requestId, { terminalId, draft, prefillSeen: false });
+      if (this.sentDrafts.size > MAX_PENDING_SUBMIT_DRAFTS) {
+        this.sentDrafts.delete(this.sentDrafts.keys().next().value!);
+      }
+    }
     this.cancel(terminalId);
     this.local.delete(terminalId);
     this.views.delete(terminalId);
@@ -256,7 +262,9 @@ export class ComposerDrafts {
     if (delivered) return;
     if (!sent.prefillSeen) {
       this.failedPrefills.set(requestId, terminalId);
-      if (this.failedPrefills.size > 256) this.failedPrefills.delete(this.failedPrefills.keys().next().value!);
+      if (this.failedPrefills.size > MAX_PENDING_SUBMIT_DRAFTS) {
+        this.failedPrefills.delete(this.failedPrefills.keys().next().value!);
+      }
     }
     const current = this.local.get(terminalId);
     let restored = sent.draft;

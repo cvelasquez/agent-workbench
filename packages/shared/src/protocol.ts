@@ -359,6 +359,14 @@ export interface ClientSubmitMessage {
   keepDraft?: boolean;
 }
 
+/** Encola texto en Codex sin cambiar el envio normal de Enter. */
+export interface ClientCodexQueueMessage {
+  type: 'agent.codexQueue';
+  terminalId: TerminalId;
+  requestId: string;
+  text: string;
+}
+
 /**
  * Respuesta a una pregunta de eleccion, elegida desde la conversacion.
  *
@@ -1414,6 +1422,7 @@ export type ClientMessage =
   | ClientInputMessage
   | ClientTerminalAttentionMessage
   | ClientSubmitMessage
+  | ClientCodexQueueMessage
   | ClientAnswerMessage
   | ClientPermissionModeMessage
   | ClientArchiveSessionsMessage
@@ -1804,6 +1813,15 @@ export interface ServerAgentSubmittedMessage {
   terminalId: TerminalId;
   requestId: string;
   delivered: boolean;
+}
+
+/** Resultado de `codex queue`; no implica que el mensaje ya aparezca en el hilo. */
+export interface ServerCodexQueueResultMessage {
+  type: 'agent.codexQueueResult';
+  terminalId: TerminalId;
+  sessionId: SessionId;
+  requestId: string;
+  result: 'queued' | 'failed' | 'unavailable' | 'not-busy';
 }
 
 /**
@@ -2564,6 +2582,7 @@ export type ServerMessage =
   | ServerConversationQueueMessage
   | ServerConversationLiveQuestionMessage
   | ServerAgentSubmittedMessage
+  | ServerCodexQueueResultMessage
   | ServerAgentForceSentMessage
   | ServerAgentQueueEditedMessage
   | ServerAgentRewoundMessage
@@ -2722,6 +2741,14 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       if (requestId !== null) message.requestId = requestId;
       if (record['keepDraft'] === true) message.keepDraft = true;
       return message;
+    }
+    case 'agent.codexQueue': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const text = asString(record['text']);
+      return terminalId === null || requestId === null || text === null
+        ? null
+        : { type: 'agent.codexQueue', terminalId, requestId, text };
     }
     case 'agent.mode': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -3573,6 +3600,15 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || requestId === null || delivered === null
         ? null
         : { type: 'agent.submitted', terminalId, requestId, delivered };
+    }
+    case 'agent.codexQueueResult': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const sessionId = asString(record['sessionId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const result = asLiteral(record['result'], ['queued', 'failed', 'unavailable', 'not-busy'] as const);
+      return terminalId === null || sessionId === null || requestId === null || result === null
+        ? null
+        : { type: 'agent.codexQueueResult', terminalId, sessionId, requestId, result };
     }
     case 'agent.rewound': {
       const terminalId = asNonEmptyString(record['terminalId']);

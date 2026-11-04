@@ -1982,6 +1982,7 @@ const statusRecord = (id, over = {}) => ({
     editQueue: true,
     // Hito 52: sin status line no se sabe si trabaja, y no se le programa nada.
     scheduledSend: false,
+    codexNativeQueue: false,
     // Hito 54: retomar desde otra carpeta no esta medido.
     moveToWorktree: false,
     // Hito 49: `--mode plan`, medido al lanzar con la 1.4.0 (§12.14).

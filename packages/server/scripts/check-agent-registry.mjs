@@ -679,6 +679,7 @@ const adapter = createClaudeCodeAdapter();
     forceSend: true,
     editQueue: true,
     scheduledSend: true,
+    codexNativeQueue: false,
     moveToWorktree: true,
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };
@@ -1220,6 +1221,14 @@ const adapter = createClaudeCodeAdapter();
     const changed = Object.keys(controls).filter((key) => JSON.stringify(without[key]) !== JSON.stringify(controls[key]));
     check(`sin ${capability} se apaga ${control} y nada mas`, sameShape(changed, [control]), changed.join(','));
   }
+
+  const withCodexQueue = ui.controlsFor({ ...claude.capabilities, codexNativeQueue: true });
+  const withoutCodexQueue = ui.controlsFor({ ...claude.capabilities, codexNativeQueue: false });
+  const changedByCodexQueue = Object.keys(withCodexQueue).filter((key) =>
+    JSON.stringify(withCodexQueue[key]) !== JSON.stringify(withoutCodexQueue[key]));
+  check('Codex: codexNativeQueue habilita solo su control',
+    withCodexQueue.codexNativeQueue && !withoutCodexQueue.codexNativeQueue &&
+    sameShape(changedByCodexQueue, ['codexNativeQueue']), changedByCodexQueue.join(','));
 
   // --- Modelo: se casa como siempre, dentro de lo que ofrece la CLI ---
   check('el modelo observado se casa con su opcion',

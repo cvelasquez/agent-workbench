@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { TerminalActivity, TerminalId } from '@agent-workbench/shared';
+import { CODEX_QUEUE_MAX_TEXT_LENGTH, type TerminalActivity, type TerminalId } from '@agent-workbench/shared';
 import { mergePrefill } from './agent-ui.js';
 import {
   assembleMessage,
@@ -185,6 +185,10 @@ interface ComposerProps {
    * acto, como un envio.
    */
   onSchedule?: (terminalId: TerminalId, text: string, sendAt: number) => boolean;
+  /** La CLI de esta pestana admite `codex queue` y esta trabajando. */
+  codexQueueAvailable?: boolean;
+  /** Sesion UUID a la que se dirige la cola nativa. */
+  codexQueueSessionId?: string | null;
   /**
    * La sugerencia que la CLI de la pestana muestra en gris en su caja (hito 53,
    * §5.3.2), o null. Se pinta en el cuadro vacio sin contar como texto; Tab, o
@@ -225,12 +229,20 @@ export function Composer({
   noteInsertRef,
   onEditQueue,
   onSchedule,
+  codexQueueAvailable = false,
+  codexQueueSessionId = null,
   suggestion = null,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
   /** El reloj que abrio el menu de programar, o null con el menu cerrado. */
   const [scheduleAnchor, setScheduleAnchor] = useState<HTMLElement | null>(null);
+  const [codexQueuePending, setCodexQueuePending] = useState<ReadonlyMap<string, TerminalId>>(() => new Map());
+  const [codexQueueNotice, setCodexQueueNotice] = useState<{
+    terminalId: TerminalId;
+    result: 'queued' | 'failed' | 'unavailable' | 'not-busy';
+  } | null>(null);
+  const codexQueueRequests = useRef(new Map<string, TerminalId>());
   const attachments = useComposerAttachments(imagesAllowed);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const touch = useTouch();
@@ -358,6 +370,19 @@ export function Composer({
   itemsRef.current = attachments.items;
 
   const { replace: replaceAttachments } = attachments;
+
+  useEffect(() => connection.onMessage((message) => {
+    if (message.type !== 'agent.codexQueueResult') return;
+    const pendingTerminalId = codexQueueRequests.current.get(message.requestId);
+    if (pendingTerminalId === undefined || pendingTerminalId !== message.terminalId) return;
+    codexQueueRequests.current.delete(message.requestId);
+    setCodexQueuePending((current) => {
+      const next = new Map(current);
+      next.delete(message.requestId);
+      return next;
+    });
+    setCodexQueueNotice({ terminalId: message.terminalId, result: message.result });
+  }), [connection]);
 
   /*
     Cada cambio de lo escrito va al borrador de la pestana que se muestra, y de
@@ -512,6 +537,45 @@ export function Composer({
     attachments.clear();
     onSubmitted?.(terminalId, requestId, !sentNow);
   }, [connection, drafts, terminalId, text, attachments, blockedReason, onSubmitted]);
+
+  const queueCodex = useCallback(() => {
+    if (
+      terminalId === null ||
+      !codexQueueAvailable ||
+      codexQueueSessionId === null ||
+      blockedReason !== null ||
+      attachments.items.some((item) => item.kind !== 'text')
+    ) return;
+
+    const folded = attachments.items
+      .filter((item): item is Extract<Attachment, { kind: 'text' }> => item.kind === 'text')
+      .map((item) => ({ number: item.number, text: item.text }));
+    const body = assembleMessage(folded, text);
+    if (body.trim().length === 0 || body.length > CODEX_QUEUE_MAX_TEXT_LENGTH) return;
+
+    const requestId = newSubmitRequestId();
+    const sentNow = connection.send({
+      type: 'agent.codexQueue',
+      terminalId,
+      requestId,
+      text: body,
+    });
+    codexQueueRequests.current.set(requestId, terminalId);
+    setCodexQueuePending((current) => new Map(current).set(requestId, terminalId));
+    setCodexQueueNotice(null);
+    drafts.submitted(terminalId, sentNow, requestId, { text, items: attachments.items });
+    setText('');
+    attachments.clear();
+  }, [
+    terminalId,
+    codexQueueAvailable,
+    codexQueueSessionId,
+    blockedReason,
+    attachments,
+    text,
+    connection,
+    drafts,
+  ]);
 
   /*
     Programar lo escrito (hito 51, §6.39). Solo texto: con una imagen o un
@@ -807,6 +871,28 @@ export function Composer({
     : !hasSomething
       ? t('scheduled.composer.empty')
       : null;
+  const queuePendingForTab = terminalId !== null && [...codexQueuePending.values()].includes(terminalId);
+  const queueTextOnly = attachments.items.some((item) => item.kind !== 'text');
+  const queueBody = assembleMessage(
+    attachments.items
+      .filter((item): item is Extract<Attachment, { kind: 'text' }> => item.kind === 'text')
+      .map((item) => ({ number: item.number, text: item.text })),
+    text,
+  );
+  const queueBlocked = queueTextOnly
+    ? t('composer.codexQueue.textOnly')
+    : queueBody.length > CODEX_QUEUE_MAX_TEXT_LENGTH
+      ? t('composer.codexQueue.tooLong', { max: CODEX_QUEUE_MAX_TEXT_LENGTH })
+      : blockedReason;
+  const queueNoticeText = codexQueueNotice?.terminalId !== terminalId
+    ? null
+    : codexQueueNotice.result === 'queued'
+      ? t('composer.codexQueue.queued')
+      : codexQueueNotice.result === 'not-busy'
+        ? t('composer.codexQueue.notBusy')
+        : codexQueueNotice.result === 'unavailable'
+          ? t('composer.codexQueue.unavailable')
+          : t('composer.codexQueue.failed');
 
   return (
     <div
@@ -1041,6 +1127,18 @@ export function Composer({
             </svg>
           </button>
         )}
+        {codexQueueAvailable && (
+          <button
+            className={`icon-button composer-codex-queue${queuePendingForTab ? ' composer-codex-queue-pending' : ''}`}
+            onClick={queueCodex}
+            disabled={disabled || !hasSomething || queueBlocked !== null || queuePendingForTab}
+            title={queuePendingForTab ? t('composer.codexQueue.pending') : queueBlocked ?? t('composer.codexQueue.label')}
+            aria-label={queuePendingForTab ? t('composer.codexQueue.pending') : t('composer.codexQueue.label')}
+          >
+            {queuePendingForTab ? '…' : '↳'}
+          </button>
+        )}
+        {queueNoticeText !== null && <span className="composer-codex-queue-status" aria-live="polite">{queueNoticeText}</span>}
         {scheduleAnchor !== null && <ScheduleMenu anchor={scheduleAnchor} onPick={schedule} onClose={closeSchedule} />}
         {leading}
         <span className="composer-spacer" />

@@ -186,6 +186,10 @@ export class CodexRolloutSink implements JsonlLineSink {
       if (context !== null) {
         if (context.model !== null) this.model = context.model;
         this.effort = context.effort;
+        const usage = { ...this.usage, lastModel: this.model };
+        if (this.effort === null) delete usage.lastEffort;
+        else usage.lastEffort = this.effort;
+        this.usage = usage;
       }
       return null;
     }

@@ -559,6 +559,12 @@ export interface StatusSource {
    */
   refresh?(sessionId: string): Promise<void>;
   /**
+   * Informa una actividad de turno leida del historial cuando la pantalla no
+   * distingue bien entre una respuesta en curso y el compositor idle. Una
+   * espera visible sigue teniendo prioridad.
+   */
+  setTurnOpen?(sessionId: string, open: boolean): void;
+  /**
    * true si algun proceso vivo de la CLI tiene esa conversacion abierta ahora
    * (hito 51, §6.39). Lo pregunta el reloj de los mensajes programados antes de
    * abrir una pestana dormida: si otro proceso la tiene (otra instancia de la
@@ -977,8 +983,8 @@ export interface AgentInput {
 
 /** Lo que el envio necesita saber para apartar lo escrito en la caja de la CLI (§5.3.1). */
 export interface DraftStash {
-  /** La tecla, tal como se escribe en la pty. */
-  readonly key: string;
+  /** La tecla, tal como se escribe en la pty. Si no existe una tecla segura, solo se protege el borrador. */
+  readonly key?: string;
   /**
    * La caja de la CLI, leida de las lineas de la pantalla sin el texto atenuado
    * (lo gris es ayuda o una sugerencia, no algo escrito). null si no se ve: un
@@ -1088,6 +1094,8 @@ export interface AgentAdapter {
   readonly input: AgentInput;
 
   locate(): Promise<CliLocation | null>;
+  /** Encola texto en la sesion activa cuando la CLI expone esa operacion. */
+  queueText?(target: { cwd: string; sessionId: string }, text: string): Promise<void>;
   /** Que decir cuando no esta, como clave: la frase la arma la web (§6.23). */
   missingMessage(): ServerText;
   /**
@@ -1098,6 +1106,12 @@ export interface AgentAdapter {
    * devuelven un valor.
    */
   launch(input: LaunchInput): LaunchPlan | Promise<LaunchPlan>;
+  /**
+   * Prepara dependencias externas antes de abrir la pty. Recibe el mismo
+   * entorno que tendra la CLI y corre mientras la pestana sigue en estado
+   * `launching`.
+   */
+  beforeLaunch?(input: LaunchInput, env: Record<string, string>): Promise<void>;
   /**
    * El entorno del proceso de la CLI.
    *

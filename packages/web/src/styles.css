@@ -1167,6 +1167,26 @@ kbd {
   color: var(--accent);
 }
 
+.composer-codex-queue {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+
+.composer-codex-queue:hover:not(:disabled),
+.composer-codex-queue-pending {
+  color: var(--accent);
+}
+
+.composer-codex-queue-status {
+  max-width: min(280px, 35vw);
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer-input {
   width: 100%;
   min-height: 34px;

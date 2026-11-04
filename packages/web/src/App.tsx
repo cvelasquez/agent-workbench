@@ -1666,6 +1666,8 @@ export function App(): JSX.Element {
           }
           // El reloj (hito 51): encendido en Ajustes y con una CLI que lo declara.
           onSchedule={schedulingOn && activeControls.scheduledSend ? scheduled.schedule : undefined}
+          codexQueueAvailable={activeControls.codexNativeQueue && activeTerminal.alive && activeActivity === 'busy'}
+          codexQueueSessionId={activeTerminal.sessionId}
           leading={
             activeControls.modeCycle === null ? undefined : (
               <ModeControl

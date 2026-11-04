@@ -47,6 +47,9 @@ import { parseServerText, type ServerText } from './server-text.js';
 export const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'antigravity', 'pi'] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
+/** Tope conservador para argumentos largos en los shims de Windows de Codex. */
+export const CODEX_QUEUE_MAX_TEXT_LENGTH = 6_000;
+
 /**
  * Hito 28. De donde vienen las sesiones que existen **solo** en la copia
  * propia: historial huerfano de una herramienta sin adaptador, importado una
@@ -294,6 +297,8 @@ export interface AgentCapabilities {
    * cuadro no aparece y el servidor rechaza programar.
    */
   scheduledSend: boolean;
+  /** La CLI ofrece una orden estable para encolar texto en una sesion viva. */
+  codexNativeQueue: boolean;
   /**
    * Hito 54 (§6.38). "Pasar a una rama aparte": la misma conversacion sigue en
    * la carpeta de una rama nueva. Medido por CLI: que se retome desde otra
@@ -348,6 +353,7 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   forceSend: false,
   editQueue: false,
   scheduledSend: false,
+  codexNativeQueue: false,
   moveToWorktree: false,
   readOnlyLaunch: null,
 };
@@ -543,6 +549,8 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     editQueue: record['editQueue'] === true,
     // Ausente en un servidor anterior al hito 51: no se programa nada.
     scheduledSend: record['scheduledSend'] === true,
+    // Ausente en servidores anteriores: no se ofrece la cola nativa de Codex.
+    codexNativeQueue: record['codexNativeQueue'] === true,
     // Ausente en un servidor anterior al hito 54: ninguna conversacion se muda.
     moveToWorktree: record['moveToWorktree'] === true,
     // Ausente en un servidor anterior al hito 49: ninguna CLI se ofrece en solo lectura.

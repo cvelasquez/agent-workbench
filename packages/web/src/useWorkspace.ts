@@ -385,6 +385,9 @@ export function useWorkspace(): Workspace {
         case 'agent.submitted':
           drafts.submittedAck(message.terminalId, message.requestId, message.delivered);
           break;
+        case 'agent.codexQueueResult':
+          drafts.submittedAck(message.terminalId, message.requestId, message.result === 'queued');
+          break;
         /*
           La lista de CLIs otra vez: cambio lo que anuncia alguna —el usuario
           configuro su status line (hito 27)—, o es la respuesta a "Comprobar".

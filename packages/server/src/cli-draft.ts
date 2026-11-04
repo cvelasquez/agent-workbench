@@ -97,6 +97,10 @@ export async function setCliDraftAside(
     if (before === 'text-and-saved') return { kind: 'kept' };
     if (before !== 'text') return { kind: 'clear' };
 
+    // Hay CLIs que no tienen una tecla segura para apartar el texto. En ese
+    // caso se conserva el borrador y no se mezcla con el mensaje de AWB.
+    if (stash.key === undefined) return { kind: 'kept' };
+
     const outcome = await deps.press(stash.key);
     if (outcome !== 'written') return { kind: 'not-written', outcome };
     const after = await waitForStableScreen(io, (lines) => (state(lines) === 'empty' ? 'empty' : null), timing.clear);

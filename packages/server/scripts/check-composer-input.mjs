@@ -873,7 +873,7 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
   const NOW = 1_000_000;
 
   /** Una pestana de mentira: la fila corre el trabajo en el acto y anota cada pieza. */
-  function fake({ input, adapter = null, blind = false, openTool = false, waitingFor = null, activity = 'idle', sessionId = 's1', screen = null, launchedAt = NOW - 60_000, drop = false } = {}) {
+  function fake({ input, adapter = null, blind = false, openTool = false, waitingFor = null, activity = 'idle', sessionId = 's1', screen = null, launchedAt = NOW - 60_000, drop = false, stopAfter = null } = {}) {
     const log = [];
     const deps = {
       adapterOf: () => adapter,
@@ -901,9 +901,12 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
         await job({
           writePieces: async (pieces, gapMs, write, guard, writeOptions) => {
             log.push(['writePieces', gapMs, writeOptions?.startAfterMs ?? 0]);
+            let accepted = 0;
             for (const piece of pieces) {
+              if (stopAfter !== null && accepted >= stopAfter) return 'interrupted';
               if (guard !== undefined && !(await guard())) return 'blocked';
               if (!write(piece)) return 'refused';
+              accepted += 1;
             }
             return 'written';
           },
@@ -955,6 +958,18 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
       writes?.[1] === inputs.codex.pieceGapMs && writes?.[2] === 2000, JSON.stringify(writes));
     check('S52 noteSubmitted antes de la primera pieza',
       world.log.findIndex((entry) => entry[0] === 'noteSubmitted') < world.log.findIndex((entry) => entry[0] === 'piece'));
+  }
+  {
+    const firstScreenBusy = fake({
+      input: inputs.codex,
+      adapter: { label: 'Codex', capabilities: caps({ waitingBlocksSubmit: true }), status: null },
+      sessionId: '',
+      activity: 'unknown',
+      screen: ['Esc to interrupt'],
+    });
+    const { result, written } = await send(firstScreenBusy, 'Analiza la imagen', ['C:\\tmp\\cold.png']);
+    check('S52 una sesion sin id solo acepta una pantalla claramente libre antes de pegar',
+      result?.kind === 'blocked' && result.starting && written.length === 0, JSON.stringify({ result, written }));
   }
   {
     const adapter = { label: 'Codex', capabilities: caps(), status: null };
@@ -1077,6 +1092,41 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
     const none = await send(empty, '   ');
     check('S52 un cuadro vacio no manda un Enter', none.result?.kind === 'nothing' && none.written.length === 0);
   }
+  {
+    const imagePath = 'C:\\tmp\\codex-partial.png';
+    const full = buildSubmissionWrites('describe la imagen', [imagePath], inputs.codex);
+    const beforePaste = fake({ input: inputs.codex });
+    const notPrepared = await send(beforePaste, 'describe la imagen', [imagePath], { prepareFails: true });
+    check('S52 Codex falla antes del primer pegado: no escribe ninguna pieza',
+      notPrepared.result?.kind === 'prepare-failed' && notPrepared.written.length === 0);
+
+    const afterImage = fake({ input: inputs.codex, stopAfter: 1 });
+    const imageCut = await send(afterImage, 'describe la imagen', [imagePath]);
+    check('S52 Codex interrumpido después del adjunto: solo quedó el primer pegado y no el texto',
+      imageCut.result?.kind === 'interrupted' && same(imageCut.written, full?.slice(0, 1)));
+    afterImage.deps.watchScreen = () => ({
+      lines: async () => ['› [Image #1]', '', '  fake-model default · D:\\project'],
+      linesWithoutFaint: async () => ['› [Image #1]', '', '  fake-model default · D:\\project'],
+      dispose: () => undefined,
+    });
+    const imageRetry = await send(afterImage, 'describe la imagen', [imagePath]);
+    check('S52 el reintento ve la miniatura parcial y no duplica el adjunto',
+      imageRetry.result?.kind === 'cli-draft' && imageRetry.written.length === 0);
+
+    const beforeEnter = fake({ input: inputs.codex, stopAfter: 2 });
+    const textCut = await send(beforeEnter, 'describe la imagen', [imagePath]);
+    check('S52 Codex interrumpido después del texto y antes de Fin+Enter: no envía Enter',
+      textCut.result?.kind === 'interrupted' && same(textCut.written, full?.slice(0, 2)) && !textCut.written.some((piece) => piece.includes('\r')));
+
+    beforeEnter.deps.watchScreen = () => ({
+      lines: async () => ['› describe la imagen', '  fake-model default · D:\\project'],
+      linesWithoutFaint: async () => ['› describe la imagen', '  fake-model default · D:\\project'],
+      dispose: () => undefined,
+    });
+    const retry = await send(beforeEnter, 'describe la imagen', [imagePath]);
+    check('S52 tras un corte parcial, el reintento se detiene y no duplica el texto de la TUI',
+      retry.result?.kind === 'cli-draft' && retry.written.length === 0);
+  }
 }
 
 // S54. Lo escrito en la caja de la CLI (§5.3.1, 28-10-2026). Con texto ahi, lo
@@ -1092,6 +1142,7 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
   const { prepareSubmit, runSubmit } = await import('../src/submit-message.ts');
   const { CLAUDE_CODE_INPUT } = await import('../src/agents/claude-code/index.ts');
   const { PI_INPUT } = await import('../src/agents/pi/index.ts');
+  const { codexInput } = await import('../src/agents/codex/index.ts');
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const box = (lines) => readClaudeCodeDraftBox(lines);
 
@@ -1238,8 +1289,39 @@ check('y arrancan en chica: sin tocar el boton se ven como siempre', DEFAULT_NOT
     const pi = tab(PI_INPUT, screens.TYPED, screens.STASHED_EMPTY);
     const piRun = await pi.run('hola');
     check('S54 una CLI sin la tecla (Pi): nada cambia', same(piRun.written, buildSubmissionWrites('hola', [], PI_INPUT)), JSON.stringify(piRun.written));
+    const codexInputWindows = codexInput('win32');
+    const codexTyped = [
+      '  >_ OpenAI Codex (v0.166.0)',
+      '› BORRADOR_TUI_NO_BORRAR_7319',
+      '',
+      '  fake-model default · D:\\project',
+    ];
+    const codexEmpty = [
+      '  >_ OpenAI Codex (v0.166.0)',
+      '› Ask Codex to do anything',
+      '',
+      '  fake-model default · D:\\project',
+      '  ← for agents · ? for shortcuts',
+    ];
+    const codexKept = tab(codexInputWindows, codexTyped, codexEmpty);
+    const codexKeptRun = await codexKept.run('MENSAJE_AWB_SEPARADO_4826');
+    check('S54 Codex conserva el borrador TUI y rechaza AWB sin escribir ninguna pieza',
+      codexKeptRun.result.kind === 'cli-draft' && codexKeptRun.written.length === 0 && codexKept.log.length === 0,
+      JSON.stringify({ result: codexKeptRun.result, written: codexKeptRun.written }));
+    const codexControl = tab(codexInputWindows, codexTyped, codexEmpty);
+    const codexControlRun = await codexControl.run('/model fake-model');
+    check('S54 un comando de modelo también se detiene ante un borrador TUI de Codex',
+      codexControlRun.result.kind === 'cli-draft' && codexControlRun.written.length === 0);
+    const codexEffortRun = await codexControl.run('/model --reasoning=high');
+    check('S54 un comando de esfuerzo también se detiene ante un borrador TUI de Codex',
+      codexEffortRun.result.kind === 'cli-draft' && codexEffortRun.written.length === 0);
+    const codexBlank = tab(codexInputWindows, codexEmpty, codexEmpty);
+    const codexBlankRun = await codexBlank.run('MENSAJE_AWB');
+    check('S54 Codex permite enviar cuando solo aparece el placeholder',
+      codexBlankRun.result.kind === 'written' && same(codexBlankRun.written, buildSubmissionWrites('MENSAJE_AWB', [], codexInputWindows)));
     check('S54 solo Claude Code declara la tecla',
-      CLAUDE_CODE_INPUT.draftStash === CLAUDE_CODE_DRAFT_STASH && PI_INPUT.draftStash === undefined);
+      CLAUDE_CODE_INPUT.draftStash === CLAUDE_CODE_DRAFT_STASH && PI_INPUT.draftStash === undefined &&
+      codexInputWindows.draftStash?.key === undefined);
   }
 }
 

@@ -2280,7 +2280,7 @@ function QuestionCard({
   };
 
   const openWriting = (questionIndex: number): void => {
-    if (locked) return;
+    if (locked || part.questions[questionIndex]?.allowWriteIn === false) return;
     const current = chosen[questionIndex];
     setText(current !== undefined && isFree(current) ? current.text : '');
     setWriting(questionIndex);
@@ -2326,7 +2326,7 @@ function QuestionCard({
                 demas: para la CLI es una opcion mas del menu, la que sigue a
                 las reales.
               */}
-              {writing === questionIndex && !locked ? (
+              {question.allowWriteIn === false ? null : writing === questionIndex && !locked ? (
                 <div className="question-write">
                   <textarea
                     className="question-write-input"

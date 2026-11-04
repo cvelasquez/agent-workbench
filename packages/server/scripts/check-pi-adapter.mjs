@@ -1134,6 +1134,7 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
       editQueue: process.platform === 'win32',
       // Hito 51: no se le programa nada todavia (el 52).
       scheduledSend: true,
+      codexNativeQueue: false,
       // Hito 54: retomar desde otra carpeta no esta medido.
       moveToWorktree: false,
       // Hito 49: sin `edit` ni `write`, pero con la consola (§16.19).

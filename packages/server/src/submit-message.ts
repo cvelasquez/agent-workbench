@@ -189,8 +189,13 @@ export function prepareSubmit(deps: SubmitMessageDeps, terminalId: TerminalId): 
               if (screen === null) { stoppedByUnknownActivity = true; return false; }
               try {
                 const activity = input.initialScreenActivity(await screen.lines());
-                if (activity === 'unknown') { stoppedByUnknownActivity = true; return false; }
-                if (activity === 'waiting') { stoppedByWaiting = true; return false; }
+                // Sin UUID, solo una caja inequívocamente libre demuestra que la TUI ya acepta el primer envío.
+                if (activity !== 'idle') {
+                  if (activity === 'waiting') stoppedByWaiting = true;
+                  else if (activity === 'unknown') stoppedByUnknownActivity = true;
+                  else stoppedByStartup = true;
+                  return false;
+                }
               } finally {
                 screen.dispose();
               }

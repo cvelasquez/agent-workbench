@@ -127,6 +127,7 @@ export const OPENCODE_CAPABILITIES: AgentCapabilities = {
     pantalla del TUI, con el agente y el modelo del ultimo mensaje.
   */
   scheduledSend: true,
+  codexNativeQueue: false,
   /*
     Hito 55 (§11.17): `attach --dir` desde la rama no alcanza, el agente sigue
     en la carpeta guardada. Se pasa antes por la ruta experimental de su

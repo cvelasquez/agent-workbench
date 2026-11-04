@@ -101,6 +101,7 @@ export class CodexSessionFollower implements SessionFollower {
   }
 
   async poll(): Promise<PollResult> {
+    const previousUsage = JSON.stringify(this.sink.getUsage());
     if (
       this.jsonl.filePath === null &&
       this.sessionId.length > 0 &&
@@ -117,7 +118,14 @@ export class CodexSessionFollower implements SessionFollower {
       reset = true;
     }
     const fresh = new Set(added.map((event) => event.eventId));
-    return { reset, added, turns: this.sink.takeTurns(fresh), plans: this.sink.takePlans(), parts: [] };
+    return {
+      reset,
+      added,
+      turns: this.sink.takeTurns(fresh),
+      plans: this.sink.takePlans(),
+      parts: [],
+      usageChanged: previousUsage !== JSON.stringify(this.sink.getUsage()),
+    };
   }
 
   /**

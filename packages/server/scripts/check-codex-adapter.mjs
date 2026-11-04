@@ -381,8 +381,41 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
 // Codex lo toma como un salto de linea mas: medido con la 0.155, 0 de 3.
 {
   const { codexInput } = await import('../src/agents/codex/index.ts');
+  const { readCodexDraftBox } = await import('../src/agents/codex/draft-box.ts');
   const onWindows = codexInput('win32');
   const elsewhere = codexInput('linux');
+  const codexPlaceholder = [
+    '  >_ OpenAI Codex (v0.166.0)',
+    '› Ask Codex to do anything',
+    '',
+    '  fake-model default · D:\\project',
+    '  ← for agents · ? for shortcuts',
+  ];
+  const codexTyped = [
+    '  >_ OpenAI Codex (v0.166.0)',
+    '› BORRADOR_TUI_NO_BORRAR_7319',
+    '',
+    '  fake-model default · D:\\project',
+  ];
+  const codexMultiline = [
+    '› primera linea',
+    '  segunda linea',
+    '',
+    '  fake-model default · D:\\project',
+  ];
+  const codexAttachedImage = [
+    '› [Image #1]',
+    '',
+    '  fake-model default · D:\\project',
+  ];
+  check('B8 la caja vacia de Codex no cuenta su placeholder como borrador',
+    JSON.stringify(readCodexDraftBox(codexPlaceholder)) === JSON.stringify({ text: false, saved: false }));
+  check('B8 el lector de Codex reconoce el texto escrito y el texto multilínea',
+    readCodexDraftBox(codexTyped)?.text === true && readCodexDraftBox(codexMultiline)?.text === true);
+  check('B8 el adjunto visible de Codex también cuenta como contenido parcial', readCodexDraftBox(codexAttachedImage)?.text === true);
+  check('B8 una pantalla Codex sin pie reconocible no se interpreta', readCodexDraftBox(['› texto parcial']) === null);
+  check('B8 Codex declara solo lectura de borrador, sin tecla de limpieza',
+    onWindows.draftStash?.key === undefined && onWindows.draftStash?.readBox(codexTyped)?.text === true);
   check('Codex protege el dialogo de confianza al iniciar', onWindows.startupDialog?.test('Trust this folder?') === true);
   const END_ENTER = '\x1b[F\r';
   check('B8 codex en Windows: Fin antes del Enter y 3 s de arranque',
@@ -676,7 +709,8 @@ const paths = await import('../src/agents/codex/paths.ts');
 const lines = await import('../src/agents/codex/rollout-lines.ts');
 const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts');
 {
-  const { codexModelOptions, supportsCodexModelCommand } = await import('../src/agents/codex/catalog.ts');
+  const { codexModelOptions, loadCodexModels, supportsCodexModelCommand } = await import('../src/agents/codex/catalog.ts');
+  const { codexQueueLauncher, queueCodexText, supportsCodexQueue } = await import('../src/agents/codex/queue.ts');
   const models = codexModelOptions([
     { model: 'gpt-example', displayName: 'Example', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }] },
     { model: 'malicious\n/model', supportedReasoningEfforts: [] },
@@ -684,6 +718,80 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   ]);
   check('Codex obtiene modelos y esfuerzos del catalogo', models.length === 1 && same(models[0].supportedEfforts, ['low', 'high']));
   check('Codex oculta controles si la version no admite argumentos', !supportsCodexModelCommand('codex-cli 0.163.0') && supportsCodexModelCommand('codex-cli 0.166.0') && !supportsCodexModelCommand(null));
+  check('Codex admite un catalogo vacio sin inventar modelos', codexModelOptions([]).length === 0 && codexModelOptions(null).length === 0);
+  const catalogServer = path.join(work, 'fake-codex-catalog.mjs');
+  await writeFile(catalogServer, [
+    "const mode = process.argv[2];",
+    "let input = '';",
+    "process.stdin.on('data', (chunk) => {",
+    "  input += chunk.toString('utf8');",
+    "  for (;;) {",
+    "    const newline = input.indexOf('\\n');",
+    "    if (newline < 0) break;",
+    "    const line = input.slice(0, newline);",
+    "    input = input.slice(newline + 1);",
+    "    let request;",
+    "    try { request = JSON.parse(line); } catch { continue; }",
+    "    if (request.id === 1) process.stdout.write(JSON.stringify({ id: 1, result: {} }) + '\\n');",
+    "    if (request.id === 2 && mode === 'error') process.stdout.write(JSON.stringify({ id: 2, error: { code: -1, message: 'catalog unavailable' } }) + '\\n');",
+    "    if (request.id === 2 && mode === 'empty') process.stdout.write(JSON.stringify({ id: 2, result: { data: [] } }) + '\\n');",
+    "    if (request.id === 2 && mode === 'pages') {",
+    "      const first = request.params?.cursor === undefined;",
+    "      const data = first ? [{ model: 'catalog-one', supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }] : [{ model: 'catalog-two', supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }];",
+    "      process.stdout.write(JSON.stringify({ id: 2, result: { data, ...(first ? { nextCursor: 'next' } : {}) } }) + '\\n');",
+    "    }",
+    "  }",
+    "});",
+    "process.stdin.resume();",
+  ].join('\n'));
+  const fakeCatalogLocation = (mode) => ({ resolvedPath: process.execPath, file: process.execPath, prefixArgs: [catalogServer, mode], version: 'codex-cli 0.166.0' });
+  const pagedModels = await loadCodexModels(fakeCatalogLocation('pages'));
+  const emptyModels = await loadCodexModels(fakeCatalogLocation('empty'));
+  const failedModels = await loadCodexModels(fakeCatalogLocation('error'));
+  check('Codex pagina el catalogo y conserva los esfuerzos por modelo',
+    same(pagedModels.map((model) => [model.value, model.supportedEfforts]), [['catalog-one', ['low']], ['catalog-two', ['high']]]));
+  check('Codex mantiene utilizable la app si el catalogo esta vacio o falla', emptyModels.length === 0 && failedModels.length === 0);
+  check('Codex ofrece su cola nativa solo desde la version medida', !supportsCodexQueue('codex-cli 0.165.0') && supportsCodexQueue('codex-cli 0.166.0') && !supportsCodexQueue(null));
+  const queuedRequest = shared.parseClientMessage(JSON.stringify({
+    type: 'agent.codexQueue', terminalId: 'tab', requestId: 'request-1', text: 'mensaje de prueba',
+  }));
+  const queueReply = shared.parseServerMessage(JSON.stringify({
+    type: 'agent.codexQueueResult', terminalId: 'tab', sessionId: '019e0000-0000-7000-8000-000000000092', requestId: 'request-1', result: 'queued',
+  }));
+  check('el protocolo conserva solicitud y acuse de la cola nativa',
+    queuedRequest?.type === 'agent.codexQueue' && queuedRequest.text === 'mensaje de prueba' &&
+    queueReply?.type === 'agent.codexQueueResult' && queueReply.result === 'queued');
+  if (process.platform === 'win32') {
+    const shim = path.join(root, 'queue-fake.cmd');
+    const capture = path.join(root, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+    const capturePath = path.join(root, 'queue-arguments.json');
+    await mkdir(path.dirname(capture), { recursive: true });
+    await writeFile(capture, "require('node:fs').writeFileSync(process.env.AWB_CODEX_QUEUE_CAPTURE, JSON.stringify(process.argv.slice(2)));\n");
+    await writeFile(shim, `@ECHO off\r\nSETLOCAL\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n`);
+    const oldCapture = process.env['AWB_CODEX_QUEUE_CAPTURE'];
+    process.env['AWB_CODEX_QUEUE_CAPTURE'] = capturePath;
+    const sessionId = '019e0000-0000-7000-8000-000000000092';
+    const queuedText = 'texto ñ 😀 "quoted" & echo INJECTED > queue-injected.txt %TEMP%\nsegunda línea';
+    try {
+      const launcher = await codexQueueLauncher({ resolvedPath: shim, file: 'cmd.exe', prefixArgs: ['/c', shim], version: 'codex-cli 0.166.0' });
+      if (launcher === null) throw new Error('npm codex shim was not recognized');
+      await queueCodexText(
+        launcher,
+        { cwd: root, sessionId },
+        queuedText,
+      );
+      const args = JSON.parse(await readFile(capturePath, 'utf8'));
+      let injected = false;
+      try { await readFile(path.join(root, 'queue-injected.txt')); injected = true; } catch { /* El texto no debe ejecutar comandos. */ }
+      check('Codex queue en Windows conserva argumentos especiales y no ejecuta texto',
+        same(args, ['queue', '--thread', sessionId, '--message', queuedText]) && !injected, show(args));
+    } catch (error) {
+      check('Codex queue en Windows conserva argumentos especiales y no ejecuta texto', false, error instanceof Error ? error.message : String(error));
+    } finally {
+      if (oldCapture === undefined) delete process.env['AWB_CODEX_QUEUE_CAPTURE'];
+      else process.env['AWB_CODEX_QUEUE_CAPTURE'] = oldCapture;
+    }
+  }
 }
 {
   const { codexScreenStatus, CodexScreenStatus } = await import('../src/agents/codex/screen-status.ts');
@@ -702,6 +810,19 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   await statuses.refresh('s');
   check('Codex relee la pantalla antes de escribir', same(observed, ['unknown', 'waiting']));
   stop();
+  const combined = new CodexScreenStatus();
+  const combinedObserved = [];
+  combined.subscribe('thread', (status) => combinedObserved.push(status));
+  combined.setTurnOpen('thread', true);
+  combined.set('thread', { activity: 'idle', waitingFor: null });
+  const stayedBusy = combinedObserved.at(-1)?.activity === 'busy';
+  combined.set('thread', { activity: 'waiting', waitingFor: 'input needed' });
+  const waitingWins = combinedObserved.at(-1)?.activity === 'waiting';
+  combined.set('thread', { activity: 'idle', waitingFor: null });
+  combined.setTurnOpen('thread', false);
+  check('Codex conserva busy durante una respuesta del rollout aunque la pantalla muestre el compositor idle', stayedBusy);
+  check('Codex conserva prioridad de preguntas y vuelve a idle al cerrar el turno', waitingWins && combinedObserved.at(-1)?.activity === 'idle');
+  combined.dispose();
   statuses.dispose();
   const { readCodexQuestion, codexAnswerKeys } = await import('../src/agents/codex/question-screen.ts');
   const screen = ['Question 1/1 (1 unanswered)', 'Que base usaremos?', '› 1. PostgreSQL         Existente', '  2. SQLite             Local', '  3. None of the above  Optionally, add details in notes (tab)', 'tab to add notes | enter to submit answer | esc to interrupt'];
@@ -715,8 +836,140 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   const approval = ['Would you like to run the following command?', 'Environment: local', 'Reason: Ejecutar prueba', '$ echo prueba', '› 1. Yes, proceed (y)', '2. Yes, and don\'t ask again for commands that start with `echo prueba` (p)', '3. No, and tell Codex what to do differently (esc)', 'Press enter to confirm or esc to cancel'];
   const permission = readCodexQuestion(approval);
   check('Codex muestra comando y opciones de aprobacion', permission?.item.question.includes('$ echo prueba') && permission.item.options.length === 3);
+  const parsedPermission = permission === null ? null : shared.parseConversationPart({
+    kind: 'question', toolUseId: 'codex-approval', questions: [permission.item],
+  });
+  check('La tarjeta de aprobacion no ofrece respuesta libre',
+    parsedPermission?.kind === 'question' && parsedPermission.questions[0]?.allowWriteIn === false);
+  check('Codex aprobar una vez confirma la opcion exacta',
+    same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[0]], permission ? [permission.item] : []), ['\r']));
+  check('Codex elegir una opcion persistente exige seleccion explicita y Enter',
+    same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[1]], permission ? [permission.item] : []), ['\x1b[B', '\r']));
+  check('Codex permite rechazar la aprobacion con la opcion visible',
+    same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[2]], permission ? [permission.item] : []), ['\x1b[B', '\x1b[B', '\r']));
   check('Codex rechaza texto libre para una aprobacion', codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [{ text: 'no' }], permission ? [permission.item] : []) === null);
   check('Codex omite aprobacion incompleta', readCodexQuestion(approval.slice(0, -2).concat(approval.at(-1))) === null);
+}
+// La tarjeta de la pregunta de Codex debe caducar al cerrarse la TUI o cambiar
+// la sesion; una tarjeta anterior nunca puede contestar la sesion siguiente.
+{
+  const { EventEmitter } = await import('node:events');
+  const { ConversationHub } = await import('../src/conversation-hub.ts');
+  const { CodexScreenStatus } = await import('../src/agents/codex/screen-status.ts');
+  const { createCodexScreenQuestions, readCodexQuestion } = await import('../src/agents/codex/question-screen.ts');
+  const { questionCardLock } = await import('../../web/src/live-question-ui.ts');
+  const session1 = '019e0000-0000-7000-8000-000000000094';
+  const session2 = '019e0000-0000-7000-8000-000000000095';
+  const terminalId = 'codex-question';
+  const questionScreen = [
+    'Question 1/1 (1 unanswered)',
+    'Que base usaremos?',
+    '› 1. PostgreSQL         Existente',
+    '  2. SQLite             Local',
+    '  3. None of the above  Optionally, add details in notes (tab)',
+    'tab to add notes | enter to submit answer | esc to interrupt',
+  ];
+  let screenLines = questionScreen;
+  let disposedScreens = 0;
+  let descriptor = {
+    terminalId, kind: 'agent', cwd: work, agent: 'codex', sessionId: session1,
+    label: terminalId, resumed: false, createdAt: 0, alive: true, exitCode: null, sleeping: false,
+  };
+  const status = new CodexScreenStatus();
+  const registry = new EventEmitter();
+  registry.get = (id) => id === terminalId ? descriptor : null;
+  registry.launchedAtOf = (id) => id === terminalId ? 100 : null;
+  registry.watchScreen = () => ({
+    lines: async () => [...screenLines],
+    dispose: () => { disposedScreens += 1; },
+  });
+  const makeFollower = () => ({
+    label: 'codex-rollout',
+    start: async () => undefined,
+    poll: async () => ({ reset: false, added: [], turns: [], plans: [], parts: [] }),
+    getState: () => 'live',
+    getUsage: () => ({ ...shared.EMPTY_CONTEXT_USAGE }),
+    getPermissionMode: () => null,
+    getTail: () => ({ events: [], hasMore: false }),
+    getPageBefore: () => ({ events: [], hasMore: false }),
+    getPlanFiles: () => [],
+    readImage: async () => null,
+    noticeChange: () => true,
+    hasOpenToolCall: () => false,
+  });
+  const adapter = {
+    id: 'codex',
+    capabilities: { ...shared.NO_CAPABILITIES, sessionIdAtLaunch: false, questionCards: true },
+    status,
+    screenQuestions: createCodexScreenQuestions(),
+    history: { follow: () => makeFollower(), plans: null },
+  };
+  const hub = new ConversationHub(registry, {
+    get: (id) => id === 'codex' ? { adapter, location: null } : null,
+  });
+  const resets = [];
+  hub.on('reset', (id) => resets.push({ id, snapshot: hub.getSnapshot(id) }));
+  await hub.subscribe(terminalId);
+  status.set(session1, { activity: 'waiting', waitingFor: 'input needed' });
+  const firstShown = await waitFor(() => hub.getLiveQuestion(terminalId) !== null);
+  const firstId = hub.getLiveQuestion(terminalId)?.toolUseId;
+  check('Codex publica la pregunta completa mientras la TUI espera',
+    firstShown && firstId?.startsWith('screen-') === true &&
+      hub.getLiveQuestion(terminalId)?.questions[0]?.options[1]?.label === 'SQLite');
+  check('Codex vuelve a leer la pantalla antes de aceptar la respuesta',
+    firstId !== undefined && await hub.verifyLiveQuestion(terminalId, firstId) === 'ok');
+
+  screenLines = ['› Ask Codex to do anything', '? for shortcuts'];
+  status.set(session1, { activity: 'idle', waitingFor: null });
+  const closed = await waitFor(() => hub.getLiveQuestion(terminalId) === null);
+  check('Codex invalida la tarjeta al cancelar o contestar la pregunta en la TUI',
+    closed && firstId !== undefined && await hub.verifyLiveQuestion(terminalId, firstId) === 'gone' && disposedScreens === 1);
+  check('La interfaz bloquea una pregunta del proceso anterior',
+    questionCardLock({ questionCards: true, cliOpen: true, launchedAt: 100 }, 99) === 'closed');
+
+  screenLines = questionScreen;
+  status.set(session1, { activity: 'waiting', waitingFor: 'input needed' });
+  const beforeChange = await waitFor(() => hub.getLiveQuestion(terminalId) !== null);
+  const staleId = hub.getLiveQuestion(terminalId)?.toolUseId;
+  descriptor = { ...descriptor, sessionId: session2 };
+  registry.emit('session', terminalId, session2);
+  const reset = await waitFor(() => resets.length === 1);
+  check('Cambiar la sesion limpia la tarjeta vieja del reset',
+    beforeChange && reset && resets[0]?.snapshot?.sessionId === session2 &&
+      resets[0]?.snapshot?.liveQuestion === null && staleId !== undefined &&
+      await hub.verifyLiveQuestion(terminalId, staleId) === 'gone' && disposedScreens === 2);
+
+  status.set(session2, { activity: 'waiting', waitingFor: 'input needed' });
+  const afterChange = await waitFor(() => hub.getLiveQuestion(terminalId) !== null);
+  check('La tarjeta de la sesion nueva recibe un id distinto',
+    afterChange && hub.getLiveQuestion(terminalId)?.toolUseId !== staleId);
+
+  const approvalMarker = String.fromCodePoint(0x203a);
+  screenLines = [
+    'Would you like to run the following command?',
+    'Environment: local',
+    'Reason: Ejecutar prueba',
+    '$ echo prueba',
+    `${approvalMarker} 1. Yes, proceed (y)`,
+    '2. Yes, and don\'t ask again for commands that start with `echo prueba` (p)',
+    '3. No, and tell Codex what to do differently (esc)',
+    'Press enter to confirm or esc to cancel',
+  ];
+  status.set(session2, { activity: 'waiting', waitingFor: 'permission prompt' });
+  const approvalShown = await waitFor(() => hub.getLiveQuestion(terminalId)?.questions[0]?.header === 'Approval');
+  const approvalId = hub.getLiveQuestion(terminalId)?.toolUseId;
+  check('Codex publica el comando y las tres decisiones exactas de aprobacion',
+    approvalShown && approvalId !== undefined && hub.getLiveQuestion(terminalId)?.questions[0]?.options.length === 3,
+    JSON.stringify({ waitingFor: hub.getWaitingFor(terminalId), read: readCodexQuestion(screenLines), live: hub.getLiveQuestion(terminalId) }));
+  const approvalCheck = approvalId === undefined ? 'no-id' : await hub.verifyLiveQuestion(terminalId, approvalId);
+  check('Codex revalida la aprobacion completa antes de responder', approvalCheck === 'ok', approvalCheck);
+  screenLines = screenLines.map((line) => line.startsWith(`${approvalMarker} 1.`)
+    ? line.replace(`${approvalMarker} `, '  ')
+    : line.replace(/^2\./, `${approvalMarker} 2.`));
+  const touchedApproval = approvalId === undefined ? 'no-id' : await hub.verifyLiveQuestion(terminalId, approvalId);
+  check('Codex bloquea una tarjeta si alguien movio la seleccion en la TUI', touchedApproval === 'touched', touchedApproval);
+  hub.disposeAll();
+  status.dispose();
 }
 {
   const { describeCodexPlans, readCodexPlan } = await import('../src/agents/codex/plans.ts');
@@ -744,6 +997,11 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   await writeFile(path.join(work, 'informe.md'), '# Informe', 'utf8');
   check('Codex incluye solo documentos del proyecto', same(docSink.takePlans(), ['proj:informe.md']));
   check('Codex abre documento de la conversacion', (await readCodexPlan(target, 'proj:informe.md'))?.text === '# Informe');
+  const failedPatchSink = new CodexRolloutSink('', undefined, undefined, work);
+  failedPatchSink.consume({ type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'failed', input: '*** Begin Patch\n*** Add File: fallido.md\n+sin cambio\n*** End Patch' } }, 1, { find: () => undefined });
+  failedPatchSink.consume({ type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'failed', output: JSON.stringify({ output: 'Patch failed', metadata: { exit_code: 1 } }) } }, 2, { find: () => undefined });
+  check('Codex no anuncia documentos cuando apply_patch falla', failedPatchSink.getPlanFiles().length === 0 && failedPatchSink.takePlans().length === 0);
+  check('Codex rechaza rutas fuera del proyecto', await readCodexPlan(target, 'proj:../fuera.md') === null);
   docSink.consume({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '<proposed_plan>\n# Plan de trabajo\nRevisar.\n</proposed_plan>' }] } }, 3, { find: () => undefined });
   const proposed = docSink.takePlans().find((ref) => ref.startsWith('codex-plan:'));
   check('Codex incluye el plan propuesto', proposed !== undefined && (await readCodexPlan(target, proposed))?.text.includes('# Plan de trabajo'));
@@ -1008,12 +1266,16 @@ async function waitFor(condition, timeoutMs = 5000) {
     assistant(BASE + 3, 'respuesta uno') + turnEnd(BASE + 4, 'task_complete', 10) +
     taskStarted(BASE + 5) + turnContext(BASE + 6, { effort: null, model: 'gpt-5.5-mini' }) + userPair(BASE + 7, 'dos') +
     assistant(BASE + 8, 'respuesta dos');
-  const { result } = await sinkRead(content);
+  const { sink, result } = await sinkRead(content);
   const answers = result.added.filter((e) => e.role === 'assistant');
   check('C4 turn_context con effort high: la respuesta dice high y gpt-5.5',
     answers[0]?.effort === 'high' && answers[0].model === 'gpt-5.5', show(answers[0]));
   check('C4 turn_context sin effort y con reasoning_effort null: effort null, y el modelo nuevo',
     answers[1]?.effort === null && answers[1].model === 'gpt-5.5-mini', show(answers[1]));
+  check('C4 turn_context actualiza modelo y esfuerzo sin inventar uso',
+    sink.getUsage().lastModel === 'gpt-5.5-mini' && sink.getUsage().lastEffort === undefined &&
+    sink.getUsage().assistantMessages === 0 && sink.getUsage().lastRequestTokens === 0 && result.added.length === 4,
+    JSON.stringify(sink.getUsage()));
 }
 
 // C5. Medidor (y B5: un token_count repetido no es otra respuesta).
@@ -1275,7 +1537,9 @@ async function waitFor(condition, timeoutMs = 5000) {
   await follower.poll();
   check('C10 sin archivo: waiting', follower.getState() === 'waiting');
 
-  const file = await writeRollout(sessionsRoot, id, sessionMeta({ id }) + taskStarted(BASE) + userPair(BASE + 1, 'hola'), paths.uuidV7Millis(id));
+  const file = await writeRollout(sessionsRoot, id,
+    sessionMeta({ id }) + taskStarted(BASE) + turnContext(BASE + 1, { model: 'gpt-5.5-mini', effort: 'low' }) + userPair(BASE + 2, 'hola'),
+    paths.uuidV7Millis(id));
   clock += 500;
   const early = await follower.poll();
   check('C10 el archivo aparecio, pero no se busca de nuevo antes de 2 s', follower.getState() === 'waiting' && early.added.length === 0);
@@ -1283,6 +1547,10 @@ async function waitFor(condition, timeoutMs = 5000) {
   const found = await follower.poll();
   check('C10 pasados 2 s se vuelve a buscar, lo encuentra y queda live',
     follower.getState() === 'live' && found.added.length === 1 && follower.label === file, follower.label);
+  check('C10 modelo y esfuerzo efectivos se publican al leer turn_context, antes de una respuesta',
+    found.usageChanged === true && follower.getUsage().lastModel === 'gpt-5.5-mini' &&
+    follower.getUsage().lastEffort === 'low' && follower.getUsage().assistantMessages === 0,
+    JSON.stringify({ changed: found.usageChanged, usage: follower.getUsage() }));
   check('C10 noticeChange de su ruta: true', follower.noticeChange(file) === true);
   check('C10 noticeChange de otra ruta: false', follower.noticeChange(path.join(path.dirname(file), rolloutName(BASE, cid(11)))) === false);
   check('C10 plans, permisos y usage de Codex', same(follower.getPlanFiles(), []) && follower.getPermissionMode() === null);
@@ -2289,6 +2557,177 @@ const orderedIds = (state) => workspace.orderedTabs(state).map((e) => (e.kind ==
   hub.disposeAll();
 }
 
+// La actividad del rollout complementa la pantalla cuando esta deja visible el compositor.
+{
+  const { EventEmitter } = await import('node:events');
+  const { ConversationHub } = await import('../src/conversation-hub.ts');
+  const { CodexScreenStatus } = await import('../src/agents/codex/screen-status.ts');
+  const sessionId = '019e0000-0000-7000-8000-000000000093';
+  const launchedAt = 1_000;
+  let openTurn = false;
+  const follower = {
+    label: 'turno-codex-falso',
+    start: async () => undefined,
+    poll: async () => ({ reset: false, added: [], turns: [], plans: [], parts: [] }),
+    getState: () => 'live',
+    getUsage: () => ({ ...shared.EMPTY_CONTEXT_USAGE }),
+    getPermissionMode: () => null,
+    getTail: () => ({ events: [], hasMore: false }),
+    getPageBefore: () => ({ events: [], hasMore: false }),
+    getPlanFiles: () => [],
+    readImage: async () => null,
+    noticeChange: () => true,
+    hasOpenToolCall: () => false,
+    hasOpenTurn: () => openTurn,
+    runningSubagents: () => [],
+  };
+  const status = new CodexScreenStatus();
+  const observed = [];
+  status.subscribe(sessionId, (value) => observed.push(value?.activity));
+  const adapter = {
+    id: 'codex',
+    capabilities: { ...shared.NO_CAPABILITIES, sessionIdAtLaunch: false },
+    status,
+    history: { follow: () => follower, plans: null },
+  };
+  const descriptor = {
+    terminalId: 'turn', kind: 'agent', cwd: CWD, agent: 'codex', sessionId,
+    label: 'turn', resumed: false, createdAt: 0, alive: true, exitCode: null, sleeping: false,
+  };
+  const registry = new EventEmitter();
+  registry.get = (id) => id === 'turn' ? descriptor : null;
+  registry.launchedAtOf = (id) => id === 'turn' ? launchedAt : null;
+  registry.watchScreen = () => null;
+  const hub = new ConversationHub(registry, { get: (id) => id === 'codex' ? { adapter, location: null } : null });
+  await hub.subscribe('turn');
+  openTurn = true;
+  const opened = await hub.checkOpenTurn('turn', launchedAt);
+  status.set(sessionId, { activity: 'idle', waitingFor: null });
+  const busyDespiteComposer = observed.at(-1) === 'busy';
+  openTurn = false;
+  const closed = await hub.checkOpenTurn('turn', launchedAt);
+  check('Codex relee hasOpenTurn antes de decidir si puede encolar y lo publica como busy', opened && busyDespiteComposer);
+  check('Codex retira busy cuando el rollout cierra el turno', !closed && observed.at(-1) === 'idle');
+  hub.disposeAll();
+  status.dispose();
+}
+
+// Una cola nativa confirmada se muestra hasta que el rollout la entrega.
+{
+  const { EventEmitter } = await import('node:events');
+  const { ConversationHub } = await import('../src/conversation-hub.ts');
+  const session1 = '019e0000-0000-7000-8000-000000000096';
+  const session2 = '019e0000-0000-7000-8000-000000000097';
+  const session3 = '019e0000-0000-7000-8000-000000000098';
+  const secondTerminalId = 'codex-queue-second';
+  const thirdTerminalId = 'codex-queue-same-session';
+  const launchTimes = new Map([['codex-queue', 100], [secondTerminalId, 200]]);
+  launchTimes.set(thirdTerminalId, 300);
+  let descriptor = {
+    terminalId: 'codex-queue', kind: 'agent', cwd: CWD, agent: 'codex', sessionId: session1,
+    label: 'Codex', resumed: false, createdAt: 0, alive: true, exitCode: null, sleeping: false,
+  };
+  const secondDescriptor = { ...descriptor, terminalId: secondTerminalId, sessionId: session3, label: 'Codex 2' };
+  const thirdDescriptor = { ...descriptor, terminalId: thirdTerminalId, label: 'Codex misma sesión' };
+  const followers = [];
+  const makeFollower = (sessionId) => {
+    const follower = {
+      sessionId,
+      events: [],
+      next: [],
+      label: `codex-queue-${sessionId}`,
+      start: async () => undefined,
+      poll: async () => {
+        const added = follower.next;
+        follower.next = [];
+        follower.events.push(...added);
+        return { reset: false, added, turns: [], plans: [], parts: [] };
+      },
+      getState: () => 'live',
+      getUsage: () => ({ ...shared.EMPTY_CONTEXT_USAGE }),
+      getPermissionMode: () => null,
+      getTail: () => ({ events: [...follower.events], hasMore: false }),
+      getPageBefore: () => ({ events: [], hasMore: false }),
+      getPlanFiles: () => [],
+      readImage: async () => null,
+      noticeChange: () => true,
+      hasOpenToolCall: () => false,
+    };
+    followers.push(follower);
+    return follower;
+  };
+  const adapter = {
+    id: 'codex',
+    capabilities: { ...shared.NO_CAPABILITIES, sessionIdAtLaunch: false, codexNativeQueue: true },
+    status: null,
+    history: { follow: ({ sessionId }) => makeFollower(sessionId), plans: null },
+  };
+  const registry = new EventEmitter();
+  registry.get = (id) => id === descriptor.terminalId ? descriptor : id === secondTerminalId ? secondDescriptor : id === thirdTerminalId ? thirdDescriptor : null;
+  registry.launchedAtOf = (id) => launchTimes.get(id) ?? null;
+  const hub = new ConversationHub(registry, {
+    get: (id) => id === 'codex' ? { adapter, location: null } : null,
+  });
+  const queueChanges = [];
+  const appends = [];
+  const resets = [];
+  hub.on('queue', (_id, queue) => queueChanges.push(queue));
+  hub.on('append', (_id, events, _usage, _mode, queue) => appends.push({ events, queue }));
+  hub.on('reset', (id) => resets.push({ snapshot: hub.getSnapshot(id), queue: hub.getQueue(id) }));
+  await hub.subscribe(descriptor.terminalId);
+  await hub.subscribe(secondTerminalId);
+  await hub.subscribe(thirdTerminalId);
+
+  const canTrackNativeQueue = typeof hub.noteCodexQueued === 'function';
+  check('Codex confirma mensajes propios en una cola visible', canTrackNativeQueue);
+  if (canTrackNativeQueue) {
+    hub.noteCodexQueued(descriptor.terminalId, session1, { text: 'Mensaje B', at: 200 });
+    const firstQueue = hub.getQueue(descriptor.terminalId);
+    check('El acuse queued crea una burbuja con el texto exacto',
+      firstQueue.length === 1 && firstQueue[0]?.text === 'Mensaje B' && firstQueue[0]?.images === 0);
+    hub.noteCodexQueued(secondTerminalId, session3, { text: 'Mensaje de otra sesion', at: 210 });
+    const secondQueue = hub.getQueue(secondTerminalId);
+    check('Dos sesiones Codex mantienen independientes sus colas locales',
+      firstQueue.length === 1 && firstQueue[0]?.text === 'Mensaje B' &&
+      secondQueue.length === 1 && secondQueue[0]?.text === 'Mensaje de otra sesion');
+    hub.noteCodexQueued(thirdTerminalId, session1, { text: 'Mensaje de la misma sesión', at: 220 });
+    const thirdQueue = hub.getQueue(thirdTerminalId);
+    check('La misma sesión abierta en dos terminales conserva colas locales por terminal',
+      thirdQueue.length === 1 && thirdQueue[0]?.text === 'Mensaje de la misma sesión' &&
+      hub.getQueue(descriptor.terminalId).length === 1 && hub.getQueue(descriptor.terminalId)[0]?.text === 'Mensaje B');
+
+    const queuedEvent = {
+      eventId: 'codex-queued-message',
+      role: 'user',
+      at: 250,
+      parts: [{ kind: 'text', text: 'Mensaje B', truncated: false }],
+    };
+    followers[0].next = [queuedEvent];
+    hub.onHistoryChanged('codex', path.join(sessionsRoot, 'codex-queue.jsonl'));
+    const delivered = await waitFor(() => appends.length === 1 && appends[0]?.queue?.length === 0);
+    check('Al aparecer en el rollout, el mismo append entrega el mensaje y vacia la burbuja',
+      delivered && appends[0]?.events[0]?.eventId === queuedEvent.eventId && hub.getQueue(descriptor.terminalId).length === 0);
+
+    hub.noteCodexQueued(descriptor.terminalId, session1, { text: 'Otra cola', at: 300 });
+    descriptor = { ...descriptor, sessionId: session2 };
+    registry.emit('session', descriptor.terminalId, session2);
+    const rebound = await waitFor(() => resets.length === 1);
+    check('Cambiar de sesion vacia la burbuja del rollout anterior',
+      rebound && resets[0]?.snapshot?.sessionId === session2 && resets[0]?.queue?.length === 0);
+
+    hub.noteCodexQueued(descriptor.terminalId, session2, { text: 'Cola al cerrar', at: 400 });
+    launchTimes.delete(descriptor.terminalId);
+    registry.emit('changed');
+    check('Cerrar la TUI retira la cola local que ya no puede observarse',
+      hub.getQueue(descriptor.terminalId).length === 0);
+    check('Cerrar una sesion no retira la cola de otra sesion',
+      hub.getQueue(secondTerminalId).length === 1 && hub.getQueue(secondTerminalId)[0]?.text === 'Mensaje de otra sesion');
+    check('Cerrar un terminal no retira la cola de la misma sesión en otro terminal',
+      hub.getQueue(thirdTerminalId).length === 1 && hub.getQueue(thirdTerminalId)[0]?.text === 'Mensaje de la misma sesión');
+  }
+  hub.disposeAll();
+}
+
 // D10. La relectura periodica: una CLI que escribe con el archivo abierto no le da
 // avisos al watcher en Windows (medido con Codex en la verificacion de cierre).
 {
@@ -2591,6 +3030,7 @@ const orderedIds = (state) => workspace.orderedTabs(state).map((e) => (e.kind ==
 // ---------------------------------------------------------------------------
 
 const { createCodexAdapter, CODEX_INSTALL_URL } = await import('../src/agents/codex/index.ts');
+const { createCodexDaemonPrewarmer, supportsCodexDaemonStart } = await import('../src/agents/codex/daemon.ts');
 const { AgentRegistry, createAgentRegistry } = await import('../src/agents/registry.ts');
 const { createClaudeCodeAdapter } = await import('../src/agents/claude-code/index.ts');
 const { summarizeAgents } = await import('../../web/src/agent-summary.ts');
@@ -2603,6 +3043,71 @@ const throwsOn = (run) => {
     return true;
   }
 };
+const rejectsOn = async (run) => {
+  try {
+    await run();
+    return false;
+  } catch {
+    return true;
+  }
+};
+
+// D.8: el daemon de Codex se prepara y confirma antes de abrir la TUI.
+{
+  const location = {
+    resolvedPath: 'C:\\Program Files\\Codex\\codex.cmd',
+    file: 'cmd.exe',
+    prefixArgs: ['/c', 'C:\\Program Files\\Codex\\codex.cmd'],
+    version: 'codex-cli 0.166.0',
+  };
+  const env = { CODEX_HOME: 'D:\\codex-prueba' };
+  const calls = [];
+  let releaseStart;
+  let startEntered = false;
+  const startGate = new Promise((resolve) => { releaseStart = resolve; });
+  const prewarm = createCodexDaemonPrewarmer(async (receivedLocation, args, receivedEnv, timeoutMs) => {
+    calls.push({ receivedLocation, args, receivedEnv, timeoutMs });
+    if (args.at(-1) === 'start') {
+      startEntered = true;
+      await startGate;
+      return 'diagnostico\\n{"status":"started"}';
+    }
+    if (!startEntered) throw new Error('daemon detenido');
+    return '{"status":"running","appServerVersion":"0.166.0"}';
+  });
+  const first = prewarm(location, env);
+  const second = prewarm(location, env);
+  releaseStart();
+  await Promise.all([first, second]);
+  check('D.8 el arranque confirma el daemon una sola vez para pestanas concurrentes',
+    calls.length === 3 && calls[0].args.join(' ') === 'app-server daemon version' &&
+    calls[1].args.join(' ') === 'app-server daemon start' && calls[2].args.join(' ') === 'app-server daemon version' &&
+    calls[1].receivedLocation.file === 'cmd.exe' && calls[1].receivedLocation.prefixArgs[1] === location.resolvedPath &&
+    calls[1].receivedEnv === env && calls[1].timeoutMs > calls[2].timeoutMs,
+    JSON.stringify(calls.map(({ args }) => args)));
+  const activeCalls = [];
+  const activeDaemon = createCodexDaemonPrewarmer(async (_location, args) => {
+    activeCalls.push(args);
+    return '{"status":"running","appServerVersion":"0.166.0"}';
+  });
+  await activeDaemon(location, env);
+  check('D.8 un daemon activo solo se consulta; no se ejecuta start',
+    activeCalls.length === 1 && activeCalls[0].at(-1) === 'version');
+  check('D.8 solo intenta preinicializar desde Codex 0.166.0',
+    !supportsCodexDaemonStart('codex-cli 0.165.0') && supportsCodexDaemonStart('codex-cli 0.166.0') &&
+    supportsCodexDaemonStart('codex-cli 0.167.0') && !supportsCodexDaemonStart(null));
+  let versionCalls = 0;
+  const unavailable = createCodexDaemonPrewarmer(async (_location, args) => {
+    if (args.at(-1) === 'start') return '{"status":"started"}';
+    versionCalls += 1;
+    return versionCalls === 1 ? '{"status":"stopped"}' : '{"status":"notRunning"}';
+  });
+  check('D.8 no confirma disponibilidad si el daemon no responde running',
+    await rejectsOn(() => unavailable(location, env)));
+  const oldVersion = createCodexDaemonPrewarmer(async () => { throw new Error('no debe ejecutarse'); });
+  await oldVersion({ ...location, version: 'codex-cli 0.165.0' }, env);
+  check('D.8 una version anterior sigue abriendo sin invocar un comando no verificado', true);
+}
 
 // E1. El adaptador, miembro por miembro.
 {
@@ -2629,6 +3134,7 @@ const throwsOn = (run) => {
     editQueue: false,
     // Hito 51: no se le programa nada todavia (el 52).
     scheduledSend: true,
+    codexNativeQueue: false,
     // Hito 55: `resume -C .` retoma desde la carpeta de una rama aparte (§10.19).
     moveToWorktree: true,
     // Hito 49: la sandbox de solo lectura, medida con la 0.162.1 (§10.15).
@@ -2639,7 +3145,7 @@ const throwsOn = (run) => {
     same(adapter.input, {
       imageReference: 'bare-path-paste', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1,
       transcriptReference: 'quoted-path', endBeforeSubmit: onWindows, readyAfterLaunchMs: onWindows ? 3000 : 0,
-      startupDialog: /trust this folder|do you trust|allow Codex to work/i, requireKnownActivity: true,
+      startupDialog: /trust this folder|do you trust|allow Codex to work/i, draftStash: {}, requireKnownActivity: true,
       startupPendingScreen: /Waiting for startup/i,
     }),
     show(adapter.input));
@@ -2651,6 +3157,12 @@ const throwsOn = (run) => {
   const id = cid(90);
   const plain = { resolvedPath: '/bin/codex', file: '/bin/codex', prefixArgs: [], version: 'codex-cli 0.154.0' };
   const shim = { resolvedPath: 'x.cmd', file: 'cmd.exe', prefixArgs: ['/c', 'x.cmd'], version: null };
+  const prepared = [];
+  const lifecycle = createCodexAdapter({ prewarmDaemon: async (location, env) => { prepared.push({ location, env }); } });
+  const launchEnvironment = { CODEX_HOME: 'D:\\codex-prueba' };
+  await lifecycle.beforeLaunch?.({ location: plain, cwd: CWD, resumeSessionId: null, proposedSessionId: cid(91) }, launchEnvironment);
+  check('E1 el hook de Codex prepara el daemon con la CLI y el entorno de la pestana',
+    prepared.length === 1 && prepared[0].location === plain && prepared[0].env === launchEnvironment);
   const fresh = adapter.launch({ location: plain, cwd: CWD, resumeSessionId: null, proposedSessionId: cid(91) });
   check('E1 sesion nueva: sin argumentos, el id se descubre y el propuesto no se usa',
     fresh.file === '/bin/codex' && same(fresh.args, []) && same(fresh.session, { kind: 'discover' }), show(fresh));

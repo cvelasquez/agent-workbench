@@ -340,6 +340,43 @@ const image = { id: 'img', kind: 'image', mediaType: 'image/png', base64: 'AAAA'
   check('no se suprime un prefill de otra pestana', !drafts.consumeSubmitPrefill('t2', 'r5'));
 }
 
+{
+  const { drafts, setOpen } = make();
+  const original = local('envío fuera de línea', [image]);
+  drafts.submitted('t1', false, 'offline-r1', original);
+  setOpen(false);
+  drafts.reconnected();
+  drafts.restore([]);
+  setOpen(true);
+  drafts.submittedAck('t1', 'offline-r1', false);
+  check('un rechazo que llega después de reconectar recupera el texto y la imagen',
+    json(drafts.get('t1')) === json(original));
+}
+{
+  const { drafts } = make();
+  const original = local('envío de pestaña que se cierra', [image]);
+  drafts.submitted('t1', true, 'closed-r1', original);
+  drafts.retain(['t2']);
+  drafts.submittedAck('t1', 'closed-r1', false);
+  check('un acuse tardío no restaura el borrador de una pestaña cerrada', drafts.get('t1') === undefined);
+
+  drafts.submitted('t2', true, 'closed-r2', original);
+  drafts.submittedAck('t2', 'closed-r2', false);
+  drafts.retain(['t1']);
+  check('cerrar la pestaña también limpia el prefill de un envío ya recuperado',
+    !drafts.consumeSubmitPrefill('t2', 'closed-r2'));
+}
+{
+  const { drafts } = make();
+  for (let index = 0; index < 257; index += 1) {
+    drafts.submitted('t1', true, `unacked-${index}`, local(`borrador ${index}`));
+  }
+  drafts.submittedAck('t1', 'unacked-0', false);
+  check('si nunca llega el acuse, se retienen como máximo 256 borradores pendientes', drafts.get('t1') === undefined);
+  drafts.submittedAck('t1', 'unacked-256', false);
+  check('los acuses recientes todavía recuperan su borrador', drafts.get('t1')?.text === 'borrador 256');
+}
+
 // --- 8. La página: cuándo manda y qué no pisa ------------------------------------------
 {
   check('lo que se guarda: el texto y los textos pegados, sin imágenes ni archivos',

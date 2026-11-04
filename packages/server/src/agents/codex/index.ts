@@ -35,7 +35,10 @@ import { codexReadyScreen } from './ready-screen.js';
 import { codexHome, isUuid } from './paths.js';
 import { codexScreenStatus, CodexScreenStatus } from './screen-status.js';
 import { createCodexScreenQuestions } from './question-screen.js';
+import { CODEX_DRAFT_STASH } from './draft-box.js';
 import { loadCodexModels, supportsCodexModelCommand } from './catalog.js';
+import { codexQueueLauncher, queueCodexText, supportsCodexQueue, type CodexQueueLauncher } from './queue.js';
+import { prewarmCodexDaemon, type CodexDaemonPrewarmer } from './daemon.js';
 import type { CliLocation } from '../locate.js';
 import type { ModelOption } from '@agent-workbench/shared';
 
@@ -43,6 +46,11 @@ import type { ModelOption } from '@agent-workbench/shared';
 export const CODEX_COMMAND = 'codex';
 
 export const CODEX_INSTALL_URL = 'https://learn.chatgpt.com/docs/codex/cli';
+
+export interface CodexAdapterOptions {
+  /** Inyectable para comprobar el contrato sin iniciar procesos externos. */
+  prewarmDaemon?: CodexDaemonPrewarmer;
+}
 
 /**
  * Lo que la interfaz dibuja para esta CLI. `check-codex-adapter.mjs` lo compara
@@ -69,9 +77,9 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   questionCards: true,
   // Cada imagen en su propio pegado, con la ruta sola: la TUI adjunta si el pegado entero es la ruta.
   imagesByPath: 'bare-path-paste',
-  // `@` abre el buscador de archivos de la TUI: teclear `@ruta ` navegaria un menu.
+  // La tecla `@` abre el buscador; el pegado de AWB es texto, sin control de menciones.
   fileMentions: null,
-  // `Esc Esc` edita un mensaje anterior: otro flujo, sin medir.
+  // `Esc Esc` abre Browsing y ofrece rewind. Sin id fiable del resultado, no ofrecerlo.
   rewind: false,
   // La ventana exacta viene en el archivo, junto a los tokens.
   contextWindowSource: 'token-count',
@@ -79,7 +87,7 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   plans: true,
   // Un envio normal no debe responder una pregunta o aprobacion abierta.
   waitingBlocksSubmit: true,
-  // No hace cola: un mensaje con el agente trabajando le llega al modelo en el acto (hito 45).
+  // El envio normal conserva el comportamiento de Codex; la cola nativa tiene un control aparte.
   forceSend: false,
   editQueue: false,
   /*
@@ -87,6 +95,8 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
     historial no tiene un turno abierto. Codex no publica si trabaja.
   */
   scheduledSend: true,
+  // El comando se ofrece desde Codex 0.166, con texto y una sesion viva.
+  codexNativeQueue: false,
   /*
     Hito 55 (§10.19): `resume -C .` retoma desde la carpeta de la rama en el
     mismo rollout, sin dialogo, y el agente trabaja ahi. Sin `-C`, Codex pregunta
@@ -140,6 +150,8 @@ export function codexInput(platform: NodeJS.Platform): AgentInput {
     readyAfterLaunchMs: windows ? 3000 : 0,
     // Evita que el primer envio conteste el dialogo de confianza de la CLI.
     startupDialog: /trust this folder|do you trust|allow Codex to work/i,
+    // Codex no publica una tecla segura para apartar texto; AWB conserva el borrador y rechaza el envío.
+    draftStash: CODEX_DRAFT_STASH,
     requireKnownActivity: true,
     initialScreenActivity: (lines) => codexScreenStatus(lines).activity,
     startupPendingScreen: /Waiting for startup/i,
@@ -148,10 +160,12 @@ export function codexInput(platform: NodeJS.Platform): AgentInput {
 
 export const CODEX_INPUT: AgentInput = codexInput(process.platform);
 
-export function createCodexAdapter(): AgentAdapter {
+export function createCodexAdapter(options: CodexAdapterOptions = {}): AgentAdapter {
   const discovery = new CodexSessionDiscovery();
   const status = new CodexScreenStatus();
   let location: CliLocation | null = null;
+  let queueLauncher: CodexQueueLauncher | null = null;
+  let nativeQueueSupported = false;
   let models: ModelOption[] = [];
   let disposed = false;
   let pendingReload: Promise<boolean> | null = null;
@@ -172,6 +186,7 @@ export function createCodexAdapter(): AgentAdapter {
     cada `token_count`, y se juntan aca a medida que los seguidores leen.
   */
   const planLimits = new PlanLimitsBook();
+  const prewarmDaemon = options.prewarmDaemon ?? prewarmCodexDaemon;
 
   return {
     id: 'codex',
@@ -179,15 +194,28 @@ export function createCodexAdapter(): AgentAdapter {
     command: CODEX_COMMAND,
     installUrl: CODEX_INSTALL_URL,
     get capabilities(): AgentCapabilities {
-      if (models.length === 0) return CODEX_CAPABILITIES;
+      const base = { ...CODEX_CAPABILITIES, codexNativeQueue: nativeQueueSupported };
+      if (models.length === 0) return base;
       const levels = [...new Set(models.flatMap((model) => model.supportedEfforts ?? []))];
-      return { ...CODEX_CAPABILITIES, models, efforts: levels.map((value) => ({ value, label: value })) };
+      return { ...base, models, efforts: levels.map((value) => ({ value, label: value })) };
     },
     input: CODEX_INPUT,
 
-    locate: async () => { location = await locateCommand(CODEX_COMMAND); return location; },
+    locate: async () => {
+      location = await locateCommand(CODEX_COMMAND);
+      queueLauncher = location === null ? null : await codexQueueLauncher(location);
+      nativeQueueSupported = supportsCodexQueue(location?.version ?? null) && queueLauncher !== null;
+      return location;
+    },
+
+    queueText: async (target, text) => {
+      if (!nativeQueueSupported || queueLauncher === null) throw new Error('codex-queue-unavailable');
+      await queueCodexText(queueLauncher, target, text);
+    },
 
     missingMessage: () => commandNotFoundMessage(CODEX_COMMAND, CODEX_INSTALL_URL),
+
+    beforeLaunch: ({ location }, env) => prewarmDaemon(location, env),
 
     /**
      * Sin argumentos para una sesion nueva, `resume -C . <id>` para una del
