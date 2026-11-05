@@ -8,6 +8,7 @@ import { t, type MessageKey } from './i18n/index.js';
 import type { CodexPermissionRequest } from './useConversation.js';
 
 const HINTS: Readonly<Record<CodexPermissionPreset, MessageKey>> = {
+  'ask-for-approval': 'controls.permission.askForApprovalHint',
   automatic: 'controls.permission.automaticHint',
   'read-only': 'controls.permission.readOnlyHint',
   'full-access': 'controls.permission.fullAccessHint',
@@ -54,7 +55,7 @@ export function CodexPermissionControl({ disabled, state, request, onChange }: C
         title={preset === null ? t('controls.permission.unknownHint') : t(HINTS[preset])}
         onChange={(event) => {
           const next = event.target.value;
-          if (next === 'automatic' || next === 'read-only' || next === 'full-access') onChange(next);
+          if (next === 'ask-for-approval' || next === 'automatic' || next === 'read-only' || next === 'full-access') onChange(next);
         }}
       >
         {preset === null && (
@@ -62,9 +63,10 @@ export function CodexPermissionControl({ disabled, state, request, onChange }: C
             {t(state === null ? 'controls.permission.unknown' : 'controls.permission.custom')}
           </option>
         )}
+        <option value="ask-for-approval">{t('controls.permission.askForApproval')}</option>
         <option value="automatic">{t('controls.permission.automatic')}</option>
-        <option value="read-only">{t('controls.permission.readOnly')}</option>
         <option value="full-access">{t('controls.permission.fullAccess')}</option>
+        <option value="read-only">{t('controls.permission.readOnly')}</option>
       </select>
       {feedback !== null && <span className="codex-permission-status" role="status">{feedback}</span>}
     </div>

@@ -740,7 +740,8 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   check('Codex admite un catalogo vacio sin inventar modelos', codexModelOptions([]).length === 0 && codexModelOptions(null).length === 0);
   const permissionModule = await import('../../shared/src/codex-permissions.ts');
   check('Codex arma solo comandos de permiso permitidos y rechaza valores ajenos',
-    permissionModule.codexPermissionCommand('automatic') === '/permissions :workspace --approval-policy=never --reviewer=user' &&
+    permissionModule.codexPermissionCommand('ask-for-approval') === '/permissions :workspace --approval-policy=on-request --reviewer=user' &&
+      permissionModule.codexPermissionCommand('automatic') === '/permissions :workspace --approval-policy=on-request --reviewer=auto_review' &&
       permissionModule.codexPermissionCommand('read-only') === '/permissions :read-only --approval-policy=on-request --reviewer=user' &&
       permissionModule.codexPermissionCommand('full-access') === '/permissions :danger-full-access --approval-policy=never --reviewer=user' &&
       permissionModule.codexPermissionCommand('/permissions :danger-full-access') === null);
@@ -752,7 +753,10 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
     effectivePermissions?.profileId === ':read-only' && effectivePermissions.fileSystem === 'restricted' && effectivePermissions.network === 'restricted');
   check('Codex reconoce Solo lectura solo con la combinación efectiva confirmada',
     permissionModule.codexPermissionPresetForState(effectivePermissions) === 'read-only' &&
-      permissionModule.codexPermissionPresetForState({ ...effectivePermissions, approvalPolicy: 'never' }) === null);
+      permissionModule.codexPermissionPresetForState({ ...effectivePermissions, approvalPolicy: 'never' }) === null &&
+      permissionModule.codexPermissionPresetForState({ ...effectivePermissions, profileId: ':workspace', reviewer: 'user' }) === 'ask-for-approval' &&
+      permissionModule.codexPermissionPresetForState({ ...effectivePermissions, profileId: ':workspace', reviewer: 'auto_review' }) === 'automatic' &&
+      permissionModule.codexPermissionPresetForState({ ...effectivePermissions, profileId: ':workspace', approvalPolicy: 'never' }) === null);
   const { supportsCodexPermissionCommand } = await import('../src/agents/codex/catalog.ts');
   check('Codex habilita el combo de permisos solo desde la versión medida',
     !supportsCodexPermissionCommand('codex-cli 0.165.0') && supportsCodexPermissionCommand('codex-cli 0.166.0') && !supportsCodexPermissionCommand(null));

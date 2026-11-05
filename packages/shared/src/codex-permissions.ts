@@ -1,6 +1,6 @@
 import { asRecord, asString } from './validation.js';
 
-export const CODEX_PERMISSION_PRESETS = ['automatic', 'read-only', 'full-access'] as const;
+export const CODEX_PERMISSION_PRESETS = ['ask-for-approval', 'automatic', 'read-only', 'full-access'] as const;
 export type CodexPermissionPreset = (typeof CODEX_PERMISSION_PRESETS)[number];
 
 export const CODEX_PERMISSION_RESULT_STATUSES = ['written', 'blocked', 'failed'] as const;
@@ -55,7 +55,8 @@ export function isCodexPermissionPreset(value: unknown): value is CodexPermissio
 }
 
 const COMMANDS: Readonly<Record<CodexPermissionPreset, string>> = {
-  automatic: '/permissions :workspace --approval-policy=never --reviewer=user',
+  'ask-for-approval': '/permissions :workspace --approval-policy=on-request --reviewer=user',
+  automatic: '/permissions :workspace --approval-policy=on-request --reviewer=auto_review',
   'read-only': '/permissions :read-only --approval-policy=on-request --reviewer=user',
   'full-access': '/permissions :danger-full-access --approval-policy=never --reviewer=user',
 };
@@ -69,8 +70,10 @@ export function codexPermissionCommand(value: unknown): string | null {
 
 /** Returns a known preset only when Codex confirmed the complete combination. */
 export function codexPermissionPresetForState(state: CodexPermissionState | null): CodexPermissionPreset | null {
-  if (state === null || state.reviewer !== 'user') return null;
-  if (state.profileId === ':workspace' && state.approvalPolicy === 'never') return 'automatic';
+  if (state === null) return null;
+  if (state.profileId === ':workspace' && state.approvalPolicy === 'on-request' && state.reviewer === 'user') return 'ask-for-approval';
+  if (state.profileId === ':workspace' && state.approvalPolicy === 'on-request' && state.reviewer === 'auto_review') return 'automatic';
+  if (state.reviewer !== 'user') return null;
   if (state.profileId === ':read-only' && state.approvalPolicy === 'on-request') return 'read-only';
   if (state.profileId === ':danger-full-access' && state.approvalPolicy === 'never') return 'full-access';
   return null;
