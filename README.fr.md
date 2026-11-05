@@ -56,6 +56,8 @@ Le terminal reste le terminal : tout ce que vous tapez va directement à la CLI.
 | **Neuf langues** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français et Deutsch. L'interface suit la langue de votre navigateur. |
 | **Thème** | Clair, sombre ou celui du système. Le terminal reste sombre par défaut, pour que les couleurs des CLI restent lisibles. |
 
+Avec Codex, la conversation propose aussi les commandes de modèle et de permissions, les plans, ainsi que les questions et approbations reconnues. Les commandes disponibles dépendent de votre version de Codex. Les suggestions de Claude Code peuvent être acceptées dans la zone de message.
+
 En option, et désactivés par défaut : une [mémoire partagée](#mémoire-partagée-entre-les-cli)
 entre les CLI, une [sauvegarde](#sauvegarde-de-votre-historique) de votre
 historique, les [limites d'utilisation du forfait](#limites-dutilisation-du-forfait-de-claude-code)

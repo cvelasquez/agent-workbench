@@ -56,6 +56,8 @@ Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 | **Neun Sprachen** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français und Deutsch. Die App folgt der Sprache Ihres Browsers. |
 | **Design** | Hell, dunkel oder wie das System. Das Terminal bleibt standardmäßig dunkel, damit die Farben der CLIs lesbar bleiben. |
 
+Bei Codex bietet die Unterhaltung auch Steuerelemente für Modell und Berechtigungen, Pläne sowie erkannte Fragen und Genehmigungen. Die verfügbaren Steuerelemente hängen von deiner Codex-Version ab. Vorschläge von Claude Code lassen sich im Nachrichtenfeld übernehmen.
+
 Optional und standardmäßig ausgeschaltet: ein
 [gemeinsames Gedächtnis](#gemeinsames-gedächtnis-für-alle-clis) für alle CLIs,
 eine [Sicherung](#sicherung-ihrer-historie) Ihrer Historie, bei Claude Code die

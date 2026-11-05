@@ -57,6 +57,8 @@ CLI.
 | **Nove idiomas** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français e Deutsch. Segue o idioma do seu navegador. |
 | **Tema** | Claro, escuro ou o do sistema. O terminal fica escuro por padrão, para que as cores das CLIs continuem legíveis. |
 
+Com o Codex, a conversa também oferece controles de modelo e permissões, planos e perguntas e aprovações reconhecidas. Os controles disponíveis dependem da versão do Codex. As sugestões do Claude Code podem ser aceitas na caixa de mensagem.
+
 Opcionais, e desativados por padrão: [memória compartilhada](#memória-compartilhada-entre-clis)
 entre CLIs, um [backup](#backup-do-seu-histórico) do seu histórico, os
 [limites de uso do plano](#claude-code-limites-de-uso-do-plano) do Claude Code,

@@ -55,6 +55,8 @@ La terminal sigue siendo la terminal: todo lo que escribes va directo a la CLI.
 | **Nueve idiomas** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français y Deutsch. Sigue el idioma de tu navegador. |
 | **Tema** | Claro, oscuro o el del sistema. La terminal queda oscura por defecto, para que los colores de las CLIs se sigan leyendo bien. |
 
+Con Codex, la conversación también ofrece controles de modelo y permisos, planes, y preguntas y aprobaciones reconocidas. Los controles disponibles dependen de tu versión de Codex. Puedes aceptar las sugerencias de Claude Code en el cuadro de mensaje.
+
 Opcionales y apagados por defecto: la
 [memoria compartida](#memoria-compartida-entre-clis) entre CLIs, un
 [respaldo](#respaldo-de-tu-historial) de tu historial, los

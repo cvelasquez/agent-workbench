@@ -4,6 +4,33 @@ All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org); while in `0.x`, a minor version may
 change behavior.
 
+## 0.9.1 - 2026-11-04
+
+### Added
+
+- Move an open conversation to a separate branch with Claude Code, Codex or
+  OpenCode, keeping its context. Start from the conversation toolbar or its
+  row in the project sidebar.
+- See Claude Code's suggested next message in the empty message box and accept
+  it with Tab or the button on a phone.
+- Codex conversations gain controls for models and permissions, plans,
+  recognized questions and approvals, and improvements to queued messages and
+  input recovery. Available controls depend on the installed Codex version.
+- Collapse the conversation toolbar while keeping the context and plan meters
+  visible. Each view remembers its own setting.
+
+### Changed
+
+- A message sent to an idle CLI appears immediately in the conversation while
+  it is being delivered. Long conversation histories load more promptly.
+- Changes shows the last known state while refreshing after switching tabs.
+
+### Fixed
+
+- Claude Code's existing input is set aside before the app sends a message or
+  command, so the two do not get joined together.
+- Codex's permission selector follows the options supported by the CLI.
+
 ## 0.9.0 - 2026-10-27
 
 ### Added
