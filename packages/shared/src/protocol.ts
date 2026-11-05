@@ -122,6 +122,16 @@
  */
 
 import type { AgentDefaults } from './agent-controls.js';
+import {
+  CODEX_PERMISSION_BLOCK_REASONS,
+  CODEX_PERMISSION_RESULT_STATUSES,
+  isCodexPermissionPreset,
+  parseCodexPermissionState,
+  type CodexPermissionBlockReason,
+  type CodexPermissionPreset,
+  type CodexPermissionResultStatus,
+  type CodexPermissionState,
+} from './codex-permissions.js';
 import { parseComposerDraft, type ComposerDraft } from './composer-draft.js';
 import {
   AGENT_IDS,
@@ -423,6 +433,14 @@ export interface ClientPermissionModeMessage {
   terminalId: TerminalId;
   /** Uno de `PERMISSION_MODE_CYCLE`. */
   mode: PermissionMode;
+}
+
+/** Requests one fixed Codex permission preset; the browser never sends a CLI command. */
+export interface ClientCodexPermissionsMessage {
+  type: 'agent.codexPermissions';
+  terminalId: TerminalId;
+  requestId: string;
+  preset: CodexPermissionPreset;
 }
 
 /**
@@ -1425,6 +1443,7 @@ export type ClientMessage =
   | ClientCodexQueueMessage
   | ClientAnswerMessage
   | ClientPermissionModeMessage
+  | ClientCodexPermissionsMessage
   | ClientArchiveSessionsMessage
   | ClientInterruptMessage
   | ClientForceSendMessage
@@ -1700,6 +1719,8 @@ export interface ServerConversationResetMessage {
   usage: ContextUsage;
   /** Modo de permiso observado en el archivo, o null si todavia no lo dijo. */
   permissionMode: PermissionMode | null;
+  /** Effective Codex permission state observed in the rollout; absent in older servers. */
+  codexPermissions: CodexPermissionState | null;
   /**
    * Modelo y esfuerzo que dice la configuracion, para el rato en que el archivo
    * todavia no tiene ninguna respuesta. Provisional: lo pisa lo observado.
@@ -2063,6 +2084,30 @@ export interface ServerConversationPlansMessage {
   type: 'conversation.plans';
   terminalId: TerminalId;
   plans: SessionPlan[];
+}
+
+/** Default model and effort refreshed from a CLI's public model catalog. */
+export interface ServerConversationDefaultsMessage {
+  type: 'conversation.defaults';
+  terminalId: TerminalId;
+  defaults: AgentDefaults;
+}
+
+/** Effective Codex permission state changed in the rollout. */
+export interface ServerConversationCodexPermissionsMessage {
+  type: 'conversation.codexPermissions';
+  terminalId: TerminalId;
+  state: CodexPermissionState | null;
+}
+
+/** Result of writing a Codex permission command; written does not mean confirmed. */
+export interface ServerAgentCodexPermissionsResultMessage {
+  type: 'agent.codexPermissions.result';
+  terminalId: TerminalId;
+  requestId: string;
+  preset: CodexPermissionPreset;
+  status: CodexPermissionResultStatus;
+  reason?: CodexPermissionBlockReason;
 }
 
 /** El contenido de un plan, recortado y listo para renderizar. */
@@ -2600,6 +2645,9 @@ export type ServerMessage =
   | ServerFileSavedMessage
   | ServerFileSearchMessage
   | ServerConversationPlansMessage
+  | ServerConversationDefaultsMessage
+  | ServerConversationCodexPermissionsMessage
+  | ServerAgentCodexPermissionsResultMessage
   | ServerPlanContentMessage
   | ServerNotesListMessage
   | ServerNoteImageMessage
@@ -2756,6 +2804,13 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return terminalId === null || !isPermissionMode(mode)
         ? null
         : { type: 'agent.mode', terminalId, mode };
+    }
+    case 'agent.codexPermissions': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      return terminalId === null || requestId === null || !isCodexPermissionPreset(record['preset'])
+        ? null
+        : { type: 'agent.codexPermissions', terminalId, requestId, preset: record['preset'] };
     }
     case 'agent.answer': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -3545,6 +3600,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
             permissionMode: isPermissionMode(record['permissionMode'])
               ? record['permissionMode']
               : null,
+            // Ausente es estado desconocido: las versiones anteriores no lo observan.
+            codexPermissions: record['codexPermissions'] === null || record['codexPermissions'] === undefined
+              ? null
+              : parseCodexPermissionState(record['codexPermissions']),
             defaults: parseAgentDefaults(record['defaults']),
             waitingFor: asNonEmptyString(record['waitingFor']),
             // Ausente es false: un servidor anterior no bloquea nada.
@@ -3610,6 +3669,19 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         ? null
         : { type: 'agent.codexQueueResult', terminalId, sessionId, requestId, result };
     }
+    case 'agent.codexPermissions.result': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const requestId = asNonEmptyString(record['requestId']);
+      const preset = isCodexPermissionPreset(record['preset']) ? record['preset'] : null;
+      const status = asLiteral(record['status'], CODEX_PERMISSION_RESULT_STATUSES);
+      const reason = record['reason'] === undefined
+        ? null
+        : asLiteral(record['reason'], CODEX_PERMISSION_BLOCK_REASONS);
+      return terminalId === null || requestId === null || preset === null || status === null ||
+        (record['reason'] !== undefined && reason === null)
+        ? null
+        : { type: 'agent.codexPermissions.result', terminalId, requestId, preset, status, ...(reason === null ? {} : { reason }) };
+    }
     case 'agent.rewound': {
       const terminalId = asNonEmptyString(record['terminalId']);
       const requestId = asNonEmptyString(record['requestId']);
@@ -3641,6 +3713,13 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || !isPermissionMode(mode)
         ? null
         : { type: 'conversation.mode', terminalId, mode };
+    }
+    case 'conversation.codexPermissions': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const state = record['state'] === null ? null : parseCodexPermissionState(record['state']);
+      return terminalId === null || (record['state'] !== null && state === null)
+        ? null
+        : { type: 'conversation.codexPermissions', terminalId, state };
     }
     case 'conversation.waiting': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -3783,6 +3862,11 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || plans === null
         ? null
         : { type: 'conversation.plans', terminalId, plans };
+    }
+    case 'conversation.defaults': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      if (terminalId === null) return null;
+      return { type: 'conversation.defaults', terminalId, defaults: parseAgentDefaults(record['defaults']) };
     }
     case 'plans.content': {
       const terminalId = asNonEmptyString(record['terminalId']);

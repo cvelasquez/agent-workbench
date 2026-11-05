@@ -32,6 +32,7 @@ import {
 } from './agent-ui.js';
 import { AgentControls } from './AgentControls.js';
 import { ModeControl } from './ModeControl.js';
+import { CodexPermissionControl } from './CodexPermissionControl.js';
 import { Composer, type ComposerInsert, type ComposerNoteInsert } from './Composer.js';
 import { ConsolePane } from './ConsolePane.js';
 import { shellToOpenOnUnfold } from './console-shells.js';
@@ -833,9 +834,10 @@ export function App(): JSX.Element {
   );
 
   /*
-    Hasta la primera respuesta no hay nada observado, y ahi vale lo que dice la
-    configuracion: es de donde la CLI saco el banner que el usuario esta viendo
-    en la pestana CLI. En cuanto llega una linea del archivo, manda el archivo.
+    Antes del primer turno, Codex no muestra el modelo ni el esfuerzo activos en
+    la pantalla medida. En ese caso se enseña como provisional lo que `model/list`
+    recomienda para una conversación nueva. El primer `turn_context` confirma el
+    valor efectivo y reemplaza esa sugerencia.
   */
   const currentModel = observedModel ?? conversation.defaults.model;
   const currentEffort = observedEffort ?? conversation.defaults.effort;
@@ -1669,15 +1671,30 @@ export function App(): JSX.Element {
           codexQueueAvailable={activeControls.codexNativeQueue && activeTerminal.alive && activeActivity === 'busy'}
           codexQueueSessionId={activeTerminal.sessionId}
           leading={
-            activeControls.modeCycle === null ? undefined : (
-              <ModeControl
-                mode={conversation.permissionMode}
-                cycle={activeControls.modeCycle}
-                disabled={!activeTerminal.alive}
-                waitingFor={conversation.waitingFor}
-                statusKnown={statusKnown}
-                onChange={conversation.setPermissionMode}
-              />
+            activeControls.modeCycle === null && !activeControls.codexPermissions ? undefined : (
+              <>
+                {activeControls.codexPermissions && (
+                  <CodexPermissionControl
+                    disabled={
+                      !activeTerminal.alive || activeActivity !== 'idle' || conversation.waitingFor !== null ||
+                      conversation.openToolCall || activeReview
+                    }
+                    state={conversation.codexPermissions}
+                    request={conversation.codexPermissionRequest}
+                    onChange={conversation.requestCodexPermissions}
+                  />
+                )}
+                {activeControls.modeCycle !== null && (
+                  <ModeControl
+                    mode={conversation.permissionMode}
+                    cycle={activeControls.modeCycle}
+                    disabled={!activeTerminal.alive}
+                    waitingFor={conversation.waitingFor}
+                    statusKnown={statusKnown}
+                    onChange={conversation.setPermissionMode}
+                  />
+                )}
+              </>
             )
           }
           controls={

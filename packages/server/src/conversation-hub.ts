@@ -27,6 +27,7 @@ import {
   launchModeFor,
   sameQuestionItem,
   type AgentId,
+  type CodexPermissionState,
   type ContextUsage,
   type ConversationEvent,
   type ConversationQuestionPart,
@@ -122,6 +123,8 @@ export interface ConversationSnapshot {
   usage: ContextUsage;
   /** Modo de permiso observado en el archivo, o null si todavia no lo dijo. */
   permissionMode: PermissionMode | null;
+  /** Effective Codex permission settings from its rollout, or null until observed. */
+  codexPermissions: CodexPermissionState | null;
   /** Que espera la CLI, o null si no espera nada. No sale del JSONL. */
   waitingFor: string | null;
   /** Ver `Entry.openToolCall`. */
@@ -270,6 +273,8 @@ export interface ConversationHubEvents {
    * lo necesita es justamente el que no trae mensajes nuevos.
    */
   mode: (terminalId: TerminalId, mode: PermissionMode) => void;
+  /** Effective Codex permission state changed in the rollout. */
+  codexPermissions: (terminalId: TerminalId, state: CodexPermissionState | null) => void;
   /**
    * La CLI empezo —o dejo— de esperar una respuesta del usuario.
    *
@@ -460,6 +465,7 @@ export class ConversationHub extends EventEmitter {
         events: [],
         hasMore: false,
         permissionMode: null,
+        codexPermissions: null,
         usage: { ...EMPTY_CONTEXT_USAGE },
         waitingFor: null,
         openToolCall: false,
@@ -513,6 +519,7 @@ export class ConversationHub extends EventEmitter {
       hasMore: tail.hasMore,
       usage: entry.follower.getUsage(),
       permissionMode: entry.observedMode ?? entry.assumedMode,
+      codexPermissions: entry.follower.getCodexPermissionState?.() ?? null,
       waitingFor: entry.waitingFor,
       openToolCall: entry.openToolCall,
       subagents: entry.subagents,
@@ -1275,6 +1282,7 @@ export class ConversationHub extends EventEmitter {
       hasMore: tail.hasMore,
       usage: entry.follower.getUsage(),
       permissionMode: this.resetMode(entry),
+      codexPermissions: entry.follower.getCodexPermissionState?.() ?? null,
       waitingFor: entry.waitingFor,
       openToolCall: entry.openToolCall,
       subagents: entry.subagents,
@@ -1490,6 +1498,7 @@ export class ConversationHub extends EventEmitter {
     options: { silent: boolean },
   ): Promise<void> {
     const previousState = entry.follower.getState();
+    const previousCodexPermissions = JSON.stringify(entry.follower.getCodexPermissionState?.() ?? null);
 
     entry.polling = entry.polling.then(async () => {
       // Puede haberse ido mientras esperaba su turno en la cadena.
@@ -1596,6 +1605,11 @@ export class ConversationHub extends EventEmitter {
         );
       }
       if (result.parts.length > 0) this.emit('parts', terminalId, result.parts);
+
+      const codexPermissions = entry.follower.getCodexPermissionState?.() ?? null;
+      if (previousCodexPermissions !== JSON.stringify(codexPermissions)) {
+        this.emit('codexPermissions', terminalId, codexPermissions);
+      }
 
       // Y el aviso suelto, para el caso que no trae mensajes: uno cambia el
       // modo y quiere ver que cambio, sin escribirle nada al agente. Una CLI

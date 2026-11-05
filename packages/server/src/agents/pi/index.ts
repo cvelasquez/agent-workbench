@@ -67,6 +67,7 @@ export const PI_BASE_CAPABILITIES: AgentCapabilities = {
   readySignal: false,
   // Pi no tiene modos de permiso.
   permissionCycle: null,
+  codexPermissions: false,
   // Los de la cuenta, cuando se leen (`capabilities`).
   models: null,
   // `/thinking <nivel>` se aplica directo y escribe su entrada en el acto (16.10).

@@ -1968,6 +1968,7 @@ const statusRecord = (id, over = {}) => ({
     statusSource: false,
     readySignal: false,
     permissionCycle: { modes: ['default', 'acceptEdits', 'plan'], launchMode: 'acceptEdits', keyLabel: 'shift+tab', approvesPendingOnCycle: true },
+    codexPermissions: false,
     models: ANTIGRAVITY_MODEL_OPTIONS,
     efforts: ANTIGRAVITY_EFFORT_OPTIONS,
     questionCards: false,

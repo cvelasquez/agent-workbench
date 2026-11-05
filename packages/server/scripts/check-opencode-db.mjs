@@ -1386,7 +1386,7 @@ const historyOf = (file, extra = {}) => {
   });
   // Hito 29 (§5.3, sin `promptApi`): serve + attach. O11 compara lo mismo en check-opencode-serve.
   check('13 capacidades iguales al literal', same(adapter.capabilities, {
-    sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, models: null, efforts: null,
+    sessionIdAtLaunch: true, resume: true, statusSource: true, readySignal: false, permissionCycle: null, codexPermissions: false, models: null, efforts: null,
     questionCards: true, imagesByPath: 'bare-path-paste', fileMentions: null, rewind: false, contextWindowSource: 'usage-with-catalog', plans: false,
     waitingBlocksSubmit: true, forceSend: false, editQueue: false, scheduledSend: true, codexNativeQueue: false, moveToWorktree: true, readOnlyLaunch: null,
   }) && adapter.capabilities === OPENCODE_CAPABILITIES, show(adapter.capabilities));

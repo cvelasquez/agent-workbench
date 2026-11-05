@@ -1232,6 +1232,24 @@ kbd {
   font-weight: 500;
 }
 
+.agent-select-permission {
+  font-weight: 500;
+}
+
+.codex-permission-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.codex-permission-status {
+  max-width: 260px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
 /*
   Los combos de modelo y esfuerzo.
 

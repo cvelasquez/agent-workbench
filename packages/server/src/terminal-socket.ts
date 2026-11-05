@@ -16,6 +16,7 @@ import {
   ServerTextError,
   WS_PATH,
   encodeServerMessage,
+  codexPermissionCommand,
   isEmptyComposerDraft,
   launchModeFor,
   parseClientMessage,
@@ -24,6 +25,8 @@ import {
   type AgentDefaults,
   type AppSettingsStatus,
   type ContextUsage,
+  type CodexPermissionState,
+  type CodexPermissionBlockReason,
   type PermissionMode,
   type ConversationEvent,
   type ConversationQuestionPart,
@@ -69,6 +72,7 @@ import { readDiff } from './git-repo.js';
 import { GlobalSearchSlot } from './global-search.js';
 import { deliverWhenReady, prefillReasonFor, type DeliverDeps } from './deliver-when-ready.js';
 import { prepareSubmit, runSubmit, type SubmitMessageDeps } from './submit-message.js';
+import { codexEmptyComposerScreen, codexReadyScreen } from './agents/codex/ready-screen.js';
 import { CliSuggestions } from './cli-suggestions.js';
 import { TabFocus } from './tab-focus.js';
 import { HANDOFF_DELIVERY_TIMEOUT_MS, continueSession, type ContinueDeps } from './handoff/handoff.js';
@@ -238,6 +242,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     `terminal-write-queue.ts`.
   */
   const writeQueue = new TerminalWriteQueue();
+  const codexPermissionRequests = new Set<TerminalId>();
 
   /*
     Lo que el cuadro le mando a cada pestana de una CLI que devuelve a su editor
@@ -539,6 +544,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
 
   const onConversationMode = (terminalId: TerminalId, mode: PermissionMode): void =>
     broadcast({ type: 'conversation.mode', terminalId, mode });
+
+  const onConversationCodexPermissions = (terminalId: TerminalId, state: CodexPermissionState | null): void =>
+    broadcast({ type: 'conversation.codexPermissions', terminalId, state });
 
   /*
     La CLI empezo —o dejo— de esperar algo del usuario. No sale del JSONL: ahi
@@ -954,6 +962,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         hasMore: snapshot.hasMore,
         usage: snapshot.usage,
         permissionMode: snapshot.permissionMode,
+        codexPermissions: snapshot.codexPermissions,
         defaults,
         waitingFor: snapshot.waitingFor,
         // El de ahora y no el del snapshot: leer la configuracion es asincrono,
@@ -976,6 +985,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   conversations.on('state', onConversationState);
   conversations.on('reset', onConversationReset);
   conversations.on('mode', onConversationMode);
+  conversations.on('codexPermissions', onConversationCodexPermissions);
   conversations.on('waiting', onConversationWaiting);
   conversations.on('toolCall', onConversationToolCall);
   conversations.on('subagents', onConversationSubagents);
@@ -997,7 +1007,19 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     configuracion de las CLIs encontradas. Con Claude Code sola, desde el hito
     47, es un `stat` de su `settings.json` cada 2 s (§3.2.6).
   */
-  const stopAgentChanges = agents.subscribeChanges(() => broadcast(agentsMessage()));
+  const stopAgentChanges = agents.subscribeChanges(() => {
+    broadcast(agentsMessage());
+    for (const tab of registry.list()) {
+      if (tab.agent !== 'codex') continue;
+      const snapshot = conversations.getSnapshot(tab.terminalId);
+      if (snapshot === null || snapshot.sessionId.length > 0) continue;
+      void defaultsFor(tab.terminalId, null).then((defaults) => {
+        const current = conversations.getSnapshot(tab.terminalId);
+        if (current === null || current.sessionId.length > 0) return;
+        broadcast({ type: 'conversation.defaults', terminalId: tab.terminalId, defaults });
+      });
+    }
+  });
 
   /*
     Los limites del plan de cada CLI encontrada que los publica (hito 47,
@@ -1682,6 +1704,109 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           break;
         }
 
+        case 'agent.codexPermissions': {
+          const { terminalId, requestId, preset } = message;
+          const reply = (status: 'written' | 'blocked' | 'failed', reason?: CodexPermissionBlockReason): void => {
+            send(socket, {
+              type: 'agent.codexPermissions.result',
+              terminalId,
+              requestId,
+              preset,
+              status,
+              ...(reason === undefined ? {} : { reason }),
+            });
+          };
+          const tab = registry.get(terminalId);
+          const adapter = adapterOf(terminalId);
+          const command = codexPermissionCommand(preset);
+          if (tab === null || !tab.alive) {
+            reply('blocked', 'gone');
+            break;
+          }
+          if (tab.kind !== 'agent' || tab.agent !== 'codex' || adapter?.capabilities.codexPermissions !== true || command === null) {
+            reply('blocked', 'unsupported');
+            break;
+          }
+          if (tab.review) {
+            reply('blocked', 'review');
+            break;
+          }
+          if (codexPermissionRequests.has(terminalId)) {
+            reply('blocked', 'busy');
+            break;
+          }
+          codexPermissionRequests.add(terminalId);
+          void (async () => {
+            const plan = prepareSubmit(submitDeps, terminalId);
+            if ('refusal' in plan) {
+              reply('blocked', conversations.getWaitingFor(terminalId) !== null ? 'waiting' : 'tool-pending');
+              return;
+            }
+
+            let reason: CodexPermissionBlockReason = 'failed';
+            let piecesChecked = 0;
+            const normalGuard = plan.pieceGuard;
+            plan.pieceGuard = async (): Promise<boolean> => {
+              const current = registry.get(terminalId);
+              const currentAdapter = adapterOf(terminalId);
+              if (current === null || !current.alive) { reason = 'gone'; return false; }
+              if (current.kind !== 'agent' || current.agent !== 'codex' || currentAdapter?.capabilities.codexPermissions !== true) {
+                reason = 'unsupported';
+                return false;
+              }
+              if (current.review) { reason = 'review'; return false; }
+              const activity = registry.activityOf(terminalId);
+              if (activity !== 'idle') { reason = activity === 'waiting' ? 'waiting' : 'busy'; return false; }
+              const launchedAt = registry.launchedAtOf(terminalId);
+              if (launchedAt === null) { reason = 'gone'; return false; }
+              if (await conversations.checkOpenTurn(terminalId, launchedAt)) { reason = 'busy'; return false; }
+              if (conversations.getWaitingFor(terminalId) !== null || await conversations.checkWaitingFor(terminalId) !== null) {
+                reason = 'waiting';
+                return false;
+              }
+              if (conversations.hasOpenToolCall(terminalId, launchedAt) || await conversations.checkOpenToolCall(terminalId, launchedAt)) {
+                reason = 'tool-pending';
+                return false;
+              }
+              const screen = registry.watchScreen(terminalId);
+              if (screen === null) { reason = 'not-ready'; return false; }
+              let ready = false;
+              try {
+                const lines = await screen.lines();
+                ready = piecesChecked === 0 ? codexEmptyComposerScreen(lines) : codexReadyScreen(lines);
+              } finally {
+                screen.dispose();
+              }
+              if (!ready) { reason = 'not-ready'; return false; }
+              if (normalGuard !== undefined && !(await normalGuard())) {
+                reason = plan.stoppedByWaiting() ? 'waiting' : plan.stoppedByDialog() || plan.stoppedByStartup() ? 'not-ready' : 'tool-pending';
+                return false;
+              }
+              piecesChecked += 1;
+              return true;
+            };
+
+            const result = await runSubmit(submitDeps, plan, {
+              text: command,
+              imageCount: 0,
+              send: true,
+              prepare: async () => ({ fullText: command, imagePaths: [] }),
+              write: pieceWriter(socket, terminalId),
+            });
+            if (result.kind === 'written') reply('written');
+            else if (result.kind === 'blocked') reply('blocked', reason);
+            else if (result.kind === 'cli-draft') reply('blocked', 'not-ready');
+            else if (result.kind === 'refused') reply('blocked', 'tool-pending');
+            else reply('failed', 'failed');
+          })()
+            .catch((error: unknown) => {
+              console.warn(`[codex-permissions] ${terminalId.slice(0, 8)}:`, error);
+              reply('failed', 'failed');
+            })
+            .finally(() => codexPermissionRequests.delete(terminalId));
+          break;
+        }
+
         /*
           Cambiar el modo de permiso de la pestana.
 
@@ -2235,6 +2360,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               hasMore: snapshot.hasMore,
               usage: snapshot.usage,
               permissionMode: snapshot.permissionMode,
+              codexPermissions: snapshot.codexPermissions,
               defaults: await defaultsFor(message.terminalId, snapshot.usage.lastModel),
               waitingFor: snapshot.waitingFor,
               openToolCall: conversations.isToolCallOpen(message.terminalId),
@@ -3500,6 +3626,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     conversations.off('plans', onConversationPlans);
     conversations.off('parts', onConversationParts);
     conversations.off('mode', onConversationMode);
+    conversations.off('codexPermissions', onConversationCodexPermissions);
     conversations.off('waiting', onConversationWaiting);
     conversations.off('toolCall', onConversationToolCall);
     conversations.off('subagents', onConversationSubagents);

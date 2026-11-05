@@ -667,6 +667,7 @@ const adapter = createClaudeCodeAdapter();
     statusSource: true,
     readySignal: true,
     permissionCycle: { modes: PERMISSION_MODE_CYCLE, launchMode: LAUNCH_PERMISSION_MODE, keyLabel: 'shift+tab', approvesPendingOnCycle: false },
+    codexPermissions: false,
     models: MODEL_OPTIONS,
     efforts: EFFORT_OPTIONS,
     questionCards: true,

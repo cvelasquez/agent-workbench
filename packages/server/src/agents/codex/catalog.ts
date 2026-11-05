@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
-import type { ModelOption } from '@agent-workbench/shared';
+import type { AgentDefaults, ModelOption } from '@agent-workbench/shared';
 import type { CliLocation } from '../locate.js';
 
 /** Desde 0.164 la TUI acepta argumentos en /model. */
@@ -10,6 +10,15 @@ export function supportsCodexModelCommand(version: string | null): boolean {
   const major = Number(match[1]);
   const minor = Number(match[2]);
   return major > 0 || minor >= 164;
+}
+
+/** `/permissions` supports explicit profiles and approval settings in 0.166+. */
+export function supportsCodexPermissionCommand(version: string | null): boolean {
+  const match = version?.match(/(?:^|\s)v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 0 || minor >= 166;
 }
 
 /** Convierte el catalogo de la CLI sin aceptar texto que pueda alterar un comando. */
@@ -25,8 +34,31 @@ export function codexModelOptions(data: unknown): ModelOption[] {
       const level = item && typeof item === 'object' ? (item as Record<string, unknown>)['reasoningEffort'] : null;
       return typeof level === 'string' && /^[a-z]{1,20}$/.test(level) ? [level] : [];
     });
-    return [{ value: id, label: typeof model['displayName'] === 'string' ? model['displayName'] : id, family: id, long: false, window: null, supportedEfforts: efforts }];
+    const defaultEffort = typeof model['defaultReasoningEffort'] === 'string'
+      && /^[a-z]{1,20}$/.test(model['defaultReasoningEffort'])
+      && efforts.includes(model['defaultReasoningEffort'])
+      ? model['defaultReasoningEffort']
+      : null;
+    return [{
+      value: id,
+      label: typeof model['displayName'] === 'string' ? model['displayName'] : id,
+      family: id,
+      long: false,
+      window: null,
+      supportedEfforts: efforts,
+      isDefault: model['isDefault'] === true,
+      defaultEffort,
+    }];
   });
+}
+
+/** Returns the catalog's suggestion only for a new conversation and one unambiguous default. */
+export function codexCatalogDefaults(models: readonly ModelOption[], sessionModel?: string | null): AgentDefaults | null {
+  if (sessionModel !== null && sessionModel !== undefined) return null;
+  const recommended = models.filter((model) => model.isDefault === true);
+  if (recommended.length !== 1) return null;
+  const model = recommended[0]!;
+  return { model: model.value, effort: model.defaultEffort ?? null, contextWindow: null };
 }
 
 /** Consulta el protocolo por stdio sin leer archivos de configuracion desde AWB. */

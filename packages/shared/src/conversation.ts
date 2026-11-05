@@ -291,9 +291,9 @@ export interface MessageUsage {
  *    hace el `CLAUDE.md` del usuario cuando el plan es largo.
  *  - `scratch`: uno de la carpeta temporal de la sesion, fuera del repositorio.
  */
-export type PlanOrigin = 'cli-plans' | 'project' | 'scratch';
+export type PlanOrigin = 'cli-plans' | 'project' | 'scratch' | 'reference';
 
-export const PLAN_ORIGINS: readonly PlanOrigin[] = ['cli-plans', 'project', 'scratch'];
+export const PLAN_ORIGINS: readonly PlanOrigin[] = ['cli-plans', 'project', 'scratch', 'reference'];
 
 /**
  * Un documento markdown que esta conversacion escribio.

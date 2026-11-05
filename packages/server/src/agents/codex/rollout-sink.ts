@@ -21,6 +21,7 @@
  *    `token_count`; no hay tabla que mantener.
  */
 
+import path from 'node:path';
 import {
   EMPTY_CONTEXT_USAGE,
   asRecord,
@@ -28,11 +29,20 @@ import {
   type ConversationEvent,
   type ConversationPart,
   type ConversationRole,
+  type CodexPermissionState,
   type PlanLimitWindow,
+  parseCodexPermissionState,
 } from '@agent-workbench/shared';
 import type { TurnUpdate } from '../adapter.js';
 import type { EventLookup, JsonlLineSink } from '../jsonl-follower.js';
-import { patchDocuments, planRef, proposedPlanRef } from './plans.js';
+import {
+  patchDocuments,
+  planRef,
+  proposedPlanRef,
+  referencedMarkdownDocuments,
+  shellCommandDocuments,
+  verifyCodexDocument,
+} from './plans.js';
 import { cut, TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import {
   readRateLimits,
@@ -54,7 +64,11 @@ export class CodexRolloutSink implements JsonlLineSink {
   private plan: string | null = null;
   private planChanged = false;
   private readonly documents: string[] = [];
-  private readonly pendingDocuments = new Map<string, string[]>();
+  private readonly pendingDocuments = new Map<string, { kind: 'patch' | 'shell' | 'stdin'; refs: string[]; sessionId?: string }>();
+  private readonly runningShellDocuments = new Map<string, string[]>();
+  private readonly unverifiedDocuments = new Map<string, number>();
+  private permissions: CodexPermissionState | null = null;
+  private currentCwd: string;
 
   getPlanFiles(): readonly string[] { return this.plan === null ? this.documents : [...this.documents, this.plan]; }
   takePlans(): string[] {
@@ -105,7 +119,28 @@ export class CodexRolloutSink implements JsonlLineSink {
     private readonly limits: EventLimits = TRANSPORT_LIMITS,
     private readonly onPlanLimits?: (windows: PlanLimitWindow[]) => void,
     private readonly cwd = '',
-  ) {}
+  ) {
+    this.currentCwd = cwd;
+  }
+
+  getCodexPermissionState(): CodexPermissionState | null { return this.permissions; }
+
+  /** Retries briefly after a successful tool result, but only publishes verified files. */
+  async verifyDocuments(now = Date.now()): Promise<void> {
+    for (const [ref, expiresAt] of this.unverifiedDocuments) {
+      let exists = false;
+      try { exists = await verifyCodexDocument(ref); } catch { /* Missing or unsafe documents stay unpublished. */ }
+      if (exists) {
+        this.unverifiedDocuments.delete(ref);
+        if (!this.documents.includes(ref)) {
+          this.documents.push(ref);
+          this.planChanged = true;
+        }
+      } else if (now >= expiresAt) {
+        this.unverifiedDocuments.delete(ref);
+      }
+    }
+  }
 
   getUsage(): ContextUsage {
     return this.usage;
@@ -147,6 +182,10 @@ export class CodexRolloutSink implements JsonlLineSink {
     this.planChanged = false;
     this.documents.length = 0;
     this.pendingDocuments.clear();
+    this.runningShellDocuments.clear();
+    this.unverifiedDocuments.clear();
+    this.permissions = null;
+    this.currentCwd = this.cwd;
     this.turnOpenSince = null;
     this.model = null;
     this.effort = null;
@@ -184,6 +223,7 @@ export class CodexRolloutSink implements JsonlLineSink {
     if (type === 'turn_context') {
       const context = readTurnContext(payload);
       if (context !== null) {
+        if (context.cwd !== null && path.isAbsolute(context.cwd)) this.currentCwd = context.cwd;
         if (context.model !== null) this.model = context.model;
         this.effort = context.effort;
         const usage = { ...this.usage, lastModel: this.model };
@@ -191,6 +231,12 @@ export class CodexRolloutSink implements JsonlLineSink {
         else usage.lastEffort = this.effort;
         this.usage = usage;
       }
+      return null;
+    }
+
+    if (type === 'event_msg' && kind === 'thread_settings_applied') {
+      const settings = asRecord(payload['thread_settings']);
+      if (settings !== null) this.permissions = parseCodexPermissionState(settings);
       return null;
     }
 
@@ -221,14 +267,22 @@ export class CodexRolloutSink implements JsonlLineSink {
       if (typeof callId !== 'string' || callId.length === 0) return null;
       this.openCalls.delete(callId);
       const output = readToolOutput(payload['output'], this.limits.toolResultMaxChars);
-      const documents = this.pendingDocuments.get(callId);
+      const pending = this.pendingDocuments.get(callId);
       this.pendingDocuments.delete(callId);
-      if (!output.isError && documents !== undefined) {
-        for (const ref of documents) {
-          if (!this.documents.includes(ref)) {
-            this.documents.push(ref);
-            this.planChanged = true;
-          }
+      if (pending?.kind === 'patch' && patchOutputSucceeded(payload['output'], output.text, output.isError)) {
+        this.queueDocumentVerification(pending.refs);
+      } else if (pending?.kind === 'shell') {
+        const runningSession = runningSessionId(output.text);
+        if (runningSession !== null) {
+          if (pending.refs.length > 0) this.runningShellDocuments.set(runningSession, pending.refs);
+        } else if (shellOutputSucceeded(payload['output'], output.text, output.isError)) {
+          this.queueDocumentVerification(pending.refs);
+        }
+      } else if (pending?.kind === 'stdin') {
+        const refs = this.runningShellDocuments.get(pending.sessionId ?? '');
+        if (runningSessionId(output.text) === null && refs !== undefined) {
+          if (shellOutputSucceeded(payload['output'], output.text, output.isError)) this.queueDocumentVerification(refs);
+          this.runningShellDocuments.delete(pending.sessionId ?? '');
         }
       }
       return this.event('user', lineNumber, at, [
@@ -360,11 +414,19 @@ export class CodexRolloutSink implements JsonlLineSink {
           this.plan = plan;
           this.planChanged = true;
         }
+        this.queueDocumentVerification(referencedMarkdownDocuments(text, this.currentCwd, this.sessionId));
         parts.push({ kind: 'text', ...cut(text, this.limits.textMaxChars) });
       }
     }
     if (parts.length === 0) return null;
     return this.event('assistant', lineNumber, at, parts);
+  }
+
+  private queueDocumentVerification(refs: readonly string[]): void {
+    const expiresAt = Date.now() + 5_000;
+    for (const ref of refs) {
+      if (!this.documents.includes(ref)) this.unverifiedDocuments.set(ref, expiresAt);
+    }
   }
 
   private toolCall(
@@ -386,8 +448,36 @@ export class CodexRolloutSink implements JsonlLineSink {
       }
     }
 
-    if (name === 'apply_patch' && kind === 'custom_tool_call' && typeof payload['input'] === 'string') {
-      this.pendingDocuments.set(callId, patchDocuments(payload['input'], this.cwd));
+    if (name === 'apply_patch') {
+      const patch = typeof payload['input'] === 'string' ? payload['input'] : payload['arguments'];
+      if (typeof patch === 'string') {
+        this.pendingDocuments.set(callId, { kind: 'patch', refs: patchDocuments(readPatchText(patch), this.currentCwd, this.sessionId) });
+      }
+    } else if ((name === 'shell_command' || name === 'exec_command') && typeof payload['arguments'] === 'string') {
+      try {
+        const args: unknown = JSON.parse(payload['arguments']);
+        const record = asRecord(args);
+        const command = typeof record?.['command'] === 'string' ? record['command'] : record?.['cmd'];
+        const workdir = typeof record?.['workdir'] === 'string' ? record['workdir'] : typeof record?.['cwd'] === 'string' ? record['cwd'] : null;
+        const cwd = workdir === null
+          ? this.currentCwd
+          : path.win32.isAbsolute(workdir) && !path.isAbsolute(workdir)
+            ? ''
+            : path.isAbsolute(workdir)
+              ? path.resolve(workdir)
+              : this.currentCwd.length > 0 ? path.resolve(this.currentCwd, workdir) : '';
+        if (typeof command === 'string') {
+          this.pendingDocuments.set(callId, { kind: 'shell', refs: shellCommandDocuments(command, cwd, this.sessionId) });
+        }
+      } catch { /* Malformed tool arguments never create document references. */ }
+    } else if (name === 'write_stdin' && typeof payload['arguments'] === 'string') {
+      try {
+        const args: unknown = JSON.parse(payload['arguments']);
+        const id = asRecord(args)?.['session_id'];
+        if (typeof id === 'string' || typeof id === 'number') {
+          this.pendingDocuments.set(callId, { kind: 'stdin', refs: [], sessionId: String(id) });
+        }
+      } catch { /* Malformed tool arguments never create document references. */ }
     }
 
     let input: string;
@@ -477,6 +567,45 @@ export class CodexRolloutSink implements JsonlLineSink {
 function prettyJson(raw: string): string {
   try {
     return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+function explicitExitCode(output: unknown, text: string): number | null {
+  if (typeof output === 'string') {
+    try {
+      const parsed = asRecord(JSON.parse(output));
+      const exitCode = asRecord(parsed?.['metadata'])?.['exit_code'];
+      if (typeof exitCode === 'number' && Number.isInteger(exitCode)) return exitCode;
+    } catch { /* Not the structured shell result form. */ }
+  }
+  const header = text.split(/\r?\nOutput:/, 1)[0] ?? text;
+  const match = /^(?:Exit code:|Process exited with code)\s*(-?\d+)\s*$/mi.exec(header);
+  return match === null ? null : Number(match[1]);
+}
+
+function runningSessionId(text: string): string | null {
+  const header = text.split(/\r?\nOutput:/, 1)[0] ?? text;
+  return /\bProcess running with session ID\s+([a-z0-9_-]+)/i.exec(header)?.[1] ?? null;
+}
+
+function shellOutputSucceeded(output: unknown, text: string, isError: boolean): boolean {
+  return !isError && explicitExitCode(output, text) === 0;
+}
+
+function patchOutputSucceeded(output: unknown, text: string, isError: boolean): boolean {
+  if (isError) return false;
+  const code = explicitExitCode(output, text);
+  if (code !== null) return code === 0;
+  return /^(?:Success\b|Applied patch\b|Updated the following files\b)/im.test(text.trim());
+}
+
+function readPatchText(raw: string): string {
+  try {
+    const parsed = asRecord(JSON.parse(raw));
+    const patch = parsed?.['patch'] ?? parsed?.['input'];
+    return typeof patch === 'string' ? patch : raw;
   } catch {
     return raw;
   }

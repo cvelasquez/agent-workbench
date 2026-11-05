@@ -18,11 +18,11 @@
  * terminal, y por eso no hay forma de que el combo diga una cosa y la CLI este
  * usando otra.
  *
- * Mientras no haya ninguna respuesta el archivo no dice nada, y ahi entra un
- * valor **provisional** leido de la configuracion (`agent-defaults.ts`): es de
- * donde la CLI saca el banner que el usuario esta viendo al lado. Se distingue
- * en el titulo —"segun tu configuracion" -- para no hacerlo pasar por
- * observado, y lo pisa la primera respuesta que llegue.
+ * Mientras no haya un turno del proceso actual, una CLI puede no haber escrito
+ * su modelo y esfuerzo efectivos. Codex usa entonces como sugerencia provisional
+ * el modelo recomendado y su esfuerzo que publica `model/list`; no es una
+ * lectura del estado activo de la TUI. El tooltip lo identifica y el primer
+ * `turn_context` lo reemplaza. Otras CLIs conservan el origen de sus defaults.
  */
 
 import {

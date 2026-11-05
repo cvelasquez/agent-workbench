@@ -82,6 +82,7 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
     // El combo de modo se comporta como siempre: nada lo bloquea por un permiso pendiente.
     approvesPendingOnCycle: false,
   },
+  codexPermissions: false,
   models: MODEL_OPTIONS,
   efforts: EFFORT_OPTIONS,
   questionCards: true,

@@ -91,6 +91,7 @@ export const OPENCODE_CAPABILITIES: AgentCapabilities = {
   readySignal: false,
   // `Tab` cicla agentes (`build`, `plan`), no permisos.
   permissionCycle: null,
+  codexPermissions: false,
   // `/models` abre un selector y no acepta argumento.
   models: null,
   // La variante se cicla con `ctrl+t`, que el navegador se queda.

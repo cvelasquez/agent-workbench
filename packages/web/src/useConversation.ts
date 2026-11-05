@@ -21,6 +21,10 @@ import {
   type ConversationState,
   type ConversationSubagent,
   type AnswerSelection,
+  type CodexPermissionBlockReason,
+  type CodexPermissionPreset,
+  type CodexPermissionState,
+  codexPermissionPresetForState,
   type PermissionMode,
   type QueuedPrompt,
   type TerminalId,
@@ -66,6 +70,14 @@ const FORCE_SEND_HOLD_MS = 15_000;
  * siempre, en unos segundos; esto es por si la respuesta no llega.
  */
 const QUEUE_EDIT_HOLD_MS = 20_000;
+const CODEX_PERMISSION_CONFIRM_MS = 20_000;
+
+export interface CodexPermissionRequest {
+  requestId: string;
+  preset: CodexPermissionPreset;
+  status: 'writing' | 'awaiting' | 'unconfirmed' | 'blocked';
+  reason?: CodexPermissionBlockReason;
+}
 
 export interface ConversationFeed {
   events: ConversationEvent[];
@@ -79,6 +91,10 @@ export interface ConversationFeed {
    * aca igual, y por el mismo camino.
    */
   permissionMode: PermissionMode | null;
+  /** Effective Codex permission settings read from the rollout. */
+  codexPermissions: CodexPermissionState | null;
+  /** The latest Codex permission command and whether the CLI confirmed it. */
+  codexPermissionRequest: CodexPermissionRequest | null;
   /**
    * Que esta esperando la CLI ahora mismo, o null si no espera nada.
    *
@@ -150,6 +166,8 @@ export interface ConversationFeed {
   answer: (toolUseId: string, selections: AnswerSelection[]) => void;
   /** Cambia el modo de permiso de la pestana. */
   setPermissionMode: (mode: PermissionMode) => void;
+  /** Requests a fixed Codex preset through the server's guarded write path. */
+  requestCodexPermissions: (preset: CodexPermissionPreset) => void;
   /**
    * Preguntas ya contestadas desde aca, mientras el archivo no lo confirme.
    *
@@ -202,6 +220,10 @@ export function useConversation(
   const [loadingMore, setLoadingMore] = useState(false);
   const [images, setImages] = useState<Record<string, string | null>>({});
   const [permissionMode, setPermissionModeState] = useState<PermissionMode | null>(null);
+  const [codexPermissions, setCodexPermissions] = useState<CodexPermissionState | null>(null);
+  const [codexPermissionRequest, setCodexPermissionRequest] = useState<CodexPermissionRequest | null>(null);
+  const codexPermissionRequestRef = useRef<CodexPermissionRequest | null>(null);
+  const codexPermissionTimer = useRef<number | null>(null);
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const [openToolCall, setOpenToolCall] = useState(false);
   const [subagents, setSubagents] = useState<ConversationSubagent[]>(NO_SUBAGENTS);
@@ -426,6 +448,11 @@ export function useConversation(
       setEvents([]);
       setUsage(EMPTY_CONTEXT_USAGE);
       setDefaults(NO_DEFAULTS);
+      setCodexPermissions(null);
+      codexPermissionRequestRef.current = null;
+      setCodexPermissionRequest(null);
+      if (codexPermissionTimer.current !== null) window.clearTimeout(codexPermissionTimer.current);
+      codexPermissionTimer.current = null;
       setState('waiting');
       setHasMore(false);
       oldestEventId.current = null;
@@ -442,6 +469,11 @@ export function useConversation(
     setLoadingMore(false);
     setImages({});
     setPermissionModeState(null);
+    setCodexPermissions(null);
+    codexPermissionRequestRef.current = null;
+    setCodexPermissionRequest(null);
+    if (codexPermissionTimer.current !== null) window.clearTimeout(codexPermissionTimer.current);
+    codexPermissionTimer.current = null;
     setWaitingFor(null);
     setOpenToolCall(false);
     setSubagents(NO_SUBAGENTS);
@@ -469,6 +501,13 @@ export function useConversation(
           setUsage(message.usage);
           setDefaults(message.defaults);
           setPermissionModeState(message.permissionMode);
+          setCodexPermissions(message.codexPermissions);
+          if (codexPermissionPresetForState(message.codexPermissions) === codexPermissionRequestRef.current?.preset) {
+            codexPermissionRequestRef.current = null;
+            setCodexPermissionRequest(null);
+            if (codexPermissionTimer.current !== null) window.clearTimeout(codexPermissionTimer.current);
+            codexPermissionTimer.current = null;
+          }
           setWaitingFor(message.waitingFor);
           setOpenToolCall(message.openToolCall);
           setSubagents(message.subagents);
@@ -478,6 +517,38 @@ export function useConversation(
           setLoadingMore(false);
           oldestEventId.current = message.events[0]?.eventId ?? null;
           break;
+
+        case 'conversation.defaults':
+          if (message.terminalId !== terminalId) break;
+          setDefaults(message.defaults);
+          break;
+
+        case 'conversation.codexPermissions':
+          if (message.terminalId !== terminalId) break;
+          setCodexPermissions(message.state);
+          if (codexPermissionPresetForState(message.state) === codexPermissionRequestRef.current?.preset) {
+            codexPermissionRequestRef.current = null;
+            setCodexPermissionRequest(null);
+            if (codexPermissionTimer.current !== null) window.clearTimeout(codexPermissionTimer.current);
+            codexPermissionTimer.current = null;
+          }
+          break;
+
+        case 'agent.codexPermissions.result': {
+          if (message.terminalId !== terminalId || codexPermissionRequestRef.current?.requestId !== message.requestId) break;
+          const current = codexPermissionRequestRef.current;
+          if (current === null) break;
+          const next: CodexPermissionRequest = message.status === 'written'
+            ? { ...current, status: 'awaiting' }
+            : { ...current, status: 'blocked', ...(message.reason === undefined ? {} : { reason: message.reason }) };
+          codexPermissionRequestRef.current = next;
+          setCodexPermissionRequest(next);
+          if (message.status !== 'written' && codexPermissionTimer.current !== null) {
+            window.clearTimeout(codexPermissionTimer.current);
+            codexPermissionTimer.current = null;
+          }
+          break;
+        }
 
         case 'conversation.append': {
           if (message.terminalId !== terminalId) break;
@@ -686,6 +757,8 @@ export function useConversation(
       offMessage();
       offReopen();
       connection.send({ type: 'conversation.unsubscribe', terminalId });
+      if (codexPermissionTimer.current !== null) window.clearTimeout(codexPermissionTimer.current);
+      codexPermissionTimer.current = null;
     };
   }, [connection, terminalId, fail, stopForcing, stopEditing]);
 
@@ -795,12 +868,39 @@ export function useConversation(
     [connection, terminalId],
   );
 
+  const requestCodexPermissions = useCallback(
+    (preset: CodexPermissionPreset) => {
+      if (
+        terminalId === null ||
+        codexPermissionRequestRef.current?.status === 'writing' ||
+        codexPermissionRequestRef.current?.status === 'awaiting'
+      ) return;
+      const requestId = crypto.randomUUID();
+      const request: CodexPermissionRequest = { requestId, preset, status: 'writing' };
+      codexPermissionRequestRef.current = request;
+      setCodexPermissionRequest(request);
+      if (codexPermissionTimer.current !== null) window.clearTimeout(codexPermissionTimer.current);
+      codexPermissionTimer.current = window.setTimeout(() => {
+        const current = codexPermissionRequestRef.current;
+        if (current?.requestId !== requestId || current.status === 'blocked') return;
+        const next: CodexPermissionRequest = { ...current, status: 'unconfirmed' };
+        codexPermissionRequestRef.current = next;
+        setCodexPermissionRequest(next);
+        codexPermissionTimer.current = null;
+      }, CODEX_PERMISSION_CONFIRM_MS);
+      connection.send({ type: 'agent.codexPermissions', terminalId, requestId, preset });
+    },
+    [connection, terminalId],
+  );
+
   return {
     events,
     usage,
     defaults,
     state,
     permissionMode,
+    codexPermissions,
+    codexPermissionRequest,
     waitingFor,
     openToolCall,
     subagents,
@@ -820,6 +920,7 @@ export function useConversation(
     answered,
     answerFailed,
     setPermissionMode,
+    requestCodexPermissions,
     liveQuestion,
   };
 }

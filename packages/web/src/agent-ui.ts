@@ -415,6 +415,7 @@ export function instructionsFileFor(agent: AgentId | null): string | null {
 export interface AgentControlsView {
   /** El combo de modo, con su ciclo. null: no se dibuja. */
   modeCycle: PermissionCycleCapability | null;
+  codexPermissions: boolean;
   /** Opciones del combo de modelo. null: no se dibuja. */
   models: readonly ModelOption[] | null;
   /** Opciones del combo de esfuerzo. null: no se dibuja. */
@@ -454,6 +455,7 @@ export function controlsFor(capabilities: AgentCapabilities, review = false): Ag
   const launchMode = launchModeFor(capabilities, review);
   return {
     modeCycle: cycle === null || launchMode === null || launchMode === cycle.launchMode ? cycle : { ...cycle, launchMode },
+    codexPermissions: capabilities.codexPermissions,
     models: capabilities.models,
     efforts: capabilities.efforts,
     imagesAllowed: capabilities.imagesByPath !== null,

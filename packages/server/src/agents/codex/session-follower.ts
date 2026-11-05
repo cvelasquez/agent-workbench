@@ -21,6 +21,7 @@
 import path from 'node:path';
 import {
   normalizeCwdKey,
+  type CodexPermissionState,
   type ContextUsage,
   type ConversationImageSource,
   type ConversationState,
@@ -117,6 +118,7 @@ export class CodexSessionFollower implements SessionFollower {
       ({ added } = await this.jsonl.poll());
       reset = true;
     }
+    await this.sink.verifyDocuments();
     const fresh = new Set(added.map((event) => event.eventId));
     return {
       reset,
@@ -202,6 +204,10 @@ export class CodexSessionFollower implements SessionFollower {
 
   getUsage(): ContextUsage {
     return this.sink.getUsage();
+  }
+
+  getCodexPermissionState(): CodexPermissionState | null {
+    return this.sink.getCodexPermissionState();
   }
 
   /** Codex no tiene ciclo de permisos que la app maneje (C8). */

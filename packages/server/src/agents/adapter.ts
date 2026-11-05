@@ -24,6 +24,7 @@ import type {
   AgentCapabilities,
   AgentDefaults,
   AgentId,
+  CodexPermissionState,
   ContextUsage,
   ConversationEvent,
   ConversationImageSource,
@@ -350,6 +351,8 @@ export interface SessionFollower {
   poll(): Promise<PollResult>;
   getState(): ConversationState;
   getUsage(): ContextUsage;
+  /** Effective Codex permission settings from the rollout, when available. */
+  getCodexPermissionState?(): CodexPermissionState | null;
   getPermissionMode(): PermissionMode | null;
   getTail(limit: number): EventPage;
   getPageBefore(beforeEventId: string, limit: number): EventPage;

@@ -11,7 +11,8 @@
  *  - **No publica su estado en disco.** La pantalla permite detectar estados
  *    conocidos, pero se conserva la guarda para aprobaciones no reconocidas.
  *  - **No se lee su configuracion.** `config.toml` trae el entorno de los MCP,
- *    que puede llevar secretos (regla 2.1): sin modelo por defecto que mostrar.
+ *    que puede llevar secretos (regla 2.1). Un valor inicial solo se sugiere
+ *    si el catalogo publico identifica un unico modelo recomendado.
  *
  * De `CODEX_HOME` se leen dos carpetas y ninguna se escribe (`paths.ts`).
  */
@@ -36,7 +37,7 @@ import { codexHome, isUuid } from './paths.js';
 import { codexScreenStatus, CodexScreenStatus } from './screen-status.js';
 import { createCodexScreenQuestions } from './question-screen.js';
 import { CODEX_DRAFT_STASH } from './draft-box.js';
-import { loadCodexModels, supportsCodexModelCommand } from './catalog.js';
+import { codexCatalogDefaults, loadCodexModels, supportsCodexModelCommand, supportsCodexPermissionCommand } from './catalog.js';
 import { codexQueueLauncher, queueCodexText, supportsCodexQueue, type CodexQueueLauncher } from './queue.js';
 import { prewarmCodexDaemon, type CodexDaemonPrewarmer } from './daemon.js';
 import type { CliLocation } from '../locate.js';
@@ -69,6 +70,7 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   readySignal: false,
   // Su `shift+tab` cicla el modo de colaboracion (por defecto y Plan), no permisos.
   permissionCycle: null,
+  codexPermissions: false,
   // El catalogo se consulta de forma asincrona, despues de localizar la CLI.
   models: null,
   // El getter lo llena junto con el catalogo.
@@ -194,7 +196,11 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): AgentAdap
     command: CODEX_COMMAND,
     installUrl: CODEX_INSTALL_URL,
     get capabilities(): AgentCapabilities {
-      const base = { ...CODEX_CAPABILITIES, codexNativeQueue: nativeQueueSupported };
+      const base = {
+        ...CODEX_CAPABILITIES,
+        codexNativeQueue: nativeQueueSupported,
+        codexPermissions: supportsCodexPermissionCommand(location?.version ?? null),
+      };
       if (models.length === 0) return base;
       const levels = [...new Set(models.flatMap((model) => model.supportedEfforts ?? []))];
       return { ...base, models, efforts: levels.map((value) => ({ value, label: value })) };
@@ -312,7 +318,7 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): AgentAdap
     scheduled: { kind: 'screen', readyScreen: codexReadyScreen, confirmTimeoutMs: 120_000 },
     planLimits,
 
-    defaults: () => Promise.resolve(null),
+    defaults: async (_cwd, sessionModel) => codexCatalogDefaults(models, sessionModel),
     prepare: async () => { void reload(); },
     refreshSetup: reload,
     subscribeChanges: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },

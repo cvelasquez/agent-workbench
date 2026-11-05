@@ -246,6 +246,8 @@ export interface AgentCapabilities {
   /** Se puede esperar "lista para recibir" antes de pegar (mandar una nota). */
   readySignal: boolean;
   permissionCycle: PermissionCycleCapability | null;
+  /** Codex exposes profiles and approval settings through `/permissions` arguments. */
+  codexPermissions: boolean;
   /**
    * Modelos que acepta el comando de modelo con argumento, o null si la CLI no
    * lo tiene.
@@ -341,6 +343,7 @@ export const NO_CAPABILITIES: AgentCapabilities = {
   statusSource: false,
   readySignal: false,
   permissionCycle: null,
+  codexPermissions: false,
   models: null,
   efforts: null,
   questionCards: false,
@@ -497,7 +500,17 @@ function parseModelOption(value: unknown): ModelOption | null {
     return null;
   }
   const supportedEfforts = asArrayOf(record['supportedEfforts'], asNonEmptyString);
-  return { value: optionValue, label, family, long, window, ...(supportedEfforts === null ? {} : { supportedEfforts }) };
+  const defaultEffort = record['defaultEffort'] === null ? null : asNonEmptyString(record['defaultEffort']);
+  return {
+    value: optionValue,
+    label,
+    family,
+    long,
+    window,
+    ...(supportedEfforts === null ? {} : { supportedEfforts }),
+    ...(typeof record['isDefault'] === 'boolean' ? { isDefault: record['isDefault'] } : {}),
+    ...(defaultEffort !== null || record['defaultEffort'] === null ? { defaultEffort } : {}),
+  };
 }
 
 function parseEffortOption(value: unknown): EffortOption | null {
@@ -536,6 +549,7 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     statusSource: record['statusSource'] === true,
     readySignal: record['readySignal'] === true,
     permissionCycle: parsePermissionCycle(record['permissionCycle']),
+    codexPermissions: record['codexPermissions'] === true,
     models: parseOptions(record['models'], parseModelOption),
     efforts: parseOptions(record['efforts'], parseEffortOption),
     questionCards: record['questionCards'] === true,

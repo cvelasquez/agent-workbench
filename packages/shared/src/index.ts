@@ -3,6 +3,7 @@ export * from './models.js';
 export * from './conversation.js';
 export * from './agent-controls.js';
 export * from './permission-modes.js';
+export * from './codex-permissions.js';
 export * from './git.js';
 export * from './files.js';
 export * from './protocol.js';

@@ -22,6 +22,10 @@
  */
 
 export interface ModelOption {
+  /** Codex marks its recommended default in `model/list`. */
+  isDefault?: boolean;
+  /** Suggested effort for this model when starting a conversation. */
+  defaultEffort?: string | null;
   /** Niveles que declara el catalogo de esta opcion, si existen. */
   supportedEfforts?: readonly string[];
   /** Lo que se le pasa a `/model`. */
@@ -46,11 +50,12 @@ export interface ModelOption {
 }
 
 /**
- * Lo que la configuracion dice que va a correr, antes de que corra.
+ * La sugerencia del adaptador antes de que la CLI confirme su estado.
  *
- * No es una observacion: es lo que el servidor leyo de los `settings.json` (ver
- * `agent-defaults.ts`). Sirve para que el combo no arranque vacio y lo pisa la
- * primera respuesta que aparezca en el archivo.
+ * No es una observacion. Puede venir de la configuracion que lee el servidor o,
+ * como en Codex, del default recomendado por el catalogo de la CLI. Sirve para
+ * que el combo pueda mostrarse antes de que haya un turno, y lo reemplaza el
+ * primer estado efectivo que publique la sesion.
  */
 export interface AgentDefaults {
   /** Alias tal como esta escrito en la configuracion (`opus`). */

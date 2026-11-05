@@ -1117,6 +1117,7 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
       statusSource: true,
       readySignal: false,
       permissionCycle: null,
+      codexPermissions: false,
       models: null,
       efforts: [
         { value: 'off', label: 'Apagado' }, { value: 'minimal', label: 'Minimo' }, { value: 'low', label: 'Bajo' }, { value: 'medium', label: 'Medio' },

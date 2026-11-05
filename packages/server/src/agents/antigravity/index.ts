@@ -103,6 +103,7 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
     // Segun la documentacion de modos, ciclar con ediciones pendientes las aprueba.
     approvesPendingOnCycle: true,
   },
+  codexPermissions: false,
   models: ANTIGRAVITY_MODEL_OPTIONS,
   efforts: ANTIGRAVITY_EFFORT_OPTIONS,
   // Existe una pregunta al usuario, pero su menu no esta medido.

@@ -35,6 +35,8 @@ const BUSY = /esc to interrupt|Working \(|Waiting for startup|esc cancel/;
 const FOOTER = /\? for shortcuts/;
 /** La caja: el simbolo con que Codex la dibuja. */
 const COMPOSER = /^\s*›\s/;
+/** Placeholder measured on the empty startup composer in codex-cli 0.166.0. */
+const EMPTY_COMPOSER = /^\s*›\s+Ask Codex to do anything\s*$/;
 
 export function codexReadyScreen(lines: readonly string[]): boolean {
   const tail = lines.filter((line) => line.trim() !== '').slice(-8);
@@ -42,4 +44,12 @@ export function codexReadyScreen(lines: readonly string[]): boolean {
   const footer = tail.findIndex((line) => FOOTER.test(line));
   if (footer <= 0) return false;
   return tail.slice(0, footer).some((line) => COMPOSER.test(line));
+}
+
+/** True only when the measured composer is ready and contains no typed draft. */
+export function codexEmptyComposerScreen(lines: readonly string[]): boolean {
+  if (!codexReadyScreen(lines)) return false;
+  const tail = lines.filter((line) => line.trim() !== '').slice(-8);
+  const footer = tail.findIndex((line) => FOOTER.test(line));
+  return footer > 0 && tail.slice(0, footer).some((line) => EMPTY_COMPOSER.test(line));
 }

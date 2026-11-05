@@ -448,7 +448,7 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
 
 // B5. Protocolo.
 {
-  const { parseServerMessage, parseAgentInfo, EMPTY_CONTEXT_USAGE } = shared;
+  const { parseClientMessage, parseServerMessage, parseAgentInfo, EMPTY_CONTEXT_USAGE } = shared;
   const reset = (extra) => JSON.stringify({
     type: 'conversation.reset', terminalId: 't1', state: 'waiting', events: [], hasMore: false,
     usage: EMPTY_CONTEXT_USAGE, permissionMode: null, defaults: { model: null, effort: null, contextWindow: null },
@@ -459,8 +459,21 @@ const img2 = process.platform === 'win32' ? 'C:\\Temp\\pegadas x\\p-2.png' : '/t
     empty !== null && empty.type === 'conversation.reset' && empty.sessionId === '', show(empty));
   const known = parseServerMessage(reset({ sessionId: 's1' }));
   check('B5 conversation.reset con sessionId -> igual que siempre', known?.sessionId === 's1');
+  const permissions = {
+    profileId: ':read-only', approvalPolicy: 'on-request', reviewer: 'user', fileSystem: 'restricted', network: 'restricted',
+  };
+  const resetWithPermissions = parseServerMessage(reset({ sessionId: 's1', codexPermissions: permissions }));
+  check('B5 conversation.reset conserva el estado efectivo de permisos de Codex',
+    resetWithPermissions?.codexPermissions?.profileId === ':read-only' && resetWithPermissions.codexPermissions.approvalPolicy === 'on-request');
   check('B5 conversation.reset sin sessionId -> null', parseServerMessage(reset({})) === null);
   check('B5 conversation.reset con sessionId no string -> null', parseServerMessage(reset({ sessionId: 7 })) === null);
+  const request = parseClientMessage(JSON.stringify({ type: 'agent.codexPermissions', terminalId: 't1', requestId: 'r1', preset: 'read-only' }));
+  check('B5 el cliente solo puede pedir un preset Codex permitido', request?.type === 'agent.codexPermissions' && request.preset === 'read-only');
+  check('B5 se rechaza un preset arbitrario', parseClientMessage(JSON.stringify({ type: 'agent.codexPermissions', terminalId: 't1', requestId: 'r1', preset: 'bypass' })) === null);
+  const changed = parseServerMessage(JSON.stringify({ type: 'conversation.codexPermissions', terminalId: 't1', state: permissions }));
+  check('B5 se acepta una actualización de permisos efectiva', changed?.type === 'conversation.codexPermissions' && changed.state?.reviewer === 'user');
+  const result = parseServerMessage(JSON.stringify({ type: 'agent.codexPermissions.result', terminalId: 't1', requestId: 'r1', preset: 'read-only', status: 'written' }));
+  check('B5 escrito no se confunde con aplicado en la respuesta del servidor', result?.type === 'agent.codexPermissions.result' && result.status === 'written');
 
   const info = parseAgentInfo({
     id: 'codex', label: 'Codex', command: 'codex', installUrl: 'https://example.com/codex', available: true,
@@ -709,16 +722,53 @@ const paths = await import('../src/agents/codex/paths.ts');
 const lines = await import('../src/agents/codex/rollout-lines.ts');
 const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts');
 {
-  const { codexModelOptions, loadCodexModels, supportsCodexModelCommand } = await import('../src/agents/codex/catalog.ts');
+  const { codexCatalogDefaults, codexModelOptions, loadCodexModels, supportsCodexModelCommand } = await import('../src/agents/codex/catalog.ts');
   const { codexQueueLauncher, queueCodexText, supportsCodexQueue } = await import('../src/agents/codex/queue.ts');
   const models = codexModelOptions([
-    { model: 'gpt-example', displayName: 'Example', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }] },
+    { model: 'gpt-example', displayName: 'Example', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }], isDefault: true, defaultReasoningEffort: 'high' },
     { model: 'malicious\n/model', supportedReasoningEfforts: [] },
     { model: 'hidden', hidden: true },
   ]);
   check('Codex obtiene modelos y esfuerzos del catalogo', models.length === 1 && same(models[0].supportedEfforts, ['low', 'high']));
+  check('Codex conserva el modelo y esfuerzo recomendados para el arranque', models[0].isDefault === true && models[0].defaultEffort === 'high');
+  check('Codex usa el default del catálogo solo como sugerencia de una conversación nueva',
+    same(codexCatalogDefaults(models), { model: 'gpt-example', effort: 'high', contextWindow: null }) &&
+      codexCatalogDefaults(models, 'gpt-previous') === null && codexCatalogDefaults([]) === null);
+  const unsupportedEffort = codexModelOptions([{ model: 'model-x', isDefault: true, defaultReasoningEffort: 'max', supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }]);
+  check('Codex no sugiere un esfuerzo que el modelo no admite', unsupportedEffort[0]?.defaultEffort === null && codexCatalogDefaults(unsupportedEffort)?.effort === null);
   check('Codex oculta controles si la version no admite argumentos', !supportsCodexModelCommand('codex-cli 0.163.0') && supportsCodexModelCommand('codex-cli 0.166.0') && !supportsCodexModelCommand(null));
   check('Codex admite un catalogo vacio sin inventar modelos', codexModelOptions([]).length === 0 && codexModelOptions(null).length === 0);
+  const permissionModule = await import('../../shared/src/codex-permissions.ts');
+  check('Codex arma solo comandos de permiso permitidos y rechaza valores ajenos',
+    permissionModule.codexPermissionCommand('automatic') === '/permissions :workspace --approval-policy=never --reviewer=user' &&
+      permissionModule.codexPermissionCommand('read-only') === '/permissions :read-only --approval-policy=on-request --reviewer=user' &&
+      permissionModule.codexPermissionCommand('full-access') === '/permissions :danger-full-access --approval-policy=never --reviewer=user' &&
+      permissionModule.codexPermissionCommand('/permissions :danger-full-access') === null);
+  const effectivePermissions = permissionModule.parseCodexPermissionState({
+    active_permission_profile: { id: ':read-only' }, approval_policy: 'on-request', approvals_reviewer: 'user',
+    permission_profile: { file_system: { type: 'restricted' }, network: 'restricted' },
+  });
+  check('Codex interpreta el estado efectivo medido y conserva sus campos de sandbox',
+    effectivePermissions?.profileId === ':read-only' && effectivePermissions.fileSystem === 'restricted' && effectivePermissions.network === 'restricted');
+  check('Codex reconoce Solo lectura solo con la combinación efectiva confirmada',
+    permissionModule.codexPermissionPresetForState(effectivePermissions) === 'read-only' &&
+      permissionModule.codexPermissionPresetForState({ ...effectivePermissions, approvalPolicy: 'never' }) === null);
+  const { supportsCodexPermissionCommand } = await import('../src/agents/codex/catalog.ts');
+  check('Codex habilita el combo de permisos solo desde la versión medida',
+    !supportsCodexPermissionCommand('codex-cli 0.165.0') && supportsCodexPermissionCommand('codex-cli 0.166.0') && !supportsCodexPermissionCommand(null));
+  const permissionSink = new CodexRolloutSink('permission-session');
+  permissionSink.consume({ type: 'event_msg', payload: {
+    type: 'thread_settings_applied',
+    thread_settings: {
+      active_permission_profile: { id: ':read-only' }, approval_policy: 'on-request', approvals_reviewer: 'user',
+      permission_profile: { file_system: { type: 'restricted' }, network: 'restricted' },
+    },
+  } }, 1, { find: () => undefined });
+  check('Codex publica solo el estado efectivo de permisos leído del rollout',
+    permissionModule.codexPermissionPresetForState(permissionSink.getCodexPermissionState()) === 'read-only' &&
+      permissionSink.getCodexPermissionState()?.network === 'restricted');
+  permissionSink.reset();
+  check('Codex limpia el permiso observado al cambiar de rollout', permissionSink.getCodexPermissionState() === null);
   const catalogServer = path.join(work, 'fake-codex-catalog.mjs');
   await writeFile(catalogServer, [
     "const mode = process.argv[2];",
@@ -737,7 +787,7 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
     "    if (request.id === 2 && mode === 'empty') process.stdout.write(JSON.stringify({ id: 2, result: { data: [] } }) + '\\n');",
     "    if (request.id === 2 && mode === 'pages') {",
     "      const first = request.params?.cursor === undefined;",
-    "      const data = first ? [{ model: 'catalog-one', supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }] : [{ model: 'catalog-two', supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }];",
+    "      const data = first ? [{ model: 'catalog-one', isDefault: true, defaultReasoningEffort: 'low', supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }] : [{ model: 'catalog-two', supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }];",
     "      process.stdout.write(JSON.stringify({ id: 2, result: { data, ...(first ? { nextCursor: 'next' } : {}) } }) + '\\n');",
     "    }",
     "  }",
@@ -750,6 +800,8 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   const failedModels = await loadCodexModels(fakeCatalogLocation('error'));
   check('Codex pagina el catalogo y conserva los esfuerzos por modelo',
     same(pagedModels.map((model) => [model.value, model.supportedEfforts]), [['catalog-one', ['low']], ['catalog-two', ['high']]]));
+  check('Codex identifica defaults del catálogo sin leer config.toml',
+    pagedModels[0]?.isDefault === true && pagedModels[0]?.defaultEffort === 'low' && pagedModels[1]?.isDefault === false);
   check('Codex mantiene utilizable la app si el catalogo esta vacio o falla', emptyModels.length === 0 && failedModels.length === 0);
   check('Codex ofrece su cola nativa solo desde la version medida', !supportsCodexQueue('codex-cli 0.165.0') && supportsCodexQueue('codex-cli 0.166.0') && !supportsCodexQueue(null));
   const queuedRequest = shared.parseClientMessage(JSON.stringify({
@@ -972,7 +1024,7 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   status.dispose();
 }
 {
-  const { describeCodexPlans, readCodexPlan } = await import('../src/agents/codex/plans.ts');
+  const { describeCodexPlans, patchDocuments, readCodexPlan, referencedMarkdownDocuments, shellCommandDocuments } = await import('../src/agents/codex/plans.ts');
   const sink = new CodexRolloutSink('');
   const send = (plan) => sink.consume({ type: 'response_item', payload: {
     type: 'function_call', call_id: 'plan', name: 'update_plan', arguments: JSON.stringify({ plan }),
@@ -983,29 +1035,87 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   const content = await readCodexPlan(target, first[0]);
   check('Codex muestra pasos del plan', first.length === 1 && content?.text.includes('Revisar') && content?.text.includes('- [ ] Probar'));
   check('Codex describe plan de sesion', (await describeCodexPlans(target, sink.getPlanFiles())).length === 1);
+  const shellRefs = shellCommandDocuments('Set-Content -Path "docs/Plan.md"', work, 'test');
+  check('Codex reconoce un destino explicito de PowerShell', shellRefs.length === 1 && /^codex-doc:[a-f0-9]{64}$/.test(shellRefs[0]));
+  check('Codex no confunde lecturas con escrituras', shellCommandDocuments('Get-Content docs/Plan.md', work, 'test').length === 0);
+  check('Codex reconoce redireccion y rechaza rutas externas', shellCommandDocuments('cat > docs/plan.md && Out-File -FilePath ../outside.md', work, 'test').length === 1);
+  check('Codex reconoce actualizaciones y destinos de renombrado', patchDocuments('*** Begin Patch\n*** Update File: old.md\n*** Move to: docs/new.md\n*** End Patch', work, 'test').length === 2);
+  await mkdir(path.join(work, 'docs'), { recursive: true });
+  const shellDocSink = new CodexRolloutSink('shell-session', undefined, undefined, work);
+  shellDocSink.consume({ type: 'response_item', payload: {
+    type: 'function_call', call_id: 'shell-doc', name: 'shell_command',
+    arguments: JSON.stringify({ command: "Set-Content -Path 'docs/plan-proyecto.md'" }),
+  } }, 1, { find: () => undefined });
+  shellDocSink.consume({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'shell-doc', output: 'Exit code: 0' } }, 2, { find: () => undefined });
+  await shellDocSink.verifyDocuments();
+  check('Codex no publica shell antes de comprobar existencia', shellDocSink.getPlanFiles().length === 0);
+  await writeFile(path.join(work, 'docs', 'plan-proyecto.md'), '# Plan de proyecto', 'utf8');
+  await shellDocSink.verifyDocuments();
+  const shellRef = shellDocSink.takePlans()[0];
+  check('Codex publica el documento shell confirmado', shellRef !== undefined && (await readCodexPlan({ cwd: work, sessionId: 'shell-session' }, shellRef))?.text === '# Plan de proyecto');
   send([{ step: 'Revisar', status: 'completed' }]);
   const next = sink.takePlans();
   check('Codex actualiza plan', next.length === 1 && next[0] !== first[0] && (await readCodexPlan(target, next[0]))?.text.includes('- [x] Revisar'));
   sink.reset();
   check('Codex descarta plan al reiniciar', sink.getPlanFiles().length === 0 && sink.takePlans().length === 0);
-  check('Codex rechaza referencias ajenas', await readCodexPlan(target, 'proj:secret.md') === null);
-  const docSink = new CodexRolloutSink('', undefined, undefined, work);
+  check('Codex rechaza referencias ajenas', await readCodexPlan(target, 'codex-doc:' + '0'.repeat(64)) === null);
+  const docSink = new CodexRolloutSink('patch-session', undefined, undefined, work);
   const patch = '*** Begin Patch\n*** Add File: informe.md\n+texto\n*** Add File: ../fuera.md\n+no\n*** End Patch';
   docSink.consume({ type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'p', input: patch } }, 1, { find: () => undefined });
   check('Codex espera resultado antes de anunciar documento', docSink.getPlanFiles().length === 0);
   docSink.consume({ type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'p', output: 'Success.' } }, 2, { find: () => undefined });
+  await docSink.verifyDocuments();
+  check('Codex no anuncia un parche si el archivo aun no existe', docSink.getPlanFiles().length === 0);
   await writeFile(path.join(work, 'informe.md'), '# Informe', 'utf8');
-  check('Codex incluye solo documentos del proyecto', same(docSink.takePlans(), ['proj:informe.md']));
-  check('Codex abre documento de la conversacion', (await readCodexPlan(target, 'proj:informe.md'))?.text === '# Informe');
-  const failedPatchSink = new CodexRolloutSink('', undefined, undefined, work);
-  failedPatchSink.consume({ type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'failed', input: '*** Begin Patch\n*** Add File: fallido.md\n+sin cambio\n*** End Patch' } }, 1, { find: () => undefined });
-  failedPatchSink.consume({ type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'failed', output: JSON.stringify({ output: 'Patch failed', metadata: { exit_code: 1 } }) } }, 2, { find: () => undefined });
-  check('Codex no anuncia documentos cuando apply_patch falla', failedPatchSink.getPlanFiles().length === 0 && failedPatchSink.takePlans().length === 0);
-  check('Codex rechaza rutas fuera del proyecto', await readCodexPlan(target, 'proj:../fuera.md') === null);
+  await docSink.verifyDocuments();
+  const patchRef = docSink.takePlans()[0];
+  check('Codex incluye el documento parcheado y abre su contenido', patchRef !== undefined && (await readCodexPlan({ cwd: work, sessionId: 'patch-session' }, patchRef))?.text === '# Informe');
+  const wrapped = new CodexRolloutSink('wrapped-session', undefined, undefined, work);
+  const wrappedPatch = '*** Begin Patch\n*** Add File: docs/wrapped.md\n+envuelto\n*** End Patch';
+  wrapped.consume({ type: 'response_item', payload: { type: 'function_call', name: 'apply_patch', call_id: 'wrap', arguments: JSON.stringify({ patch: wrappedPatch }) } }, 1, { find: () => undefined });
+  wrapped.consume({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'wrap', output: 'Success. Updated the following files.' } }, 2, { find: () => undefined });
+  await writeFile(path.join(work, 'docs', 'wrapped.md'), '# Envuelto', 'utf8');
+  await wrapped.verifyDocuments();
+  check('Codex reconoce apply_patch envuelto en argumentos JSON', wrapped.takePlans().length === 1);
+  const failed = new CodexRolloutSink('failed-session', undefined, undefined, work);
+  failed.consume({ type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'fail', input: '*** Begin Patch\n*** Add File: fallido.md\n+no\n*** End Patch' } }, 1, { find: () => undefined });
+  failed.consume({ type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'fail', output: JSON.stringify({ output: 'Patch failed', metadata: { exit_code: 1 } }) } }, 2, { find: () => undefined });
+  check('Codex no anuncia parches fallidos', failed.getPlanFiles().length === 0);
+  const running = new CodexRolloutSink('running-session', undefined, undefined, work);
+  running.consume({ type: 'response_item', payload: { type: 'function_call', call_id: 'run', name: 'exec_command', arguments: JSON.stringify({ cmd: 'cat > docs/running.md', workdir: work }) } }, 1, { find: () => undefined });
+  running.consume({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'run', output: 'Process running with session ID 7' } }, 2, { find: () => undefined });
+  running.consume({ type: 'response_item', payload: { type: 'function_call', call_id: 'poll', name: 'write_stdin', arguments: JSON.stringify({ session_id: 7 }) } }, 3, { find: () => undefined });
+  running.consume({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'poll', output: 'Process running with session ID 7' } }, 4, { find: () => undefined });
+  check('Codex no anuncia un comando mientras siga ejecutandose', running.getPlanFiles().length === 0);
+  await writeFile(path.join(work, 'docs', 'running.md'), '# Running', 'utf8');
+  running.consume({ type: 'response_item', payload: { type: 'function_call', call_id: 'poll-final', name: 'write_stdin', arguments: JSON.stringify({ session_id: 7 }) } }, 5, { find: () => undefined });
+  running.consume({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'poll-final', output: 'Process exited with code 0\nOutput:\n' } }, 6, { find: () => undefined });
+  await running.verifyDocuments();
+  check('Codex publica un shell cuando termina con exito', running.takePlans().length === 1);
+  await writeFile(path.join(work, 'docs', 'referenciado.md'), '# Referenciado', 'utf8');
+  const links = new CodexRolloutSink('link-session', undefined, undefined, work);
+  const linkedText = '[plan](docs/referenciado.md) [web](https://example.com/externo.md)';
+  check('Codex extrae solo enlaces locales Markdown', referencedMarkdownDocuments(linkedText, work, 'link-session').length === 1);
+  links.consume({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: linkedText }] } }, 1, { find: () => undefined });
+  await links.verifyDocuments();
+  const linkedRef = links.takePlans()[0];
+  const linked = linkedRef === undefined ? undefined : (await describeCodexPlans(target, [linkedRef]))[0];
+  check('Codex lista enlaces locales existentes como referencias', linked?.origin === 'reference' && linked.exists);
+  const branchRoot = path.join(root, 'worktree');
+  await mkdir(branchRoot, { recursive: true });
+  await writeFile(path.join(branchRoot, 'branch.md'), '# Rama', 'utf8');
+  const branch = new CodexRolloutSink('branch-session', undefined, undefined, work);
+  branch.consume({ type: 'turn_context', payload: { type: 'turn_context', cwd: branchRoot } }, 1, { find: () => undefined });
+  branch.consume({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '[plan](branch.md)' }] } }, 2, { find: () => undefined });
+  await branch.verifyDocuments();
+  const branchRef = branch.takePlans()[0];
+  const branchPlan = branchRef === undefined ? undefined : (await describeCodexPlans(target, [branchRef]))[0];
+  check('Codex conserva la raiz de trabajo observada al cambiar de carpeta', branchPlan?.absolutePath.startsWith(branchRoot) === true);
   docSink.consume({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '<proposed_plan>\n# Plan de trabajo\nRevisar.\n</proposed_plan>' }] } }, 3, { find: () => undefined });
   const proposed = docSink.takePlans().find((ref) => ref.startsWith('codex-plan:'));
   check('Codex incluye el plan propuesto', proposed !== undefined && (await readCodexPlan(target, proposed))?.text.includes('# Plan de trabajo'));
 }
+
 const { CodexSessionFollower } = await import('../src/agents/codex/session-follower.ts');
 const { findCompressedRollout, findRollout } = await import('../src/agents/codex/find-rollout.ts');
 const { loadRolloutImage } = await import('../src/agents/codex/rollout-image.ts');
@@ -3121,6 +3231,7 @@ const rejectsOn = async (run) => {
     statusSource: false,
     readySignal: false,
     permissionCycle: null,
+    codexPermissions: false,
     models: null,
     efforts: null,
     questionCards: true,
@@ -3709,7 +3820,7 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
 
 // R52. Hito 52 (§10.18): la pantalla lista para un mensaje programado, y el turno abierto.
 {
-  const { codexReadyScreen } = await import('../src/agents/codex/ready-screen.ts');
+  const { codexEmptyComposerScreen, codexReadyScreen } = await import('../src/agents/codex/ready-screen.ts');
   // Pantallas medidas con la 0.164 (medir-52.mjs), sin el banner de arriba.
   const ready = [
     '  >_ OpenAI Codex (v0.164.0)',
@@ -3752,6 +3863,8 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
     '  Press enter to confirm or esc to go back',
   ];
   check('R52 la caja vacia con su pie: lista', codexReadyScreen(ready) === true);
+  check('R52 el selector de permisos requiere el placeholder de compositor vacio', codexEmptyComposerScreen(ready) === true);
+  check('R52 un borrador en el compositor no se acepta para comandos de permisos', codexEmptyComposerScreen(ready.map((line) => line.replace('Ask Codex to do anything', '/permissions'))) === false);
   check('R52 reanudada, con turnos arriba: lista', codexReadyScreen(resumed) === true);
   check('R52 trabajando (la caja se ve igual): no', codexReadyScreen(working) === false);
   check('R52 lo escrito esperando el arranque del daemon: no', codexReadyScreen(coldTyped) === false);
