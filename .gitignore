@@ -29,3 +29,6 @@ Thumbs.db
 /agent-workbench-brief.md
 /docs/
 /.worktreeinclude
+
+# Memoria compartida de los agentes (Agent Workbench)
+.agents/memory/
