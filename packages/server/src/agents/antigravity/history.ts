@@ -59,6 +59,7 @@ import {
   summariesDbPath,
   transcriptPaths,
 } from './paths.js';
+import { createAntigravityPlanSource } from './plans.js';
 import { AntigravitySessionFollower, type FollowerStatusLine } from './session-follower.js';
 import { unwrapUserInput } from './transcript-mapper.js';
 
@@ -393,6 +394,7 @@ export function createAntigravityHistory(deps: AntigravityHistoryDeps = {}): His
 
     follow(target: { cwd: string; sessionId: string }, options?: FollowOptions): SessionFollower {
       return new AntigravitySessionFollower(target.sessionId, {
+        cwd: target.cwd,
         statusLine: deps.statusLine ?? null,
         platform,
         limits: options?.limits,
@@ -403,7 +405,7 @@ export function createAntigravityHistory(deps: AntigravityHistoryDeps = {}): His
     // `follow` respeta `FollowOptions`: la copia propia puede leer de aca (hito 28).
     wholeRead: true,
 
-    plans: null,
+    plans: createAntigravityPlanSource(),
 
     followPollMs: ANTIGRAVITY_FOLLOW_POLL_MS,
   };

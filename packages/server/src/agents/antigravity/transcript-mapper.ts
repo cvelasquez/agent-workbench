@@ -31,14 +31,18 @@
 
 import {
   asRecord,
+  MAX_SUBAGENT_DESCRIPTION,
   type ConversationEvent,
   type ConversationPart,
   type ConversationRole,
+  type ConversationSubagent,
 } from '@agent-workbench/shared';
+import { pastedImageMediaType } from '../../paste-paths.js';
 import type { PartsUpdate } from '../adapter.js';
 import type { EventLookup, JsonlLineSink } from '../jsonl-follower.js';
 import { cut, TRANSPORT_LIMITS, type EventLimits } from '../transport-limits.js';
 import { parseSettingsChange, splitModelLabel } from './model-label.js';
+import type { AntigravityImageTarget } from './session-image.js';
 
 // ---------------------------------------------------------------------------
 // Funciones puras
@@ -60,6 +64,27 @@ const REQUEST_CLOSE = '</USER_REQUEST>';
  * hilo va el aviso de su paso `CHECKPOINT`.
  */
 const COMPACT_COMMAND = /^\/compact(?:\s|$)/;
+
+export const ATTACHED_IMAGE_LINE = /^Attached image:\s+"([^"]+)"$/;
+
+/** Extrae las rutas de imagenes pegadas desde el texto del mensaje. */
+export function pastedImagePaths(text: string): string[] {
+  const paths: string[] = [];
+  for (const line of text.split('\n')) {
+    const match = ATTACHED_IMAGE_LINE.exec(line.trim());
+    const target = match?.[1];
+    if (target !== undefined && pastedImageMediaType(target) !== null) paths.push(target);
+  }
+  return paths;
+}
+
+/** Devuelve el texto sin las lineas de boilerplate de imagenes pegadas. */
+export function withoutPastedImageLines(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !ATTACHED_IMAGE_LINE.test(line.trim()))
+    .join('\n');
+}
 
 function blockPattern(name: string): RegExp {
   return new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'g');
@@ -189,6 +214,7 @@ type StepMemo =
 
 interface PendingCall {
   toolUseId: string;
+  name?: string;
   /** Epoch ms del paso que la pidio; 0 si no traia hora. */
   at: number;
   /** false si la llamada no tenia nombre y no se dibujo: su resultado tampoco. */
@@ -220,6 +246,21 @@ export class TranscriptMapper implements JsonlLineSink {
   private checkpointStep: number | null = null;
   private partUpdates = new Map<string, ConversationPart[]>();
 
+  /** Imagenes registradas por eventId para ser cargadas bajo demanda. */
+  private readonly imageTargets = new Map<string, AntigravityImageTarget>();
+
+  /** Tokens observados en el ultimo PLANNER_RESPONSE. */
+  private lastRequestTokens = 0;
+  private lastOutputTokens = 0;
+  private tokensSeen = false;
+  private tokensDirty = false;
+
+  /** Documentos Markdown nombrados o escritos en la sesion. */
+  private readonly planFiles = new Set<string>();
+
+  /** Subagentes en ejecucion lanzados por `invoke_subagent`. */
+  private readonly subagents = new Map<string, ConversationSubagent>();
+
   constructor(options: TranscriptMapperOptions = {}) {
     this.compact = options.compact === true;
     this.limits = options.limits ?? TRANSPORT_LIMITS;
@@ -242,6 +283,25 @@ export class TranscriptMapper implements JsonlLineSink {
     return this.assistantCount;
   }
 
+  get requestTokens(): number {
+    return this.lastRequestTokens;
+  }
+
+  get outputTokens(): number {
+    return this.lastOutputTokens;
+  }
+
+  get hasTokens(): boolean {
+    return this.tokensSeen;
+  }
+
+  /** true si el uso cambio sin nuevos eventos (para PollResult.usageChanged). */
+  takeTokensDirty(): boolean {
+    const dirty = this.tokensDirty;
+    this.tokensDirty = false;
+    return dirty;
+  }
+
   /**
    * true si la conversacion compacto despues del ultimo paso de planificacion.
    * La status line sigue publicando los tokens de antes hasta la peticion
@@ -254,6 +314,21 @@ export class TranscriptMapper implements JsonlLineSink {
       this.assistantCount > 0 &&
       (this.plannerStep === null || this.checkpointStep > this.plannerStep)
     );
+  }
+
+  /** Las referencias a imagenes registradas para un evento. */
+  getImageTargets(eventId: string): AntigravityImageTarget | undefined {
+    return this.imageTargets.get(eventId);
+  }
+
+  /** Lista de archivos y artefactos de planes descubiertos. */
+  getPlanFiles(): readonly string[] {
+    return [...this.planFiles];
+  }
+
+  /** Subagentes en ejecucion lanzados desde `launchedAt`. */
+  runningSubagents(launchedAt: number): readonly ConversationSubagent[] {
+    return [...this.subagents.values()].filter((s) => s.startedAt === 0 || s.startedAt >= launchedAt);
   }
 
   /**
@@ -290,6 +365,13 @@ export class TranscriptMapper implements JsonlLineSink {
     this.assistantCount = 0;
     this.checkpointStep = null;
     this.partUpdates = new Map();
+    this.imageTargets.clear();
+    this.lastRequestTokens = 0;
+    this.lastOutputTokens = 0;
+    this.tokensSeen = false;
+    this.tokensDirty = false;
+    this.planFiles.clear();
+    this.subagents.clear();
   }
 
   consume(
@@ -327,7 +409,7 @@ export class TranscriptMapper implements JsonlLineSink {
     events: EventLookup,
   ): ConversationEvent | null {
     const content = typeof record['content'] === 'string' ? record['content'] : '';
-    const { text, settingsChanges } = unwrapUserInput(content);
+    const { text: rawText, settingsChanges } = unwrapUserInput(content);
 
     // Un aviso de modelo cuenta una sola vez: releerlo despues de otros lo
     // volveria a poner como vigente.
@@ -341,8 +423,48 @@ export class TranscriptMapper implements JsonlLineSink {
       this.steps.set(stepIndex, { kind: 'user' });
     }
 
-    if (text.length === 0 || COMPACT_COMMAND.test(text)) return null;
-    return this.emit(stepIndex, 'user', at, [{ kind: 'text', ...cut(text, this.limits.textMaxChars) }], events);
+    const pastedPaths = pastedImagePaths(rawText);
+    const text = withoutPastedImageLines(rawText).trim();
+
+    const contentMedia: { mimeType: string; uri: string }[] = [];
+    const rawMedia = record['media'];
+    if (Array.isArray(rawMedia)) {
+      for (const item of rawMedia) {
+        const mediaRecord = asRecord(item);
+        if (mediaRecord !== null && typeof mediaRecord['uri'] === 'string') {
+          const mimeType = typeof mediaRecord['mime_type'] === 'string' ? mediaRecord['mime_type'] : 'image/png';
+          contentMedia.push({ mimeType, uri: mediaRecord['uri'] });
+        }
+      }
+    }
+
+    const eventId = `s${stepIndex}`;
+    this.imageTargets.set(eventId, { pastedPaths, contentMedia });
+
+    const parts: ConversationPart[] = [];
+    for (const [index, p] of pastedPaths.entries()) {
+      parts.push({
+        kind: 'image',
+        index,
+        mediaType: pastedImageMediaType(p) ?? 'image/png',
+        source: 'pasted',
+      });
+    }
+    for (const [index, m] of contentMedia.entries()) {
+      parts.push({
+        kind: 'image',
+        index: pastedPaths.length + index,
+        mediaType: m.mimeType,
+        source: 'content',
+      });
+    }
+
+    if (text.length > 0 && !COMPACT_COMMAND.test(text)) {
+      parts.push({ kind: 'text', ...cut(text, this.limits.textMaxChars) });
+    }
+
+    if (parts.length === 0) return null;
+    return this.emit(stepIndex, 'user', at, parts, events);
   }
 
   /**
@@ -374,6 +496,20 @@ export class TranscriptMapper implements JsonlLineSink {
     memo: StepMemo | undefined,
     events: EventLookup,
   ): ConversationEvent | null {
+    const inTok = typeof record['input_tokens'] === 'number' ? record['input_tokens'] : 0;
+    const cacheTok = typeof record['cache_read_tokens'] === 'number' ? record['cache_read_tokens'] : 0;
+    const outTok = typeof record['output_tokens'] === 'number' ? record['output_tokens'] : 0;
+    if (inTok > 0 || cacheTok > 0 || outTok > 0) {
+      const prevReq = this.lastRequestTokens;
+      const prevOut = this.lastOutputTokens;
+      this.lastRequestTokens = inTok + cacheTok;
+      this.lastOutputTokens = outTok;
+      this.tokensSeen = true;
+      if (prevReq !== this.lastRequestTokens || prevOut !== this.lastOutputTokens) {
+        this.tokensDirty = true;
+      }
+    }
+
     const parts: ConversationPart[] = [];
     const content = typeof record['content'] === 'string' ? record['content'].trim() : '';
     if (content.length > 0) parts.push({ kind: 'text', ...cut(content, this.limits.textMaxChars) });
@@ -386,11 +522,32 @@ export class TranscriptMapper implements JsonlLineSink {
         const call = asRecord(item);
         const name = call?.['name'];
         const visible = typeof name === 'string' && name.length > 0;
-        calls.push({ toolUseId, at, visible });
+        calls.push({ toolUseId, name: typeof name === 'string' ? name : undefined, at, visible });
         if (!visible) return;
         const args = asRecord(call?.['args']);
         const input = cut(args === null ? '{}' : JSON.stringify(args, null, 2), this.limits.toolInputMaxChars);
         parts.push({ kind: 'tool-call', toolUseId, name, input: input.text, truncated: input.truncated });
+
+        // Descubrir planes generados por herramientas de archivo
+        if (name === 'write_file' || name === 'edit_file') {
+          const targetPath = typeof args?.['Path'] === 'string' ? args['Path'] : '';
+          if (targetPath.toLowerCase().endsWith('.md')) {
+            this.planFiles.add(targetPath);
+          }
+        }
+
+        // Subagentes lanzados por `invoke_subagent`
+        if (name === 'invoke_subagent') {
+          const role = typeof args?.['Role'] === 'string' ? args['Role'] : '';
+          const prompt = typeof args?.['Prompt'] === 'string' ? args['Prompt'] : '';
+          const description = (role || prompt || 'Subagent').slice(0, MAX_SUBAGENT_DESCRIPTION);
+          this.subagents.set(toolUseId, {
+            toolUseId,
+            description,
+            background: false,
+            startedAt: at,
+          });
+        }
       });
     }
 
@@ -435,6 +592,9 @@ export class TranscriptMapper implements JsonlLineSink {
       }
     }
     if (toolUseId === null || !visible) return null;
+
+    // Si la llamada termino un subagente
+    this.subagents.delete(toolUseId);
 
     const status = typeof record['status'] === 'string' ? record['status'] : '';
     const text = stripStepHeader(typeof record['content'] === 'string' ? record['content'] : '');
@@ -486,10 +646,8 @@ export class TranscriptMapper implements JsonlLineSink {
       at,
       parts,
       model: role === 'assistant' ? this.model : null,
-      // El transcript no trae tokens: el medidor sale de la status line.
       usage: null,
       effort: role === 'assistant' ? this.effort : null,
-      // No hay duracion escrita, y restar marcas esta prohibido (CLAUDE.md 4.9.1).
       durationMs: null,
       queued: false,
     };

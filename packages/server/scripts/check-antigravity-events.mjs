@@ -1303,7 +1303,7 @@ function insertSummaries(db, rows) {
   check('5 la raiz del catalogo se suscribe al aviso propio', typeof signalListener === 'function');
   unsubscribe();
   check('5 y se desuscribe', signalListener === null);
-  check('5 followPollMs de 1 s y sin planes', history.followPollMs === ANTIGRAVITY_FOLLOW_POLL_MS && ANTIGRAVITY_FOLLOW_POLL_MS === 1000 && history.plans === null);
+  check('5 followPollMs de 1 s y con planes', history.followPollMs === ANTIGRAVITY_FOLLOW_POLL_MS && ANTIGRAVITY_FOLLOW_POLL_MS === 1000 && history.plans !== null && typeof history.plans?.read === 'function');
   const followed = history.follow({ cwd: '', sessionId: ID.add });
   check('5 follow devuelve el seguidor de la conversacion', followed instanceof AntigravitySessionFollower && followed.label === transcriptOfAdd);
 
@@ -1971,12 +1971,12 @@ const statusRecord = (id, over = {}) => ({
     codexPermissions: false,
     models: ANTIGRAVITY_MODEL_OPTIONS,
     efforts: ANTIGRAVITY_EFFORT_OPTIONS,
-    questionCards: false,
-    imagesByPath: null,
+    questionCards: true,
+    imagesByPath: 'quoted-path-line',
     fileMentions: null,
     rewind: false,
     contextWindowSource: null,
-    plans: false,
+    plans: true,
     waitingBlocksSubmit: false,
     forceSend: true,
     // §6.35.1: la flecha arriba y Ctrl+U Ctrl+K, medidos con la 1.4.4.
@@ -1998,8 +1998,8 @@ const statusRecord = (id, over = {}) => ({
   check('9 el modo de arranque de la linea de comando es el punto de partida del ciclo',
     fresh.args[fresh.args.indexOf('--mode') + 1] === 'accept-edits' && adapter.capabilities.permissionCycle.launchMode === 'acceptEdits');
   const { startupDialog, ...inputShape } = adapter.input;
-  check('9 envio (P0-16): sin imagenes, marcadores, Enter aparte a 400 ms, un Esc',
-    same(inputShape, { imageReference: null, pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1, transcriptReference: 'quoted-path' }) && adapter.input === ANTIGRAVITY_INPUT &&
+  check('9 envio (P0-16): imagenes por ruta, marcadores, Enter aparte a 400 ms, un Esc',
+    same(inputShape, { imageReference: 'quoted-path-line', pieceGapMs: 400, pasteMarkers: true, enterSeparately: true, interruptPresses: 1, transcriptReference: 'quoted-path' }) && adapter.input === ANTIGRAVITY_INPUT &&
     adapter.input.imageReference === adapter.capabilities.imagesByPath);
 
   // 20-10-2026 (§12.14): la confianza de una carpeta nueva se come lo pegado y su Enter la acepta. Pantallas medidas con la 1.4.3.
@@ -2554,6 +2554,104 @@ const claudeCycle = { modes: shared.PERMISSION_MODE_CYCLE, launchMode: 'auto', k
   check('A52 generando: no', antigravityReadyScreen(generating) === false);
   check('A52 algo en cola: no', antigravityReadyScreen(queued) === false);
   check('A52 sin caja: no', antigravityReadyScreen(banner) === false);
+}
+
+// Paridad Antigravity: Imagenes, Planes, Preguntas y Subagentes
+{
+  const { loadAntigravityImage, readPastedImage, readContentImage } = await import('../src/agents/antigravity/session-image.ts');
+  const { planRefFor, describeAntigravityPlans, readAntigravityPlan } = await import('../src/agents/antigravity/plans.ts');
+  const { readAntigravityQuestion, antigravityAnswerKeys } = await import('../src/agents/antigravity/question-screen.ts');
+  const { pasteRoot } = await import('../src/paste-paths.ts');
+
+  // Imagenes pegadas
+  const pDir = pasteRoot();
+  await mkdir(pDir, { recursive: true });
+  const testImgFile = path.join(pDir, 'test-agy-pasted.png');
+  const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  await writeFile(testImgFile, Buffer.from(pngBase64, 'base64'));
+  const loadedPasted = await readPastedImage(testImgFile, pDir);
+  check('Paridad: readPastedImage carga un PNG pegado', loadedPasted !== null && loadedPasted.mediaType === 'image/png');
+
+  const contentImgFile = path.join(root, 'test-content.png');
+  await writeFile(contentImgFile, Buffer.from(pngBase64, 'base64'));
+  const loadedContent = await readContentImage(contentImgFile);
+  check('Paridad: readContentImage carga imagen del transcript', loadedContent !== null && loadedContent.mediaType === 'image/png');
+
+  const loadedViaHelper = await loadAntigravityImage({
+    pastedPaths: [testImgFile],
+    contentMedia: [{ mimeType: 'image/png', uri: contentImgFile }],
+  }, 0, 'pasted', pDir);
+  check('Paridad: loadAntigravityImage resuelve origen pasted', loadedViaHelper !== null && loadedViaHelper.mediaType === 'image/png');
+
+  const loadedContentViaHelper = await loadAntigravityImage({
+    pastedPaths: [testImgFile],
+    contentMedia: [{ mimeType: 'image/png', uri: contentImgFile }],
+  }, 0, 'content', pDir);
+  check('Paridad: loadAntigravityImage resuelve origen content', loadedContentViaHelper !== null && loadedContentViaHelper.mediaType === 'image/png');
+
+  await rm(testImgFile, { force: true });
+  await rm(contentImgFile, { force: true });
+
+  // Planes
+  const planTarget = { cwd: root, sessionId: 'a0a0a0a0-0000-4000-8000-000000000000' };
+  const projPlanFile = path.join(root, 'docs', 'plan.md');
+  await mkdir(path.dirname(projPlanFile), { recursive: true });
+  await writeFile(projPlanFile, '# Plan del proyecto\nContenido de prueba');
+  const projRef = planRefFor(projPlanFile, planTarget);
+  check('Paridad: planRefFor resuelve proj:', projRef === 'proj:docs/plan.md');
+
+  const described = await describeAntigravityPlans(planTarget, [projRef]);
+  check('Paridad: describeAntigravityPlans describe el plan del proyecto', described.length === 1 && described[0].exists === true);
+  const planContent = await readAntigravityPlan(planTarget, projRef);
+  check('Paridad: readAntigravityPlan lee el contenido del plan', planContent !== null && planContent.text.includes('Contenido de prueba'));
+
+  // Preguntas de pantalla: aprobacion de comando
+  const approvalScreen = [
+    'Execute bash command?',
+    'npm test',
+    '1. Yes, run command',
+    '2. Yes, run this command and all future commands like it without asking',
+    '3. Yes, auto-approve all commands for this session',
+    '4. No, cancel',
+  ];
+  const parsedApproval = readAntigravityQuestion(approvalScreen);
+  check('Paridad: readAntigravityQuestion detecta menu de aprobacion', parsedApproval !== null && parsedApproval.item.options.length === 4);
+  const approvalKeys = antigravityAnswerKeys([{ multiSelect: false, optionCount: 4 }], [[0]]);
+  check('Paridad: antigravityAnswerKeys genera tecla "1" para aprobacion', same(approvalKeys, ['1']));
+
+  // Preguntas de pantalla: eleccion
+  const choiceScreen = [
+    'Which option do you prefer?',
+    '1. Option A',
+    '2. Option B',
+    '3. Option C',
+  ];
+  const parsedChoice = readAntigravityQuestion(choiceScreen);
+  check('Paridad: readAntigravityQuestion detecta pregunta de eleccion', parsedChoice !== null && parsedChoice.item.options.length === 3);
+  const choiceKeys = antigravityAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[1]]);
+  check('Paridad: antigravityAnswerKeys genera tecla "2"', same(choiceKeys, ['2']));
+
+  // Respuesta escrita libre
+  const freeKeys = antigravityAnswerKeys([{ multiSelect: false, optionCount: 3 }], [{ kind: 'free', text: 'my answer' }], [{ question: 'q', header: 'h', multiSelect: false, allowWriteIn: true, options: [] }]);
+  check('Paridad: antigravityAnswerKeys genera escape paste para texto libre', freeKeys !== null && freeKeys[0].includes('my answer'));
+
+  // Subagentes y Tokens en TranscriptMapper
+  const mapper = new TranscriptMapper();
+  const subagentRecord = {
+    step_index: 1,
+    source: 'MODEL',
+    type: 'PLANNER_RESPONSE',
+    tool_calls: [{
+      call_id: 'sub-call-1',
+      name: 'invoke_subagent',
+      args: { Role: 'Code Reviewer', Prompt: 'Review code' },
+    }],
+    input_tokens: 1500,
+    output_tokens: 250,
+  };
+  const event = mapper.consume(subagentRecord, 1, { find: () => undefined });
+  check('Paridad: TranscriptMapper emite llamada de subagente', event !== null && mapper.runningSubagents(0).length === 1);
+  check('Paridad: TranscriptMapper registra tokens y marca dirty', mapper.requestTokens === 1500 && mapper.outputTokens === 250 && mapper.takeTokensDirty() === true);
 }
 
 await rm(root, { recursive: true, force: true });

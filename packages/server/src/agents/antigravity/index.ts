@@ -50,6 +50,7 @@ import { createAntigravityHistory } from './history.js';
 import { toCliMode } from './mode-names.js';
 import { splitModelLabel } from './model-label.js';
 import { geminiHome, settingsPath } from './paths.js';
+import { createAntigravityQuestionScreen } from './question-screen.js';
 import { createAntigravityQueueEdit } from './queue-edit.js';
 import { antigravityReadyScreen } from './ready-screen.js';
 import { readAntigravitySettings } from './settings.js';
@@ -106,17 +107,15 @@ export const ANTIGRAVITY_BASE_CAPABILITIES: AgentCapabilities = {
   codexPermissions: false,
   models: ANTIGRAVITY_MODEL_OPTIONS,
   efforts: ANTIGRAVITY_EFFORT_OPTIONS,
-  // Existe una pregunta al usuario, pero su menu no esta medido.
-  questionCards: false,
-  // Una imagen por ruta no esta medida (M9).
-  imagesByPath: null,
+  questionCards: true,
+  imagesByPath: 'quoted-path-line',
   // `@ruta` no esta medido (M10).
   fileMentions: null,
   // `/rewind` existe; `Esc Esc` no esta medido.
   rewind: false,
   // Solo con la status line: el transcript no trae tokens.
   contextWindowSource: null,
-  plans: false,
+  plans: true,
   // Con la status line, su confirmacion abierta ya la frena `submitRefusal` (12.7).
   waitingBlocksSubmit: false,
   // Su tecla de "send immediately", Alt+M (hito 45, §12.13). Sin status line no hay cola que forzar.
@@ -157,7 +156,7 @@ export const ANTIGRAVITY_STATUS_LINE_CAPABILITIES: AgentCapabilities = {
  * solo mensaje con el salto adentro. Las imagenes por ruta no se ofrecen.
  */
 export const ANTIGRAVITY_INPUT: AgentInput = {
-  imageReference: null,
+  imageReference: 'quoted-path-line',
   pieceGapMs: 400,
   pasteMarkers: true,
   enterSeparately: true,
@@ -380,6 +379,7 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
 
     history: createAntigravityHistory({ statusLine: createFollowerStatusLine(store, isActive) }),
     status,
+    screenQuestions: createAntigravityQuestionScreen(),
     planLimits,
 
     /*
@@ -444,4 +444,3 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
     },
   };
 }
-

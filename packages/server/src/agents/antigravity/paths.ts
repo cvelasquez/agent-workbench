@@ -35,6 +35,18 @@ export function brainRoot(): string {
   return path.join(cliRoot(), 'brain');
 }
 
+/** La carpeta de una conversacion en brain/. */
+export function sessionBrainDir(conversationId: string): string | null {
+  if (!CONVERSATION_ID_PATTERN.test(conversationId)) return null;
+  return path.join(brainRoot(), conversationId);
+}
+
+/** La carpeta scratch de una conversacion. */
+export function sessionScratchDir(conversationId: string): string | null {
+  if (!CONVERSATION_ID_PATTERN.test(conversationId)) return null;
+  return path.join(brainRoot(), conversationId, 'scratch');
+}
+
 export interface TranscriptPaths {
   /** `transcript_full.jsonl`: los argumentos como JSON de verdad, sin recortes. */
   full: string;

@@ -33,7 +33,9 @@ import {
   EMPTY_CONTEXT_USAGE,
   normalizeCwdKey,
   type ContextUsage,
+  type ConversationImageSource,
   type ConversationState,
+  type ConversationSubagent,
   type PermissionMode,
 } from '@agent-workbench/shared';
 import type { EventPage, LoadedImage, PollResult, SessionFollower } from '../adapter.js';
@@ -41,6 +43,8 @@ import { JsonlFollower } from '../jsonl-follower.js';
 import { conversationFiles, transcriptPaths, type TranscriptPaths } from './paths.js';
 import { TranscriptMapper } from './transcript-mapper.js';
 import type { EventLimits } from '../transport-limits.js';
+import { loadAntigravityImage } from './session-image.js';
+import { planRefFor } from './plans.js';
 
 /** Cuantos bytes del principio del transcript forman la huella. */
 export const TRANSCRIPT_FINGERPRINT_BYTES = 256;
@@ -72,6 +76,7 @@ export interface FollowerStatusLine {
 }
 
 export interface AntigravityFollowerDeps {
+  cwd?: string;
   statusLine?: FollowerStatusLine | null;
   platform?: string;
   /** Hito 28, `FollowOptions`: los topes de cada parte. Ausente: `TRANSPORT_LIMITS`. */
@@ -107,6 +112,8 @@ export class AntigravitySessionFollower implements SessionFollower {
   private readonly platform: string;
   private readonly limits: EventLimits | undefined;
   private readonly maxEvents: number | undefined;
+  private readonly cwd: string;
+  private readonly planRefs = new Set<string>();
   private jsonl: JsonlFollower | null = null;
   private mapper: TranscriptMapper | null = null;
   /** true si la conversacion tiene historial en `.pb`, visto en la ultima lectura sin datos. */
@@ -123,12 +130,17 @@ export class AntigravitySessionFollower implements SessionFollower {
     this.platform = deps.platform ?? process.platform;
     this.limits = deps.limits;
     this.maxEvents = deps.maxEvents;
+    this.cwd = deps.cwd ?? '';
   }
 
   get label(): string {
     if (this.jsonl?.filePath !== null && this.jsonl?.filePath !== undefined) return this.jsonl.filePath;
     if (this.paths !== null) return this.paths.full;
     return 'antigravity:(no conversation)';
+  }
+
+  get sourcePath(): string | null {
+    return this.jsonl?.filePath ?? null;
   }
 
   /** El valor provisional sale de `defaults`: aca no hay nada que preparar. */
@@ -150,8 +162,19 @@ export class AntigravitySessionFollower implements SessionFollower {
       // Lo que haya quedado de una lectura que lanzo a mitad ya no es de nadie.
       mapper.takeParts(new Set());
       const { reset, added } = await jsonl.poll();
+      if (reset) {
+        this.planRefs.clear();
+      }
       const fresh = new Set(added.map((event) => event.eventId));
-      result = { reset, added, turns: [], plans: [], parts: reset ? [] : mapper.takeParts(fresh) };
+      const newlyDiscoveredPlans: string[] = [];
+      for (const filePath of mapper.getPlanFiles()) {
+        const ref = planRefFor(filePath, { cwd: this.cwd, sessionId: this.sessionId });
+        if (ref !== null && !this.planRefs.has(ref)) {
+          this.planRefs.add(ref);
+          newlyDiscoveredPlans.push(ref);
+        }
+      }
+      result = { reset, added, turns: [], plans: newlyDiscoveredPlans, parts: reset ? [] : mapper.takeParts(fresh) };
       if (jsonl.getState() === 'waiting') {
         // El archivo desaparecio: la proxima lectura vuelve a elegir entre los dos.
         this.jsonl = null;
@@ -169,7 +192,11 @@ export class AntigravitySessionFollower implements SessionFollower {
       uso ya viaja (en el `append` o en el snapshot que pide el cliente).
     */
     const usage = JSON.stringify(this.getUsage());
-    if (this.announcedUsage !== null && result.added.length === 0 && !result.reset && usage !== this.announcedUsage) {
+    const tokensDirty = this.mapper?.takeTokensDirty() ?? false;
+    if (
+      (this.announcedUsage !== null && result.added.length === 0 && !result.reset && usage !== this.announcedUsage) ||
+      (result.added.length === 0 && !result.reset && tokensDirty)
+    ) {
       result = { ...result, usageChanged: true };
     }
     this.announcedUsage = usage;
@@ -205,6 +232,8 @@ export class AntigravitySessionFollower implements SessionFollower {
       ...EMPTY_CONTEXT_USAGE,
       lastModel: this.mapper?.currentModel ?? null,
       assistantMessages: this.mapper?.assistantMessages ?? 0,
+      lastRequestTokens: this.mapper?.requestTokens ?? 0,
+      lastOutputTokens: this.mapper?.outputTokens ?? 0,
     };
     if (this.paths === null || this.statusLine === null || !this.statusLine.active()) return base;
     const usage = this.statusLine.usage(this.sessionId, base) ?? base;
@@ -225,14 +254,21 @@ export class AntigravitySessionFollower implements SessionFollower {
     return this.jsonl?.getPageBefore(beforeEventId, limit) ?? EMPTY_PAGE;
   }
 
-  /** Esta CLI no tiene planes que la app muestre. */
   getPlanFiles(): readonly string[] {
-    return [];
+    return [...this.planRefs];
   }
 
-  /** Las imagenes del usuario no se dibujan en este hito (D18). */
-  async readImage(): Promise<LoadedImage | null> {
-    return null;
+  async readImage(
+    eventId: string,
+    index: number,
+    source: ConversationImageSource,
+  ): Promise<LoadedImage | null> {
+    if (this.mapper === null) return null;
+    return loadAntigravityImage(this.mapper.getImageTargets(eventId), index, source);
+  }
+
+  runningSubagents(launchedAt: number): readonly ConversationSubagent[] {
+    return this.mapper?.runningSubagents(launchedAt) ?? [];
   }
 
   /**
