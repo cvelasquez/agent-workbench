@@ -441,10 +441,17 @@ const CLEAR = '\x15\x0b';
   const buttons = (alive, activity, hasSomething) => composerButtons({ alive, activity, hasSomething });
   assert.deepEqual(buttons(true, 'idle', false), { showStop: false, showSend: false }, 'cuadro vacio y agente quieto: ni Enviar apagado');
   assert.deepEqual(buttons(true, 'idle', true), { showStop: false, showSend: true });
-  assert.deepEqual(buttons(true, 'working', false), { showStop: true, showSend: false });
-  assert.deepEqual(buttons(true, 'working', true), { showStop: true, showSend: true });
+  assert.deepEqual(buttons(true, 'busy', false), { showStop: true, showSend: false });
+  assert.deepEqual(buttons(true, 'busy', true), { showStop: true, showSend: true }, 'mandar mientras trabaja sigue valiendo');
+  assert.deepEqual(buttons(true, 'waiting', false), { showStop: true, showSend: false }, 'esperando una respuesta el turno sigue abierto: Detener, como con Claude Code');
   assert.deepEqual(buttons(false, 'idle', true), { showStop: false, showSend: true }, 'sin CLI viva se ve, apagado por el cuadro');
-  assert.deepEqual(buttons(true, undefined, false), { showStop: true, showSend: false }, 'actividad sin saber: Detener, como siempre');
+  assert.deepEqual(buttons(false, 'busy', false), { showStop: false, showSend: false }, 'sin CLI viva no hay nada que detener');
+  // Lo que no es "trabajando" no muestra Detener (06-11-2026): una pestana nueva de Codex o de Antigravity,
+  // sin primer mensaje, esta `unknown`, y antes dibujaba un Detener sin nada que detener.
+  assert.deepEqual(buttons(true, 'unknown', false), { showStop: false, showSend: false }, 'CLI sin estado (pestana nueva): ni Detener ni Enviar');
+  assert.deepEqual(buttons(true, 'unknown', true), { showStop: false, showSend: true });
+  assert.deepEqual(buttons(true, 'offline', false), { showStop: false, showSend: false }, 'sin proceso registrado todavia');
+  assert.deepEqual(buttons(true, undefined, false), { showStop: false, showSend: false }, 'actividad todavia sin avisar');
 
   // El lugar de la derecha sale de los botones que pueden aparecer, no de los que se ven ahora:
   // asi el texto no salta al escribir la primera letra.

@@ -148,14 +148,22 @@ export interface ComposerButtons {
 
 /**
  * Enviar solo aparece con algo para enviar (06-11-2026: antes se veia apagado
- * con el cuadro vacio); Detener, con el agente trabajando.
+ * con el cuadro vacio); Detener, con el agente trabajando o esperando una
+ * respuesta, que es cuando hay un turno abierto que cortar.
+ *
+ * Lo que no se sabe no cuenta como trabajando (06-11-2026): una pestana nueva
+ * de Codex o de Antigravity, sin primer mensaje, esta `unknown` y dibujaba un
+ * Detener sin nada que detener. Claude Code, que siempre publica su estado,
+ * lo sigue mostrando trabajando o esperando. Esc dentro del cuadro interrumpe
+ * igual, se vea o no el boton.
  */
 export function composerButtons(input: {
   alive: boolean;
   activity: TerminalActivity | undefined;
   hasSomething: boolean;
 }): ComposerButtons {
-  return { showStop: input.alive && input.activity !== 'idle', showSend: input.hasSomething };
+  const working = input.activity === 'busy' || input.activity === 'waiting';
+  return { showStop: input.alive && working, showSend: input.hasSomething };
 }
 
 /**
