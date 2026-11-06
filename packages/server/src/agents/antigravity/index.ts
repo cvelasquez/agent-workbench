@@ -29,7 +29,16 @@ import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentCapabilities, NativeVoiceCapability, StatusLineSetupInfo, StatusLineState } from '@agent-workbench/shared';
 import { agentStatusDir, cliLogsTempDir, integrationsDir } from '../../paths.js';
-import type { AgentAdapter, AgentInput, CliLocation, LaunchHook, LaunchInput, LaunchPlan, SpawnedContext } from '../adapter.js';
+import type {
+  AgentAdapter,
+  AgentInput,
+  CliLocation,
+  LaunchHook,
+  LaunchInput,
+  LaunchPlan,
+  NativeVoiceDictation,
+  SpawnedContext,
+} from '../adapter.js';
 import { commandNotFoundMessage, locateCommand } from '../locate.js';
 import { PlanLimitsRecordDir } from '../plan-limits.js';
 import { removeStaleCatalogCopies } from './catalog.js';
@@ -51,7 +60,7 @@ import { toCliMode } from './mode-names.js';
 import { splitModelLabel } from './model-label.js';
 import { geminiHome, settingsPath } from './paths.js';
 import { createAntigravityQuestionScreen } from './question-screen.js';
-import { createAntigravityQueueEdit } from './queue-edit.js';
+import { CLEAR_LINE, createAntigravityQueueEdit, readAntigravityQueueScreen } from './queue-edit.js';
 import { antigravityReadyScreen } from './ready-screen.js';
 import { readAntigravitySettings } from './settings.js';
 import { AntigravityStatusSource, AntigravityStatusStore, createFollowerStatusLine } from './status.js';
@@ -164,6 +173,20 @@ const ANTIGRAVITY_BASE_CAPABILITIES_WITH_NATIVE_VOICE: AgentCapabilities = {
 const ANTIGRAVITY_STATUS_LINE_CAPABILITIES_WITH_NATIVE_VOICE: AgentCapabilities = {
   ...ANTIGRAVITY_STATUS_LINE_CAPABILITIES,
   nativeVoice: ANTIGRAVITY_NATIVE_VOICE,
+};
+
+/**
+ * Como se recoge su dictado de la caja (§5.3.3). Medido con la 1.5.x:
+ * `Connecting...`, `Recording 00:01` y `Finishing up...` debajo de la caja, y
+ * despues el texto en la caja (sin voz, no dice nada). La ayuda de la caja vacia
+ * de cada modo (`Plan mode: ... (shift+tab to cycle)`) va en un gris fijo y no
+ * atenuado: se declara para no leerla como texto.
+ */
+export const ANTIGRAVITY_VOICE_DICTATION: NativeVoiceDictation = {
+  readBox: (lines) => readAntigravityQueueScreen(lines)?.editor ?? null,
+  busy: /Connecting\.\.\.|Recording \d+:\d+|Finishing up/i,
+  hint: /\(shift\+tab to cycle\)\s*$/i,
+  clearKeys: CLEAR_LINE,
 };
 
 export function supportsNativeVoiceVersion(version: string | null): boolean {
@@ -284,6 +307,7 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
       return antigravityCapabilitiesForVersion(locatedVersion, isActive());
     },
     input: ANTIGRAVITY_INPUT,
+    nativeVoiceDictation: ANTIGRAVITY_VOICE_DICTATION,
 
     // `--version` no crea nada en el home (medido).
     locate: async () => {

@@ -1,7 +1,7 @@
 /**
  * Protocolo WebSocket entre el navegador y el servidor local.
  *
- * Version 9: controles de voz nativos, sobre las familias anteriores.
+ * Version 7 - la copia propia.
  *
  * Cambio de la v1 a la v2: el WebSocket dejo de ser duenio de la pty. Las
  * terminales viven en el servidor y el socket solo se engancha a ellas. Por eso
@@ -114,9 +114,12 @@
  * pestana que mira cada ventana, que decide el foco que se le reporta a la CLI.
  * Un servidor anterior no manda la sugerencia e ignora la atencion.
  *
- * La v9 agrega `agent.voice`: el servidor valida la capacidad nativa de la
- * terminal antes de iniciar, detener o cancelar dictado o voz en vivo. No se
- * encola para ejecutarse después de una reconexión.
+ * Y la voz nativa, sin subir la version (§5.3.3): `agent.voice` inicia, detiene
+ * o cancela el dictado o la voz en vivo que la CLI ya trae (el servidor valida
+ * la capacidad de esa terminal antes de escribir, y no se encola para despues
+ * de una reconexion); `agent.voice.status` dice en que estado quedo, y
+ * `agent.voice.text` trae el dictado terminado, para el cuadro. Un servidor
+ * anterior no manda la capacidad `nativeVoice` y la web no ofrece voz.
  *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
@@ -278,7 +281,7 @@ import {
 } from './settings.js';
 
 /** Se incrementa cuando el contrato cambia de forma incompatible. */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 8;
 
 /** Ruta del WebSocket. El resto del servidor sirve la UI. */
 export const WS_PATH = '/ws';
@@ -1856,6 +1859,30 @@ export interface ServerAgentVoiceStatusMessage {
   terminalId: TerminalId;
   mode: NativeVoiceMode;
   active: boolean;
+  /**
+   * Con un dictado ya detenido (`active: false`): la CLI esta transcribiendo y
+   * el texto llega en un `agent.voice.text` (§5.3.3). Ausente: no.
+   */
+  transcribing?: boolean;
+}
+
+/**
+ * Como termino un dictado (§5.3.3).
+ *
+ *  - `text`: lo dictado, ya sacado de la caja de la CLI.
+ *  - `empty`: la CLI no oyo nada.
+ *  - `kept`: habia texto y no se pudo sacar de la caja de la CLI: queda ahi.
+ */
+export type VoiceDictationOutcome = 'text' | 'empty' | 'kept';
+
+/** El dictado terminado, para el cuadro de la ventana que lo pidio. Nunca se manda solo. */
+export interface ServerAgentVoiceTextMessage {
+  type: 'agent.voice.text';
+  terminalId: TerminalId;
+  mode: NativeVoiceMode;
+  outcome: VoiceDictationOutcome;
+  /** Con `text`, lo dictado; con las otras dos, vacio. */
+  text: string;
 }
 
 /** Resultado de `codex queue`; no implica que el mensaje ya aparezca en el hilo. */
@@ -2650,6 +2677,7 @@ export type ServerMessage =
   | ServerConversationLiveQuestionMessage
   | ServerAgentSubmittedMessage
   | ServerAgentVoiceStatusMessage
+  | ServerAgentVoiceTextMessage
   | ServerCodexQueueResultMessage
   | ServerAgentForceSentMessage
   | ServerAgentQueueEditedMessage
@@ -3695,9 +3723,22 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       const terminalId = asNonEmptyString(record['terminalId']);
       const mode = record['mode'];
       const active = asBoolean(record['active']);
-      return terminalId === null || (mode !== 'dictation' && mode !== 'live') || active === null
-        ? null
+      if (terminalId === null || (mode !== 'dictation' && mode !== 'live') || active === null) return null;
+      return record['transcribing'] === true
+        ? { type: 'agent.voice.status', terminalId, mode, active, transcribing: true }
         : { type: 'agent.voice.status', terminalId, mode, active };
+    }
+    case 'agent.voice.text': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const mode = record['mode'];
+      const outcome = record['outcome'];
+      const text = asString(record['text']);
+      return terminalId === null ||
+        (mode !== 'dictation' && mode !== 'live') ||
+        (outcome !== 'text' && outcome !== 'empty' && outcome !== 'kept') ||
+        text === null
+        ? null
+        : { type: 'agent.voice.text', terminalId, mode, outcome, text };
     }
     case 'agent.codexQueueResult': {
       const terminalId = asNonEmptyString(record['terminalId']);

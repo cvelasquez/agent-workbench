@@ -28,8 +28,15 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CODEX_QUEUE_MAX_TEXT_LENGTH, type NativeVoiceCapability, type NativeVoiceMode, type TerminalActivity, type TerminalId } from '@agent-workbench/shared';
+import { CODEX_QUEUE_MAX_TEXT_LENGTH, type NativeVoiceCapability, type TerminalActivity, type TerminalId } from '@agent-workbench/shared';
 import { mergePrefill } from './agent-ui.js';
+import {
+  actionSlots,
+  composerButtons,
+  dictationInsertion,
+  typedSpaceRange,
+  type SpaceSnapshot,
+} from './composer-voice.js';
 import {
   assembleMessage,
   insertPasteReference,
@@ -50,6 +57,7 @@ import type { ThreadFontSize } from './thread-font.js';
 import { newSubmitRequestId } from './thread-status.js';
 import type { ComposerPrefill } from './useWorkspace.js';
 import { useComposerAttachments, type Attachment, type ComposerImage } from './useComposerAttachments.js';
+import { useComposerVoice } from './useComposerVoice.js';
 import { useDragSize } from './useDragSize.js';
 import { useTouch } from './useNarrow.js';
 import { takesSuggestion, visibleSuggestion } from './composer-suggestion.js';
@@ -240,9 +248,6 @@ export function Composer({
   suggestion = null,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
-  const [voiceMode, setVoiceMode] = useState<NativeVoiceMode | null>(nativeVoice?.defaultMode ?? null);
-  const [voiceActive, setVoiceActive] = useState(false);
-  const voiceSession = useRef<{ terminalId: TerminalId; mode: NativeVoiceMode; hold: boolean } | null>(null);
   const [dragging, setDragging] = useState(false);
   /** El reloj que abrio el menu de programar, o null con el menu cerrado. */
   const [scheduleAnchor, setScheduleAnchor] = useState<HTMLElement | null>(null);
@@ -255,9 +260,7 @@ export function Composer({
   const attachments = useComposerAttachments(imagesAllowed);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const touch = useTouch();
-  const voiceModes = nativeVoice?.modes ?? [];
-  const selectedVoice = voiceModes.find((item) => item.mode === voiceMode) ?? null;
-  const voiceHold = selectedVoice?.control === 'claude-hold-space' || selectedVoice?.control === 'antigravity-dictation';
+  const disabled = terminalId === null || !alive;
   // Hito 53 (§5.3.2): la sugerencia de la CLI se pinta en el cuadro vacio, sin contar como texto.
   const shownSuggestion = visibleSuggestion({
     suggestion,
@@ -516,8 +519,73 @@ export function Composer({
     }
   }, [prefills, onPrefillApplied, drafts, replaceAttachments]);
 
+  /*
+    Un dictado (§5.3.3) llega al cuadro de su pestana, en el cursor y como algo
+    tecleado, para que Ctrl+Z lo saque. Si esa pestana ya no es la que se muestra
+    (se cambio mientras la CLI transcribia), va al final de su borrador.
+  */
+  const dictated = useCallback(
+    (target: TerminalId, spoken: string) => {
+      const element = textareaRef.current;
+      if (target === shown.current && element !== null && !element.disabled) {
+        const inserted = dictationInsertion(element.value, element.selectionStart, element.selectionEnd, spoken);
+        element.focus();
+        let done = false;
+        try {
+          done = document.execCommand('insertText', false, inserted);
+        } catch {
+          done = false;
+        }
+        if (!done) {
+          element.setRangeText(inserted, element.selectionStart, element.selectionEnd, 'end');
+          setText(element.value);
+        }
+        return;
+      }
+      if (target === shown.current) {
+        setText((current) => `${current}${dictationInsertion(current, current.length, current.length, spoken)}`);
+        return;
+      }
+      const draft = drafts.get(target);
+      const base = draft?.text ?? '';
+      drafts.put(target, { text: `${base}${dictationInsertion(base, base.length, base.length, spoken)}`, items: draft?.items ?? [] });
+    },
+    [drafts],
+  );
+
+  // Mantener Espacio: el primer toque ya escribio un espacio, que se quita al arrancar la voz.
+  const removeHeldSpace = useCallback((snapshot: SpaceSnapshot) => {
+    const element = textareaRef.current;
+    if (element === null) return;
+    const range = typedSpaceRange(snapshot, element.value, element.selectionStart);
+    if (range === null) return;
+    element.setSelectionRange(range.from, range.to);
+    let done = false;
+    try {
+      done = document.execCommand('delete');
+    } catch {
+      done = false;
+    }
+    if (!done) {
+      element.setRangeText('', range.from, range.to, 'end');
+      setText(element.value);
+    }
+  }, []);
+
+  const voice = useComposerVoice({
+    connection,
+    terminalId,
+    disabled,
+    nativeVoice,
+    blocked: voiceBlocked,
+    onDictated: dictated,
+    onHeldSpace: removeHeldSpace,
+  });
+  // Con un dictado en curso (grabando o transcribiendo) lo escrito todavia no esta completo.
+  const dictating = voice.dictating;
+
   const submit = useCallback(() => {
-    if (terminalId === null || blockedReason !== null || (voiceActive && voiceMode === 'dictation')) return;
+    if (terminalId === null || blockedReason !== null || dictating) return;
 
     const folded = attachments.items
       .filter((item): item is Extract<Attachment, { kind: 'text' }> => item.kind === 'text')
@@ -548,7 +616,7 @@ export function Composer({
     setText('');
     attachments.clear();
     onSubmitted?.(terminalId, requestId, !sentNow);
-  }, [connection, drafts, terminalId, text, attachments, blockedReason, onSubmitted, voiceActive, voiceMode]);
+  }, [connection, drafts, terminalId, text, attachments, blockedReason, onSubmitted, dictating]);
 
   const queueCodex = useCallback(() => {
     if (
@@ -670,6 +738,11 @@ export function Composer({
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Mantener Espacio arranca la voz (§5.3.3): sus repeticiones no escriben espacios en el cuadro.
+      if (voice.textKeyDown(event)) {
+        event.preventDefault();
+        return;
+      }
       // La sugerencia de la CLI, a la vista en el cuadro vacio: Tab la escribe, como en la CLI.
       if (
         shownSuggestionRef.current !== null &&
@@ -708,6 +781,8 @@ export function Composer({
       }
       if (event.key === 'Escape') {
         event.preventDefault();
+        // Con la voz grabando, Esc la cancela: interrumpir al agente seria otra cosa.
+        if (voice.cancelListening()) return;
         interrupt();
         return;
       }
@@ -727,7 +802,7 @@ export function Composer({
         onEditQueue();
       }
     },
-    [submit, interrupt, touch, applyListEdit, onEditQueue, attachments.items.length, takeSuggestion],
+    [submit, interrupt, touch, applyListEdit, onEditQueue, attachments.items.length, takeSuggestion, voice],
   );
 
   /*
@@ -867,94 +942,21 @@ export function Composer({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const disabled = terminalId === null || !alive;
   // Una ficha de texto que se vacio al editarla no se manda: sola, no habilita Enviar.
   const hasSomething =
     text.trim().length > 0 ||
     attachments.items.some((item) => item.kind !== 'text' || item.text.trim().length > 0);
-  const showStop = alive && activity !== 'idle';
-  const showSend = hasSomething || !showStop;
-  const voiceAvailable = !disabled && nativeVoice !== null && selectedVoice !== null;
-  const voiceControlDisabled = disabled || selectedVoice === null || (selectedVoice.mode === 'dictation' && voiceBlocked);
-  const composerFieldClass = [
-    'composer-field',
-    (showStop && showSend) || shownSuggestion !== null || (voiceAvailable && voiceModes.length > 1) ? 'composer-field-two' : '',
-    voiceAvailable ? 'composer-field-voice' : '',
-    voiceAvailable && showStop && showSend ? 'composer-field-three' : '',
-  ].filter(Boolean).join(' ');
-  const finishVoice = useCallback((cancel = false) => {
-    const session = voiceSession.current;
-    if (session === null) return;
-    voiceSession.current = null;
-    setVoiceActive(false);
-    connection.send({
-      type: 'agent.voice',
-      terminalId: session.terminalId,
-      mode: session.mode,
-      action: cancel ? 'cancel' : 'stop',
-    });
-  }, [connection]);
-  const startVoice = useCallback((mode: NativeVoiceMode | null) => {
-    if (mode === null || terminalId === null || disabled || nativeVoice === null || voiceSession.current !== null) return;
-    const option = nativeVoice.modes.find((item) => item.mode === mode);
-    if (option === undefined || (mode === 'dictation' && voiceBlocked)) return;
-    const hold = option.control === 'claude-hold-space' || option.control === 'antigravity-dictation';
-    if (!connection.send({ type: 'agent.voice', terminalId, mode, action: 'start' })) return;
-    voiceSession.current = { terminalId, mode, hold };
-    setVoiceActive(true);
-  }, [connection, disabled, nativeVoice, terminalId, voiceBlocked]);
-  const toggleVoice = useCallback(() => {
-    if (selectedVoice === null || voiceControlDisabled) return;
-    const session = voiceSession.current;
-    if (session !== null) {
-      if (session.mode === selectedVoice.mode) finishVoice(false);
-      return;
-    }
-    startVoice(selectedVoice.mode);
-  }, [finishVoice, selectedVoice, startVoice, voiceControlDisabled]);
-
-  useEffect(() => {
-    setVoiceMode(nativeVoice?.defaultMode ?? null);
-  }, [nativeVoice?.defaultMode, terminalId]);
-
-  useEffect(() => {
-    if (disabled) finishVoice(true);
-  }, [disabled, finishVoice]);
-
-  useEffect(() => () => {
-    const session = voiceSession.current;
-    if (session === null) return;
-    voiceSession.current = null;
-    connection.send({ type: 'agent.voice', terminalId: session.terminalId, mode: session.mode, action: 'cancel' });
-  }, [connection, terminalId]);
-
-  useEffect(() => {
-    const cancelOnBlur = () => finishVoice(true);
-    const cancelWhenHidden = () => { if (document.hidden) cancelOnBlur(); };
-    window.addEventListener('blur', cancelOnBlur);
-    document.addEventListener('visibilitychange', cancelWhenHidden);
-    const removeStatusListener = connection.onStatus((status) => {
-      if (status !== 'open') {
-        voiceSession.current = null;
-        setVoiceActive(false);
-      }
-    });
-    const removeVoiceListener = connection.onMessage((message) => {
-      if (message.type !== 'agent.voice.status') return;
-      const session = voiceSession.current;
-      if (session === null || session.terminalId !== message.terminalId || session.mode !== message.mode) return;
-      if (!message.active) {
-        voiceSession.current = null;
-        setVoiceActive(false);
-      }
-    });
-    return () => {
-      window.removeEventListener('blur', cancelOnBlur);
-      document.removeEventListener('visibilitychange', cancelWhenHidden);
-      removeStatusListener();
-      removeVoiceListener();
-    };
-  }, [connection, finishVoice]);
+  // Enviar solo aparece con algo para enviar; Detener, con el agente trabajando.
+  const { showStop, showSend } = composerButtons({ alive, activity, hasSomething });
+  /*
+    El lugar que el cuadro le deja al texto a la derecha sale de los botones que
+    pueden aparecer, no de los que se ven: asi no salta al escribir la primera letra.
+  */
+  const fieldSlots = actionSlots({
+    voiceButtons: voice.available ? voice.controls.length : 0,
+    stop: showStop,
+    suggestion: shownSuggestion !== null,
+  });
 
   // Pasado el tope, lo escrito no se guarda para el proximo arranque (§6.29), y se dice.
   const tooLongToKeep = draftTooLong({ text, items: attachments.items });
@@ -1046,6 +1048,15 @@ export function Composer({
         </div>
       )}
 
+      {voice.notice !== null && (
+        <div className="composer-problem" role="status">
+          <span>{voice.notice === 'empty' ? t('composer.voice.noSpeech') : t('composer.voice.kept')}</span>
+          <button className="icon-button" onClick={voice.dismissNotice} title={t('common.close')}>
+            ×
+          </button>
+        </div>
+      )}
+
       {attachments.items.length > 0 && (
         <div className="composer-chips">
           {attachments.items.map((item) => (
@@ -1065,10 +1076,12 @@ export function Composer({
         botones de texto ocupaban una fila entera en el teléfono. Detener
         aparece mientras el agente trabaja y Enviar cuando hay algo escrito;
         con el agente trabajando y un texto listo, los dos, porque mandar
-        mientras trabaja sigue valiendo. Con el cuadro vacío y el agente
-        quieto, Enviar queda apagado: el lugar no salta al escribir.
+        mientras trabaja sigue valiendo. Con el cuadro vacío no hay Enviar (antes
+        se veía apagado), pero su lugar sigue reservado: el texto no salta al
+        escribir la primera letra (`actionSlots`). A su lado, la voz de la CLI
+        (§5.3.3).
       */}
-      <div className={composerFieldClass}>
+      <div className="composer-field" style={{ '--composer-slots': fieldSlots } as React.CSSProperties}>
       <textarea
         ref={textareaRef}
         className="composer-input"
@@ -1094,6 +1107,8 @@ export function Composer({
         disabled={disabled}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={onKeyDown}
+        onKeyUp={voice.textKeyUp}
+        onBlur={voice.textBlur}
         onPaste={onPaste}
         spellCheck={false}
       />
@@ -1132,75 +1147,53 @@ export function Composer({
               </svg>
             </button>
           )}
-          {voiceAvailable && voiceModes.length > 1 && (
-            <select
-              className="composer-voice-mode"
-              aria-label={t('composer.voice.mode')}
-              value={voiceMode ?? nativeVoice?.defaultMode ?? 'dictation'}
-              disabled={voiceActive}
-              onChange={(event) => setVoiceMode(event.target.value as NativeVoiceMode)}
-            >
-              {voiceModes.map(({ mode }) => (
-                <option key={mode} value={mode}>
-                  {mode === 'dictation' ? t('composer.voice.dictationMode') : t('composer.voice.liveMode')}
-                </option>
-              ))}
-            </select>
-          )}
-          {voiceAvailable && selectedVoice !== null && (
-            <button
-              className={`composer-icon composer-voice-button${selectedVoice.mode === 'live' ? ' composer-voice-live' : ''}${voiceActive ? ' is-active' : ''}`}
-              disabled={voiceControlDisabled}
-              aria-label={voiceActive ? t('composer.voice.stop') : selectedVoice.mode === 'dictation' ? t('composer.voice.dictate') : t('composer.voice.live')}
-              aria-pressed={voiceActive}
-              title={voiceBlocked && selectedVoice.mode === 'dictation'
-                ? t('composer.voice.blocked')
-                : voiceActive
-                  ? t('composer.voice.stop')
-                  : voiceHold
-                    ? t('composer.voice.hold')
-                    : t('composer.voice.live')}
-              onPointerDown={(event) => {
-                if (!voiceHold) return;
-                event.preventDefault();
-                event.currentTarget.focus();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                startVoice(voiceMode);
-              }}
-              onPointerUp={() => { if (voiceHold) finishVoice(false); }}
-              onPointerCancel={() => finishVoice(true)}
-              onLostPointerCapture={() => { if (voiceSession.current?.hold) finishVoice(true); }}
-              onKeyDown={(event) => {
-                if (!voiceHold || (event.key !== ' ' && event.key !== 'Enter')) return;
-                event.preventDefault();
-                if (!event.repeat) startVoice(voiceMode);
-              }}
-              onKeyUp={(event) => {
-                if (!voiceHold || (event.key !== ' ' && event.key !== 'Enter')) return;
-                event.preventDefault();
-                finishVoice(false);
-              }}
-              onBlur={() => { if (voiceSession.current?.hold) finishVoice(true); }}
-              onClick={() => { if (!voiceHold) toggleVoice(); }}
-            >
-              {selectedVoice.mode === 'live' ? (
-                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-                  <circle cx="12" cy="12" r="11" fill="currentColor" />
-                  <path d="M7.5 10v4m3-7v10m3-12v14m3-11v8" fill="none" stroke="var(--surface)" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                  <rect x="9" y="3" width="6" height="12" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
-                  <path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V22m-4 0h8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              )}
-            </button>
-          )}
+          {voice.available &&
+            voice.controls.map((control) => (
+              <button
+                key={control.mode}
+                className={`composer-icon composer-voice-button${control.active ? ' is-active' : ''}${control.busy ? ' is-busy' : ''}`}
+                disabled={control.disabled}
+                aria-label={
+                  control.active
+                    ? t('composer.voice.stop')
+                    : control.busy
+                      ? t('composer.voice.transcribing')
+                      : control.mode === 'dictation'
+                        ? t('composer.voice.dictate')
+                        : t('composer.voice.live')
+                }
+                aria-pressed={control.active}
+                aria-busy={control.busy}
+                title={
+                  control.busy
+                    ? t('composer.voice.transcribing')
+                    : control.active
+                      ? t('composer.voice.stop')
+                      : voiceBlocked && control.mode === 'dictation'
+                        ? t('composer.voice.blocked')
+                        : control.hold
+                          ? t('composer.voice.hold')
+                          : t('composer.voice.live')
+                }
+                {...control.props}
+              >
+                {control.mode === 'live' ? (
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M5 10v4M9.5 4v16M14 7v10M18.5 10v4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <rect x="9" y="3" width="6" height="12" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
+                    <path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V22m-4 0h8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+              </button>
+            ))}
           {showSend && (
             <button
               className="composer-icon composer-send"
               onClick={submit}
-              disabled={disabled || !hasSomething || blockedReason !== null || (voiceActive && voiceMode === 'dictation')}
+              disabled={disabled || !hasSomething || blockedReason !== null || dictating}
               title={blockedReason ?? t('composer.sendTitle')}
               aria-label={t('composer.send')}
             >

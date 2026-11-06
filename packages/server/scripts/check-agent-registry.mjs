@@ -352,10 +352,27 @@ check(
 {
   const { PROTOCOL_VERSION, parseServerMessage, parseClientMessage } = shared;
   // La 7 es la de la copia propia (hito 28); el `hello` de abajo es el de la 6, que no cambio.
-  check('el protocolo es la version 9 (controles nativos de voz)', PROTOCOL_VERSION === 9, String(PROTOCOL_VERSION));
+  check('el protocolo es la version 8 (hito 34: los errores traen una clave, no una frase)', PROTOCOL_VERSION === 8, String(PROTOCOL_VERSION));
   check('el acuse de voz nativa confirma el estado de la terminal',
     sameShape(parseServerMessage(JSON.stringify({ type: 'agent.voice.status', terminalId: 't-voice', mode: 'live', active: true })),
       { type: 'agent.voice.status', terminalId: 't-voice', mode: 'live', active: true }));
+  check('el acuse de voz dice cuando la CLI esta transcribiendo un dictado',
+    sameShape(parseServerMessage(JSON.stringify({ type: 'agent.voice.status', terminalId: 't-voice', mode: 'dictation', active: false, transcribing: true })),
+      { type: 'agent.voice.status', terminalId: 't-voice', mode: 'dictation', active: false, transcribing: true }));
+  check('sin transcribing el acuse de voz es el de siempre',
+    sameShape(parseServerMessage(JSON.stringify({ type: 'agent.voice.status', terminalId: 't-voice', mode: 'dictation', active: false })),
+      { type: 'agent.voice.status', terminalId: 't-voice', mode: 'dictation', active: false }));
+  check('el dictado terminado trae su texto y como termino, para el cuadro',
+    sameShape(parseServerMessage(JSON.stringify({ type: 'agent.voice.text', terminalId: 't-voice', mode: 'dictation', outcome: 'text', text: 'hola mundo' })),
+      { type: 'agent.voice.text', terminalId: 't-voice', mode: 'dictation', outcome: 'text', text: 'hola mundo' }) &&
+    sameShape(parseServerMessage(JSON.stringify({ type: 'agent.voice.text', terminalId: 't-voice', mode: 'dictation', outcome: 'empty', text: '' })),
+      { type: 'agent.voice.text', terminalId: 't-voice', mode: 'dictation', outcome: 'empty', text: '' }) &&
+    parseServerMessage(JSON.stringify({ type: 'agent.voice.text', terminalId: 't-voice', mode: 'dictation', outcome: 'kept', text: '' }))?.outcome === 'kept');
+  check('un dictado con un resultado, un texto o una terminal incorrectos se descarta',
+    parseServerMessage(JSON.stringify({ type: 'agent.voice.text', terminalId: 't-voice', mode: 'dictation', outcome: 'otro', text: 'x' })) === null &&
+    parseServerMessage(JSON.stringify({ type: 'agent.voice.text', terminalId: 't-voice', mode: 'dictation', outcome: 'text', text: 3 })) === null &&
+    parseServerMessage(JSON.stringify({ type: 'agent.voice.text', terminalId: '', mode: 'dictation', outcome: 'text', text: 'x' })) === null &&
+    parseServerMessage(JSON.stringify({ type: 'agent.voice.text', terminalId: 't-voice', mode: 'otro', outcome: 'text', text: 'x' })) === null);
   check('un acuse de voz con un estado o modo incorrecto se descarta',
     parseServerMessage(JSON.stringify({ type: 'agent.voice.status', terminalId: 't-voice', mode: 'dictation', active: 'yes' })) === null &&
     parseServerMessage(JSON.stringify({ type: 'agent.voice.status', terminalId: 't-voice', mode: 'unknown', active: false })) === null);

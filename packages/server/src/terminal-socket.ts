@@ -50,6 +50,7 @@ import {
 import type {
   AgentAdapter,
   AgentInput,
+  NativeVoiceDictation,
   PartsUpdate,
   QueueEditFailure,
   QueueEditOutcome,
@@ -108,6 +109,7 @@ import { AppSettingsChangeError, type AppSettingsService } from './app-settings-
 import { TerminalOpenError, type OutputListener, type TerminalRegistry } from './terminal-registry.js';
 import { TerminalWriteQueue, type PieceWriter } from './terminal-write-queue.js';
 import { NativeVoiceController } from './native-voice.js';
+import { boxText, takeDictation, type DictationOutcome } from './voice-dictation.js';
 import { VaultError, type VaultService } from './vault/service.js';
 import { GitMissingError } from './git-repo.js';
 import { WorktreeError, WorktreeInUseError, type WorktreeService } from './worktrees/service.js';
@@ -854,14 +856,20 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       ...(commandControl ? [adapter.input.startupDialog, adapter.input.startupPendingScreen] : []),
     ]
       .filter((pattern): pattern is RegExp => pattern !== undefined);
-    if (patterns.length === 0) return null;
+    // El comando de voz se escribe en la caja de la CLI: se mira tambien que no haya texto de por medio.
+    const boxSpec = commandControl ? adapter.nativeVoiceDictation : undefined;
+    if (patterns.length === 0 && boxSpec === undefined) return null;
     const screen = registry.watchScreen(terminalId);
     if (screen === null) return serverText('waitingSubmit', { label: adapter.label });
     try {
       const lines = await screen.lines();
-      return patterns.some((pattern) => screenShowsDialog(lines, pattern))
-        ? serverText('waitingSubmit', { label: adapter.label })
-        : null;
+      if (patterns.some((pattern) => screenShowsDialog(lines, pattern))) return serverText('waitingSubmit', { label: adapter.label });
+      if (boxSpec !== undefined) {
+        // Con algo escrito, el comando saldria junto con ese texto, como un mensaje (§5.3.1).
+        const typed = boxText(boxSpec, await screen.linesWithoutFaint());
+        if (typed !== null && typed.length > 0) return serverText('submitCliDraftCommand', { label: adapter.label });
+      }
+      return null;
     } catch {
       return serverText('waitingSubmit', { label: adapter.label });
     } finally {
@@ -869,7 +877,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     }
   };
 
+  /** Las pestanas cuyo ultimo dictado se esta recogiendo de la caja de la CLI (§5.3.3). */
+  const dictationPending = new Set<TerminalId>();
+
   const startNativeVoice = (socket: WebSocket, terminalId: TerminalId, mode: 'dictation' | 'live'): void => {
+    // La CLI todavia esta con el dictado anterior: lo nuevo se mezclaria con el texto que falta recoger.
+    if (dictationPending.has(terminalId)) {
+      send(socket, { type: 'agent.voice.status', terminalId, mode, active: false, transcribing: true });
+      return;
+    }
     let refusal: ServerText | null = null;
     void nativeVoice.start(terminalId, socket, mode, async () => {
       refusal = await nativeVoiceStartRefusal(terminalId, mode);
@@ -878,6 +894,63 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       send(socket, { type: 'agent.voice.status', terminalId, mode, active: started });
       if (!started && refusal !== null) sendError(socket, 'submit-failed', refusal);
     });
+  };
+
+  /*
+    El dictado que la CLI dejo escrito en su caja, al cuadro de la ventana que lo
+    pidio (§5.3.3). Se espera a que la CLI termine de transcribir (fuera de la fila
+    de la pestana: es una espera por la CLI, no por la pestana), y lo unico que va
+    por la fila son las teclas que vacian la caja.
+
+    Si la ventana que lo pidio ya no esta, el texto no tiene adonde ir y se queda
+    en la CLI: vaciar la caja primero lo perderia.
+  */
+  const deliverDictation = async (
+    socket: WebSocket,
+    terminalId: TerminalId,
+    mode: 'dictation' | 'live',
+    spec: NativeVoiceDictation,
+  ): Promise<void> => {
+    dictationPending.add(terminalId);
+    send(socket, { type: 'agent.voice.status', terminalId, mode, active: false, transcribing: true });
+    let outcome: DictationOutcome = { kind: 'empty' };
+    const screen = registry.watchScreen(terminalId);
+    try {
+      if (screen !== null) {
+        outcome = await takeDictation(spec, {
+          screen: () => screen.linesWithoutFaint(),
+          wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+          now: Date.now,
+          clear: async (keys) => {
+            if (socket.readyState !== socket.OPEN) return false;
+            let written = false;
+            await writeQueue.enqueue(
+              terminalId,
+              async () => {
+                written = registry.write(terminalId, keys);
+              },
+              { interruptible: false },
+            );
+            return written;
+          },
+        });
+      }
+    } catch (error) {
+      console.warn(`[voice-dictation] ${terminalId.slice(0, 8)}:`, error);
+      outcome = { kind: 'kept' };
+    } finally {
+      screen?.dispose();
+      dictationPending.delete(terminalId);
+    }
+    debugLog('write', `dictation of ${terminalId.slice(0, 8)}: ${outcome.kind}`);
+    send(socket, {
+      type: 'agent.voice.text',
+      terminalId,
+      mode,
+      outcome: outcome.kind,
+      text: outcome.kind === 'text' ? outcome.text : '',
+    });
+    send(socket, { type: 'agent.voice.status', terminalId, mode, active: false });
   };
 
   /*
@@ -1370,8 +1443,14 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           if (message.action === 'start') {
             startNativeVoice(socket, message.terminalId, message.mode);
           } else {
-            nativeVoice.stop(message.terminalId, socket, message.mode, message.action === 'cancel');
-            send(socket, { type: 'agent.voice.status', terminalId: message.terminalId, mode: message.mode, active: false });
+            const stopped = nativeVoice.stopRecording(message.terminalId, socket, message.mode, message.action === 'cancel');
+            const dictation = adapterOf(message.terminalId)?.nativeVoiceDictation;
+            if (stopped === 'recorded' && message.mode === 'dictation' && dictation !== undefined) {
+              // Lo dictado sale de la caja de la CLI hacia el cuadro (§5.3.3).
+              void deliverDictation(socket, message.terminalId, message.mode, dictation);
+            } else {
+              send(socket, { type: 'agent.voice.status', terminalId: message.terminalId, mode: message.mode, active: false });
+            }
           }
           break;
         }

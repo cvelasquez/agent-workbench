@@ -11,6 +11,8 @@ interface VoiceSession {
   pending: boolean;
 }
 
+export type VoiceStopResult = 'none' | 'pending' | 'recorded' | 'cancelled';
+
 export interface NativeVoiceControllerOptions {
   capabilityOf: (terminalId: TerminalId) => NativeVoiceCapability | null;
   isAlive: (terminalId: TerminalId) => boolean;
@@ -71,15 +73,24 @@ export class NativeVoiceController {
     return true;
   }
 
-  stop(terminalId: TerminalId, owner: object, mode: NativeVoiceMode, cancel = false): boolean {
+  /**
+   * Detiene la voz de esa terminal y dice que habia: `recorded` estaba grabando
+   * (y no se cancelo: hay un dictado que recoger, §5.3.3); `cancelled`, se
+   * descarto; `pending`, ni habia empezado; `none`, no era de ese socket o modo.
+   */
+  stopRecording(terminalId: TerminalId, owner: object, mode: NativeVoiceMode, cancel = false): VoiceStopResult {
     const session = this.sessions.get(terminalId);
-    if (session === undefined || session.owner !== owner || session.mode !== mode) return false;
+    if (session === undefined || session.owner !== owner || session.mode !== mode) return 'none';
     if (session.pending) {
       this.sessions.delete(terminalId);
-      return true;
+      return 'pending';
     }
     this.finish(terminalId, session, cancel);
-    return true;
+    return cancel ? 'cancelled' : 'recorded';
+  }
+
+  stop(terminalId: TerminalId, owner: object, mode: NativeVoiceMode, cancel = false): boolean {
+    return this.stopRecording(terminalId, owner, mode, cancel) !== 'none';
   }
 
   releaseSocket(owner: object): void {

@@ -40,7 +40,7 @@ import { queuedUserText } from './prompt-queue.js';
 
 const UP = '\x1b[A';
 /** Ctrl+U y Ctrl+K: lo que hay antes y despues del cursor en una linea, y el salto (medido, c15). */
-const CLEAR_LINE = '\x15\x0b';
+export const CLEAR_LINE = '\x15\x0b';
 const MARKER = '❯';
 const QUEUE_HINT = 'Press up to edit queued messages';
 

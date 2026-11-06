@@ -1284,21 +1284,14 @@ kbd {
   display: flex;
 }
 
+/*
+  El lugar de la derecha lo dice `--composer-slots` (Composer.tsx, `actionSlots`):
+  cuantos botones pueden aparecer, con el de Enviar siempre contado aunque no se
+  vea. Un boton mide 28 px mas 6 de separacion; con el margen, 10 px.
+*/
 .composer-field .composer-input {
   min-height: 38px;
-  padding-right: 44px;
-}
-
-.composer-field-two .composer-input {
-  padding-right: 78px;
-}
-
-.composer-field-voice .composer-input {
-  padding-right: 180px;
-}
-
-.composer-field-voice.composer-field-three .composer-input {
-  padding-right: 214px;
+  padding-right: calc(10px + 34px * var(--composer-slots, 1));
 }
 
 .composer-field-actions {
@@ -1335,22 +1328,11 @@ kbd {
   opacity: 0.6;
 }
 
-.composer-voice-mode {
-  width: 76px;
-  height: 28px;
-  padding: 0 3px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--chrome-alt);
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 10px;
-}
-
-.composer-voice-mode:disabled {
-  opacity: 0.55;
-}
-
+/*
+  La voz de la CLI (§5.3.3), al lado de Enviar: el microfono del dictado o las
+  rayitas de la voz en vivo, con el mismo trazo de los demas iconos. Activo, rojo.
+  Antigravity, que tiene los dos modos, los muestra uno al lado del otro.
+*/
 .composer-voice-button {
   touch-action: none;
   color: var(--accent);
@@ -1368,20 +1350,32 @@ kbd {
   color: var(--surface);
 }
 
-.composer-voice-button.composer-voice-live {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--surface);
-}
-
-.composer-voice-button.composer-voice-live.is-active {
-  border-color: var(--danger);
-  background: var(--danger);
-}
-
 .composer-voice-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+/* La CLI esta transcribiendo: el boton espera, y late para decir que algo viene. */
+.composer-voice-button.is-busy:disabled {
+  cursor: progress;
+  animation: composer-voice-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes composer-voice-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-voice-button.is-busy:disabled {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 .composer-stop:hover:not(:disabled) {
@@ -6919,11 +6913,8 @@ kbd {
 
   .app-narrow .composer-field .composer-input {
     min-height: 46px;
-    padding-right: 50px;
-  }
-
-  .app-narrow .composer-field-two .composer-input {
-    padding-right: 92px;
+    /* Cada boton de 36 px mas 6 de separacion, con el margen: 50 px con uno, 92 con dos. */
+    padding-right: calc(8px + 42px * var(--composer-slots, 1));
   }
 
   /* La barra de "esperando" y el medidor, en una linea. */

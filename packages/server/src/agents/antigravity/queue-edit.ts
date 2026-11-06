@@ -32,7 +32,7 @@ import { waitForStableScreen, type ScreenWaitTiming } from '../screen-wait.js';
 
 const UP = '\x1b[A';
 /** Ctrl+U y Ctrl+K (medido, a16). Con el editor vacio no hacen nada. */
-const CLEAR_LINE = '\x15\x0b';
+export const CLEAR_LINE = '\x15\x0b';
 const QUEUE_HINT = 'Press up to edit queued messages';
 const CLEAR_ROUNDS = 4;
 

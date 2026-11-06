@@ -1004,6 +1004,35 @@ export interface DraftBox {
 }
 
 /**
+ * Lo que hace falta para pasar un dictado de la caja de la CLI al cuadro
+ * (06-11-2026, §5.3.3). El dictado nativo termina con el texto escrito en la
+ * caja de la CLI; la app lo lee de la pantalla emulada, vacia la caja y lo
+ * entrega al cuadro. Todo medido contra la CLI real, sin hablarle.
+ */
+export interface NativeVoiceDictation {
+  /**
+   * La caja, linea por linea y sin la marca del cursor; null si no se ve (un
+   * dialogo encima, o una pantalla que no se reconoce).
+   */
+  readBox(lines: readonly string[]): readonly string[] | null;
+  /**
+   * Lo que la CLI dice fuera de la caja mientras graba o transcribe. Mientras se
+   * ve, lo que haya en la caja no es el dictado todavia. Sin la bandera `g`.
+   */
+  readonly busy: RegExp;
+  /** El aviso de la CLI de que no oyo nada, si lo da: se acepta sin esperar. */
+  readonly noSpeech?: RegExp;
+  /**
+   * Una linea de la caja que es ayuda de la propia CLI y no texto: la de
+   * Antigravity en cada modo va en un color fijo, no atenuada, y el lector sin
+   * lo atenuado la leeria como escrita.
+   */
+  readonly hint?: RegExp;
+  /** Las teclas que vacian una linea de la caja (Ctrl+U y Ctrl+K, medido). */
+  readonly clearKeys: string;
+}
+
+/**
  * Leer de la pantalla la sugerencia que la CLI propone como mensaje siguiente
  * (hito 53, §5.3.2). No esta en ningun archivo: la CLI solo la dibuja.
  */
@@ -1097,6 +1126,8 @@ export interface AgentAdapter {
   readonly input: AgentInput;
   /** Diálogos de inicio que podrían interpretar una tecla de voz como respuesta. */
   readonly nativeVoiceStartupDialog?: RegExp;
+  /** Como se recoge un dictado que la CLI deja escrito en su caja (§5.3.3). Ausente: queda en la CLI. */
+  readonly nativeVoiceDictation?: NativeVoiceDictation;
 
   locate(): Promise<CliLocation | null>;
   /** Encola texto en la sesion activa cuando la CLI expone esa operacion. */

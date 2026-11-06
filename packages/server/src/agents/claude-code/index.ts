@@ -32,6 +32,7 @@ import type {
   LaunchHook,
   LaunchInput,
   LaunchPlan,
+  NativeVoiceDictation,
   SpawnedContext,
   StatusSource,
 } from '../adapter.js';
@@ -47,7 +48,7 @@ import { autoAnswerResumeDialog } from './resume-dialog.js';
 import { createClaudeCodeHandback } from './handback.js';
 import { CLAUDE_CODE_DRAFT_STASH } from './draft-stash.js';
 import { sessionFileOf } from './paths.js';
-import { createClaudeCodeQueueEdit } from './queue-edit.js';
+import { CLEAR_LINE, createClaudeCodeQueueEdit, readClaudeCodeBox } from './queue-edit.js';
 import { createClaudeCodeRewind } from './rewind-menu.js';
 import { createClaudeCodeScreenQuestions } from './question-screen.js';
 import { CLAUDE_CODE_PROMPT_SUGGESTION } from './suggestion-screen.js';
@@ -125,6 +126,20 @@ export const CLAUDE_CODE_NATIVE_VOICE: NativeVoiceCapability = {
 };
 
 export const CLAUDE_CODE_VOICE_STARTUP_DIALOG = /allow external CLAUDE\.md file imports|trust this folder|do you trust this project/i;
+
+/**
+ * Como se recoge su dictado de la caja (§5.3.3). Medido con la 2.1.318: `keep
+ * holding…` al arrancar, `listening…` mientras graba (con un medidor de nivel
+ * en la caja), `Voice: processing…` al soltar, y despues el texto en la caja o
+ * `No speech detected.`. La ayuda de la caja vacia va atenuada, asi que el
+ * lector sin lo atenuado ya no la ve.
+ */
+export const CLAUDE_CODE_VOICE_DICTATION: NativeVoiceDictation = {
+  readBox: readClaudeCodeBox,
+  busy: /listening|Voice: processing|keep holding/i,
+  noSpeech: /No speech detected/i,
+  clearKeys: CLEAR_LINE,
+};
 
 export function supportsClaudeNativeVoiceVersion(version: string | null): boolean {
   const match = /(?:^|[^\d])v?(\d+)\.(\d+)\.(\d+)/i.exec(version?.trim() ?? '');
@@ -252,6 +267,7 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
     get capabilities(): AgentCapabilities { return claudeCapabilitiesForVersion(locatedVersion); },
     input: CLAUDE_CODE_INPUT,
     nativeVoiceStartupDialog: CLAUDE_CODE_VOICE_STARTUP_DIALOG,
+    nativeVoiceDictation: CLAUDE_CODE_VOICE_DICTATION,
 
     locate: async () => {
       const location = await (options.locate?.() ?? locateCommand(CLAUDE_CODE_COMMAND));
