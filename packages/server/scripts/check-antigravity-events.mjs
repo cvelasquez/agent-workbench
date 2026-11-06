@@ -1388,6 +1388,9 @@ const {
   ANTIGRAVITY_INPUT,
   READY_SIGNAL_SAFE,
   ADD_DIR,
+  supportsNativeVoiceVersion,
+  antigravityCapabilitiesForVersion,
+  ANTIGRAVITY_NATIVE_VOICE,
 } = adapterModule;
 const appPaths = await import('../src/paths.ts');
 
@@ -1990,6 +1993,34 @@ const statusRecord = (id, over = {}) => ({
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
   };
   check('9 sin status line: capacidades iguales al literal', same(adapter.capabilities, expectedBase) && adapter.capabilities === ANTIGRAVITY_BASE_CAPABILITIES, show(adapter.capabilities));
+  check('voz nativa: la version minima de Antigravity es 1.5.0',
+    supportsNativeVoiceVersion('1.4.9') === false && supportsNativeVoiceVersion('1.5.0') === true &&
+    supportsNativeVoiceVersion('1.5.2') === true && supportsNativeVoiceVersion('2.0.0') === true &&
+    supportsNativeVoiceVersion('unknown') === false && supportsNativeVoiceVersion(null) === false);
+  check('voz nativa: dictado es el modo inicial y live queda disponible',
+    same(ANTIGRAVITY_NATIVE_VOICE, {
+      defaultMode: 'dictation',
+      modes: [
+        { mode: 'dictation', control: 'antigravity-dictation' },
+        { mode: 'live', control: 'antigravity-live' },
+      ],
+    }));
+  check('voz nativa: solo se anuncia desde la version compatible',
+    antigravityCapabilitiesForVersion('1.4.9', false) === ANTIGRAVITY_BASE_CAPABILITIES &&
+    antigravityCapabilitiesForVersion('1.5.0', false).nativeVoice?.defaultMode === 'dictation' &&
+    antigravityCapabilitiesForVersion('1.5.0', true).nativeVoice?.modes.length === 2);
+  const supportedVoiceAdapter = createAntigravityAdapter({
+    platform: 'win32',
+    locate: async () => ({ resolvedPath: 'C:\\agy\\agy.exe', file: 'C:\\agy\\agy.exe', prefixArgs: [], version: '1.5.2' }),
+  });
+  const unsupportedVoiceAdapter = createAntigravityAdapter({
+    platform: 'win32',
+    locate: async () => ({ resolvedPath: 'C:\\agy\\agy.exe', file: 'C:\\agy\\agy.exe', prefixArgs: [], version: '1.4.9' }),
+  });
+  await supportedVoiceAdapter.locate();
+  await unsupportedVoiceAdapter.locate();
+  check('el adaptador anuncia voz nativa solo desde Antigravity CLI 1.5',
+    supportedVoiceAdapter.capabilities.nativeVoice?.defaultMode === 'dictation' && unsupportedVoiceAdapter.capabilities.nativeVoice === undefined);
   check('9 con status line: estado, medidor y mensajes programados (52), y lista para recibir sigue apagada (P0-4)',
     same(ANTIGRAVITY_STATUS_LINE_CAPABILITIES, { ...expectedBase, statusSource: true, readySignal: false, contextWindowSource: 'status-line', scheduledSend: true }) && READY_SIGNAL_SAFE === false);
   check('9 las dos sobreviven al viaje por la red',

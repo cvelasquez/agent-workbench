@@ -28,6 +28,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   PAIR_QUERY_PARAM,
+  PROTOCOL_VERSION,
   REMOTE_DEFAULT_PORT,
   REMOTE_DEVICE_LABEL_MAX_CHARS,
   ServerTextError,
@@ -527,7 +528,7 @@ try {
 
   // --- 10. Lo que un equipo remoto no puede pedir -------------------------------
   {
-    const hostOnly = ['remote.configure', 'remote.pairing.start', 'remote.pairing.cancel', 'remote.device.rename', 'remote.device.revoke'];
+    const hostOnly = ['agent.voice', 'remote.configure', 'remote.pairing.start', 'remote.pairing.cancel', 'remote.device.rename', 'remote.device.revoke'];
     const opensOnHost = ['files.reveal', 'vault.reveal', 'vault.openSession', 'vault.exportProject'];
     check('administrar el acceso remoto es sólo del anfitrión',
       hostOnly.every((type) => remoteRefusal(type, true)?.key === 'remoteHostOnly'));
@@ -577,7 +578,7 @@ try {
     check('remote.pairing.code trae el código y su vencimiento',
       json(server({ type: 'remote.pairing.code', pairing: { code: 'K7QM-X2RD', expiresAt: 9 } })?.pairing) === json({ code: 'K7QM-X2RD', expiresAt: 9 }));
 
-    const hello = { type: 'hello', protocolVersion: 8, agents: [], defaultAgent: null, platform: 'win32', defaultCwd: 'D:\\x', shellName: null };
+    const hello = { type: 'hello', protocolVersion: PROTOCOL_VERSION, agents: [], defaultAgent: null, platform: 'win32', defaultCwd: 'D:\\x', shellName: null };
     check('hello dice si esta ventana es un equipo remoto',
       server({ ...hello, remoteClient: true })?.remoteClient === true && server(hello)?.remoteClient === false);
     check('el error de un pedido negado a un remoto se lee',

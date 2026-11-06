@@ -316,7 +316,7 @@ const status = (overrides = {}) => ({
 // --- 1f. Los mensajes vault.* ---
 {
   const { PROTOCOL_VERSION, SERVER_ERROR_CODES, parseClientMessage, parseServerMessage, encodeServerMessage } = shared;
-  check('1 el protocolo sube a la 8 (hito 34: los textos viajan como clave)', PROTOCOL_VERSION === 8, String(PROTOCOL_VERSION));
+  check('1 el protocolo es la version 9 (controles nativos de voz)', PROTOCOL_VERSION === 9, String(PROTOCOL_VERSION));
   check('1 vault-failed es un codigo de error', SERVER_ERROR_CODES.includes('vault-failed'));
   const client = (value) => parseClientMessage(JSON.stringify(value));
   check('1 vault.measure y vault.reveal sin campos',

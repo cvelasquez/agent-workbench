@@ -347,6 +347,7 @@ export function deviceLabelFromUserAgent(userAgent: string | undefined): string 
 
 /** Administrar el acceso remoto: sólo quien entró con el token del arranque. */
 const HOST_ONLY: ReadonlySet<ClientMessageType> = new Set<ClientMessageType>([
+  'agent.voice',
   'remote.configure',
   'remote.pairing.start',
   'remote.pairing.cancel',

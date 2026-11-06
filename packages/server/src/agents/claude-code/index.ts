@@ -20,6 +20,7 @@ import {
   MODEL_OPTIONS,
   PERMISSION_MODE_CYCLE,
   type AgentCapabilities,
+  type NativeVoiceCapability,
   type StatusLineSetupInfo,
   type StatusLineState,
 } from '@agent-workbench/shared';
@@ -34,7 +35,7 @@ import type {
   SpawnedContext,
   StatusSource,
 } from '../adapter.js';
-import { commandNotFoundMessage, locateCommand } from '../locate.js';
+import { commandNotFoundMessage, locateCommand, type CliLocation } from '../locate.js';
 import { PlanLimitsRecordDir, removeStalePlanRecords } from '../plan-limits.js';
 import { readAgentDefaults } from './agent-defaults.js';
 import { CliStatusWatcher, isIdleStatus } from './cli-status.js';
@@ -118,6 +119,28 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = {
   readOnlyLaunch: { mode: 'plan', guard: 'cli' },
 };
 
+export const CLAUDE_CODE_NATIVE_VOICE: NativeVoiceCapability = {
+  defaultMode: 'dictation',
+  modes: [{ mode: 'dictation', control: 'claude-hold-space' }],
+};
+
+export const CLAUDE_CODE_VOICE_STARTUP_DIALOG = /allow external CLAUDE\.md file imports|trust this folder|do you trust this project/i;
+
+export function supportsClaudeNativeVoiceVersion(version: string | null): boolean {
+  const match = /(?:^|[^\d])v?(\d+)\.(\d+)\.(\d+)/i.exec(version?.trim() ?? '');
+  if (match === null) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  return major > 2 || (major === 2 && (minor > 1 || (minor === 1 && patch >= 318)));
+}
+
+export function claudeCapabilitiesForVersion(version: string | null): AgentCapabilities {
+  return supportsClaudeNativeVoiceVersion(version)
+    ? { ...CLAUDE_CODE_CAPABILITIES, nativeVoice: CLAUDE_CODE_NATIVE_VOICE }
+    : CLAUDE_CODE_CAPABILITIES;
+}
+
 /**
  * Como se le escribe un mensaje: todo en un solo pegado, con las imagenes como
  * `@"ruta"` y el Enter pegado al final (CLAUDE.md 5.3). Una sola pieza, asi que
@@ -174,12 +197,15 @@ function createStatusSource(watcher: CliStatusWatcher): StatusSource {
 export interface ClaudeCodeAdapterOptions {
   /** Para el chequeo. Por defecto, la del proceso. */
   platform?: string;
+  /** Sustituye la búsqueda del binario en el chequeo. */
+  locate?: () => Promise<CliLocation | null>;
   /** Cada cuanto se mira `settings.json` (`subscribeChanges`). */
   settingsPollMs?: number;
 }
 
 export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}): AgentAdapter {
   const platform = options.platform ?? process.platform;
+  let locatedVersion: string | null = null;
   const watcher = new CliStatusWatcher();
   /*
     Que variante de modelo usa esta instalacion. Lo llena el escaneo del
@@ -223,10 +249,15 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
     label: 'Claude Code',
     command: CLAUDE_CODE_COMMAND,
     installUrl: CLAUDE_CODE_INSTALL_URL,
-    capabilities: CLAUDE_CODE_CAPABILITIES,
+    get capabilities(): AgentCapabilities { return claudeCapabilitiesForVersion(locatedVersion); },
     input: CLAUDE_CODE_INPUT,
+    nativeVoiceStartupDialog: CLAUDE_CODE_VOICE_STARTUP_DIALOG,
 
-    locate: () => locateCommand(CLAUDE_CODE_COMMAND),
+    locate: async () => {
+      const location = await (options.locate?.() ?? locateCommand(CLAUDE_CODE_COMMAND));
+      locatedVersion = location?.version ?? null;
+      return location;
+    },
 
     missingMessage: () => commandNotFoundMessage(CLAUDE_CODE_COMMAND, CLAUDE_CODE_INSTALL_URL),
 

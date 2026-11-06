@@ -1625,6 +1625,8 @@ export function App(): JSX.Element {
           drafts={drafts}
           terminalId={activeTerminalId}
           alive={activeTerminal.alive}
+          nativeVoice={remoteClient || narrow ? null : (activeCapabilities.nativeVoice ?? null)}
+          voiceBlocked={conversation.waitingFor !== null}
           sleeping={activeTerminal.sleeping}
           projectColor={projectColor(tabColorCwd(activeTerminal))}
           activity={activity.get(activeTerminal.terminalId)}

@@ -324,7 +324,7 @@ let cliLink = false;
   const hello = (extra) => server({ type: 'hello', protocolVersion: shared.PROTOCOL_VERSION, agents: [], defaultAgent: null, platform: 'win32', defaultCwd: 'D:\\x', shellName: null, ...extra });
   check('5.8 un servidor anterior no dice fileWrite, y el visor no ofrece Editar', hello({}).fileWrite === false && hello({ fileWrite: true }).fileWrite === true);
   check('5.9 el error de guardar tiene su codigo', shared.SERVER_ERROR_CODES.includes('write-failed'));
-  check('5.10 la version del protocolo no cambio: todo es aditivo', shared.PROTOCOL_VERSION === 8);
+  check('5.10 la version del protocolo incluye los controles de voz nativos', shared.PROTOCOL_VERSION === 9);
 }
 
 // --- 6. El cableado, leido como texto -------------------------------------------------

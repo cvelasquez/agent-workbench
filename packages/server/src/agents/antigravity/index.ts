@@ -27,9 +27,9 @@
 import { mkdirSync } from 'node:fs';
 import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentCapabilities, StatusLineSetupInfo, StatusLineState } from '@agent-workbench/shared';
+import type { AgentCapabilities, NativeVoiceCapability, StatusLineSetupInfo, StatusLineState } from '@agent-workbench/shared';
 import { agentStatusDir, cliLogsTempDir, integrationsDir } from '../../paths.js';
-import type { AgentAdapter, AgentInput, LaunchHook, LaunchInput, LaunchPlan, SpawnedContext } from '../adapter.js';
+import type { AgentAdapter, AgentInput, CliLocation, LaunchHook, LaunchInput, LaunchPlan, SpawnedContext } from '../adapter.js';
 import { commandNotFoundMessage, locateCommand } from '../locate.js';
 import { PlanLimitsRecordDir } from '../plan-limits.js';
 import { removeStaleCatalogCopies } from './catalog.js';
@@ -149,6 +149,40 @@ export const ANTIGRAVITY_STATUS_LINE_CAPABILITIES: AgentCapabilities = {
   scheduledSend: true,
 };
 
+export const ANTIGRAVITY_NATIVE_VOICE: NativeVoiceCapability = {
+  defaultMode: 'dictation',
+  modes: [
+    { mode: 'dictation', control: 'antigravity-dictation' },
+    { mode: 'live', control: 'antigravity-live' },
+  ],
+};
+
+const ANTIGRAVITY_BASE_CAPABILITIES_WITH_NATIVE_VOICE: AgentCapabilities = {
+  ...ANTIGRAVITY_BASE_CAPABILITIES,
+  nativeVoice: ANTIGRAVITY_NATIVE_VOICE,
+};
+const ANTIGRAVITY_STATUS_LINE_CAPABILITIES_WITH_NATIVE_VOICE: AgentCapabilities = {
+  ...ANTIGRAVITY_STATUS_LINE_CAPABILITIES,
+  nativeVoice: ANTIGRAVITY_NATIVE_VOICE,
+};
+
+export function supportsNativeVoiceVersion(version: string | null): boolean {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version?.trim() ?? '');
+  if (match === null) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 1 || (major === 1 && minor >= 5);
+}
+
+export function antigravityCapabilitiesForVersion(version: string | null, statusLineActive: boolean): AgentCapabilities {
+  if (!supportsNativeVoiceVersion(version)) {
+    return statusLineActive ? ANTIGRAVITY_STATUS_LINE_CAPABILITIES : ANTIGRAVITY_BASE_CAPABILITIES;
+  }
+  return statusLineActive
+    ? ANTIGRAVITY_STATUS_LINE_CAPABILITIES_WITH_NATIVE_VOICE
+    : ANTIGRAVITY_BASE_CAPABILITIES_WITH_NATIVE_VOICE;
+}
+
 /**
  * Como se le escribe un mensaje: el texto pegado con marcadores y el Enter
  * aparte, a 400 ms; un solo Esc interrumpe. Medido con la 1.2.2: un pegado de
@@ -197,6 +231,8 @@ export async function removeStaleCliLogs(dir: string = cliLogsTempDir(), maxAgeM
 export interface AntigravityAdapterOptions {
   /** Para el chequeo. Por defecto, la del proceso. */
   platform?: string;
+  /** Sustituye la búsqueda del binario en el chequeo. */
+  locate?: () => Promise<CliLocation | null>;
   store?: AntigravityStatusStore;
   statusIntervalMs?: number;
   /** El aviso de cambios de `settings.json`. Por defecto, un sondeo de `stat` cada 2 s. */
@@ -207,6 +243,7 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
   const platform = options.platform ?? process.platform;
   const store = options.store ?? new AntigravityStatusStore();
   let state: StatusLineState = 'missing';
+  let locatedVersion: string | null = null;
   /** true despues de `prepare`: recien ahi la app puede escribir en su carpeta por esta CLI. */
   let prepared = false;
   const isActive = (): boolean => state === 'active';
@@ -244,12 +281,16 @@ export function createAntigravityAdapter(options: AntigravityAdapterOptions = {}
     command: ANTIGRAVITY_COMMAND,
     installUrl: ANTIGRAVITY_INSTALL_URL,
     get capabilities(): AgentCapabilities {
-      return isActive() ? ANTIGRAVITY_STATUS_LINE_CAPABILITIES : ANTIGRAVITY_BASE_CAPABILITIES;
+      return antigravityCapabilitiesForVersion(locatedVersion, isActive());
     },
     input: ANTIGRAVITY_INPUT,
 
     // `--version` no crea nada en el home (medido).
-    locate: () => locateCommand(ANTIGRAVITY_COMMAND),
+    locate: async () => {
+      const location = await (options.locate?.() ?? locateCommand(ANTIGRAVITY_COMMAND));
+      locatedVersion = location?.version ?? null;
+      return location;
+    },
 
     missingMessage: () => commandNotFoundMessage(ANTIGRAVITY_COMMAND, ANTIGRAVITY_INSTALL_URL),
 

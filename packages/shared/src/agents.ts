@@ -230,6 +230,25 @@ export interface EffortOption {
   label: string;
 }
 
+export type NativeVoiceMode = 'dictation' | 'live';
+
+/** Control nativo medido en una CLI concreta. El cliente nunca recibe comandos arbitrarios. */
+export type NativeVoiceControl =
+  | 'claude-hold-space'
+  | 'antigravity-dictation'
+  | 'antigravity-live'
+  | 'codex-live-f8';
+
+export interface NativeVoiceModeOption {
+  mode: NativeVoiceMode;
+  control: NativeVoiceControl;
+}
+
+export interface NativeVoiceCapability {
+  defaultMode: NativeVoiceMode;
+  modes: readonly NativeVoiceModeOption[];
+}
+
 /**
  * Lo que la interfaz dibuja o esconde, por CLI.
  *
@@ -260,6 +279,8 @@ export interface AgentCapabilities {
   efforts: readonly EffortOption[] | null;
   /** Las preguntas de eleccion se contestan desde la tarjeta. */
   questionCards: boolean;
+  /** Dictado o voz en vivo que la CLI ya implementa. Ausente: no se ofrece. */
+  nativeVoice?: NativeVoiceCapability;
   imagesByPath: ImageReferenceStyle | null;
   /** "Insertar como @ruta" del arbol de archivos. */
   fileMentions: FileMentionStyle | null;
@@ -539,11 +560,42 @@ function parseOptions<T>(value: unknown, parseItem: (item: unknown) => T | null)
  * entiende cae al valor de `NO_CAPABILITIES`: un campo nuevo de un servidor mas
  * nuevo esconde un control, no rompe la pantalla.
  */
+function parseNativeVoiceCapability(value: unknown): NativeVoiceCapability | null {
+  const record = asRecord(value);
+  if (record === null || !Array.isArray(record['modes']) || record['modes'].length === 0 || record['modes'].length > 2) return null;
+  const parsedModes: NativeVoiceModeOption[] = [];
+  for (const value of record['modes']) {
+    const mode = asRecord(value);
+    if (mode === null || (mode['mode'] !== 'dictation' && mode['mode'] !== 'live')) return null;
+    if (mode['control'] !== 'claude-hold-space' && mode['control'] !== 'antigravity-dictation' &&
+        mode['control'] !== 'antigravity-live' && mode['control'] !== 'codex-live-f8') return null;
+    parsedModes.push({ mode: mode['mode'], control: mode['control'] });
+  }
+
+  const signature = parsedModes.map(({ mode, control }) => `${mode}:${control}`).join(',');
+  if (record['defaultMode'] === 'dictation' && signature === 'dictation:claude-hold-space') {
+    return { defaultMode: 'dictation', modes: [{ mode: 'dictation', control: 'claude-hold-space' }] };
+  }
+  if (record['defaultMode'] === 'dictation' && signature === 'dictation:antigravity-dictation,live:antigravity-live') {
+    return {
+      defaultMode: 'dictation',
+      modes: [
+        { mode: 'dictation', control: 'antigravity-dictation' },
+        { mode: 'live', control: 'antigravity-live' },
+      ],
+    };
+  }
+  if (record['defaultMode'] === 'live' && signature === 'live:codex-live-f8') {
+    return { defaultMode: 'live', modes: [{ mode: 'live', control: 'codex-live-f8' }] };
+  }
+  return null;
+}
+
 export function parseAgentCapabilities(value: unknown): AgentCapabilities {
   const record = asRecord(value);
   if (record === null) return { ...NO_CAPABILITIES };
 
-  return {
+  const parsed: AgentCapabilities = {
     sessionIdAtLaunch: record['sessionIdAtLaunch'] === true,
     resume: record['resume'] === true,
     statusSource: record['statusSource'] === true,
@@ -570,6 +622,9 @@ export function parseAgentCapabilities(value: unknown): AgentCapabilities {
     // Ausente en un servidor anterior al hito 49: ninguna CLI se ofrece en solo lectura.
     readOnlyLaunch: parseReadOnlyLaunch(record['readOnlyLaunch']),
   };
+  const nativeVoice = parseNativeVoiceCapability(record['nativeVoice']);
+  if (nativeVoice !== null) parsed.nativeVoice = nativeVoice;
+  return parsed;
 }
 
 /** Una CLI, o null si su id no es uno que este cliente conozca. */

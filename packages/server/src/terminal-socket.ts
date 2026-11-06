@@ -98,6 +98,7 @@ import {
   buildInterruptKeys,
   buildSubmissionWrites,
   planModeChange,
+  screenShowsDialog,
 } from './pty-input.js';
 import { QueuedSubmitBook, reclaimQueuedSubmits } from './queued-submits.js';
 import type { RepoHub } from './repo-hub.js';
@@ -106,6 +107,7 @@ import type { SessionIndex } from './session-index.js';
 import { AppSettingsChangeError, type AppSettingsService } from './app-settings-service.js';
 import { TerminalOpenError, type OutputListener, type TerminalRegistry } from './terminal-registry.js';
 import { TerminalWriteQueue, type PieceWriter } from './terminal-write-queue.js';
+import { NativeVoiceController } from './native-voice.js';
 import { VaultError, type VaultService } from './vault/service.js';
 import { GitMissingError } from './git-repo.js';
 import { WorktreeError, WorktreeInUseError, type WorktreeService } from './worktrees/service.js';
@@ -330,6 +332,15 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     return agents.get(descriptor.agent)?.adapter ?? null;
   };
 
+  const nativeVoice = new NativeVoiceController({
+    capabilityOf: (terminalId) => adapterOf(terminalId)?.capabilities.nativeVoice ?? null,
+    isAlive: (terminalId) => {
+      const descriptor = registry.get(terminalId);
+      return descriptor !== null && descriptor.kind === 'agent' && descriptor.alive && !descriptor.sleeping;
+    },
+    write: (terminalId, data) => registry.write(terminalId, data),
+  });
+
   /*
     Hito 53 (§5.3.2): la sugerencia que la CLI dibuja en gris en su caja, para el
     cuadro. Se mira la pantalla de la pestana mientras esta libre.
@@ -447,7 +458,10 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     terminalId: TerminalId,
     exitCode: number,
     signal: number | null,
-  ): void => broadcast({ type: 'terminal.exit', terminalId, exitCode, signal });
+  ): void => {
+    nativeVoice.releaseTerminal(terminalId);
+    broadcast({ type: 'terminal.exit', terminalId, exitCode, signal });
+  };
 
   /*
     Que esta haciendo la CLI de cada pestana. Va a todos los clientes y no solo
@@ -758,6 +772,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
    */
   const dropTab = (terminalId: TerminalId): boolean => {
     const draftOwner = draftOwnerOf(registry.get(terminalId));
+    nativeVoice.releaseTerminal(terminalId);
     if (!registry.close(terminalId)) return false;
     // Cerrar la pestana es tirar lo que quedo escrito en su cuadro (§6.29).
     if (draftOwner !== null) drafts.delete(draftOwner);
@@ -816,6 +831,53 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     queuedSubmits,
     enqueue: (terminalId, job, enqueueOptions) => writeQueue.enqueue(terminalId, job, enqueueOptions),
     now: Date.now,
+  };
+
+  const nativeVoiceStartRefusal = async (terminalId: TerminalId, mode: 'dictation' | 'live'): Promise<ServerText | null> => {
+    const adapter = adapterOf(terminalId);
+    if (adapter === null) return null;
+    const control = adapter?.capabilities.nativeVoice?.modes.find((item) => item.mode === mode)?.control;
+    if (mode === 'dictation') {
+      const snapshot = conversations.getSnapshot(terminalId);
+      if (snapshot !== null && snapshot.waitingFor !== null) return serverText('waitingSubmit', { label: adapter.label });
+    }
+    const commandControl = control === 'antigravity-dictation' || control === 'antigravity-live';
+    if (!commandControl && adapter.nativeVoiceStartupDialog === undefined) return null;
+
+    if (commandControl) {
+      const plan = prepareSubmit(submitDeps, terminalId);
+      if ('refusal' in plan) return plan.refusal;
+    }
+
+    const patterns = [
+      adapter.nativeVoiceStartupDialog,
+      ...(commandControl ? [adapter.input.startupDialog, adapter.input.startupPendingScreen] : []),
+    ]
+      .filter((pattern): pattern is RegExp => pattern !== undefined);
+    if (patterns.length === 0) return null;
+    const screen = registry.watchScreen(terminalId);
+    if (screen === null) return serverText('waitingSubmit', { label: adapter.label });
+    try {
+      const lines = await screen.lines();
+      return patterns.some((pattern) => screenShowsDialog(lines, pattern))
+        ? serverText('waitingSubmit', { label: adapter.label })
+        : null;
+    } catch {
+      return serverText('waitingSubmit', { label: adapter.label });
+    } finally {
+      screen.dispose();
+    }
+  };
+
+  const startNativeVoice = (socket: WebSocket, terminalId: TerminalId, mode: 'dictation' | 'live'): void => {
+    let refusal: ServerText | null = null;
+    void nativeVoice.start(terminalId, socket, mode, async () => {
+      refusal = await nativeVoiceStartRefusal(terminalId, mode);
+      return refusal === null;
+    }).then((started) => {
+      send(socket, { type: 'agent.voice.status', terminalId, mode, active: started });
+      if (!started && refusal !== null) sendError(socket, 'submit-failed', refusal);
+    });
   };
 
   /*
@@ -1297,6 +1359,22 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           // Un Ctrl+C tecleado cuenta para la separacion de la tecla de vaciar (hito 43).
           if (message.data.includes(CLEAR_EDITOR)) queuedSubmits.noteClearKey(message.terminalId, Date.now());
           break;
+
+        case 'agent.voice': {
+          const descriptor = registry.get(message.terminalId);
+          if (descriptor === null) {
+            sendError(socket, 'unknown-terminal', serverText('terminalGone'));
+            break;
+          }
+          if (descriptor.kind !== 'agent' || !descriptor.alive || descriptor.sleeping) break;
+          if (message.action === 'start') {
+            startNativeVoice(socket, message.terminalId, message.mode);
+          } else {
+            nativeVoice.stop(message.terminalId, socket, message.mode, message.action === 'cancel');
+            send(socket, { type: 'agent.voice.status', terminalId: message.terminalId, mode: message.mode, active: false });
+          }
+          break;
+        }
 
         /*
           Un mensaje del cuadro de escritura.
@@ -3586,6 +3664,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         tornDown = true;
         planLimits.release();
       }
+      nativeVoice.releaseSocket(socket);
       if (phonePairingOwner === socket) {
         phonePairingOwner = null;
         remote.cancelPhonePairing();
@@ -3616,6 +3695,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     registry.off('activity', onRegistryActivity);
     registry.off('output', onRegistryOutput);
     suggestions.dispose();
+    nativeVoice.dispose();
     registry.off('exit', onRegistryExit);
     index.off('status', onIndexStatus);
     index.off('projects', onIndexProjects);

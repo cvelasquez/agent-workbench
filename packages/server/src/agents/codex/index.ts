@@ -19,7 +19,7 @@
 
 import { homedir } from 'node:os';
 import path from 'node:path';
-import type { AgentCapabilities } from '@agent-workbench/shared';
+import type { AgentCapabilities, NativeVoiceCapability } from '@agent-workbench/shared';
 import type {
   AgentAdapter,
   AgentInput,
@@ -47,6 +47,25 @@ import type { ModelOption } from '@agent-workbench/shared';
 export const CODEX_COMMAND = 'codex';
 
 export const CODEX_INSTALL_URL = 'https://learn.chatgpt.com/docs/codex/cli';
+
+export const CODEX_NATIVE_VOICE: NativeVoiceCapability = {
+  defaultMode: 'live',
+  modes: [{ mode: 'live', control: 'codex-live-f8' }],
+};
+
+export function supportsCodexNativeVoiceVersion(version: string | null): boolean {
+  const match = /(?:^|[^\d])v?(\d+)\.(\d+)\.(\d+)/i.exec(version?.trim() ?? '');
+  if (match === null) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 0 || (major === 0 && minor >= 166);
+}
+
+export function codexCapabilitiesForVersion(version: string | null): AgentCapabilities {
+  return supportsCodexNativeVoiceVersion(version)
+    ? { ...CODEX_CAPABILITIES, nativeVoice: CODEX_NATIVE_VOICE }
+    : CODEX_CAPABILITIES;
+}
 
 export interface CodexAdapterOptions {
   /** Inyectable para comprobar el contrato sin iniciar procesos externos. */
@@ -197,7 +216,7 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): AgentAdap
     installUrl: CODEX_INSTALL_URL,
     get capabilities(): AgentCapabilities {
       const base = {
-        ...CODEX_CAPABILITIES,
+        ...codexCapabilitiesForVersion(location?.version ?? null),
         codexNativeQueue: nativeQueueSupported,
         codexPermissions: supportsCodexPermissionCommand(location?.version ?? null),
       };

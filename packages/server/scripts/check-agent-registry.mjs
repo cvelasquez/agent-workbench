@@ -51,6 +51,7 @@ const {
   NO_CAPABILITIES,
   asArrayFiltered,
   normalizeCwdKey,
+  parseClientMessage,
   parseAgentCapabilities,
   parseAgentInfo,
   parsePermissionCycle,
@@ -125,6 +126,18 @@ check(
 check('parseAgentCapabilities({}) no declara nada', sameShape(parseAgentCapabilities({}), NO_CAPABILITIES));
 check('parseAgentCapabilities de algo que no es objeto no declara nada',
   sameShape(parseAgentCapabilities('x'), NO_CAPABILITIES) && sameShape(parseAgentCapabilities(null), NO_CAPABILITIES));
+{
+  const voice = { defaultMode: 'dictation', modes: [{ mode: 'dictation', control: 'antigravity-dictation' }, { mode: 'live', control: 'antigravity-live' }] };
+  const valid = parseAgentCapabilities({ nativeVoice: voice }).nativeVoice;
+  const invalid = parseAgentCapabilities({ nativeVoice: { ...voice, modes: [{ mode: 'dictation', control: 'unknown' }] } }).nativeVoice;
+  check('voz nativa ausente queda deshabilitada', parseAgentCapabilities({}).nativeVoice == null);
+  check('voz nativa acepta las combinaciones medidas', sameShape(valid, voice) && invalid == null, JSON.stringify({ valid, invalid }));
+  check('agent.voice acepta inicio, fin y cancelación para una terminal conocida',
+    ['start', 'stop', 'cancel'].every((action) => parseClientMessage(JSON.stringify({ type: 'agent.voice', terminalId: 't-voice', mode: 'dictation', action })) !== null));
+  check('agent.voice rechaza modos y acciones desconocidos',
+    parseClientMessage(JSON.stringify({ type: 'agent.voice', terminalId: 't-voice', mode: 'speech', action: 'start' })) === null &&
+    parseClientMessage(JSON.stringify({ type: 'agent.voice', terminalId: 't-voice', mode: 'live', action: 'toggle' })) === null);
+}
 {
   const wrong = parseAgentCapabilities({
     resume: 'true',
@@ -339,7 +352,13 @@ check(
 {
   const { PROTOCOL_VERSION, parseServerMessage, parseClientMessage } = shared;
   // La 7 es la de la copia propia (hito 28); el `hello` de abajo es el de la 6, que no cambio.
-  check('el protocolo es la version 8 (hito 34: los errores traen una clave, no una frase)', PROTOCOL_VERSION === 8, String(PROTOCOL_VERSION));
+  check('el protocolo es la version 9 (controles nativos de voz)', PROTOCOL_VERSION === 9, String(PROTOCOL_VERSION));
+  check('el acuse de voz nativa confirma el estado de la terminal',
+    sameShape(parseServerMessage(JSON.stringify({ type: 'agent.voice.status', terminalId: 't-voice', mode: 'live', active: true })),
+      { type: 'agent.voice.status', terminalId: 't-voice', mode: 'live', active: true }));
+  check('un acuse de voz con un estado o modo incorrecto se descarta',
+    parseServerMessage(JSON.stringify({ type: 'agent.voice.status', terminalId: 't-voice', mode: 'dictation', active: 'yes' })) === null &&
+    parseServerMessage(JSON.stringify({ type: 'agent.voice.status', terminalId: 't-voice', mode: 'unknown', active: false })) === null);
 
   const agentInfo = (overrides = {}) => ({
     id: 'claude-code', label: 'Claude Code', command: 'claude', available: true, version: '2.1.263',
@@ -657,7 +676,10 @@ const assistantLine = (id, model, tokens) => line({
 // 4. El adaptador de claude-code
 // ---------------------------------------------------------------------------
 
-const adapter = createClaudeCodeAdapter();
+const adapter = createClaudeCodeAdapter({
+  locate: async () => ({ resolvedPath: 'C:\\claude\\claude.exe', file: 'C:\\claude\\claude.exe', prefixArgs: [], version: '2.1.319' }),
+});
+await adapter.locate();
 {
   // Copia literal: si alguien apaga una capacidad, esto falla aunque la
   // pantalla no tenga tests.
@@ -683,6 +705,7 @@ const adapter = createClaudeCodeAdapter();
     codexNativeQueue: false,
     moveToWorktree: true,
     readOnlyLaunch: { mode: 'plan', guard: 'cli' },
+    nativeVoice: { defaultMode: 'dictation', modes: [{ mode: 'dictation', control: 'claude-hold-space' }] },
   };
   check('capacidades de claude-code iguales al literal', sameShape(adapter.capabilities, expected), JSON.stringify(adapter.capabilities));
   check('el ciclo declarado es el que usa el servidor', sameShape([...adapter.capabilities.permissionCycle.modes], [...PERMISSION_MODE_CYCLE]));

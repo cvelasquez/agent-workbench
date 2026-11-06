@@ -1293,6 +1293,14 @@ kbd {
   padding-right: 78px;
 }
 
+.composer-field-voice .composer-input {
+  padding-right: 180px;
+}
+
+.composer-field-voice.composer-field-three .composer-input {
+  padding-right: 214px;
+}
+
 .composer-field-actions {
   position: absolute;
   right: 6px;
@@ -1325,6 +1333,55 @@ kbd {
   border-color: var(--border);
   color: var(--text-dim);
   opacity: 0.6;
+}
+
+.composer-voice-mode {
+  width: 76px;
+  height: 28px;
+  padding: 0 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--chrome-alt);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+}
+
+.composer-voice-mode:disabled {
+  opacity: 0.55;
+}
+
+.composer-voice-button {
+  touch-action: none;
+  color: var(--accent);
+  cursor: pointer;
+  user-select: none;
+}
+
+.composer-voice-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.composer-voice-button.is-active {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--surface);
+}
+
+.composer-voice-button.composer-voice-live {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.composer-voice-button.composer-voice-live.is-active {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.composer-voice-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .composer-stop:hover:not(:disabled) {

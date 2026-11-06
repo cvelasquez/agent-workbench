@@ -1,7 +1,7 @@
 /**
  * Protocolo WebSocket entre el navegador y el servidor local.
  *
- * Version 7 — la copia propia.
+ * Version 9: controles de voz nativos, sobre las familias anteriores.
  *
  * Cambio de la v1 a la v2: el WebSocket dejo de ser duenio de la pty. Las
  * terminales viven en el servidor y el socket solo se engancha a ellas. Por eso
@@ -114,6 +114,10 @@
  * pestana que mira cada ventana, que decide el foco que se le reporta a la CLI.
  * Un servidor anterior no manda la sugerencia e ignora la atencion.
  *
+ * La v9 agrega `agent.voice`: el servidor valida la capacidad nativa de la
+ * terminal antes de iniciar, detener o cancelar dictado o voz en vivo. No se
+ * encola para ejecutarse después de una reconexión.
+ *
  * Reglas:
  *  - Sin `any`. Lo que entra de la red es `unknown` hasta que un parser lo
  *    estrecha.
@@ -139,6 +143,7 @@ import {
   parseAgentInfo,
   type AgentId,
   type AgentInfo,
+  type NativeVoiceMode,
   type SessionAgentId,
 } from './agents.js';
 import { isPermissionMode, type PermissionMode } from './permission-modes.js';
@@ -273,7 +278,7 @@ import {
 } from './settings.js';
 
 /** Se incrementa cuando el contrato cambia de forma incompatible. */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /** Ruta del WebSocket. El resto del servidor sirve la UI. */
 export const WS_PATH = '/ws';
@@ -290,6 +295,14 @@ export interface ClientInputMessage {
   type: 'input';
   terminalId: TerminalId;
   data: string;
+}
+
+/** Control nativo de voz. El servidor verifica la capacidad de esa terminal antes de escribir. */
+export interface ClientAgentVoiceMessage {
+  type: 'agent.voice';
+  terminalId: TerminalId;
+  mode: NativeVoiceMode;
+  action: 'start' | 'stop' | 'cancel';
 }
 
 /**
@@ -1438,6 +1451,7 @@ export interface ClientWorktreeDeleteBranchMessage {
 
 export type ClientMessage =
   | ClientInputMessage
+  | ClientAgentVoiceMessage
   | ClientTerminalAttentionMessage
   | ClientSubmitMessage
   | ClientCodexQueueMessage
@@ -1834,6 +1848,14 @@ export interface ServerAgentSubmittedMessage {
   terminalId: TerminalId;
   requestId: string;
   delivered: boolean;
+}
+
+/** Acuse de cada acción de voz, para que el Composer refleje el estado real de la CLI. */
+export interface ServerAgentVoiceStatusMessage {
+  type: 'agent.voice.status';
+  terminalId: TerminalId;
+  mode: NativeVoiceMode;
+  active: boolean;
 }
 
 /** Resultado de `codex queue`; no implica que el mensaje ya aparezca en el hilo. */
@@ -2627,6 +2649,7 @@ export type ServerMessage =
   | ServerConversationQueueMessage
   | ServerConversationLiveQuestionMessage
   | ServerAgentSubmittedMessage
+  | ServerAgentVoiceStatusMessage
   | ServerCodexQueueResultMessage
   | ServerAgentForceSentMessage
   | ServerAgentQueueEditedMessage
@@ -2769,6 +2792,14 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return terminalId === null || data === null
         ? null
         : { type: 'input', terminalId, data };
+    }
+    case 'agent.voice': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const mode = record['mode'];
+      const action = record['action'];
+      if (terminalId === null || (mode !== 'dictation' && mode !== 'live') ||
+          (action !== 'start' && action !== 'stop' && action !== 'cancel')) return null;
+      return { type: 'agent.voice', terminalId, mode, action };
     }
     case 'agent.submit': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -3659,6 +3690,14 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return terminalId === null || requestId === null || delivered === null
         ? null
         : { type: 'agent.submitted', terminalId, requestId, delivered };
+    }
+    case 'agent.voice.status': {
+      const terminalId = asNonEmptyString(record['terminalId']);
+      const mode = record['mode'];
+      const active = asBoolean(record['active']);
+      return terminalId === null || (mode !== 'dictation' && mode !== 'live') || active === null
+        ? null
+        : { type: 'agent.voice.status', terminalId, mode, active };
     }
     case 'agent.codexQueueResult': {
       const terminalId = asNonEmptyString(record['terminalId']);

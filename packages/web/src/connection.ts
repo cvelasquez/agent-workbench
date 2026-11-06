@@ -135,7 +135,7 @@ export class AgentConnection {
       return true;
     }
     // La salida del pty no se encola: se recupera con el replay al reenganchar.
-    if (message.type !== 'input' && message.type !== 'resize') {
+    if (message.type !== 'input' && message.type !== 'resize' && message.type !== 'agent.voice') {
       this.outbox.push(message);
     }
     return false;

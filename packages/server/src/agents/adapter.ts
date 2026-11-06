@@ -1095,6 +1095,8 @@ export interface AgentAdapter {
   readonly installUrl: string;
   readonly capabilities: AgentCapabilities;
   readonly input: AgentInput;
+  /** Diálogos de inicio que podrían interpretar una tecla de voz como respuesta. */
+  readonly nativeVoiceStartupDialog?: RegExp;
 
   locate(): Promise<CliLocation | null>;
   /** Encola texto en la sesion activa cuando la CLI expone esa operacion. */
