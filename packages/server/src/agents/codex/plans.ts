@@ -65,6 +65,8 @@ export function planRef(raw: string): string | null {
 
 function insideRoot(cwd: string, name: string): string | null {
   if (!cwd || !path.isAbsolute(cwd) || !name || name.includes('\0') || name.length > 2048) return null;
+  // Codex CLI usa `/D:/...` para rutas de Windows en enlaces Markdown entre ángulos.
+  if (process.platform === 'win32' && /^\/[a-zA-Z]:[\\/]/.test(name)) name = name.slice(1);
   // A foreign Windows absolute path must not be mistaken for a relative name on POSIX.
   if (path.win32.isAbsolute(name) && !path.isAbsolute(name)) return null;
   const root = path.resolve(cwd);

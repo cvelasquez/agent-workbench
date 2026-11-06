@@ -1080,6 +1080,7 @@ export function App(): JSX.Element {
   );
   const fileLinks = useFileLinks({
     connection,
+    agent: activeAgent,
     // Con Archivos escondida en Ajustes no hay donde abrirlo: el hilo queda como texto.
     enabled: fileCheck && panels.isVisible('files'),
     terminalId: activeTerminalId,

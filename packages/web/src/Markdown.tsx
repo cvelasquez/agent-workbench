@@ -20,7 +20,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { t } from './i18n/index.js';
-import { nextInlineToken } from './inline-markup.js';
+import { nextInlineToken, parseMarkdownLink } from './inline-markup.js';
 
 /** Resalta las coincidencias de la busqueda dentro de un tramo de texto. */
 function withNeedle(text: string, needle: string, keyBase: string): (JSX.Element | string)[] {
@@ -71,17 +71,14 @@ interface InlineLinks {
   code: CodeLinkResolver | undefined;
 }
 
-const LOCAL_LINK = /^\[([^\]\n]+)\]\(([^)\s]+)\)$/;
-
 function localTarget(
   raw: string,
   resolve: LocalLinkResolver,
 ): { label: string; href: string; open: () => void } | null {
-  const match = LOCAL_LINK.exec(raw);
-  if (match === null) return null;
-  const href = match[2] ?? '';
-  const open = resolve(href);
-  return open === null ? null : { label: match[1] ?? '', href, open };
+  const link = parseMarkdownLink(raw);
+  if (link === null) return null;
+  const open = resolve(link.href);
+  return open === null ? null : { ...link, open };
 }
 
 /**

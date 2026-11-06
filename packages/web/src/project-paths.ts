@@ -34,6 +34,8 @@ export interface ProjectRoot {
   cwd: string;
   /** `process.platform` del servidor. */
   platform: string;
+  /** La CLI activa, para interpretar solo sus formatos especiales de rutas. */
+  agent?: string;
 }
 
 /** `src/app.ts:12`, `src/app.ts:12:5`, `src/app.ts:12-20`, `src/app.ts#L12` y `#L12-L20`. */
@@ -77,6 +79,8 @@ export function projectPathOf(mention: string, root: ProjectRoot): string | null
   if (text.length === 0) return null;
 
   const windows = root.platform === 'win32';
+  // Codex CLI en Windows representa rutas absolutas como `/D:/...`.
+  if (windows && root.agent === 'codex' && /^\/[A-Za-z]:\//.test(text)) text = text.slice(1);
   if (/^[A-Za-z]:\//.test(text) || text.startsWith('//')) {
     // Con unidad o de red: solo si es de este proyecto, y solo en Windows.
     const inside = windows ? insideProject(text, root) : null;
@@ -116,7 +120,8 @@ export function projectPathOf(mention: string, root: ProjectRoot): string | null
  * y mirada antes pasaba por relativa (§6.31)—.
  */
 export function projectLinkPathOf(href: string, root: ProjectRoot): string | null {
-  const bare = href.split('#')[0]?.split('?')[0] ?? '';
+  const destination = href.startsWith('<') && href.endsWith('>') ? href.slice(1, -1) : href;
+  const bare = destination.split('#')[0]?.split('?')[0] ?? '';
   if (bare.length === 0) return null;
   let decoded: string;
   try {
@@ -130,7 +135,7 @@ export function projectLinkPathOf(href: string, root: ProjectRoot): string | nul
 }
 
 const CODE_SPAN = /`([^`\n]+)`/g;
-const LINK_TARGET = /\]\(([^)\s]+)\)/g;
+const LINK_TARGET = /\]\((<[^>\r\n]+>|[^)\s]+)\)/g;
 
 /**
  * Los candidatos de un texto del agente, sin repetir: las rutas relativas que

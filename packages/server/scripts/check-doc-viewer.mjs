@@ -166,6 +166,7 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
   const shared = await import('@agent-workbench/shared');
   const { readFileSync } = await import('node:fs');
   const win = { cwd: 'D:\\Mi Proyecto', platform: 'win32' };
+  const codexWin = { ...win, agent: 'codex' };
   const posix = { cwd: '/home/ana/proyecto', platform: 'linux' };
   const of = (mention, root = win) => paths.projectPathOf(mention, root);
 
@@ -185,6 +186,11 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
     of('/home/ana/proyecto/src/a.ts', posix) === 'src/a.ts' && of('/home/ana/Proyecto/src/a.ts', posix) === null &&
       of('/etc/passwd', posix) === null && of('C:/x/a.ts', posix) === null);
   check('6.6 en Windows, una que empieza con / no se adivina', of('/d/Mi Proyecto/src/a.ts') === null && of('/src/a.ts') === null);
+  check('6.C1 una ruta Codex /D:/ dentro del proyecto se normaliza con contención',
+    of('/D:/Mi Proyecto/docs/voz evidencia.md', codexWin) === 'docs/voz evidencia.md' &&
+      of('/D:/Otro/docs/voz evidencia.md', codexWin) === null &&
+      of('/c:/Mi Proyecto/docs/voz evidencia.md', codexWin) === null &&
+      of('/D:/Mi Proyecto/docs/voz evidencia.md', { ...win, agent: 'claude-code' }) === null);
   check('6.7 nada que salga con .., ni el home, ni una direccion, ni un patron, ni una opcion',
     of('../afuera/x.md') === null && of('docs/../../x.md') === null && of('~/notas/x.md') === null &&
       of('https://example.com/a/b.md') === null && of('src/**/*.ts') === null && of('--force/x.md') === null &&
@@ -199,6 +205,9 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
   const link = (href, root = win) => paths.projectLinkPathOf(href, root);
   check('6.11 el destino de un enlace: sin ancla ni consulta, y decodificado',
     link('docs/mi%20guia.md#pasos') === 'docs/mi guia.md' && link('docs/guia.md?x=1') === 'docs/guia.md');
+  check('6.C2 el enlace Codex entre angulos acepta espacios y ruta /D:/',
+    link('</D:/Mi Proyecto/docs/voz evidencia.md>', codexWin) === 'docs/voz evidencia.md' &&
+      link('/D:/Mi%20Proyecto/docs/voz%20evidencia.md', codexWin) === 'docs/voz evidencia.md');
   check('6.12 un enlace con esquema, una unidad codificada o un ancla sola no son del proyecto',
     link('mailto:alguien') === null && link('file:///etc/passwd') === null && link('C%3A/Windows/win.ini') === null &&
       link('#arriba') === null && link('..%2F..%2Fafuera.md') === null && link('%E0%A4%A') === null);
@@ -213,6 +222,9 @@ const keys = (strip) => strip.docs.map((doc) => doc.key).join(',');
   ].join('\n');
   check('6.13 los candidatos de un texto: lo que va entre acentos graves y los enlaces, sin repetir',
     json(paths.pathCandidates(text, win)) === json(['docs/guia.md', 'src/app.ts', 'apps/mobile/notes.md']), json(paths.pathCandidates(text, win)));
+  check('6.C3 el mensaje Codex deja el destino completo como candidato para Archivos',
+    json(paths.pathCandidates('Quedo [la evidencia](</D:/Mi Proyecto/docs/voz evidencia.md>).', codexWin)) ===
+      json(['docs/voz evidencia.md']));
 
   const known = new Map([['docs/guia.md', 'file'], ['docs/plan.md', null], ['docs/capturas', 'directory']]);
   check('6.14 se pregunta lo que no se conoce y lo que antes no estaba; lo que ya esta, o va en camino, no',

@@ -1105,6 +1105,28 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   const linkedRef = links.takePlans()[0];
   const linked = linkedRef === undefined ? undefined : (await describeCodexPlans(target, [linkedRef]))[0];
   check('Codex lista enlaces locales existentes como referencias', linked?.origin === 'reference' && linked.exists);
+  const spacedProject = path.join(work, 'Codex Project');
+  const spacedDocument = path.join(spacedProject, 'docs', 'voice-dictation-evidence.md');
+  await mkdir(path.dirname(spacedDocument), { recursive: true });
+  await writeFile(spacedDocument, '# Evidencia de dictado', 'utf8');
+  const codexDestination = process.platform === 'win32'
+    ? `/${spacedDocument.replace(/\\/g, '/')}`
+    : spacedDocument;
+  const codexMarkdownLink = `[evidencia y pendientes](<${codexDestination}>)`;
+  const codexRefs = referencedMarkdownDocuments(codexMarkdownLink, spacedProject, 'codex-link-session');
+  check('Codex reconoce el enlace Markdown Windows /D:/ con espacios', codexRefs.length === 1);
+  const codexLinkSink = new CodexRolloutSink('codex-link-session', undefined, undefined, spacedProject);
+  codexLinkSink.consume({ type: 'response_item', payload: {
+    type: 'message', role: 'assistant', content: [{ type: 'output_text', text: codexMarkdownLink }],
+  } }, 1, { find: () => undefined });
+  await codexLinkSink.verifyDocuments();
+  const codexLinkRef = codexLinkSink.takePlans()[0];
+  const codexLinked = codexLinkRef === undefined ? undefined : (await describeCodexPlans(
+    { cwd: spacedProject, sessionId: 'codex-link-session' }, [codexLinkRef],
+  ))[0];
+  check('Codex publica en Planes el documento enlazado con ruta /D:/ y espacios',
+    codexLinked?.exists === true && codexLinked.origin === 'reference' &&
+      (await readCodexPlan({ cwd: spacedProject, sessionId: 'codex-link-session' }, codexLinkRef ?? ''))?.text === '# Evidencia de dictado');
   const branchRoot = path.join(root, 'worktree');
   await mkdir(branchRoot, { recursive: true });
   await writeFile(path.join(branchRoot, 'branch.md'), '# Rama', 'utf8');

@@ -11,7 +11,7 @@
  * Importa el modulo de la interfaz: no tiene JSX justamente para esto.
  */
 
-import { nextInlineToken, nextUrl, trimUrl } from '../../web/src/inline-markup.ts';
+import { nextInlineToken, nextUrl, parseMarkdownLink, trimUrl } from '../../web/src/inline-markup.ts';
 
 let failures = 0;
 const check = (label, ok, extra = '') => {
@@ -100,6 +100,26 @@ check('trimUrl no se come una ruta normal', trimUrl('https://x.dev/a/b') === 'ht
     'el enlace de markdown le gana a la URL que lleva adentro',
     token?.href === 'https://github.com/foo' && token?.label === 'el repo',
     JSON.stringify(token),
+  );
+}
+{
+  const raw = '[evidencia y pendientes](</D:/Agent Explorer/docs/evidencia.md>)';
+  const parsed = parseMarkdownLink(raw);
+  const tokens = tokenize(raw);
+  check(
+    'destino local entre angulos conserva una ruta de Codex con espacios',
+    parsed?.label === 'evidencia y pendientes' && parsed.href === '/D:/Agent Explorer/docs/evidencia.md' &&
+      tokens.length === 1 && tokens[0]?.kind === 'plain' && tokens[0].text === raw,
+    JSON.stringify({ parsed, tokens }),
+  );
+}
+{
+  const parsed = parseMarkdownLink('[sitio](<https://example.com/ruta>)');
+  const token = firstLink('[sitio](<https://example.com/ruta>)');
+  check(
+    'destino externo entre angulos conserva su esquema seguro',
+    parsed?.href === 'https://example.com/ruta' && token?.href === parsed.href,
+    JSON.stringify({ parsed, token }),
   );
 }
 

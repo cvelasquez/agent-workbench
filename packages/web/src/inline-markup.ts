@@ -35,6 +35,7 @@ const INLINE = new RegExp(
     String.raw`(__[^_\n]+__)`,
     String.raw`(\*[^*\n]+\*)`,
     String.raw`(~~[^~\n]+~~)`,
+    String.raw`(\[[^\]\n]+\]\(<[^>\n]+>\))`,
     String.raw`(\[[^\]\n]+\]\([^)\s]+\))`,
     `(${URL_SOURCE})`,
   ].join('|'),
@@ -117,6 +118,17 @@ export function trimUrl(raw: string): string {
   }
 }
 
+/** Parsea un enlace Markdown y quita los delimitadores de un destino entre ángulos. */
+export function parseMarkdownLink(raw: string): { label: string; href: string } | null {
+  const match = /^\[([^\]\n]+)\]\((<[^>\n]+>|[^)\s]+)\)$/.exec(raw);
+  if (match === null) return null;
+  const destination = match[2] ?? '';
+  const href = destination.startsWith('<') && destination.endsWith('>')
+    ? destination.slice(1, -1)
+    : destination;
+  return href.length === 0 ? null : { label: match[1] ?? '', href };
+}
+
 /**
  * El proximo token del texto, o null si ya no hay marcado.
  *
@@ -139,11 +151,9 @@ export function nextInlineToken(text: string): InlineMatch | null {
   if (raw.startsWith('*')) return at({ kind: 'em', text: raw.slice(1, -1) });
 
   if (raw.startsWith('[')) {
-    const split = raw.indexOf('](');
-    const label = raw.slice(1, split);
-    const href = raw.slice(split + 2, -1);
-    return SAFE_SCHEME.test(href)
-      ? at({ kind: 'link', label, href })
+    const link = parseMarkdownLink(raw);
+    return link !== null && SAFE_SCHEME.test(link.href)
+      ? at({ kind: 'link', label: link.label, href: link.href })
       : at({ kind: 'plain', text: raw });
   }
 

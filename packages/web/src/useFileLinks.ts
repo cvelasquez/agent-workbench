@@ -55,6 +55,7 @@ interface TabPaths {
 
 export function useFileLinks(options: {
   connection: AgentConnection;
+  agent: string | null;
   enabled: boolean;
   terminalId: TerminalId | null;
   cwd: string;
@@ -70,7 +71,7 @@ export function useFileLinks(options: {
    */
   onOpenFolder: ((relativePath: string) => void) | null;
 }): FileLinks | null {
-  const { connection, enabled, terminalId, cwd, platform, events, liveTerminalIds, onOpen, onOpenFolder } = options;
+  const { connection, agent, enabled, terminalId, cwd, platform, events, liveTerminalIds, onOpen, onOpenFolder } = options;
   const tabs = useRef(new Map<TerminalId, TabPaths>());
   const requests = useRef(new Map<string, { terminalId: TerminalId; paths: string[] }>());
   const nextRequest = useRef(0);
@@ -79,7 +80,7 @@ export function useFileLinks(options: {
   // El socket volvio: lo que estaba en camino se mira otra vez.
   const [reconnects, setReconnects] = useState(0);
 
-  const root = useMemo<ProjectRoot>(() => ({ cwd, platform }), [cwd, platform]);
+  const root = useMemo<ProjectRoot>(() => ({ cwd, platform, agent: agent ?? undefined }), [cwd, platform, agent]);
 
   useEffect(() => {
     const offMessage = connection.onMessage((message) => {
