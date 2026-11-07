@@ -13,8 +13,8 @@
  * queda lo comun: la cuenta de suscriptores, el modo de permiso que llevamos
  * nosotros y a quien avisar.
  *
- * El seguimiento se prende y se apaga por demanda: solo la pestana que se esta
- * mirando tiene un follower vivo.
+ * El seguimiento se prende por demanda. Si la actividad depende del historial
+ * (Codex), sigue vivo mientras exista la pty, aunque nadie mire la pestana.
  */
 
 import { EventEmitter } from 'node:events';
@@ -415,6 +415,9 @@ export class ConversationHub extends EventEmitter {
         this.refreshOpenToolCall(terminalId, entry);
         this.refreshTurnActivity(terminalId, entry);
         this.refreshSubagents(terminalId, entry);
+        if (entry.primed && entry.refs === 0 && !this.needsBackgroundFollow(terminalId, entry)) {
+          this.release(terminalId, entry);
+        }
       }
       // La cola vive en el proceso: sin pty no queda nada, y una pty nueva empieza vacia (hito 45).
       for (const terminalId of new Set([
@@ -1022,6 +1025,10 @@ export class ConversationHub extends EventEmitter {
     await this.runPoll(terminalId, next, { silent: true });
     // Otro cambio mientras tanto ya aviso por su cuenta.
     if (this.entries.get(terminalId) !== next) return;
+    if (next.refs === 0 && !this.needsBackgroundFollow(terminalId, next)) {
+      this.release(terminalId, next);
+      return;
+    }
     this.emit('reset', terminalId);
   }
 
@@ -1138,13 +1145,18 @@ export class ConversationHub extends EventEmitter {
     void entry.polling.catch(() => undefined).then(() => entry.follower.close?.());
   }
 
-  /** Un cliente deja de mirar. Con el ultimo, el seguimiento se apaga. */
+  /** La actividad de Codex necesita leer tambien el cierre del turno sin espectadores. */
+  private needsBackgroundFollow(terminalId: TerminalId, entry: Entry): boolean {
+    return entry.adapter.status?.setTurnOpen !== undefined && this.registry.launchedAtOf(terminalId) !== null;
+  }
+
+  /** Un cliente deja de mirar. El historial que alimenta la actividad sigue hasta que salga la pty. */
   unsubscribe(terminalId: TerminalId): void {
     const entry = this.entries.get(terminalId);
     if (entry === undefined) return;
 
-    entry.refs -= 1;
-    if (entry.refs > 0) return;
+    entry.refs = Math.max(0, entry.refs - 1);
+    if (entry.refs > 0 || this.needsBackgroundFollow(terminalId, entry)) return;
 
     this.release(terminalId, entry);
     debugLog('conversation', `stopped following ${terminalId.slice(0, 8)}`);
@@ -1516,6 +1528,9 @@ export class ConversationHub extends EventEmitter {
         console.warn(`[conversation] couldn't read ${entry.follower.label}:`, error);
         return;
       }
+
+      // Al terminar una lectura, la pestana pudo haberse cerrado o cambiado de sesion.
+      if (this.entries.get(terminalId) !== entry) return;
 
       // La CLI escribio despues de deshacer: lo que escondio la app ya lo dice el archivo.
       if (withdrawnBefore !== null && entry.follower.withdrawnFrom?.() !== withdrawnBefore) {

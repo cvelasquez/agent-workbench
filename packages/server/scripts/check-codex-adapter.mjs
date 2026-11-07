@@ -2779,6 +2779,124 @@ const orderedIds = (state) => workspace.orderedTabs(state).map((e) => (e.kind ==
   status.dispose();
 }
 
+// Codex debe cerrar el turno aunque el usuario ya mire otra pestana.
+{
+  const { EventEmitter } = await import('node:events');
+  const { ConversationHub } = await import('../src/conversation-hub.ts');
+  const { CodexScreenStatus } = await import('../src/agents/codex/screen-status.ts');
+  const sessionId = cid(980);
+  const file = await writeRollout(sessionsRoot, sessionId,
+    sessionMeta({ id: sessionId }) + taskStarted(BASE) + userPair(BASE + 1, 'no hagas nada, responde ok'),
+    paths.uuidV7Millis(sessionId));
+  let launchedAt = BASE - 1000;
+  let descriptor = {
+    terminalId: 'background', kind: 'agent', cwd: CWD, agent: 'codex', sessionId,
+    label: '', resumed: false, createdAt: 0, alive: true, exitCode: null, sleeping: false,
+  };
+  const status = new CodexScreenStatus();
+  const activities = [];
+  status.subscribe(sessionId, (value) => activities.push(value?.activity));
+  status.set(sessionId, { activity: 'idle', waitingFor: null });
+  const followers = [];
+  const adapter = {
+    id: 'codex',
+    capabilities: { ...shared.NO_CAPABILITIES, sessionIdAtLaunch: false },
+    status,
+    history: {
+      follow: ({ cwd, sessionId }) => {
+        const follower = new CodexSessionFollower(cwd, sessionId);
+        const tracked = { follower, closed: false };
+        follower.close = async () => { tracked.closed = true; };
+        followers.push(tracked);
+        return follower;
+      },
+      plans: null,
+      followPollMs: 50,
+    },
+  };
+  const registry = new EventEmitter();
+  registry.get = (id) => id === 'background' ? descriptor : null;
+  registry.launchedAtOf = (id) => id === 'background' ? launchedAt : null;
+  registry.watchScreen = () => null;
+  const hub = new ConversationHub(registry, { get: () => ({ adapter, location: null }) });
+  try {
+    await hub.subscribe('background');
+    await hub.subscribe('background');
+    check('Codex en segundo plano: el turno abierto esta ocupado', activities.at(-1) === 'busy');
+    hub.unsubscribe('background');
+    hub.unsubscribe('background');
+    hub.unsubscribe('background');
+    // El watcher de Windows puede no avisar: la finalizacion tiene que llegar por el sondeo.
+    await appendFile(file, assistant(BASE + 3, 'ok') + turnEnd(BASE + 4, 'task_complete', 100));
+    status.set(sessionId, { activity: 'idle', waitingFor: null });
+    check('Codex en segundo plano: avisa libre sin volver a suscribirse',
+      await waitFor(() => activities.at(-1) === 'idle'));
+    const { chimeFor } = await import('../../web/src/notification-sound.ts');
+    check('Codex en segundo plano: la transicion dispara el aviso de finalizacion',
+      activities.slice(1).some((activity, index) => chimeFor(activities[index], activity) === 'done'));
+    await hub.subscribe('background');
+    check('Codex en segundo plano: volver reutiliza el mismo seguidor', followers.length === 1 && !followers[0].closed);
+    hub.unsubscribe('background');
+    await appendFile(file, taskStarted(BASE + 10));
+    check('Codex en segundo plano: tambien detecta el siguiente turno sin mirar',
+      await waitFor(() => activities.at(-1) === 'busy'));
+
+    const nextId = cid(981);
+    const nextFile = await writeRollout(sessionsRoot, nextId,
+      sessionMeta({ id: nextId }) + taskStarted(BASE + 20), paths.uuidV7Millis(nextId));
+    descriptor = { ...descriptor, sessionId: nextId };
+    status.subscribe(nextId, (value) => activities.push(value?.activity));
+    status.set(nextId, { activity: 'idle', waitingFor: null });
+    registry.emit('session', 'background', nextId);
+    check('Codex en segundo plano: sigue una sesion nueva y cierra el lector anterior',
+      await waitFor(() => followers.length === 2 && followers[0].closed && activities.at(-1) === 'busy'));
+    await appendFile(nextFile, turnEnd(BASE + 21, 'turn_aborted', 100));
+    check('Codex en segundo plano: tambien reconoce un turno interrumpido',
+      await waitFor(() => activities.at(-1) === 'idle'));
+    launchedAt = null;
+    registry.emit('changed');
+    check('Codex en segundo plano: al salir el proceso suelta el seguimiento sin espectadores',
+      hub.getSnapshot('background') === null && await waitFor(() => followers[1]?.closed));
+
+    launchedAt = BASE - 1000;
+    await hub.subscribe('background');
+    hub.unsubscribe('background');
+    const delayed = followers[2].follower;
+    const poll = delayed.poll.bind(delayed);
+    let reading = false;
+    let releaseRead;
+    const readGate = new Promise((resolve) => { releaseRead = resolve; });
+    delayed.poll = async () => { reading = true; await readGate; return poll(); };
+    await appendFile(nextFile, taskStarted(BASE + 30));
+    check('Codex en segundo plano: inicia una lectura pendiente antes de cerrar', await waitFor(() => reading));
+    const beforeDrop = activities.length;
+    hub.drop('background');
+    releaseRead();
+    check('Codex en segundo plano: cerrar la pestana libera el lector aunque el proceso siga vivo',
+      hub.getSnapshot('background') === null && await waitFor(() => followers[2]?.closed));
+    check('Codex en segundo plano: una lectura tardia no publica actividad tras cerrar', activities.length === beforeDrop);
+    await hub.subscribe('background');
+    await hub.subscribe('background');
+    hub.unsubscribe('background');
+    launchedAt = null;
+    registry.emit('changed');
+    check('Codex en segundo plano: al salir el proceso conserva el hilo que otra ventana mira',
+      hub.getSnapshot('background') !== null && !followers[3]?.closed);
+    hub.unsubscribe('background');
+    check('Codex en segundo plano: el ultimo espectador libera el hilo del proceso terminado',
+      hub.getSnapshot('background') === null && await waitFor(() => followers[3]?.closed));
+    launchedAt = BASE - 1000;
+    await hub.subscribe('background');
+    hub.unsubscribe('background');
+    hub.disposeAll();
+    check('Codex en segundo plano: apagar el servidor libera los lectores retenidos',
+      hub.getSnapshot('background') === null && await waitFor(() => followers[4]?.closed));
+  } finally {
+    hub.disposeAll();
+    status.dispose();
+  }
+}
+
 // Una cola nativa confirmada se muestra hasta que el rollout la entrega.
 {
   const { EventEmitter } = await import('node:events');
