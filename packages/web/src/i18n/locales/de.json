@@ -231,6 +231,7 @@
   "controls.model.noData": "Modell: In dieser Sitzung gab es noch keine Antwort",
   "controls.model.placeholder": "Modell – keine Daten",
   "controls.model.provisional": "Vorläufiges Modell: {{model}}. Die Sitzung hat es noch nicht bestätigt",
+  "controls.model.select": "Auswählen",
   "controls.permission.askForApproval": "Genehmigung anfordern",
   "controls.permission.askForApprovalHint": "Vor Internetzugriff oder Änderungen außerhalb des Arbeitsbereichs fragen.",
   "controls.permission.automatic": "Für mich genehmigen",

@@ -231,6 +231,7 @@
   "controls.model.noData": "Model: there hasn't been any response in this session yet",
   "controls.model.placeholder": "model — no data",
   "controls.model.provisional": "Provisional model: {{model}}. The session has not confirmed it yet",
+  "controls.model.select": "Select",
   "controls.permission.askForApproval": "Ask for approval",
   "controls.permission.askForApprovalHint": "Ask before accessing the internet or editing outside the workspace.",
   "controls.permission.automatic": "Approve for me",

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
-import type { AgentDefaults, ModelOption } from '@agent-workbench/shared';
+import type { ModelOption } from '@agent-workbench/shared';
 import type { CliLocation } from '../locate.js';
 
 /** Desde 0.164 la TUI acepta argumentos en /model. */
@@ -50,15 +50,6 @@ export function codexModelOptions(data: unknown): ModelOption[] {
       defaultEffort,
     }];
   });
-}
-
-/** Returns the catalog's suggestion only for a new conversation and one unambiguous default. */
-export function codexCatalogDefaults(models: readonly ModelOption[], sessionModel?: string | null): AgentDefaults | null {
-  if (sessionModel !== null && sessionModel !== undefined) return null;
-  const recommended = models.filter((model) => model.isDefault === true);
-  if (recommended.length !== 1) return null;
-  const model = recommended[0]!;
-  return { model: model.value, effort: model.defaultEffort ?? null, contextWindow: null };
 }
 
 /** Consulta el protocolo por stdio sin leer archivos de configuracion desde AWB. */

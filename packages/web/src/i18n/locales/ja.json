@@ -222,6 +222,7 @@
   "controls.model.noData": "モデル：このセッションではまだ応答がありません",
   "controls.model.placeholder": "モデル — データなし",
   "controls.model.provisional": "仮のモデル: {{model}}。セッションではまだ確認されていません",
+  "controls.model.select": "選択",
   "controls.permission.askForApproval": "承認を求める",
   "controls.permission.askForApprovalHint": "インターネットへのアクセスやワークスペース外の編集には承認を求めます。",
   "controls.permission.automatic": "自動で承認",

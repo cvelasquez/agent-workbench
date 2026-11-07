@@ -222,6 +222,7 @@
   "controls.model.noData": "모델: 이 세션에는 아직 응답이 없습니다",
   "controls.model.placeholder": "모델 — 데이터 없음",
   "controls.model.provisional": "임시 모델: {{model}}. 세션에서 아직 확인되지 않았습니다",
+  "controls.model.select": "선택",
   "controls.permission.askForApproval": "승인 요청",
   "controls.permission.askForApprovalHint": "인터넷 접속 또는 작업 공간 밖의 수정에 승인을 요청합니다.",
   "controls.permission.automatic": "대신 승인",

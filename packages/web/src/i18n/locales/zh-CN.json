@@ -222,6 +222,7 @@
   "controls.model.noData": "模型：此会话中还没有任何回复",
   "controls.model.placeholder": "模型：无数据",
   "controls.model.provisional": "暂定模型：{{model}}。会话尚未确认此值",
+  "controls.model.select": "选择",
   "controls.permission.askForApproval": "请求批准",
   "controls.permission.askForApprovalHint": "访问互联网或编辑工作区以外的文件时请求批准。",
   "controls.permission.automatic": "替我批准",

@@ -249,6 +249,7 @@
   "controls.model.noData": "Модель: в этой сессии ещё не было ни одного ответа",
   "controls.model.placeholder": "модель — нет данных",
   "controls.model.provisional": "Предварительная модель: {{model}}. Сессия ещё не подтвердила её",
+  "controls.model.select": "Выбрать",
   "controls.permission.askForApproval": "Запрашивать разрешение",
   "controls.permission.askForApprovalHint": "Запрашивать разрешение на доступ к интернету и изменения вне рабочей области.",
   "controls.permission.automatic": "Одобрять за меня",

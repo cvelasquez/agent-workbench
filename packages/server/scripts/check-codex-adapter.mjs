@@ -722,7 +722,7 @@ const paths = await import('../src/agents/codex/paths.ts');
 const lines = await import('../src/agents/codex/rollout-lines.ts');
 const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts');
 {
-  const { codexCatalogDefaults, codexModelOptions, loadCodexModels, supportsCodexModelCommand } = await import('../src/agents/codex/catalog.ts');
+  const { codexModelOptions, loadCodexModels, supportsCodexModelCommand } = await import('../src/agents/codex/catalog.ts');
   const { codexQueueLauncher, queueCodexText, supportsCodexQueue } = await import('../src/agents/codex/queue.ts');
   const models = codexModelOptions([
     { model: 'gpt-example', displayName: 'Example', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }], isDefault: true, defaultReasoningEffort: 'high' },
@@ -731,11 +731,42 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
   ]);
   check('Codex obtiene modelos y esfuerzos del catalogo', models.length === 1 && same(models[0].supportedEfforts, ['low', 'high']));
   check('Codex conserva el modelo y esfuerzo recomendados para el arranque', models[0].isDefault === true && models[0].defaultEffort === 'high');
-  check('Codex usa el default del catálogo solo como sugerencia de una conversación nueva',
-    same(codexCatalogDefaults(models), { model: 'gpt-example', effort: 'high', contextWindow: null }) &&
-      codexCatalogDefaults(models, 'gpt-previous') === null && codexCatalogDefaults([]) === null);
+  const { createCodexAdapter } = await import('../src/agents/codex/index.ts');
+  const adapter = createCodexAdapter();
+  check('Codex no inventa modelo ni esfuerzo al iniciar o reanudar',
+    await adapter.defaults(work) === null && await adapter.defaults(work, 'gpt-previous') === null);
+  adapter.dispose();
+  const { AgentControls } = await import('../../web/src/AgentControls.tsx');
+  // El runner del servidor usa JSX clasico; la web usa el runtime automatico.
+  const { createRequire } = await import('node:module');
+  const previousReact = globalThis.React;
+  globalThis.React = createRequire(new URL('../../web/package.json', import.meta.url))('react');
+  const commands = [];
+  const props = {
+    models,
+    efforts: [{ value: 'low', label: 'low' }, { value: 'high', label: 'high' }],
+    model: null, effort: null, effortUsesModel: true, disabled: false,
+    onCommand: (command) => commands.push(command),
+  };
+  const [modelSelect, effortSelect] = AgentControls(props).props.children;
+  check('Codex muestra Seleccionar sin enviar comandos al abrir',
+    modelSelect.props.value === '' && modelSelect.props.children[0].props.children === 'Seleccionar' &&
+      effortSelect.props.value === '' && commands.length === 0);
+  modelSelect.props.onChange({ target: { value: '' } });
+  check('Codex conserva el modelo del CLI si no se elige nada', commands.length === 0);
+  modelSelect.props.onChange({ target: { value: models[0].value } });
+  check('Codex permite elegir el modelo recomendado desde el estado sin datos',
+    same(commands, ['/model gpt-example']));
+  const [confirmedModel, confirmedEffort] = AgentControls({ ...props, model: 'gpt-example', effort: 'high' }).props.children;
+  check('Codex muestra modelo y esfuerzo cuando la sesion los confirma',
+    confirmedModel.props.value === 'gpt-example' && confirmedModel.props.children[0] === false && confirmedEffort.props.value === 'high');
+  const [otherAgent] = AgentControls({ ...props, effortUsesModel: false }).props.children;
+  check('Otras CLIs conservan su indicador de modelo sin datos',
+    otherAgent.props.children[0].props.children === 'modelo \u2014 sin datos');
+  if (previousReact === undefined) delete globalThis.React;
+  else globalThis.React = previousReact;
   const unsupportedEffort = codexModelOptions([{ model: 'model-x', isDefault: true, defaultReasoningEffort: 'max', supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }]);
-  check('Codex no sugiere un esfuerzo que el modelo no admite', unsupportedEffort[0]?.defaultEffort === null && codexCatalogDefaults(unsupportedEffort)?.effort === null);
+  check('Codex no sugiere un esfuerzo que el modelo no admite', unsupportedEffort[0]?.defaultEffort === null);
   check('Codex oculta controles si la version no admite argumentos', !supportsCodexModelCommand('codex-cli 0.163.0') && supportsCodexModelCommand('codex-cli 0.166.0') && !supportsCodexModelCommand(null));
   check('Codex admite un catalogo vacio sin inventar modelos', codexModelOptions([]).length === 0 && codexModelOptions(null).length === 0);
   const permissionModule = await import('../../shared/src/codex-permissions.ts');

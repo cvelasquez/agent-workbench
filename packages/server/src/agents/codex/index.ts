@@ -11,8 +11,8 @@
  *  - **No publica su estado en disco.** La pantalla permite detectar estados
  *    conocidos, pero se conserva la guarda para aprobaciones no reconocidas.
  *  - **No se lee su configuracion.** `config.toml` trae el entorno de los MCP,
- *    que puede llevar secretos (regla 2.1). Un valor inicial solo se sugiere
- *    si el catalogo publico identifica un unico modelo recomendado.
+ *    que puede llevar secretos (regla 2.1). El catalogo enumera opciones,
+ *    pero no confirma el modelo ni el esfuerzo activos de la TUI.
  *
  * De `CODEX_HOME` se leen dos carpetas y ninguna se escribe (`paths.ts`).
  */
@@ -37,7 +37,7 @@ import { codexHome, isUuid } from './paths.js';
 import { codexScreenStatus, CodexScreenStatus } from './screen-status.js';
 import { createCodexScreenQuestions } from './question-screen.js';
 import { CODEX_DRAFT_STASH } from './draft-box.js';
-import { codexCatalogDefaults, loadCodexModels, supportsCodexModelCommand, supportsCodexPermissionCommand } from './catalog.js';
+import { loadCodexModels, supportsCodexModelCommand, supportsCodexPermissionCommand } from './catalog.js';
 import { codexQueueLauncher, queueCodexText, supportsCodexQueue, type CodexQueueLauncher } from './queue.js';
 import { prewarmCodexDaemon, type CodexDaemonPrewarmer } from './daemon.js';
 import type { CliLocation } from '../locate.js';
@@ -337,7 +337,7 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): AgentAdap
     scheduled: { kind: 'screen', readyScreen: codexReadyScreen, confirmTimeoutMs: 120_000 },
     planLimits,
 
-    defaults: async (_cwd, sessionModel) => codexCatalogDefaults(models, sessionModel),
+    defaults: async () => null,
     prepare: async () => { void reload(); },
     refreshSetup: reload,
     subscribeChanges: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },

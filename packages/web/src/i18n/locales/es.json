@@ -231,6 +231,7 @@
   "controls.model.noData": "Modelo: todavía no hubo ninguna respuesta en esta sesión",
   "controls.model.placeholder": "modelo — sin datos",
   "controls.model.provisional": "Modelo provisional: {{model}}. La sesión todavía no confirmó el valor activo",
+  "controls.model.select": "Seleccionar",
   "controls.permission.askForApproval": "Pedir aprobación",
   "controls.permission.askForApprovalHint": "Pide aprobación para acceder a internet o editar fuera del proyecto.",
   "controls.permission.automatic": "Aprobar por mí",

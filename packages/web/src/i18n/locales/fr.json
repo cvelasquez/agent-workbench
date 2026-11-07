@@ -231,6 +231,7 @@
   "controls.model.noData": "Modèle : aucune réponse dans cette session pour l'instant",
   "controls.model.placeholder": "modèle — inconnu",
   "controls.model.provisional": "Modèle provisoire : {{model}}. La session ne l’a pas encore confirmé",
+  "controls.model.select": "Sélectionner",
   "controls.permission.askForApproval": "Demander une approbation",
   "controls.permission.askForApprovalHint": "Demande une approbation pour accéder à Internet ou modifier des fichiers hors de l’espace de travail.",
   "controls.permission.automatic": "Approuver pour moi",

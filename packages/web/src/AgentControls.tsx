@@ -19,10 +19,9 @@
  * usando otra.
  *
  * Mientras no haya un turno del proceso actual, una CLI puede no haber escrito
- * su modelo y esfuerzo efectivos. Codex usa entonces como sugerencia provisional
- * el modelo recomendado y su esfuerzo que publica `model/list`; no es una
- * lectura del estado activo de la TUI. El tooltip lo identifica y el primer
- * `turn_context` lo reemplaza. Otras CLIs conservan el origen de sus defaults.
+ * su modelo y esfuerzo efectivos. Codex muestra "Seleccionar" hasta conocerlos:
+ * `model/list` enumera opciones, pero no confirma el estado activo de la TUI.
+ * Otras CLIs conservan el origen de sus defaults.
  */
 
 import {
@@ -141,7 +140,7 @@ export function AgentControls({
           */
         >
           {option === null && (
-            <option value="">{unknown ? (model ?? '') : t('controls.model.placeholder')}</option>
+            <option value="">{unknown ? (model ?? '') : t(effortUsesModel ? 'controls.model.select' : 'controls.model.placeholder')}</option>
           )}
           {models.map((entry) => (
             <option key={entry.value} value={entry.value}>

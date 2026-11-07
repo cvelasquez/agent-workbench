@@ -834,10 +834,9 @@ export function App(): JSX.Element {
   );
 
   /*
-    Antes del primer turno, Codex no muestra el modelo ni el esfuerzo activos en
-    la pantalla medida. En ese caso se enseña como provisional lo que `model/list`
-    recomienda para una conversación nueva. El primer `turn_context` confirma el
-    valor efectivo y reemplaza esa sugerencia.
+    Codex no publica defaults: el catalogo no confirma el modelo ni el esfuerzo
+    activos. Sus combos quedan sin seleccionar hasta que el `turn_context`
+    informa los valores efectivos. Otras CLIs conservan sus defaults.
   */
   const currentModel = observedModel ?? conversation.defaults.model;
   const currentEffort = observedEffort ?? conversation.defaults.effort;
