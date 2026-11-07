@@ -42,9 +42,8 @@ const WARN_RATIO = 0.75;
 const DANGER_RATIO = 0.9;
 
 /**
- * Desde aca se ofrece "Compactar" al lado del medidor (hito 47, §6.37). Pedido
- * por el usuario: antes de que la CLI compacte sola, o de que se llene. Era
- * 0.8 hasta el 20-10-2026, cuando el usuario lo pidio en 0.7.
+ * Desde aca "Compactar" queda siempre visible (hito 47, §6.37). Por debajo,
+ * tambien se ofrece al pasar el mouse por el contexto o enfocarlo con teclado.
  */
 export const COMPACT_RATIO = 0.7;
 
@@ -104,8 +103,9 @@ interface ContextMeterProps {
   /** Abre el dialogo de configurar la status line. */
   onConfigure?: () => void;
   /**
-   * "Compactar", con la ventana al 70 % o mas (hito 47). Solo en la version de
-   * una linea; null o ausente, la CLI no tiene el comando y no se ofrece.
+   * "Compactar", al pasar el mouse o enfocar el medidor, y siempre visible
+   * desde el 70 %. Solo en la version de una linea; null o ausente, la CLI no
+   * tiene el comando y no se ofrece.
    */
   compactAction?: CompactAction | null;
 }
@@ -121,6 +121,21 @@ export function ContextMeter({
   compactAction = null,
 }: ContextMeterProps): JSX.Element {
   const { lastRequestTokens, contextWindow } = usage;
+  const ratio = source !== null && meterMeasured(source, usage) && contextWindow !== null && contextWindow > 0
+    ? Math.min(lastRequestTokens / contextWindow, 1)
+    : null;
+  const compactButton = compact && compactAction !== null ? (
+    <button
+      className={`icon-button meter-compact-button${ratio !== null && ratio >= COMPACT_RATIO ? '' : ' meter-compact-button-on-hover'}`}
+      onClick={compactAction.onCompact}
+      disabled={compactAction.blockedReason !== null}
+      title={compactAction.blockedReason ?? t('meter.compactTitle', { command: compactAction.command })}
+    >
+      {t('meter.compact')}
+    </button>
+  ) : null;
+  // El medidor recibe Tab para revelar el boton que todavia esta oculto.
+  const compactTabIndex = compactButton !== null && (ratio === null || ratio < COMPACT_RATIO) ? 0 : undefined;
 
   if (
     onConfigure !== undefined &&
@@ -131,6 +146,7 @@ export function ContextMeter({
       <div
         className={`meter meter-idle${compact ? ' meter-compact' : ''}`}
         title={meterSetupTitle(statusLineState)}
+        tabIndex={compactTabIndex}
       >
         <span className="meter-label">{t('meter.label')}</span>
         <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
@@ -138,6 +154,7 @@ export function ContextMeter({
         <button className="link-button" onClick={onConfigure}>
           {t('meter.configure')}
         </button>
+        {compactButton}
       </div>
     );
   }
@@ -147,10 +164,12 @@ export function ContextMeter({
       <div
         className={`meter meter-idle${compact ? ' meter-compact' : ''}`}
         title={t('meter.noTokensTitle')}
+        tabIndex={compactTabIndex}
       >
         <span className="meter-label">{t('meter.label')}</span>
         <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
         <span className="meter-value">{t('meter.noTokens')}</span>
+        {compactButton}
       </div>
     );
   }
@@ -171,7 +190,7 @@ export function ContextMeter({
     const idleWindow = meterIdleWindow(source, usage, fallbackWindow);
 
     return (
-      <div className={`meter meter-idle${compact ? ' meter-compact' : ''}`} title={detail}>
+      <div className={`meter meter-idle${compact ? ' meter-compact' : ''}`} title={detail} tabIndex={compactTabIndex}>
         <span className="meter-label">{t('meter.label')}</span>
         <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
         <span className="meter-value">
@@ -180,13 +199,10 @@ export function ContextMeter({
             <span className="meter-dim"> / {formatTokens(idleWindow)}</span>
           )}
         </span>
+        {compactButton}
       </div>
     );
   }
-
-  const ratio = contextWindow !== null && contextWindow > 0
-    ? Math.min(lastRequestTokens / contextWindow, 1)
-    : null;
 
   const level =
     ratio === null ? 'unknown' : ratio >= DANGER_RATIO ? 'danger' : ratio >= WARN_RATIO ? 'warn' : 'ok';
@@ -233,10 +249,8 @@ export function ContextMeter({
       sitio. En la fila no empuja la conversacion: la fila no cambia de alto, y
       lo unico que se mueve al aparecer es el medidor, hacia la izquierda.
     */
-    const offerCompact = compactAction !== null && ratio !== null && ratio >= COMPACT_RATIO;
-
     return (
-      <div className="meter meter-compact" title={detail}>
+      <div className="meter meter-compact" title={detail} tabIndex={compactTabIndex}>
         <span className="meter-label">{t('meter.label')}</span>
         {ratio !== null && (
           <span className="meter-bar meter-bar-inline">
@@ -250,16 +264,7 @@ export function ContextMeter({
           {formatTokens(lastRequestTokens)}
           {window.length > 0 && <span className="meter-dim">{window}</span>}
         </span>
-        {offerCompact && compactAction !== null && (
-          <button
-            className="icon-button meter-compact-button"
-            onClick={compactAction.onCompact}
-            disabled={compactAction.blockedReason !== null}
-            title={compactAction.blockedReason ?? t('meter.compactTitle', { command: compactAction.command })}
-          >
-            {t('meter.compact')}
-          </button>
-        )}
+        {compactButton}
       </div>
     );
   }

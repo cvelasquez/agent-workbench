@@ -30,6 +30,7 @@ import { noteSendTitle, noteToComposerTitle } from './agent-ui.js';
 import { formatBytes, formatWhen } from './i18n/format.js';
 import { t } from './i18n/index.js';
 import { tRich } from './i18n/rich.js';
+import { continueList } from './list-continuation.js';
 import { noteImagesReady } from './note-to-composer.js';
 import { SectionHideButton } from './SectionHideButton.js';
 import { threadFontTitle } from './thread-font.js';
@@ -462,6 +463,32 @@ function NoteEditor({
     [acceptFiles],
   );
 
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key !== 'Enter' || !event.shiftKey || event.nativeEvent.isComposing) return;
+      const element = event.currentTarget;
+      const change = continueList(element.value, element.selectionStart, element.selectionEnd);
+      if (change === null) return;
+      event.preventDefault();
+      // Como en el prompt: una edicion nativa conserva deshacer y dispara onChange.
+      element.setSelectionRange(change.from, change.to);
+      let done = false;
+      try {
+        done = change.text.length > 0
+          ? document.execCommand('insertText', false, change.text)
+          : document.execCommand('delete');
+      } catch {
+        done = false;
+      }
+      if (!done) {
+        element.setRangeText(change.text, change.from, change.to, 'end');
+        notes.updateText(note.noteId, element.value);
+      }
+      element.setSelectionRange(change.caret, change.caret);
+    },
+    [notes, note.noteId],
+  );
+
   return (
     <div
       className={`note-editor${dragging ? ' note-editor-dragging' : ''}`}
@@ -505,6 +532,7 @@ function NoteEditor({
         value={note.text}
         placeholder={t('notes.placeholder')}
         onChange={(event) => notes.updateText(note.noteId, event.target.value)}
+        onKeyDown={onKeyDown}
         onPaste={onPaste}
         spellCheck={false}
       />

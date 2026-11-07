@@ -3277,8 +3277,8 @@ kbd {
 
 /*
   "Compactar", en la fila, despues del numero del medidor de contexto, con la
-  ventana al 70 % o mas (hito 47, §6.37). Es un `icon-button` con la letra de
-  "CLI": un boton mas de la fila. Hasta el 22-10-2026 colgaba debajo del
+  ventana al 70 % o mas, o al pasar el mouse o enfocar el medidor. Es un
+  `icon-button` con la letra de "CLI": un boton mas de la fila. Hasta el 22-10-2026 colgaba debajo del
   medidor, flotando sobre la esquina del hilo, y se veia fuera de sitio.
 */
 .meter-compact-button {
@@ -3287,6 +3287,21 @@ kbd {
   font-weight: 600;
   letter-spacing: 0.04em;
   white-space: nowrap;
+}
+
+.meter-compact-button-on-hover {
+  display: none;
+}
+
+.meter-compact:hover > .meter-compact-button-on-hover,
+.meter-compact:focus-within > .meter-compact-button-on-hover {
+  display: inline-flex;
+}
+
+.meter-compact:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 
 /*

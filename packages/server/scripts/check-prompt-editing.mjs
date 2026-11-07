@@ -754,6 +754,8 @@ const request = (over = {}) => ({ firstLine: 'Crea un archivo nota.txt con el te
   check('H13 renumera los que siguen', press('1. uno\n2. dos\n3. tres', 6)?.value === '1. uno\n2. \n3. dos\n4. tres');
   check('H14 no renumera otra lista ni otra sangria',
     press('1. uno\n  1. sub\n2. dos', 6)?.value === '1. uno\n2. \n  1. sub\n2. dos');
+  check('H15 la viñeta de punto conserva tabuladores y termina en un item vacio',
+    press('\t• uno')?.value === '\t• uno\n\t• ' && press('\t• uno\n\t• ')?.value === '\t• uno\n');
 }
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

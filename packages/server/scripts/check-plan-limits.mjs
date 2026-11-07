@@ -15,7 +15,7 @@
  *    PowerShell, que es como lo corre la CLI en Windows (medido con la 2.1.303).
  *  - **Que se dibuja.** Las dos ventanas si caben; si cabe una, la de 5 horas,
  *    salvo que otra este al 90 %; el numero en rojo desde el 90 %; "Compactar"
- *    desde el 80 % del contexto, con el comando de cada CLI.
+ *    desde el 70 % del contexto o al pasar el mouse, con el comando de cada CLI.
  *
  * Trabaja con `HOME`, `USERPROFILE`, `APPDATA` y las `XDG_*` en una carpeta
  * temporal propia, fijadas **antes** de importar nada: no lee ni escribe el
@@ -27,7 +27,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { tsImport } from 'tsx/esm/api';
 
 const WEB_SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'src');
 
@@ -546,12 +548,25 @@ const limits = (fiveHour, sevenDay) => ({
   // "Compactar": el comando de cada CLI y el umbral.
   check('6.11 las cinco CLIs compactan con /compact', Object.keys(AGENT_UI).every((agent) => compactCommandFor(agent) === '/compact') && compactCommandFor(null) === null);
   const meterSource = await readFile(path.join(WEB_SRC, 'ContextMeter.tsx'), 'utf8');
-  check('6.12 "Compactar" sale desde el 70 % de la ventana (pedido del 20-10-2026), y solo con la accion de la CLI',
-    /export const COMPACT_RATIO = 0\.7;/.test(meterSource) && /compactAction !== null && ratio !== null && ratio >= COMPACT_RATIO/.test(meterSource));
-
-  // Despues de compactar, sin medir hasta la respuesta siguiente (20-10-2026): sin numero no hay barra ni "Compactar".
-  const ui = await import('../../web/src/agent-ui.ts');
+  const { ContextMeter, COMPACT_RATIO } = await tsImport('../../web/src/ContextMeter.tsx', {
+    parentURL: import.meta.url,
+    tsconfig: path.join(WEB_SRC, '../tsconfig.json'),
+  });
+  const { renderToStaticMarkup } = createRequire(path.join(WEB_SRC, 'ContextMeter.tsx'))('react-dom/server');
   const measuredUsage = { ...shared.EMPTY_CONTEXT_USAGE, lastRequestTokens: 760000, contextWindow: 1000000, assistantMessages: 40 };
+  const action = { command: '/compact', blockedReason: null, onCompact() {} };
+  const renderMeter = (props = {}) => renderToStaticMarkup(ContextMeter({
+    compact: true, source: 'token-count', instructionsFile: null, usage: measuredUsage, compactAction: action, ...props,
+  }));
+  const hoverOnly = (markup) => markup.includes('meter-compact-button-on-hover');
+  check('6.12 "Compactar" queda visible desde el 70 % de la ventana, y solo con la accion de la CLI',
+    COMPACT_RATIO === 0.7 && hoverOnly(renderMeter({ usage: { ...measuredUsage, lastRequestTokens: 699999 } })) &&
+    !hoverOnly(renderMeter({ usage: { ...measuredUsage, lastRequestTokens: 700000 } })) &&
+    !renderMeter({ compactAction: null }).includes('meter-compact-button') &&
+    !renderMeter({ compact: false }).includes('meter-compact-button'));
+
+  // Despues de compactar, sin medir hasta la respuesta siguiente: el boton sigue disponible al pasar el mouse.
+  const ui = await import('../../web/src/agent-ui.ts');
   const compactedUsage = { ...measuredUsage, compacted: true };
   const sources = ['usage-with-variants', 'usage-with-catalog', 'token-count', 'status-line'];
   check('6.15 con la marca de compactar, ninguna fuente mide; sin ella, todas',
@@ -614,8 +629,26 @@ const limits = (fiveHour, sevenDay) => ({
   // Hasta el 22-10-2026 "Compactar" colgaba debajo del medidor, sobre el hilo, y se
   // veia fuera de sitio: ahora es un boton mas de la fila, despues del numero.
   check('6.13 "Compactar" va en la fila, despues del numero, con la forma de los botones de al lado, y no flota',
-    /<span className="meter-value">[\s\S]*?<\/span>\s*\{offerCompact && compactAction !== null && \(\s*<button\s+className="icon-button meter-compact-button"/.test(meterSource) &&
+    renderMeter().indexOf('<button class="icon-button meter-compact-button"') > renderMeter().indexOf('class="meter-value"') &&
     /\.meter-compact-button \{/.test(css) && !/\.meter-compact-button \{[^}]*position:/.test(css) && !/meter-anchor/.test(css + meterSource));
+  const hoverStates = [
+    { usage: { ...measuredUsage, lastRequestTokens: 10000 } },
+    { usage: { ...measuredUsage, contextWindow: null } },
+    { usage: shared.EMPTY_CONTEXT_USAGE },
+    { usage: compactedUsage },
+    { source: null },
+    { source: null, statusLineState: 'missing', onConfigure() {} },
+  ];
+  check('6.16 sin el umbral, "Compactar" se puede revelar con mouse o teclado en todos los estados del medidor',
+    /\.meter-compact-button-on-hover \{\s*display: none;/.test(css) &&
+    /\.meter-compact:hover > \.meter-compact-button-on-hover,\s*\.meter-compact:focus-within > \.meter-compact-button-on-hover \{\s*display: inline-flex;/.test(css) &&
+    hoverStates.every((props) => {
+      const markup = renderMeter(props);
+      return hoverOnly(markup) && markup.includes('tabindex="0"');
+    }));
+  const blocked = renderMeter({ compactAction: { ...action, blockedReason: 'Espera al agente.' } });
+  check('6.16 si no se puede compactar, el boton se desactiva y explica el motivo',
+    blocked.includes('disabled=""') && blocked.includes('title="Espera al agente."'));
 }
 
 await rm(root, { recursive: true, force: true }).catch(() => undefined);
