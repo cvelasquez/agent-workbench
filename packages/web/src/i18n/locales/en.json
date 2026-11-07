@@ -11,7 +11,7 @@
   "agent.dot.statusLineOnly": "This CLI only publishes its status with the status line configured",
   "agent.dot.statusLinePending": "The status line hasn't published this conversation's status yet",
   "agent.handoff.notice": "Continued from {{label}}: the agent starts from a transcript of {{turns}}, not from the context it had. Tool results are trimmed and images don't carry over.",
-  "agent.handoff.prefill.noDelivery": "The message is in the message box: check it and send it with Enter.",
+  "agent.handoff.prefill.noDelivery": "The continuation is in the message box. You can add instructions and choose the model before sending it.",
   "agent.handoff.prefill.notReady": "The CLI wasn't ready in time: the message is in the message box for you to send.",
   "agent.handoff.prefill.sendFailed": "It couldn't be sent automatically: the message is in the message box for you to send.",
   "agent.handoff.sending": "Sending the continuation…",

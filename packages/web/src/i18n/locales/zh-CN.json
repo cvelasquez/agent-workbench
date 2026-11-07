@@ -11,7 +11,7 @@
   "agent.dot.statusLineOnly": "此 CLI 仅在配置了 status line 后才提供状态信息",
   "agent.dot.statusLinePending": "status line 尚未提供此对话的状态",
   "agent.handoff.notice": "本对话接续自 {{label}}：代理从一份包含{{turns}}的对话记录开始，而不是从原有的上下文开始。工具结果已截断，图片不会一并带过来。",
-  "agent.handoff.prefill.noDelivery": "消息已放入输入框：请检查后按 Enter 发送。",
+  "agent.handoff.prefill.noDelivery": "接续消息已放入输入框。你可以在发送前添加指令并选择模型。",
   "agent.handoff.prefill.notReady": "CLI 未能及时就绪：消息已放入输入框，请手动发送。",
   "agent.handoff.prefill.sendFailed": "无法自动发送：消息已放入输入框，请手动发送。",
   "agent.handoff.sending": "正在发送接续内容…",

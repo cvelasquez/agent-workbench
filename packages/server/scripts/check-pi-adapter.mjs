@@ -1182,8 +1182,6 @@ const newCatalog = (extra = {}) => new catalogModule.PiModelCatalog({ storeFile:
   check('P10 declara que devuelve a su editor lo que tenia en cola, con una separacion mayor a la ventana de Pi',
     adapter.queuedSubmits !== undefined && adapter.queuedSubmits.clearGapMs > 500 && same(await adapter.queuedSubmits.check({ cwd: 'c', sessionId: 'no-esta' }, [], 0), { settled: false, undelivered: [] }));
 
-  const { chooseDelivery } = await import('../src/handoff/handoff.ts');
-  check('P10 continuar hacia Pi queda prellenado: no hay senal de lista', chooseDelivery(piIndex.PI_BASE_CAPABILITIES) === 'prefill');
   const { transcriptReferenceFor } = await import('../src/handoff/transcript.ts');
   check('P10 el transcript de una continuacion se nombra entre comillas', transcriptReferenceFor('C:\\tmp\\t.md', adapter.input.transcriptReference) === '"C:\\tmp\\t.md"');
 

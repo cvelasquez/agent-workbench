@@ -2311,7 +2311,7 @@ export interface ServerRemotePhonePairingMessage {
   pairing: RemotePhonePairing;
 }
 
-/** Como llega a la CLI nueva el mensaje de continuacion. */
+/** Como llega el mensaje de continuacion. `sending` se admite de servidores anteriores. */
 export type HandoffDelivery = 'sending' | 'prefilled';
 export const HANDOFF_DELIVERIES: readonly HandoffDelivery[] = ['sending', 'prefilled'];
 
@@ -2334,7 +2334,7 @@ export interface ServerSessionContinuedMessage {
    * eventos): `totalTurns` es un minimo y el aviso no puede decir "de M".
    */
   totalTurnsIsMinimum: boolean;
-  /** `sending`: el servidor la manda; `prefilled`: llega un `composer.prefill`. */
+  /** La continuacion llega editable con `prefilled`; `sending` es de servidores anteriores. */
   delivery: HandoffDelivery;
 }
 
@@ -2368,7 +2368,7 @@ export const COMPOSER_PREFILL_REASONS: readonly ComposerPrefillReason[] = [
  * Texto para el cuadro de escritura de una pestana. **Nunca se manda solo**: lo
  * manda el usuario con Enter, despues de leerlo (hito 29, D19).
  *
- *  - `no-delivery`: la CLI no tiene como recibirlo sin teclear a ciegas.
+ *  - `no-delivery`: continuacion editable, lista para que el usuario la envie.
  *  - `not-ready`: se iba a mandar y la CLI no llego a estar lista a tiempo.
  *  - `send-failed`: se intento mandar y fallo.
  *  - `returned-by-cli`: un mensaje que se mando con el agente trabajando y que

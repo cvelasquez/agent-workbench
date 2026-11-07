@@ -11,7 +11,7 @@
   "agent.dot.statusLineOnly": "この CLI は、ステータスラインが設定されている場合にのみ状態を公開します",
   "agent.dot.statusLinePending": "ステータスラインはこの会話の状態をまだ公開していません",
   "agent.handoff.notice": "{{label}} から引き継いだ会話です。エージェントは元のコンテキストではなく、{{turns}}のトランスクリプトから始めます。ツールの結果は切り詰められ、画像は引き継がれません。",
-  "agent.handoff.prefill.noDelivery": "メッセージは入力欄に入っています。確認してから Enter で送信してください。",
+  "agent.handoff.prefill.noDelivery": "引き継ぎメッセージは入力欄にあります。送信前に指示を追加し、モデルを選択できます。",
   "agent.handoff.prefill.notReady": "CLI の準備が間に合いませんでした。メッセージは入力欄に入っているので、手動で送信してください。",
   "agent.handoff.prefill.sendFailed": "自動で送信できませんでした。メッセージは入力欄に入っているので、手動で送信してください。",
   "agent.handoff.sending": "引き継ぎを送信中…",

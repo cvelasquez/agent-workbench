@@ -3,8 +3,8 @@
  *
  * `continueSession` arma todo lo que no es escribir en una pty: busca la sesion
  * en el indice, lee sus eventos, decide el transcript, abre la pestana de la
- * CLI que continua, guarda el archivo y compone el mensaje. **Entregarlo** es
- * del socket (`deliverWhenReady` o `composer.prefill`): el resultado dice como.
+ * CLI que continua, guarda el archivo y compone el mensaje. El socket lo deja
+ * en el cuadro con `composer.prefill`, para que el usuario lo revise y envie.
  *
  * El orden importa, y es el de la especificacion (§6.3): **nada se abre ni se
  * escribe hasta saber que hay algo que continuar**. Una conversacion sin turnos,
@@ -14,23 +14,21 @@
  *
  * Tres decisiones que no se ven en el codigo:
  *
- *  - **Fuente** (D15): primero la copia propia, si la tiene y sirve —la que solo
- *    esta en la copia no tiene otra—; si no, el seguidor de la CLI de origen.
+ *  - **Fuente** (D15): primero la copia propia, si la tiene y sirve (la que solo
+ *    esta en la copia no tiene otra); si no, el seguidor de la CLI de origen.
  *    Las dos dan `ConversationEvent[]` y el transcript no distingue. Cuando la
  *    copia sirve lo decide quien la lee (`VaultService.handoffEvents`).
  *  - **Hasta el principio, con tope** (M5): se pagina hacia atras hasta que no
  *    hay mas o hasta `HANDOFF_MAX_EVENTS`. Pasado el tope no hay pedido inicial
  *    y la cuenta de turnos es un minimo.
- *  - **Dos escalones de entrega** (D19 como dice A4): con senal de "lista" se
- *    manda solo por la pty; sin ella, el cuadro de la pestana nueva prellenado,
- *    y lo manda el usuario. Nunca las dos cosas.
+ *  - **Entrega editable**: el mensaje siempre queda en el cuadro de la pestana
+ *    nueva, incluso con senal de "lista". Cambiar de CLI no lo envia.
  */
 
 import {
   IMPORTED_AGENT_LABELS,
   isAgentId,
   serverText,
-  type AgentCapabilities,
   type AgentId,
   type ConversationEvent,
   type ConversationState,
@@ -52,7 +50,7 @@ import {
   transcriptReferenceFor,
 } from './transcript.js';
 
-/** Cuanto se espera a que la CLI que continua gane sesion y este lista, cada vez. */
+/** Plazo para entregar un pedido de revision a una CLI con senal de lista. */
 export const HANDOFF_DELIVERY_TIMEOUT_MS = 15_000;
 /** El titulo de origen en la etiqueta de la pestana nueva, en caracteres. */
 export const HANDOFF_LABEL_TITLE_CHARS = 40;
@@ -112,22 +110,10 @@ export type ContinueOutcome =
       ok: true;
       descriptor: TerminalDescriptor;
       continued: Omit<ServerSessionContinuedMessage, 'type' | 'requestId'>;
-      /** El mensaje para la CLI que continua: se manda solo o va prellenado segun `continued.delivery`. */
+      /** El mensaje editable que el socket deja en el cuadro de la CLI nueva. */
       message: string;
     }
   | { ok: false; code: ServerErrorCode; text: ServerText; detail?: string };
-
-/** Como llega el mensaje a la CLI que continua (D19, sin la API que saco A4). */
-export type Delivery = 'pty' | 'prefill';
-
-/**
- * `pty` si la CLI avisa cuando esta lista: se pega por la terminal como una
- * nota. Si no, `prefill`: pegar a ciegas en una CLI que puede estar pintando o
- * con un menu abierto es justo lo que la senal evita.
- */
-export function chooseDelivery(capabilities: Pick<AgentCapabilities, 'readySignal'>): Delivery {
-  return capabilities.readySignal ? 'pty' : 'prefill';
-}
 
 /**
  * `Continuación: <titulo>`, con el titulo cortado. Es el respaldo: la web manda
@@ -297,7 +283,7 @@ export async function continueSession(
       includedTurns: plan.includedTurns,
       totalTurns: plan.totalTurns,
       totalTurnsIsMinimum: plan.totalTurnsIsMinimum,
-      delivery: chooseDelivery(target.adapter.capabilities) === 'pty' ? 'sending' : 'prefilled',
+      delivery: 'prefilled',
     },
   };
 }

@@ -505,8 +505,8 @@ export function useWorkspace(): Workspace {
               terminalId: message.terminalId,
               text: message.text,
               pasted: message.pasted ?? [],
-              // Lo que el usuario saco para corregirlo: la cola (§6.35.1), un mensaje programado (hito 51) o uno enviado (§6.35.2).
-              focus: message.reason === 'queue-edit' || message.reason === 'unscheduled' || fromEdit,
+              // La continuacion y lo que el usuario saco para corregirlo: cola, programado o enviado (§6.35).
+              focus: message.reason === 'no-delivery' || message.reason === 'queue-edit' || message.reason === 'unscheduled' || fromEdit,
             },
           ]);
           const { reason } = message;

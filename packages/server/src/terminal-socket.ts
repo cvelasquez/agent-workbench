@@ -3172,9 +3172,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
           la ventana que la pidio; despues `session.continued`, con lo que dice
           el aviso encima del cuadro.
 
-          La entrega va en segundo plano. Si no se manda sola —la CLI no avisa
-          cuando esta lista, o no llego a estarlo—, el mensaje queda en el
-          cuadro de esa pestana, y lo manda el usuario. Nunca las dos cosas.
+          El mensaje siempre queda en el cuadro de esa pestana para que el
+          usuario lo edite y lo envie, con cualquier CLI de destino.
         */
         case 'session.continue': {
           if (message.target === null) {
@@ -3215,24 +3214,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             const { terminalId } = outcome.descriptor;
             send(socket, { type: 'terminal.opened', requestId, terminal: outcome.descriptor });
             send(socket, { type: 'session.continued', requestId, ...outcome.continued });
-            if (outcome.continued.delivery === 'prefilled') {
-              send(socket, { type: 'composer.prefill', terminalId, text: outcome.message, reason: 'no-delivery' });
-              return;
-            }
-
-            const delivered = await deliverWhenReady(deliverDeps, {
-              terminalId,
-              text: outcome.message,
-              images: [],
-              timeoutMs: HANDOFF_DELIVERY_TIMEOUT_MS,
-              // Sin avisos por pieza: si no entra, el mensaje vuelve al cuadro y eso ya lo dice.
-              write: (piece) => registry.write(terminalId, piece),
-            });
-            const reason = prefillReasonFor(delivered);
-            if (reason !== null) {
-              debugLog('continue', `not sent on its own to ${terminalId.slice(0, 8)}: ${delivered.kind}`);
-              send(socket, { type: 'composer.prefill', terminalId, text: outcome.message, reason });
-            }
+            send(socket, { type: 'composer.prefill', terminalId, text: outcome.message, reason: 'no-delivery' });
           })();
           break;
         }

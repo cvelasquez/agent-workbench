@@ -23,8 +23,7 @@
  *    la misma CLI, un fallo al abrir o al guardar. `SessionIndex.find` con una
  *    sesion nativa real y una fila de la copia, y el seguidor real de Claude Code.
  *    `resolveLaunchPlan` (M1a).
- *  - H7: `chooseDelivery` contra los literales reales: Claude Code `pty`, las
- *    demas `prefill`.
+ *  - H7: todas las CLIs dejan la continuacion editable, con o sin senal de lista.
  *  - H8: `deliverWhenReady` (M3): sin sesion en el plazo, sin "lista", sin senal
  *    de "lista", imagenes que la CLI no recibe: cero escrituras. Con Claude
  *    Code, `noteSubmitted` antes de la primera escritura y las piezas de
@@ -314,9 +313,10 @@ const turns = splitTurns(events);
   const message = buildContinuationMessage({
     sourceLabel: 'OpenCode', includedTurns: 20, reference: '"C:\\t\\continuacion-1-3f2a9c1b.md"', lastRequest: longRequest,
   });
-  const [intro, quoted] = message.split('\n\n');
+  const intro = message.split('\n\n')[0];
+  const quoted = message.split('\n\n').find((block) => block.startsWith('> '));
   check('H4 presenta la continuacion, la cantidad y la referencia',
-    intro === 'This continues a conversation that started with another assistant (OpenCode).\nThe transcript of the last 20 turns is in "C:\\t\\continuacion-1-3f2a9c1b.md".\nRead all of it and continue from the last request, which was:',
+    intro.startsWith('This continues a conversation that started with another assistant (OpenCode).\nThe transcript of the last 20 turns is in "C:\\t\\continuacion-1-3f2a9c1b.md".\n'),
     show(intro));
   const quoteLines = (quoted ?? '').split('\n');
   const body = quoteLines.map((line) => line.replace(/^> ?/, '')).join('\n');
@@ -325,7 +325,8 @@ const turns = splitTurns(events);
   check('H4 cada linea citada empieza con "> "', quoteLines.length > 1 && quoteLines.every((line) => line.startsWith('> ')), show(quoteLines.slice(0, 3)));
 
   const bare = buildContinuationMessage({ sourceLabel: 'Codex', includedTurns: 1, reference: '"C:\\t\\c.md"', lastRequest: null });
-  check('H4 sin pedido: sin cita', !bare.includes('>') && bare.endsWith('Read all of it and continue from where it left off.') && bare.includes('of the last turn'), show(bare));
+  check('H4 sin pedido: sin cita y conserva las instrucciones para recuperar el estado',
+    !bare.includes('>') && bare.includes('including the final assistant reply') && bare.includes('of the last turn'), show(bare));
   check('H4 un pedido en blanco cuenta como sin pedido',
     !buildContinuationMessage({ sourceLabel: 'Codex', includedTurns: 2, reference: 'x', lastRequest: '  \n ' }).includes('>'));
 
@@ -333,6 +334,28 @@ const turns = splitTurns(events);
     transcriptReferenceFor('C:\\Carpeta con espacios\\c.md', 'at-quoted') === '@"C:\\Carpeta con espacios\\c.md"');
   check('H4 quoted-path: "ruta" entre comillas, sin @',
     transcriptReferenceFor('C:\\Carpeta con espacios\\c.md', 'quoted-path') === '"C:\\Carpeta con espacios\\c.md"');
+
+  check('H4 la continuacion exige leer hasta la ultima respuesta y respetar las aprobaciones pendientes',
+    message.includes('including the final assistant reply') && message.includes('pending approvals') &&
+    message.includes('Changing CLI does not approve a pending plan'));
+  check('H4 el ultimo pedido es referencia historica, sin ordenar repetirlo',
+    message.includes('may already have been answered') && !message.includes('continue from the last request'));
+  check('H4 se pueden agregar instrucciones para la siguiente tarea, y sin ellas solo se continua trabajo autorizado pendiente',
+    message.includes('Follow any new instructions appended below') && message.includes('unfinished, authorized work') &&
+    message.endsWith('Additional instructions for this continuation:\n\n'));
+
+  for (const [name, tail] of [
+    ['respuesta terminada', [ev('done', 'assistant', [text('El ajuste esta listo y verificado.')])]],
+    ['plan pendiente', [ev('plan', 'assistant', [text('Plan guardado en [migration-plan.md](docs/migration-plan.md). Espero tu aprobacion antes de implementar.')])]],
+    ['interrupcion', [ev('partial', 'assistant', [text('Revise las rutas. Falta verificar la exportacion.')]),
+      ev('interrupted', 'assistant', [{ kind: 'notice', notice: 'interrupted', detail: '' }])]],
+  ]) {
+    const source = [ev('request', 'user', [text('Prepara un plan para la migracion.')]), ...tail];
+    const plan = planTranscript({ header: header(), events: source });
+    check(`H4 ${name}: el transcript conserva el pedido y toda la respuesta final`,
+      plan.ok && plan.markdown.includes('Prepara un plan para la migracion.') &&
+      tail.every((event) => event.parts.every((part) => plan.markdown.includes(part.kind === 'text' ? part.text : 'Interrupted'))));
+  }
   const { fileReference } = await import('../src/pty-input.ts');
   check('H4 (B2) at-quoted es fileReference', transcriptReferenceFor('/tmp/a b/c.md', 'at-quoted') === fileReference('/tmp/a b/c.md', 'at-quoted'));
 }
@@ -371,7 +394,7 @@ const turns = splitTurns(events);
 
 const shared = await import('@agent-workbench/shared');
 const handoff = await import('../src/handoff/handoff.ts');
-const { continueSession, chooseDelivery, readSourceEvents, continuationLabel, HANDOFF_DELIVERY_TIMEOUT_MS } = handoff;
+const { continueSession, readSourceEvents, continuationLabel } = handoff;
 const { deliverWhenReady, prefillReasonFor } = await import('../src/deliver-when-ready.ts');
 const { PasteStore, PasteTextError, MAX_TEXT_BYTES } = await import('../src/paste-store.ts');
 const { TerminalOpenError, resolveLaunchPlan } = await import('../src/terminal-open-error.ts');
@@ -381,6 +404,7 @@ const { CLAUDE_CODE_CAPABILITIES, CLAUDE_CODE_INPUT } = await import('../src/age
 const { CODEX_CAPABILITIES, CODEX_INPUT } = await import('../src/agents/codex/index.ts');
 const { OPENCODE_CAPABILITIES } = await import('../src/agents/opencode/index.ts');
 const { ANTIGRAVITY_BASE_CAPABILITIES, ANTIGRAVITY_STATUS_LINE_CAPABILITIES } = await import('../src/agents/antigravity/index.ts');
+const { PI_BASE_CAPABILITIES, PI_INPUT } = await import('../src/agents/pi/index.ts');
 
 const HANDOFF_CWD = path.join(root, 'proyecto con espacios');
 await mkdir(HANDOFF_CWD, { recursive: true });
@@ -711,26 +735,26 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
 // ---------------------------------------------------------------------------
 
 {
-  check('H7 chooseDelivery: con readySignal pty, sin el prefill',
-    chooseDelivery({ readySignal: true }) === 'pty' && chooseDelivery({ readySignal: false }) === 'prefill');
-  const real = {
-    'claude-code': chooseDelivery(CLAUDE_CODE_CAPABILITIES),
-    codex: chooseDelivery(CODEX_CAPABILITIES),
-    opencode: chooseDelivery(OPENCODE_CAPABILITIES),
-    antigravity: chooseDelivery(ANTIGRAVITY_BASE_CAPABILITIES),
-    'antigravity con status line': chooseDelivery(ANTIGRAVITY_STATUS_LINE_CAPABILITIES),
-  };
-  check('H7 contra los literales reales: Claude Code pty; Codex, OpenCode y Antigravity (con status line o no) prefill',
-    JSON.stringify(real) === JSON.stringify({ 'claude-code': 'pty', codex: 'prefill', opencode: 'prefill', antigravity: 'prefill', 'antigravity con status line': 'prefill' }),
-    JSON.stringify(real));
+  for (const [id, capabilities] of [
+    ['claude-code', CLAUDE_CODE_CAPABILITIES], ['codex', CODEX_CAPABILITIES], ['opencode', OPENCODE_CAPABILITIES],
+    ['antigravity', ANTIGRAVITY_BASE_CAPABILITIES], ['antigravity', ANTIGRAVITY_STATUS_LINE_CAPABILITIES], ['pi', PI_BASE_CAPABILITIES],
+  ]) {
+    const setup = continueDeps({
+      sessions: [summaryOf('gemini-cli', 'imported', { storage: 'vault' })],
+      archive: { events: async () => ({ events, partial: false, complete: true }) },
+      targets: [[id, registered(id, id, capabilities, id === 'pi' ? PI_INPUT : { transcriptReference: 'quoted-path' }, fakeHistory([]))]],
+    });
+    const outcome = await continueSession(setup.deps, { agent: 'gemini-cli', sessionId: 'imported', target: id });
+    check(`H7 ${id} (readySignal=${capabilities.readySignal}): continuacion editable sin condicion de cuota`,
+      outcome.ok && outcome.continued.delivery === 'prefilled', show(outcome.ok ? outcome.continued : outcome));
+  }
 
   const toClaude = await continueSession(continueDeps().deps, request({ target: 'claude-code' }));
-  check('H7 hacia Claude Code: sending, y el archivo nombrado con @"ruta"',
-    toClaude.ok && toClaude.continued.delivery === 'sending' && /@"[^"]+continuacion-\d+-[0-9a-f]{8}\.md"/.test(toClaude.message), show(toClaude));
+  check('H7 hacia Claude Code: prefilled, y el archivo nombrado con @"ruta"',
+    toClaude.ok && toClaude.continued.delivery === 'prefilled' && /@"[^"]+continuacion-\d+-[0-9a-f]{8}\.md"/.test(toClaude.message), show(toClaude));
   check('H7 el mensaje presenta la CLI de origen y cita el ultimo pedido',
     toClaude.ok && toClaude.message.startsWith('This continues a conversation that started with another assistant (OpenCode).') &&
     toClaude.message.includes('> Ajustá el importador de CSV, paso 30.'));
-  check('H7 el plazo de la entrega es 15 s', HANDOFF_DELIVERY_TIMEOUT_MS === 15_000);
 }
 
 // ---------------------------------------------------------------------------

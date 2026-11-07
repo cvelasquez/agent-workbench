@@ -11,7 +11,7 @@
   "agent.dot.statusLineOnly": "이 CLI는 상태 표시줄이 설정된 경우에만 상태 정보를 제공합니다",
   "agent.dot.statusLinePending": "상태 표시줄이 아직 이 대화의 상태 정보를 제공하지 않았습니다",
   "agent.handoff.notice": "{{label}}에서 이어 온 대화입니다. 에이전트는 원래 대화의 컨텍스트가 아니라 {{turns}}의 트랜스크립트로 시작합니다. 도구 결과는 잘려 있으며 이미지는 전달되지 않습니다.",
-  "agent.handoff.prefill.noDelivery": "메시지가 입력창에 있습니다. 확인한 뒤 Enter로 보내세요.",
+  "agent.handoff.prefill.noDelivery": "이어가기 메시지가 입력창에 있습니다. 보내기 전에 지시를 추가하고 모델을 선택할 수 있습니다.",
   "agent.handoff.prefill.notReady": "CLI가 제시간에 준비되지 않았습니다. 메시지를 입력창에 넣어 두었으니 직접 보내세요.",
   "agent.handoff.prefill.sendFailed": "자동으로 보내지 못했습니다. 메시지를 입력창에 넣어 두었으니 직접 보내세요.",
   "agent.handoff.sending": "이어가기 메시지를 보내는 중…",

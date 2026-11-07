@@ -11,7 +11,7 @@
   "agent.dot.statusLineOnly": "Cette CLI ne publie son état qu'avec la status line configurée",
   "agent.dot.statusLinePending": "La status line n'a pas encore publié l'état de cette conversation",
   "agent.handoff.notice": "Suite d'une conversation {{label}} : l'agent repart d'une transcription {{turns}}, et non du contexte qu'il avait. Les résultats des outils sont tronqués et les images ne sont pas transmises.",
-  "agent.handoff.prefill.noDelivery": "Le message est dans la zone de saisie : vérifiez-le et envoyez-le avec Enter.",
+  "agent.handoff.prefill.noDelivery": "La suite est dans la zone de saisie. Vous pouvez ajouter des instructions et choisir le modèle avant l’envoi.",
   "agent.handoff.prefill.notReady": "La CLI n'était pas prête à temps : le message est dans la zone de saisie, à vous de l'envoyer.",
   "agent.handoff.prefill.sendFailed": "L'envoi automatique a échoué : le message est dans la zone de saisie, à vous de l'envoyer.",
   "agent.handoff.sending": "Envoi de la continuation…",

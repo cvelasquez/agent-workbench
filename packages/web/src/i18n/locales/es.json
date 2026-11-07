@@ -11,7 +11,7 @@
   "agent.dot.statusLineOnly": "Esta CLI publica su estado sólo con la status line configurada",
   "agent.dot.statusLinePending": "La status line todavía no publicó el estado de esta conversación",
   "agent.handoff.notice": "Continuación de {{label}}: el agente arranca de un transcript {{turns}}, no del contexto que tenía. Los resultados de herramientas van recortados y las imágenes no viajan.",
-  "agent.handoff.prefill.noDelivery": "El mensaje quedó en el cuadro: revísalo y mándalo con Enter.",
+  "agent.handoff.prefill.noDelivery": "La continuación está en el cuadro. Puedes agregar instrucciones y elegir el modelo antes de enviarla.",
   "agent.handoff.prefill.notReady": "La CLI no llegó a estar lista a tiempo: el mensaje quedó en el cuadro para que lo mandes.",
   "agent.handoff.prefill.sendFailed": "No se pudo mandar solo: el mensaje quedó en el cuadro para que lo mandes.",
   "agent.handoff.sending": "Mandando la continuación…",

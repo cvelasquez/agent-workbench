@@ -541,8 +541,8 @@ function quote(text: string): string {
 
 /**
  * El mensaje que recibe la CLI que continua. Corto a proposito: lo que importa
- * esta en el archivo, y el mensaje solo dice donde, que no es su contexto y
- * cual fue el ultimo pedido.
+ * esta en el archivo. El ultimo pedido es referencia historica: la respuesta
+ * final y las aprobaciones pendientes tambien definen desde donde continuar.
  */
 export function buildContinuationMessage(input: {
   sourceLabel: string;
@@ -557,12 +557,15 @@ export function buildContinuationMessage(input: {
     input.includedTurns === 1
       ? `The transcript of the last turn is in ${input.reference}.`
       : `The transcript of the last ${input.includedTurns} turns is in ${input.reference}.`,
+    'Read the entire transcript, including the final assistant reply, before responding.',
+    'Preserve the decisions, completed work, referenced plan files, and pending approvals. Do not repeat work that was already completed.',
+    'Changing CLI does not approve a pending plan or authorize new actions.',
+    'Follow any new instructions appended below. If there are none, continue only unfinished, authorized work; if the work is complete or awaiting approval, briefly confirm the current state and wait for the user.',
   ];
   if (input.lastRequest !== null && sanitizeForPaste(input.lastRequest).trim().length > 0) {
-    lines.push('Read all of it and continue from the last request, which was:', '', quote(input.lastRequest));
-  } else {
-    lines.push('Read all of it and continue from where it left off.');
+    lines.push('', 'For reference, the last user request in the transcript was (it may already have been answered):', '', quote(input.lastRequest));
   }
+  lines.push('', 'Additional instructions for this continuation:', '', '');
   return sanitizeForPaste(lines.join('\n'));
 }
 

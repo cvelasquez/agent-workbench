@@ -11,7 +11,7 @@
   "agent.dot.statusLineOnly": "Diese CLI veröffentlicht ihren Status nur bei konfigurierter Statuszeile",
   "agent.dot.statusLinePending": "Die Statuszeile hat den Status dieser Unterhaltung noch nicht veröffentlicht",
   "agent.handoff.notice": "Fortgesetzt aus {{label}}: Der Agent startet mit einem Transkript {{turns}}, nicht mit dem Kontext, den er hatte. Tool-Ergebnisse werden gekürzt, und Bilder werden nicht übernommen.",
-  "agent.handoff.prefill.noDelivery": "Die Nachricht steht im Eingabefeld: Prüfen Sie sie und senden Sie sie mit Enter ab.",
+  "agent.handoff.prefill.noDelivery": "Die Fortsetzung steht im Eingabefeld. Sie können vor dem Senden Anweisungen ergänzen und das Modell auswählen.",
   "agent.handoff.prefill.notReady": "Die CLI war nicht rechtzeitig bereit: Die Nachricht steht zum Absenden im Eingabefeld bereit.",
   "agent.handoff.prefill.sendFailed": "Automatisches Senden war nicht möglich: Die Nachricht steht zum Absenden im Eingabefeld bereit.",
   "agent.handoff.sending": "Fortsetzung wird gesendet…",

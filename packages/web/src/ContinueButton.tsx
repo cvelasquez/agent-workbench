@@ -9,7 +9,7 @@
  * salvo en la fila de una rama quitada, que sigue en la carpeta principal.
  *
  * Elegir no escribe nada en ninguna terminal: el servidor arma el transcript,
- * abre la pestana y decide si el mensaje se manda solo o queda en el cuadro.
+ * abre la pestana y deja el mensaje editable en el cuadro, sin enviarlo.
  */
 
 import { useCallback, useRef, useState, type ReactNode } from 'react';
