@@ -1679,8 +1679,7 @@ export function App(): JSX.Element {
                 {activeControls.codexPermissions && (
                   <CodexPermissionControl
                     disabled={
-                      !activeTerminal.alive || activeActivity !== 'idle' || conversation.waitingFor !== null ||
-                      conversation.openToolCall || activeReview
+                      !activeTerminal.alive || activeActivity === 'waiting' || conversation.waitingFor !== null || activeReview
                     }
                     state={conversation.codexPermissions}
                     request={conversation.codexPermissionRequest}

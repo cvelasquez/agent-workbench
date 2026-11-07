@@ -872,8 +872,7 @@ export function useConversation(
     (preset: CodexPermissionPreset) => {
       if (
         terminalId === null ||
-        codexPermissionRequestRef.current?.status === 'writing' ||
-        codexPermissionRequestRef.current?.status === 'awaiting'
+        codexPermissionRequestRef.current?.status === 'writing'
       ) return;
       const requestId = crypto.randomUUID();
       const request: CodexPermissionRequest = { requestId, preset, status: 'writing' };

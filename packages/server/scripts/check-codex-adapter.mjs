@@ -3846,7 +3846,7 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
 
 // R52. Hito 52 (§10.18): la pantalla lista para un mensaje programado, y el turno abierto.
 {
-  const { codexEmptyComposerScreen, codexReadyScreen } = await import('../src/agents/codex/ready-screen.ts');
+  const { codexEmptyComposerScreen, codexPermissionComposerScreen, codexReadyScreen } = await import('../src/agents/codex/ready-screen.ts');
   // Pantallas medidas con la 0.164 (medir-52.mjs), sin el banner de arriba.
   const ready = [
     '  >_ OpenAI Codex (v0.164.0)',
@@ -3893,6 +3893,18 @@ const tab = (agent, cwd, kind = 'agent') => ({ kind, agent, cwd });
   check('R52 un borrador en el compositor no se acepta para comandos de permisos', codexEmptyComposerScreen(ready.map((line) => line.replace('Ask Codex to do anything', '/permissions'))) === false);
   check('R52 reanudada, con turnos arriba: lista', codexReadyScreen(resumed) === true);
   check('R52 trabajando (la caja se ve igual): no', codexReadyScreen(working) === false);
+  check('permisos: la caja vacia acepta el comando mientras trabaja', codexPermissionComposerScreen(working) === true);
+  check('permisos: no reemplaza un borrador', codexPermissionComposerScreen(working.map((line) => line.replace('Ask Codex to do anything', 'draft'))) === false);
+  check('permisos: no escribe en un menu', codexPermissionComposerScreen(menu) === false);
+  const permissionTyped = [
+    '\u203a /permissions :workspace --approval-policy=on-request --reviewer=user',
+    '',
+    ' GPT-6.1-Sol high \u00b7 D:\\proyecto \u00b7 Permite cambiar permisos',
+    ' 1 warning \u00b7 f2 to view',
+  ];
+  check('permisos: envia Enter con el pie de modelo que reemplaza los atajos', codexPermissionComposerScreen(permissionTyped, false) === true);
+  check('permisos: el comando pegado no se confunde con una caja vacia', codexPermissionComposerScreen(permissionTyped) === false);
+  check('permisos: tampoco envia Enter en un menu', codexPermissionComposerScreen(menu, false) === false);
   check('R52 lo escrito esperando el arranque del daemon: no', codexReadyScreen(coldTyped) === false);
   check('R52 un menu en lugar de la caja: no', codexReadyScreen(menu) === false);
   check('R52 pantalla vacia: no', codexReadyScreen([]) === false && codexReadyScreen(['', '']) === false);

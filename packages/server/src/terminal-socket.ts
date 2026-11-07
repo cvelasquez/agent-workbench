@@ -73,7 +73,7 @@ import { readDiff } from './git-repo.js';
 import { GlobalSearchSlot } from './global-search.js';
 import { deliverWhenReady, prefillReasonFor, type DeliverDeps } from './deliver-when-ready.js';
 import { prepareSubmit, runSubmit, type SubmitMessageDeps } from './submit-message.js';
-import { codexEmptyComposerScreen, codexReadyScreen } from './agents/codex/ready-screen.js';
+import { codexPermissionComposerScreen } from './agents/codex/ready-screen.js';
 import { CliSuggestions } from './cli-suggestions.js';
 import { TabFocus } from './tab-focus.js';
 import { HANDOFF_DELIVERY_TIMEOUT_MS, continueSession, type ContinueDeps } from './handoff/handoff.js';
@@ -1913,16 +1913,11 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               }
               if (current.review) { reason = 'review'; return false; }
               const activity = registry.activityOf(terminalId);
-              if (activity !== 'idle') { reason = activity === 'waiting' ? 'waiting' : 'busy'; return false; }
+              if (activity === 'waiting') { reason = 'waiting'; return false; }
               const launchedAt = registry.launchedAtOf(terminalId);
               if (launchedAt === null) { reason = 'gone'; return false; }
-              if (await conversations.checkOpenTurn(terminalId, launchedAt)) { reason = 'busy'; return false; }
               if (conversations.getWaitingFor(terminalId) !== null || await conversations.checkWaitingFor(terminalId) !== null) {
                 reason = 'waiting';
-                return false;
-              }
-              if (conversations.hasOpenToolCall(terminalId, launchedAt) || await conversations.checkOpenToolCall(terminalId, launchedAt)) {
-                reason = 'tool-pending';
                 return false;
               }
               const screen = registry.watchScreen(terminalId);
@@ -1930,7 +1925,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               let ready = false;
               try {
                 const lines = await screen.lines();
-                ready = piecesChecked === 0 ? codexEmptyComposerScreen(lines) : codexReadyScreen(lines);
+                ready = codexPermissionComposerScreen(lines, piecesChecked === 0);
               } finally {
                 screen.dispose();
               }

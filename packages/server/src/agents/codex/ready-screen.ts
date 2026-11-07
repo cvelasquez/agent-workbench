@@ -29,6 +29,8 @@
  * "Resuming session…", turnos anteriores).
  */
 
+import { codexScreenStatus } from './screen-status.js';
+
 /** Lo que dice que Codex esta ocupado, en las ultimas lineas. */
 const BUSY = /esc to interrupt|Working \(|Waiting for startup|esc cancel/;
 /** El pie de la caja, con la caja vacia o trabajando. */
@@ -49,7 +51,19 @@ export function codexReadyScreen(lines: readonly string[]): boolean {
 /** True only when the measured composer is ready and contains no typed draft. */
 export function codexEmptyComposerScreen(lines: readonly string[]): boolean {
   if (!codexReadyScreen(lines)) return false;
+  return codexPermissionComposerScreen(lines);
+}
+
+/** The permissions command is also accepted while Codex is working. */
+export function codexPermissionComposerScreen(lines: readonly string[], requireEmpty = true): boolean {
   const tail = lines.filter((line) => line.trim() !== '').slice(-8);
+  if (tail.some((line) => /Waiting for startup|esc cancel/.test(line))) return false;
+  // Al pegar el comando, Codex reemplaza los atajos por modelo y carpeta.
+  // Esa pantalla tambien acepta Enter; un dialogo sigue bloqueado.
+  if (!requireEmpty) {
+    const status = codexScreenStatus(tail);
+    return (status.activity === 'idle' || status.activity === 'busy') && tail.some((line) => COMPOSER.test(line));
+  }
   const footer = tail.findIndex((line) => FOOTER.test(line));
-  return footer > 0 && tail.slice(0, footer).some((line) => EMPTY_COMPOSER.test(line));
+  return footer > 0 && tail.slice(0, footer).some((line) => (requireEmpty ? EMPTY_COMPOSER : COMPOSER).test(line));
 }
