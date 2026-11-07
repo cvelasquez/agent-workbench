@@ -35,14 +35,14 @@ interface CodexPermissionControlProps {
 /** Shows pending selections with feedback until Codex confirms the effective preset. */
 export function CodexPermissionControl({ disabled, state, request, onChange }: CodexPermissionControlProps): JSX.Element {
   const preset = codexPermissionPresetForState(state);
-  const value = request?.status === 'awaiting' || request?.status === 'unconfirmed'
+  const value = request?.status === 'awaiting'
     ? request.preset
     : preset ?? (state === null ? '__unknown' : '__custom');
   const busy = request?.status === 'writing';
   let feedback: string | null = null;
   if (request?.status === 'writing') feedback = t('controls.permission.pending');
   else if (request?.status === 'awaiting') feedback = t('controls.permission.awaiting');
-  else if (request?.status === 'unconfirmed') feedback = t('controls.permission.awaiting');
+  else if (request?.status === 'unconfirmed') feedback = t('controls.permission.unconfirmed');
   else if (request?.status === 'blocked') {
     feedback = t(request.reason === undefined ? 'controls.permission.error.failed' : REASONS[request.reason]);
   }
@@ -54,8 +54,8 @@ export function CodexPermissionControl({ disabled, state, request, onChange }: C
         value={value}
         disabled={disabled || busy}
         aria-label={t('controls.permission.label')}
-        title={request?.status === 'awaiting' || request?.status === 'unconfirmed'
-          ? t('controls.permission.awaiting')
+        title={feedback !== null
+          ? feedback
           : preset === null ? t('controls.permission.unknownHint') : t(HINTS[preset])}
         onChange={(event) => {
           const next = event.target.value;
