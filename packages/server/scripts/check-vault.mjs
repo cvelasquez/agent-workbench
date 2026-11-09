@@ -554,10 +554,11 @@ const status = (overrides = {}) => ({
     !/(copia propia|respaldo) apagad/i.test(sidebarSource) && !/(copia propia|respaldo) apagad/i.test(appSource));
   // Desde el hito 37 una fila "copia" tampoco se abre en una ventana remota
   // (`onOpenVaultSession` null): abriria su Markdown en el escritorio del anfitrion.
-  // Desde el hito 48, tampoco una nativa de una rama aparte quitada (`branchGone`).
+  // Desde el hito 48, tampoco una nativa de una rama aparte quitada (`branchGone`); desde el 56,
+  // tampoco la de un proyecto que se movio de carpeta (`movedAway`).
   check('1 textos: las marcas de la fila salen de sessionVaultView y una fila nativa sigue deshabilitada como antes',
     /const vaultView = sessionVaultView\(session\);/.test(sidebarSource) &&
-    /const openable = vaultView\.copy \? onOpenVaultSession !== null : canOpen && resumable && !branchGone;/.test(sidebarSource) &&
+    /const openable = vaultView\.copy \? onOpenVaultSession !== null : canOpen && resumable && !branchGone && !movedAway;/.test(sidebarSource) &&
     /disabled=\{!openable\}/.test(sidebarSource));
   const chooseAt = appSource.indexOf('vault.chooseDir(pickerId);');
   check('1 textos: la carpeta se manda con el selector abierto, antes de cerrarlo',
@@ -2334,6 +2335,16 @@ const linksIn = (text) => [...text.matchAll(/\]\(<([^>]+)>\)/g)].map((match) => 
   check('12 indice del proyecto: de la mas reciente a la mas vieja, corchetes escapados, marcas y lo que no se exporto',
     indexOk, indexOk ? '' : show(index));
 
+  // Hito 56: un proyecto que se movio de carpeta dice la de ahora y de donde vienen sus conversaciones.
+  const movedIndex = renderProjectIndex({
+    name: 'demo', cwd: 'D:\\AWB\\demo', exportedAt: 1_700_000_000_000, skipped: 0, entries: [],
+    relocations: [{ from: 'D:\\demo', paused: false }, { from: 'E:\\otra\\demo', paused: true }],
+  });
+  check('12 (56) indice de un proyecto movido: la carpeta de ahora y cada carpeta anterior, la pausada marcada',
+    movedIndex.includes('- Carpeta: `D:\\AWB\\demo`\n- Ubicación anterior: `D:\\demo`\n- Ubicación anterior (en pausa): `E:\\otra\\demo`\n- Exportado el '), show(movedIndex));
+  check('12 (56) sin ubicaciones el indice es el de siempre',
+    !index.includes('Ubicación anterior') && !renderProjectIndex({ name: 'demo', cwd: 'C:\\proyectos\\demo', exportedAt: 1, skipped: 0, entries: [], relocations: [] }).includes('Ubicación anterior'));
+
   const { sanitizeFileName } = vaultPaths;
   check('12 sanitizeFileName CON, a:b*? y 200 caracteres',
     sanitizeFileName('CON') === '_CON' && sanitizeFileName('a:b*?') === 'a_b__' && sanitizeFileName('x'.repeat(200)).length === 80);
@@ -2453,6 +2464,103 @@ const linksIn = (text) => [...text.matchAll(/\]\(<([^>]+)>\)/g)].map((match) => 
     show({ offResult, offNames }));
   offService.dispose();
   emptyIndex.dispose();
+}
+
+// --- 12c. Un proyecto que se movio de carpeta (hito 56, §13.14) ---
+{
+  const { ProjectLocationStore } = await import('../src/project-locations.ts');
+  const oldCwd = path.join(root, 'proyectos', 'viejo-mudado', 'Demo');
+  const newCwd = path.join(root, 'proyectos', 'nuevo-mudado', 'Demo');
+  const idOld = '12e00005-0000-4000-8000-000000001205';
+  const idNew = '12f00006-0000-4000-8000-000000001206';
+
+  // La carpeta vieja no existe en esta PC; el historial de la CLI, si.
+  const originFile = await writeClaudeSession(oldCwd, idOld, [userLine('m-u1', 'Pedido de antes de mudarse'), assistantLine('m-a1', 'Hecho en la carpeta vieja.')]);
+  await rm(path.join(root, 'proyectos', 'viejo-mudado'), { recursive: true, force: true });
+  await writeClaudeSession(newCwd, idNew, [userLine('m-u2', 'Pedido de despues de mudarse')]);
+  const projectMemory = path.join(newCwd, '.agents', 'memory');
+  await mkdir(projectMemory, { recursive: true });
+  await writeFile(path.join(projectMemory, 'MEMORY.md'), '- [Nueva](nueva.md) - nota de la carpeta nueva\n');
+  await writeFile(path.join(projectMemory, 'nueva.md'), 'Nota del proyecto en la carpeta nueva\n');
+
+  const dir = path.join(root, 'copia-mudada');
+  // Como llega un respaldo de la otra PC: ya trae la memoria que se copio de la carpeta vieja.
+  const oldMemory = vaultPaths.memoryDir(dir, oldCwd, process.platform);
+  await mkdir(oldMemory, { recursive: true });
+  await writeFile(path.join(oldMemory, 'vieja.md'), 'Nota que trajo el respaldo\n');
+  await writeFile(path.join(oldMemory, 'source.json'), JSON.stringify({ cwd: oldCwd, copiedAt: 1 }));
+  const treeOf = async (folder) => {
+    const lines = [];
+    const walk = async (current) => {
+      for (const name of (await readdir(current)).sort()) {
+        const full = path.join(current, name);
+        const info = await stat(full);
+        if (info.isDirectory()) await walk(full);
+        else lines.push(`${path.relative(folder, full)}|${createHashHex(await readFile(full))}|${info.mtimeMs}`);
+      }
+    };
+    await walk(folder);
+    return lines;
+  };
+
+  const catalog = new VaultCatalog();
+  await catalog.load(dir);
+  const locationStore = new ProjectLocationStore(path.join(root, 'ajustes-mudada', 'project-locations.json'), { log: quiet });
+  await locationStore.load();
+  const archived = new Set();
+  const index = new VaultIndex(writerRegistry, archived, catalog, undefined, locationStore);
+  await index.scan();
+  const view = {
+    nativeSessions: () => index.nativeSessions().filter((session) => [idOld, idNew].includes(session.summary.sessionId)),
+    getProjects: () => index.getProjects().filter((project) => [oldCwd, newCwd].includes(project.cwd)),
+  };
+
+  const before = await writerFor({ index: view, catalog }).pass();
+  check('12c preparacion: sin la ubicacion, la pasada copia las dos conversaciones', before?.written === 2, show(before));
+  const sessionsBefore = await treeOf(path.join(dir, 'sessions'));
+  const oldMemoryBefore = await treeOf(oldMemory);
+  const originBefore = createHashHex(await readFile(originFile));
+
+  await locationStore.set([{ from: oldCwd, to: newCwd }]);
+  await index.refreshLocations();
+  const project = index.getProjects().find((candidate) => candidate.cwd === newCwd);
+  check('12c el proyecto junta las dos conversaciones y dice de donde viene la vieja',
+    project?.sessions.length === 2 && project.relocations?.length === 1 && project.relocations[0].from === oldCwd && project.cwdExists === true, show(project?.relocations));
+
+  const after = await writerFor({ index: view, catalog }).pass();
+  check('12c asociar no reescribe ninguna conversacion de la copia: la pasada las da por al dia',
+    after?.written === 0 && after.upToDate === 2, show(after));
+  check('12c ni cambia un byte ni una fecha de lo que ya estaba en el respaldo', same(await treeOf(path.join(dir, 'sessions')), sessionsBefore));
+  check('12c la memoria del proyecto se copia con el nombre y el hash de la carpeta nueva',
+    (await readFile(path.join(vaultPaths.memoryDir(dir, newCwd, process.platform), 'nueva.md'), 'utf8')) === 'Nota del proyecto en la carpeta nueva\n' &&
+    vaultPaths.memoryDir(dir, newCwd, process.platform) !== oldMemory);
+  check('12c y lo que el respaldo traia de la carpeta vieja no se pisa ni se toca', same(await treeOf(oldMemory), oldMemoryBefore));
+  check('12c el historial original de la CLI queda igual', createHashHex(await readFile(originFile)) === originBefore);
+
+  // Exportar: a la carpeta del proyecto nuevo, con la ubicacion anterior.
+  const exportStore = new settingsModule.SettingsStore(path.join(root, 'ajustes-mudada', 'settings.json'));
+  await exportStore.load();
+  await exportStore.update({ vault: { dir } });
+  const service = new VaultService({
+    agents: writerRegistry, index, archived, settings: exportStore, catalog, platform: process.platform, homeDir: home,
+    reveal: () => undefined, log: quiet,
+  });
+  const result = await service.exportProject(project.key);
+  const folder = vaultPaths.projectExportDirFor(dir, project, process.platform);
+  const exportedNames = await namesIn(folder);
+  const indexMd = await readFile(path.join(folder, 'index.md'), 'utf8');
+  check('12c exportar escribe en la carpeta del proyecto nuevo, con las dos conversaciones',
+    result.sessions === 2 && result.folder === folder && folder === vaultPaths.projectExportDir(dir, newCwd, process.platform) && exportedNames.length === 3, show({ result, exportedNames }));
+  check('12c y no crea la carpeta de exportacion de la ruta vieja', !(await fileExists(vaultPaths.projectExportDir(dir, oldCwd, process.platform))));
+  check('12c el indice dice la carpeta de ahora y la anterior',
+    indexMd.includes(`- Carpeta: \`${newCwd}\``) && indexMd.includes(`- Ubicación anterior: \`${oldCwd}\``), indexMd.split('\n').slice(0, 6).join(' | '));
+  const oldExport = exportedNames.find((name) => name.includes(idOld.slice(0, 8)));
+  const oldExportText = oldExport === undefined ? '' : await readFile(path.join(folder, oldExport), 'utf8');
+  check('12c la conversacion de antes sale con la carpeta donde corrio y su texto, sin tocar', oldExportText.includes(oldCwd) && oldExportText.includes('Hecho en la carpeta vieja.'), oldExportText.split('\n').slice(0, 6).join(' | '));
+  check('12c exportar no cambia la copia', same(await treeOf(path.join(dir, 'sessions')), sessionsBefore) && same(await treeOf(oldMemory), oldMemoryBefore));
+
+  service.dispose();
+  index.dispose();
 }
 
 // ---------------------------------------------------------------------------

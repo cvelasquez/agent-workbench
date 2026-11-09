@@ -617,6 +617,8 @@ export function useWorkspace(): Workspace {
           // Lo mismo con la copia propia (hito 28): lo dice su dialogo, o su
           // propio aviso si el dialogo esta cerrado. Ver `useVault`.
           if (message.code === 'vault-failed') break;
+          // Y ubicar un proyecto (hito 56): lo dice su dialogo, o el aviso de quitar. Ver `useProjectLocations`.
+          if (message.code === 'location-failed') break;
           // Y la busqueda global (hito 29): lo dice su linea de estado, en la barra.
           if (message.code === 'search-failed') break;
           // Y el acceso remoto (hito 37): lo dice su dialogo. Ver `useRemoteAccess`.

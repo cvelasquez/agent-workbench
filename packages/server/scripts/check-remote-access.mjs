@@ -528,7 +528,8 @@ try {
 
   // --- 10. Lo que un equipo remoto no puede pedir -------------------------------
   {
-    const hostOnly = ['agent.voice', 'remote.configure', 'remote.pairing.start', 'remote.pairing.cancel', 'remote.device.rename', 'remote.device.revoke'];
+    // Hito 56: ubicar un proyecto cambia la configuracion del anfitrion (project-locations.json), como Ajustes.
+    const hostOnly = ['agent.voice', 'remote.configure', 'remote.pairing.start', 'remote.pairing.cancel', 'remote.device.rename', 'remote.device.revoke', 'location.preview', 'location.apply', 'location.remove'];
     const opensOnHost = ['files.reveal', 'vault.reveal', 'vault.openSession', 'vault.exportProject'];
     check('administrar el acceso remoto es sólo del anfitrión',
       hostOnly.every((type) => remoteRefusal(type, true)?.key === 'remoteHostOnly'));
@@ -566,6 +567,16 @@ try {
     check('olvidarse a sí mismo no lleva id, y un equipo remoto puede pedirlo',
       json(client({ type: 'remote.device.forgetSelf', deviceId: 'otro' })) === json({ type: 'remote.device.forgetSelf' }) &&
       remoteRefusal('remote.device.forgetSelf', true) === null);
+
+    // Hito 56: los pedidos de ubicar un proyecto no nombran ninguna ruta, y los tres llevan su requestId.
+    check('location.*: el proyecto por su clave, el selector por su id y la vista previa por el suyo',
+      json(client({ type: 'location.preview', requestId: 'r', projectKey: 'd:\\x', pickerId: 'p', cwd: 'C:\\Windows' })) === json({ type: 'location.preview', requestId: 'r', projectKey: 'd:\\x', pickerId: 'p' }) &&
+      json(client({ type: 'location.apply', requestId: 'r', previewId: 'v', to: 'C:\\Windows' })) === json({ type: 'location.apply', requestId: 'r', previewId: 'v' }) &&
+      json(client({ type: 'location.remove', requestId: 'r', projectKey: 'k' })) === json({ type: 'location.remove', requestId: 'r', projectKey: 'k' }));
+    check('location.*: sin requestId o sin lo que nombran no son mensajes',
+      client({ type: 'location.preview', projectKey: 'k', pickerId: 'p' }) === null && client({ type: 'location.preview', requestId: 'r', projectKey: 'k' }) === null &&
+      client({ type: 'location.apply', requestId: 'r' }) === null && client({ type: 'location.apply', requestId: '', previewId: 'v' }) === null &&
+      client({ type: 'location.remove', requestId: 'r' }) === null);
 
     const status = {
       enabled: true, port: REMOTE_DEFAULT_PORT, state: 'active', listeningPort: REMOTE_DEFAULT_PORT,

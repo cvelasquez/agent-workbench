@@ -41,6 +41,7 @@ import {
   parseSessionSummary,
   type AgentId,
   type IndexStatus,
+  type ProjectRelocation,
   type ProjectSummary,
   type SessionAgentId,
   type SessionSummary,
@@ -54,6 +55,7 @@ import type {
 import type { AgentRegistry } from './agents/registry.js';
 import type { ArchivedSessions } from './archived-sessions.js';
 import { appConfigDir, sessionIndexCachePath } from './paths.js';
+import type { ProjectLocationStore, Relocation } from './project-locations.js';
 import type { VaultSummary } from './vault/catalog.js';
 import type { WorktreeLink, WorktreeLinks } from './worktrees/links.js';
 
@@ -372,32 +374,23 @@ export function migrateIndexCache(parsed: unknown): CacheFileV4 | null {
  *     proyectos, en el orden en que aparecieron.
  *  4. Hito 48: una sesion de una rama aparte (`linkOf`) va al proyecto de su
  *     carpeta principal, con su rama en `worktree`. Sin eso era otro proyecto.
+ *  5. Hito 56: la carpeta de un proyecto que se movio (`relocateOf`, §13.14) se
+ *     cambia por la nueva, **despues** de la rama: la principal de una rama
+ *     quitada tambien se mudo. La fila conserva su carpeta (`summary.cwd`) y
+ *     sale con `relocated`; el proyecto dice de donde vienen sus conversaciones.
  */
 export function buildProjects(
   sessions: Iterable<ProjectInput>,
   platform: string,
   linkOf: (cwd: string) => WorktreeLink | null = () => null,
+  relocateOf: (cwd: string) => Relocation | null = () => null,
 ): Array<Omit<ProjectSummary, 'cwdExists' | 'isGitRepo'>> {
-  const all = [...sessions];
-
-  const groupCwd = new Map<string, string>();
-  for (const session of all) {
-    const group = `${session.agent}:${session.group}`;
-    if (session.cwd !== null && session.cwd.length > 0 && !groupCwd.has(group)) {
-      groupCwd.set(group, session.cwd);
-    }
-  }
-
   const projects = new Map<string, Omit<ProjectSummary, 'cwdExists' | 'isGitRepo'>>();
-  for (const session of all) {
-    const own = session.cwd !== null && session.cwd.length > 0 ? session.cwd : null;
-    const sessionCwd = own ?? groupCwd.get(`${session.agent}:${session.group}`) ?? '';
-    const link = sessionCwd.length > 0 ? linkOf(sessionCwd) : null;
-    const effective = link?.mainCwd ?? sessionCwd;
-    const key =
-      effective.length > 0
-        ? normalizeCwdKey(effective, platform)
-        : `unknown:${session.agent}:${session.group}`;
+  const moved = new Map<string, Map<string, ProjectRelocation>>();
+  for (const placement of placeSessions(sessions, platform, linkOf, relocateOf)) {
+    const { input: session, link, relocation, effective, key } = placement;
+    // La que no se aplica (en pausa) deja la sesion donde estaba.
+    const applied = relocation !== null && !relocation.paused;
 
     let project = projects.get(key);
     if (project === undefined) {
@@ -412,14 +405,106 @@ export function buildProjects(
       };
       projects.set(key, project);
     }
-    project.sessions.push(link === null ? session.summary : { ...session.summary, worktree: link.worktree });
+    // Una copia solo si cambia algo: el resumen de entrada es de quien lo armo.
+    let summary = session.summary;
+    if (link !== null) summary = { ...summary, worktree: link.worktree };
+    if (applied) summary = { ...summary, relocated: true };
+    project.sessions.push(summary);
     project.lastActivityAt = Math.max(project.lastActivityAt, session.summary.updatedAt);
+
+    if (relocation !== null) {
+      let locations = moved.get(key);
+      if (locations === undefined) {
+        locations = new Map();
+        moved.set(key, locations);
+      }
+      const fromKey = normalizeCwdKey(relocation.from, platform);
+      const known = locations.get(fromKey);
+      if (known === undefined) {
+        locations.set(fromKey, { from: relocation.from, to: relocation.to, sessions: 1, paused: relocation.paused });
+      } else {
+        known.sessions += 1;
+      }
+    }
   }
 
   for (const project of projects.values()) {
     project.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    const locations = moved.get(project.key);
+    if (locations !== undefined) {
+      project.relocations = [...locations.values()].sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+    }
   }
   return [...projects.values()];
+}
+
+/** Hito 56. Donde cae una sesion de la barra, para el servicio de ubicaciones (`locationPlacements`). */
+export interface LocationPlacement {
+  agent: SessionAgentId;
+  sessionId: string;
+  archived: boolean;
+  /** La clave del proyecto en el que cae, con las ubicaciones aplicadas. */
+  projectKey: string;
+  /** La carpeta del historial (la principal, si era de una rama aparte): de donde sale la ubicacion. */
+  base: string;
+  /** Si esa carpeta existe en disco. */
+  baseExists: boolean;
+  /** La ubicacion que la alcanza, aplicada o en pausa; null si ninguna. */
+  relocation: Relocation | null;
+}
+
+/** Donde cae una sesion de la barra y por que (`placeSessions`). */
+export interface SessionPlacement {
+  input: ProjectInput;
+  /** La rama aparte de su carpeta, o null. */
+  link: WorktreeLink | null;
+  /** La carpeta del historial, ya en la principal si era de una rama aparte. */
+  base: string;
+  /** Hito 56. La ubicacion que alcanza a `base`, aplicada o en pausa; null si ninguna. */
+  relocation: Relocation | null;
+  /** La carpeta del proyecto en el que cae (vacia si ninguna sesion del grupo trae `cwd`). */
+  effective: string;
+  /** La clave de ese proyecto. */
+  key: string;
+}
+
+/**
+ * De cada sesion, en que proyecto cae. Pura. Es la mitad de `buildProjects` que
+ * decide el proyecto, aparte para que el servicio de ubicaciones (hito 56) vea
+ * lo mismo que la barra sin repetir la regla.
+ *
+ * Cada grupo nativo (`agent` + `group`) aporta el **primer** `cwd` no vacio de
+ * sus sesiones: es el respaldo de las que no traen.
+ */
+export function placeSessions(
+  sessions: Iterable<ProjectInput>,
+  platform: string,
+  linkOf: (cwd: string) => WorktreeLink | null = () => null,
+  relocateOf: (cwd: string) => Relocation | null = () => null,
+): SessionPlacement[] {
+  const all = [...sessions];
+
+  const groupCwd = new Map<string, string>();
+  for (const session of all) {
+    const group = `${session.agent}:${session.group}`;
+    if (session.cwd !== null && session.cwd.length > 0 && !groupCwd.has(group)) {
+      groupCwd.set(group, session.cwd);
+    }
+  }
+
+  return all.map((input) => {
+    const own = input.cwd !== null && input.cwd.length > 0 ? input.cwd : null;
+    const sessionCwd = own ?? groupCwd.get(`${input.agent}:${input.group}`) ?? '';
+    const link = sessionCwd.length > 0 ? linkOf(sessionCwd) : null;
+    const base = link?.mainCwd ?? sessionCwd;
+    const relocation = base.length > 0 ? relocateOf(base) : null;
+    const effective = relocation !== null && !relocation.paused ? relocation.cwd : base;
+    const key =
+      effective.length > 0
+        ? normalizeCwdKey(effective, platform)
+        : `unknown:${input.agent}:${input.group}`;
+    return { input, link, base, relocation, effective, key };
+  });
 }
 
 /** Los items de una fuente, agrupados por `group` en el orden en que aparecen. */
@@ -466,6 +551,14 @@ export class SessionIndex extends EventEmitter {
   private readonly cwdGit = new Map<string, boolean>();
 
   /**
+   * Hito 56 (§13.14). La ubicacion que alcanza a cada carpeta del historial
+   * (despues de la rama aparte), aplicada o en pausa, o null. Se aprende junto
+   * con `cwdExists` y por lo mismo: la barra se arma sin tocar el disco. No
+   * entra a la cache del indice: mover un proyecto no cambia ningun archivo.
+   */
+  private readonly cwdRelocation = new Map<string, Relocation | null>();
+
+  /**
    * Como quedo el `list()` de cada CLI en el ultimo escaneo. Decide si una
    * copia de esa CLI se muestra (`vaultOnlySessions`). `refreshPath` no lo
    * toca: un aviso del watcher dice que un archivo cambio, no que la raiz se
@@ -498,6 +591,11 @@ export class SessionIndex extends EventEmitter {
      * conversacion (`movedTo`).
      */
     private readonly links?: Pick<WorktreeLinks, 'sessionLink' | 'isGitRepo'> & Partial<Pick<WorktreeLinks, 'movedTo'>>,
+    /**
+     * Hito 56: a donde se movio la carpeta de cada proyecto en esta PC. Ausente:
+     * cada carpeta es la suya, como siempre.
+     */
+    private readonly locations?: Pick<ProjectLocationStore, 'resolve'>,
   ) {
     super();
     this.stopCatalog =
@@ -560,10 +658,62 @@ export class SessionIndex extends EventEmitter {
     return [...this.sessions.values()].map((session) => this.placed(session));
   }
 
+  /**
+   * Hito 56. A donde se movio una carpeta del historial, ya aprendida, o null si
+   * no se movio o la ubicacion esta en pausa. Lo usa quien necesita la carpeta de
+   * ahora de una sesion (continuarla). Una carpeta que nadie aprendio con esa
+   * escritura se resuelve igual contra las ubicaciones de ahora.
+   */
+  relocationOf(cwd: string): Relocation | null {
+    const learned = this.cwdRelocation.get(cwd);
+    if (learned !== undefined) return learned !== null && !learned.paused ? learned : null;
+    const resolved = this.locations?.resolve(cwd) ?? null;
+    // Sin saber si la carpeta anterior existe, no se aplica: mejor no mover que esconder una carpeta que existe.
+    if (resolved === null || this.cwdExists.get(resolved.location.from) !== false) return null;
+    return { cwd: resolved.cwd, from: resolved.location.from, to: resolved.location.to, paused: false };
+  }
+
+  private relocateOf(cwd: string): Relocation | null {
+    return this.cwdRelocation.get(cwd) ?? null;
+  }
+
+  /** Todas las sesiones de la barra, nativas y copias, tal como `getProjects` las ubica. */
+  private allInputs(): ProjectInput[] {
+    return [...this.placedSessions(), ...this.vaultCopies()];
+  }
+
   private projectsWith(copies: readonly ProjectInput[]): ProjectSummary[] {
-    return buildProjects([...this.placedSessions(), ...copies], process.platform, (cwd) => this.linkOf(cwd))
+    return buildProjects(
+      [...this.placedSessions(), ...copies],
+      process.platform,
+      (cwd) => this.linkOf(cwd),
+      (cwd) => this.relocateOf(cwd),
+    )
       .map((project) => this.finish(project))
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  }
+
+  /**
+   * Hito 56. Donde cae cada sesion de la barra: de que carpeta del historial
+   * salio, si esa carpeta existe en disco, y la ubicacion que la alcanza. Es lo
+   * que necesita el servicio de ubicaciones para armar la vista previa y las
+   * carpetas que se asocian, con la misma regla que la barra.
+   */
+  locationPlacements(): LocationPlacement[] {
+    return placeSessions(
+      this.allInputs(),
+      process.platform,
+      (cwd) => this.linkOf(cwd),
+      (cwd) => this.relocateOf(cwd),
+    ).map((placement) => ({
+      agent: placement.input.agent,
+      sessionId: placement.input.summary.sessionId,
+      archived: this.archived?.has(placement.input.summary.sessionId) ?? false,
+      projectKey: placement.key,
+      base: placement.base,
+      baseExists: this.cwdExists.get(placement.base) ?? false,
+      relocation: placement.relocation,
+    }));
   }
 
   /** Todo lo que una copia pone en la barra: su fila, su proyecto y si existe su carpeta. */
@@ -610,15 +760,51 @@ export class SessionIndex extends EventEmitter {
    */
   private async learnCwd(cwd: string, fresh = false): Promise<void> {
     if (fresh || !this.cwdExists.has(cwd)) this.cwdExists.set(cwd, await pathExists(cwd));
-    if (this.links === undefined) return;
-    if (fresh || !this.cwdLink.has(cwd)) this.cwdLink.set(cwd, await this.links.sessionLink(cwd).catch(() => null));
-    const projectCwd = this.cwdLink.get(cwd)?.mainCwd ?? cwd;
-    if (projectCwd !== cwd && (fresh || !this.cwdExists.has(projectCwd))) {
-      this.cwdExists.set(projectCwd, await pathExists(projectCwd));
+    let projectCwd = cwd;
+    if (this.links !== undefined) {
+      if (fresh || !this.cwdLink.has(cwd)) this.cwdLink.set(cwd, await this.links.sessionLink(cwd).catch(() => null));
+      projectCwd = this.cwdLink.get(cwd)?.mainCwd ?? cwd;
+      if (projectCwd !== cwd && (fresh || !this.cwdExists.has(projectCwd))) {
+        this.cwdExists.set(projectCwd, await pathExists(projectCwd));
+      }
+      if (fresh || !this.cwdGit.has(projectCwd)) {
+        this.cwdGit.set(projectCwd, await this.links.isGitRepo(projectCwd).catch(() => false));
+      }
     }
-    if (fresh || !this.cwdGit.has(projectCwd)) {
-      this.cwdGit.set(projectCwd, await this.links.isGitRepo(projectCwd).catch(() => false));
+    await this.learnRelocation(projectCwd, fresh);
+  }
+
+  /**
+   * Hito 56. Si la carpeta del historial se movio (`locations`), y a donde: la
+   * ubicacion se aplica solo mientras la carpeta anterior **no existe**. Si vuelve
+   * a existir queda en pausa y el historial vuelve a su carpeta, para que una
+   * asociacion nunca esconda una carpeta que esta en disco. Aprende ademas si la
+   * carpeta nueva existe y si es de git, antes de que la sesion sea visible.
+   */
+  private async learnRelocation(base: string, fresh: boolean): Promise<void> {
+    if (this.locations === undefined) return;
+    const resolved = this.locations.resolve(base);
+    if (resolved === null) {
+      this.cwdRelocation.set(base, null);
+      return;
     }
+    const { from, to } = resolved.location;
+    if (fresh || !this.cwdExists.has(from)) this.cwdExists.set(from, await pathExists(from));
+    const paused = this.cwdExists.get(from) === true;
+    this.cwdRelocation.set(base, { cwd: paused ? base : resolved.cwd, from, to, paused });
+    if (paused) return;
+    if (fresh || !this.cwdExists.has(resolved.cwd)) this.cwdExists.set(resolved.cwd, await pathExists(resolved.cwd));
+    if (this.links !== undefined && (fresh || !this.cwdGit.has(resolved.cwd))) {
+      this.cwdGit.set(resolved.cwd, await this.links.isGitRepo(resolved.cwd).catch(() => false));
+    }
+  }
+
+  /** Cada carpeta que conoce el indice, donde va en la barra: la de una conversacion pasada a una rama (Hito 54) y las copias. */
+  private knownCwds(): Set<string> {
+    const cwds = new Set<string>();
+    for (const session of this.placedSessions()) if (session.cwd !== null) cwds.add(session.cwd);
+    for (const copy of this.catalog?.summaries() ?? []) if (copy.cwd.length > 0) cwds.add(copy.cwd);
+    return cwds;
   }
 
   /**
@@ -628,11 +814,17 @@ export class SessionIndex extends EventEmitter {
    */
   async refreshWorktrees(): Promise<void> {
     if (this.links === undefined) return;
-    const cwds = new Set<string>();
-    // La carpeta de cada una donde va en la barra: la de una conversacion que se paso a una rama, tambien (Hito 54).
-    for (const session of this.placedSessions()) if (session.cwd !== null) cwds.add(session.cwd);
-    for (const copy of this.catalog?.summaries() ?? []) if (copy.cwd.length > 0) cwds.add(copy.cwd);
-    for (const cwd of cwds) await this.learnCwd(cwd, true);
+    for (const cwd of this.knownCwds()) await this.learnCwd(cwd, true);
+    this.emitProjects();
+  }
+
+  /**
+   * Hito 56. Se guardo, se cambio o se quito la ubicacion de un proyecto, o una
+   * carpeta anterior volvio a existir. Se vuelve a mirar cada carpeta conocida
+   * y se reemite la barra a todos.
+   */
+  async refreshLocations(): Promise<void> {
+    for (const cwd of this.knownCwds()) await this.learnCwd(cwd, true);
     this.emitProjects();
   }
 
@@ -827,6 +1019,7 @@ export class SessionIndex extends EventEmitter {
         this.cwdExists.clear();
         this.cwdLink.clear();
         this.cwdGit.clear();
+        this.cwdRelocation.clear();
         await this.learnVaultCwds();
         this.setStatus({ state: 'ready', scannedFiles: 0, totalFiles: 0 });
         this.emitProjects();
@@ -839,6 +1032,7 @@ export class SessionIndex extends EventEmitter {
       this.cwdExists.clear();
       this.cwdLink.clear();
       this.cwdGit.clear();
+      this.cwdRelocation.clear();
       let scanned = 0;
       this.setStatus({ state: 'scanning', scannedFiles: 0, totalFiles });
 
@@ -879,13 +1073,18 @@ export class SessionIndex extends EventEmitter {
             anteriores; uno parcial pisaria en el cliente al que ya estaba.
           */
           const all = this.placedSessions();
-          const batchKeys = new Set(batch.map((session) => cacheKey(session.agent, session.ref)));
-          const fresh = new Set(
-            all.filter((session) => batchKeys.has(cacheKey(session.agent, session.ref))).map((session) => session.summary),
-          );
-          const touched = buildProjects(all, process.platform, (cwd) => this.linkOf(cwd)).filter(
-            (project) => project.sessions.some((summary) => fresh.has(summary)),
-          );
+          /*
+            Las del grupo se reconocen por CLI e id y no por el objeto: una fila de
+            una rama aparte o de un proyecto movido sale como una copia del resumen
+            (`buildProjects`), y por referencia su proyecto nunca contaba como tocado.
+          */
+          const freshPairs = new Set(batch.map((session) => `${session.agent}:${session.summary.sessionId}`));
+          const touched = buildProjects(
+            all,
+            process.platform,
+            (cwd) => this.linkOf(cwd),
+            (cwd) => this.relocateOf(cwd),
+          ).filter((project) => project.sessions.some((summary) => freshPairs.has(`${summary.agent}:${summary.sessionId}`)));
           this.emit(
             'projects',
             touched.map((project) => this.finish(project)),

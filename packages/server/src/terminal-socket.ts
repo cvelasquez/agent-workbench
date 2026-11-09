@@ -115,6 +115,8 @@ import { GitMissingError } from './git-repo.js';
 import { WorktreeError, WorktreeInUseError, type WorktreeService } from './worktrees/service.js';
 import { remoteRefusal } from './remote-access.js';
 import type { RemoteAccessService } from './remote-access-service.js';
+import { PendingLocationPreview, ProjectLocationService } from './project-location-service.js';
+import { ProjectLocationError, type ProjectLocationStore } from './project-locations.js';
 import {
   MessageScheduler,
   SCHEDULED_DELIVERY_TIMEOUT_MS,
@@ -208,6 +210,8 @@ export interface TerminalSocketOptions {
   remote: RemoteAccessService;
   /** Las ramas aparte (`worktree.*`, hito 48, §6.38). */
   worktrees: WorktreeService;
+  /** A donde se movio la carpeta de cada proyecto en esta PC (`location.*`, hito 56, §13.14), ya cargado. */
+  locations: ProjectLocationStore;
   /** Los mensajes programados (`schedule.*`, hito 51, §6.39), ya cargados. */
   scheduled: ScheduledMessageStore;
   /** Cuando terminan de restaurarse las pestanas: recien ahi arranca el reloj de los mensajes programados. */
@@ -235,6 +239,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     vault,
     remote,
     worktrees,
+    locations,
     scheduled,
   } = options;
 
@@ -1069,6 +1074,21 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   const startScheduler = (): void => scheduler.start();
   void options.restored.then(startScheduler, startScheduler);
 
+  /**
+   * Ubicar un proyecto que se movio de carpeta (`location.*`, hito 56). Una
+   * pestana tiene algo pendiente si la CLI o la app llevan mensajes en cola, o si
+   * tiene mensajes programados.
+   */
+  const locationService = new ProjectLocationService({
+    index,
+    store: locations,
+    tabs: () => registry.list(),
+    hasPending: (terminalId) =>
+      conversations.hasPending(terminalId) || scheduler.snapshot().some((message) => message.terminalId === terminalId),
+    protectedDirs: () => agents.protectedDirs(),
+    platform: process.platform,
+  });
+
   /** Lo que la continuacion en otra CLI usa del servidor (hito 29). */
   const continueDeps: ContinueDeps = {
     registry,
@@ -1222,6 +1242,21 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     sendError(socket, 'vault-failed', serverText('vaultFailed'), detail);
   };
 
+  /**
+   * Un pedido `location.*` que fallo. Un `ProjectLocationError` trae el texto
+   * para el usuario; cualquier otra cosa es un error de disco o de lectura, que
+   * va en el detalle. Siempre con el `requestId` de quien lo pidio.
+   */
+  const sendLocationError = (socket: WebSocket, error: unknown, requestId: string): void => {
+    if (error instanceof ProjectLocationError) {
+      sendError(socket, 'location-failed', error.text, undefined, requestId);
+      return;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn('[locations] a request failed:', detail);
+    sendError(socket, 'location-failed', serverText('operationFailed', { detail }), detail, requestId);
+  };
+
   // ---- upgrade ----
 
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
@@ -1279,6 +1314,13 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
       servidor no lista nada.
     */
     const pickers = new DirectoryPickers(agents.protectedDirs());
+    /*
+      La carpeta nueva que esta ventana eligio para ubicar un proyecto (hito 56),
+      guardada aca hasta que confirma: el selector se cierra al elegir, y el
+      cliente no puede nombrar una ruta. Una vista previa nueva reemplaza a la
+      anterior; confirmar la usa una sola vez.
+    */
+    const pendingLocation = new PendingLocationPreview();
     /*
       Las mismas carpetas, para Archivos (Hito 46): el arbol no las lista y nada
       de adentro se lee ni se escribe, aunque caigan dentro del proyecto.
@@ -3085,6 +3127,55 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         case 'vault.reveal':
           void vault.reveal().catch((error: unknown) => sendVaultError(socket, error));
           break;
+
+        /*
+          Ubicar un proyecto que se movio de carpeta (hito 56, §13.14). Ningun
+          pedido nombra una ruta: el proyecto va por su clave y la carpeta es
+          donde esta parado el selector de este socket. La vista previa la guarda
+          aca bajo un `previewId`, y confirmar manda ese id: el servicio rehace
+          todo con el disco de ese momento antes de guardar. Un equipo remoto no
+          llega aca (`remoteRefusal`): cambia la configuracion del anfitrion.
+        */
+        case 'location.preview': {
+          const { requestId, projectKey } = message;
+          const to = pickers.currentPath(message.pickerId);
+          if (to === null) {
+            sendError(socket, 'location-failed', serverText('pickerClosed'), undefined, requestId);
+            break;
+          }
+          void locationService.preview(projectKey, to).then(
+            (plan) => {
+              const previewId = pendingLocation.hold(projectKey, to);
+              send(socket, { type: 'location.previewed', requestId, preview: { ...plan, previewId } });
+            },
+            (error: unknown) => sendLocationError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'location.apply': {
+          const { requestId } = message;
+          // Se gasta: si algo falla al guardar, se vuelve a elegir la carpeta y a ver.
+          const pending = pendingLocation.take(message.previewId);
+          if (pending === null) {
+            sendError(socket, 'location-failed', serverText('locationPreviewGone'), undefined, requestId);
+            break;
+          }
+          void locationService.apply(pending.projectKey, pending.to).then(
+            () => send(socket, { type: 'location.applied', requestId }),
+            (error: unknown) => sendLocationError(socket, error, requestId),
+          );
+          break;
+        }
+
+        case 'location.remove': {
+          const { requestId } = message;
+          void locationService.remove(message.projectKey).then(
+            () => send(socket, { type: 'location.removed', requestId }),
+            (error: unknown) => sendLocationError(socket, error, requestId),
+          );
+          break;
+        }
 
         case 'notes.send':
           void (async () => {

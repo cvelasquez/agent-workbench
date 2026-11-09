@@ -33,9 +33,10 @@ import { BranchIcon, MoveBranchIcon } from './BranchIcon.js';
 import { LongPressButton } from './LongPressButton.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import {
-  continueButtonTitle,
   continueTargets,
   resumableSession,
+  rowContinuation,
+  rowContinueBlockedReason,
   sessionAgentLabel,
   sessionAgentView,
   openBlockedTitle,
@@ -184,6 +185,16 @@ interface SidebarProps {
   onNewWorktree: ((project: ProjectSummary) => void) | null;
   /** Hito 48: vuelve a abrir la rama quitada de una sesion y la reanuda. */
   onReopenWorktree: (session: SessionSummary & { agent: AgentId }, project: ProjectSummary) => void;
+  /**
+   * Hito 56 (§13.14): ubicar un proyecto cuya carpeta se movio, o cambiar donde
+   * quedo. null en una ventana que entro como equipo remoto: cambia la
+   * configuracion del anfitrion, como Ajustes.
+   */
+  onLocateProject: ((project: ProjectSummary) => void) | null;
+  /** Hito 56: quitar las ubicaciones de un proyecto. null como `onLocateProject`. */
+  onRemoveLocation: ((project: ProjectSummary) => void) | null;
+  /** Proyectos cuyas ubicaciones se estan quitando (el pedido salio y la respuesta no llego). */
+  removingLocation: ReadonlySet<string>;
 }
 
 /** El fragmento de un acierto con lo encontrado resaltado. */
@@ -231,6 +242,48 @@ function ProjectArchiveConfirm({
       <button className="link-button" onClick={onCancel}>
         {plan.sessionIds.length > 0 ? t('common.cancel') : t('common.close')}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Hito 56. Debajo de un proyecto que se movio de carpeta: de donde vienen sus
+ * conversaciones, y las dos cosas que se pueden hacer, cambiar a donde apunta o
+ * quitarlo. Con la ubicacion en pausa (la carpeta anterior existe otra vez) solo
+ * se puede quitar. Sin los manejadores (una ventana remota) es solo informacion.
+ */
+function ProjectRelocationLine({
+  project,
+  removing,
+  onChange,
+  onRemove,
+}: {
+  project: ProjectSummary;
+  removing: boolean;
+  onChange: ((project: ProjectSummary) => void) | null;
+  onRemove: ((project: ProjectSummary) => void) | null;
+}): JSX.Element | null {
+  const relocations = project.relocations ?? [];
+  const active = relocations.filter((entry) => !entry.paused);
+  const first = active[0] ?? relocations[0];
+  if (first === undefined) return null;
+  const text =
+    active.length > 0
+      ? t('sidebar.project.relocated', { from: active.length > 1 ? `${first.from} (+${active.length - 1})` : first.from })
+      : t('sidebar.project.relocationPaused', { from: first.from });
+  return (
+    <div className="project-relocation" title={relocations.map((entry) => entry.from).join('\n')}>
+      <span className="project-relocation-text">{text}</span>
+      {onChange !== null && active.length > 0 && (
+        <button className="link-button" onClick={() => onChange(project)} title={t('sidebar.project.changeLocationTitle')}>
+          {t('sidebar.project.changeLocation')}
+        </button>
+      )}
+      {onRemove !== null && (
+        <button className="link-button" onClick={() => onRemove(project)} disabled={removing} title={t('sidebar.project.removeLocationTitle')}>
+          {t('sidebar.project.removeLocation')}
+        </button>
+      )}
     </div>
   );
 }
@@ -453,6 +506,9 @@ export function Sidebar({
   onOpenSearchHit,
   onNewWorktree,
   onReopenWorktree,
+  onLocateProject,
+  onRemoveLocation,
+  removingLocation,
 }: SidebarProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -1020,7 +1076,22 @@ export function Sidebar({
               {!project.cwdExists && (
                 <div className="project-missing" title={project.cwd}>
                   {t('sidebar.project.missing')}
+                  {/* Hito 56: sin carpeta no hay donde apuntar; en una ventana remota, tampoco. */}
+                  {onLocateProject !== null && project.cwd.length > 0 && (
+                    <button className="link-button project-locate" onClick={() => onLocateProject(project)} title={t('sidebar.project.locateTitle')}>
+                      {t('sidebar.project.locate')}
+                    </button>
+                  )}
                 </div>
+              )}
+
+              {project.relocations !== undefined && project.relocations.length > 0 && (
+                <ProjectRelocationLine
+                  project={project}
+                  removing={removingLocation.has(project.key)}
+                  onChange={onLocateProject}
+                  onRemove={onRemoveLocation}
+                />
               )}
 
               {archivingProject === project.key && (
@@ -1045,7 +1116,11 @@ export function Sidebar({
                     const resumable = resumableSession(session) && canResume(session.agent);
                     // Hito 48: la de una rama quitada no se reanuda: su carpeta ya no esta.
                     const branchGone = session.worktree !== null && !session.worktree.exists;
-                    const openable = vaultView.copy ? onOpenVaultSession !== null : canOpen && resumable && !branchGone;
+                    // Hito 56: ni la de un proyecto que se movio de carpeta: su CLI la busca en la anterior.
+                    const movedAway = session.relocated === true;
+                    // Las que no se retoman con un clic se continuan en una sesion nueva, tambien con su misma CLI.
+                    const continuation = rowContinuation(session);
+                    const openable = vaultView.copy ? onOpenVaultSession !== null : canOpen && resumable && !branchGone && !movedAway;
                     const moveToBranch = moveToBranchOf(session);
 
                     return (
@@ -1088,7 +1163,9 @@ export function Sidebar({
                               ? `${sessionTitleText(session.title, session.titleSource)}\n${
                                   onOpenVaultSession === null ? t('remote.onlyOnHost') : vaultMarkTitle()
                                 }`
-                              : (agentView.unavailableTitle ?? sessionTitleText(session.title, session.titleSource))
+                              : movedAway
+                                ? t('sidebar.session.relocatedTitle', { title: sessionTitleText(session.title, session.titleSource) })
+                                : (agentView.unavailableTitle ?? sessionTitleText(session.title, session.titleSource))
                           }
                         >
                           <span className="session-title">
@@ -1152,12 +1229,20 @@ export function Sidebar({
                           tambien la misma CLI (23-10-2026). Va antes del
                           boton de volver a abrir: con su margen negativo lo
                           tapaba.
+
+                          Hito 56: igual con la de un proyecto que se movio de
+                          carpeta (se abre en la nueva) y con la que solo queda
+                          en la copia: ninguna se retoma con un clic, y la
+                          misma CLI es una forma de seguirlas (`rowContinuation`).
+                          Si la carpeta del proyecto no esta en disco, se apaga
+                          y dice que hay que ubicarla primero.
                         */}
                         <ContinueButton
-                          targets={continueTargets(agents, session.agent, session.partial, branchGone)}
+                          targets={continueTargets(agents, session.agent, session.partial, continuation.sameCliToo)}
                           className="icon-button session-continue"
                           text="↪"
-                          title={continueButtonTitle(branchGone)}
+                          title={continuation.title}
+                          blockedReason={rowContinueBlockedReason(project)}
                           onPick={(target) => onContinueSession(session, target)}
                         />
 

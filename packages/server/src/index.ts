@@ -55,6 +55,7 @@ import { VaultCatalog } from './vault/catalog.js';
 import { defaultVaultDir } from './vault/paths.js';
 import { VaultService } from './vault/service.js';
 import { WorkspaceStore } from './workspace-store.js';
+import { ProjectLocationStore } from './project-locations.js';
 import { WorktreeLinks } from './worktrees/links.js';
 import { moveBlockNow } from './worktrees/move-block.js';
 import { WorktreeService } from './worktrees/service.js';
@@ -360,12 +361,19 @@ async function main(): Promise<void> {
   await worktreeStore.load();
   const worktreeLinks = new WorktreeLinks(worktreeStore);
   /*
+    A donde se movio la carpeta de cada proyecto en esta PC (hito 56, §13.14).
+    Tambien antes del indice: de ahi sale en que proyecto cae el historial de
+    una carpeta que ya no esta. Leer nunca escribe.
+  */
+  const projectLocations = new ProjectLocationStore();
+  await projectLocations.load();
+  /*
     El indice lee el historial de cada CLI a traves de su adaptador, y al leer
     le ensena al adaptador lo que haga falta —con Claude Code, que variante de
     modelo usa la instalacion—. Va antes que el registro de terminales porque
     le dice de que CLI es una sesion que se reanuda.
   */
-  const index = new SessionIndex(agents, archived, catalog, worktreeLinks);
+  const index = new SessionIndex(agents, archived, catalog, worktreeLinks, projectLocations);
   const vault = new VaultService({ agents, index, archived, settings, catalog, platform: process.platform });
   vault.start();
   const registry = new TerminalRegistry(
@@ -539,6 +547,7 @@ async function main(): Promise<void> {
     vault,
     remote,
     worktrees,
+    locations: projectLocations,
     scheduled,
     restored,
     instances,

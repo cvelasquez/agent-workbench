@@ -226,6 +226,38 @@ antiga como estava. Se você colocá-lo em uma pasta sincronizada ou em um
 repositório, as suas conversas vão junto.
 
 <details>
+<summary>Mudar para outro PC</summary>
+
+Os seus projetos e o backup podem ir com você, e as conversas acompanham os
+projetos.
+
+1. **No PC antigo**, restaure as conversas arquivadas que quiser levar (o backup
+   ignora o que está arquivado), ative o backup e espere até não haver nada
+   pendente. Na aba **Memória** de cada projeto, importe as notas do próprio
+   Claude Code: elas ficam guardadas com o nome da pasta antiga, e o PC novo não
+   as encontraria.
+2. **Copie a pasta do backup e as pastas dos seus projetos**, inteiras, para o
+   PC novo. Copie as pastas, não um `git clone`: `.agents/`, `AGENTS.md` e
+   `CLAUDE.md` não estão no git.
+3. **No PC novo**, instale as suas CLIs e entre na sua conta, abra o app e, no
+   backup, escolha **Alterar pasta…** e a pasta copiada.
+4. Cada projeto mostra **pasta não encontrada**, porque as conversas dele
+   lembram o caminho antigo. Clique em **Localizar pasta…** e escolha onde você
+   a colocou. Antes de salvar qualquer coisa, você vê quantas conversas se movem
+   (as das subpastas vão junto), e as abas abertas na pasta antiga precisam ser
+   fechadas antes.
+
+Nada é copiado nem apagado: as conversas continuam onde estão, e só muda a pasta
+do projeto neste app. As conversas antigas abrem como Markdown, ou continuam em
+uma nova sessão na pasta nova (o botão **↪**, também com a mesma CLI) com os
+últimos turnos como contexto; não dá para retomá-las com o estado próprio da
+CLI. O local é salvo só neste PC, e **Alterar local…** e **Remover associação**
+ficam embaixo do nome do projeto. Não está disponível a partir de um celular
+nem de um computador remoto.
+
+</details>
+
+<details>
 <summary>Importar o histórico do Gemini CLI e do Antigravity IDE</summary>
 
 Dois importadores de uso único trazem o histórico de ferramentas que o app não

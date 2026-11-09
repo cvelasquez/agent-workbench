@@ -42,6 +42,7 @@ import {
   type ModelOption,
   type PermissionCycleCapability,
   type PermissionMode,
+  type ProjectSummary,
   type SessionSummary,
   type StatusLineSetupInfo,
   type StatusLineState,
@@ -1039,26 +1040,66 @@ export function scrollClosesMenu(
  * `partial`: el rescate del IDE (hito 28) no trae ningun mensaje, y el servidor
  * la rechazaria igual con "no tiene mensajes que continuar" (B9).
  *
- * La de una rama aparte quitada (`branchGone`) ofrece todas las instaladas,
- * tambien la de origen y aunque sea la unica: reanudarla desde su fila la abre
- * en la rama, y seguirla en la carpeta principal no tenia otro camino
- * (23-10-2026).
+ * La fila que no se puede reanudar con un clic (`sameCliToo`, ver
+ * `rowContinuation`) ofrece todas las instaladas, tambien la de origen y aunque
+ * sea la unica: la de una rama aparte quitada, porque reanudarla desde su fila
+ * la abre en la rama y seguirla en la carpeta principal no tenia otro camino
+ * (23-10-2026); y desde el hito 56 la de un proyecto que se movio de carpeta y
+ * la que solo queda en la copia, que su CLI ya no tiene.
  */
 export function continueTargets(
   agents: readonly AgentInfo[],
   source: SessionAgentId | null,
   partial = false,
-  branchGone = false,
+  sameCliToo = false,
 ): AgentInfo[] {
   if (source === null || partial) return [];
-  if (branchGone) return menuAgents(agents);
+  if (sameCliToo) return menuAgents(agents);
   if (!shouldOfferAgentChoice(agents)) return [];
   return menuAgents(agents).filter((agent) => agent.id !== source);
 }
 
-/** Titulo del `↪`, en la fila y en el medidor. El de una rama quitada dice adonde va. */
-export function continueButtonTitle(branchGone = false): string {
-  return branchGone ? t('agent.continue.titleMain') : t('agent.continue.title');
+/**
+ * Titulo del `↪`, en la fila y en el medidor. El de una rama quitada o de un
+ * proyecto movido dice adonde va (el movido gana: es la carpeta nueva), y el de
+ * una fila que solo esta en la copia, que abre una sesion nueva.
+ */
+export function continueButtonTitle(branchGone = false, moved = false, copy = false): string {
+  if (moved) return t('agent.continue.titleMoved');
+  if (branchGone) return t('agent.continue.titleMain');
+  if (copy) return t('agent.continue.titleCopy');
+  return t('agent.continue.title');
+}
+
+/** Como se continua una fila de la barra (`rowContinuation`). */
+export interface RowContinuation {
+  /** Se ofrece tambien la CLI de la conversacion (`continueTargets`). */
+  sameCliToo: boolean;
+  /** El titulo del `↪` de esa fila. */
+  title: string;
+}
+
+/**
+ * Hito 56. Una fila que no se retoma con un clic se continua en una sesion
+ * nueva, y entonces la CLI de origen tambien es un destino: la de una rama
+ * quitada, la de un proyecto que se movio de carpeta (`relocated`) y la que solo
+ * queda en la copia propia. Una nativa en su carpeta se reanuda desde su fila.
+ */
+export function rowContinuation(session: Pick<SessionSummary, 'storage' | 'relocated' | 'worktree'>): RowContinuation {
+  const branchGone = session.worktree !== null && !session.worktree.exists;
+  const moved = session.relocated === true;
+  const copy = session.storage === 'vault';
+  return { sameCliToo: branchGone || moved || copy, title: continueButtonTitle(branchGone, moved, copy) };
+}
+
+/**
+ * Hito 56. Por que el `↪` de una fila esta apagado, o null: el proyecto no
+ * tiene su carpeta en disco, y ahi no se abre ninguna sesion. Se dice que hay
+ * que ubicarla, en vez de dejar que termine en "el directorio no existe". Sin
+ * `cwd` no hay carpeta que ubicar: lo dice el servidor.
+ */
+export function rowContinueBlockedReason(project: Pick<ProjectSummary, 'cwd' | 'cwdExists'>): string | null {
+  return project.cwdExists || project.cwd.length === 0 ? null : t('continue.locateFirst');
 }
 
 /**

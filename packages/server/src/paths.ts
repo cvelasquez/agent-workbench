@@ -59,6 +59,16 @@ export function worktreesStatePath(): string {
   return path.join(appConfigDir(), 'worktrees.json');
 }
 
+/**
+ * Hito 56. A donde se movio la carpeta de cada proyecto en esta PC
+ * (`project-locations.ts`). Archivo propio y aparte de `settings.json`: una
+ * version anterior de la app reescribe los ajustes sin conocer este campo y lo
+ * borraria. Es de esta PC: no viaja con la copia propia.
+ */
+export function projectLocationsPath(): string {
+  return path.join(appConfigDir(), 'project-locations.json');
+}
+
 /** Las copias de origen de las notas de las ramas aparte (21-10-2026, §6.38): una por contenido. */
 export function worktreeNotesDir(): string {
   return path.join(appConfigDir(), 'worktree-notes');

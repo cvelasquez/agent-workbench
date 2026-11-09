@@ -31,6 +31,13 @@ export function normalizeCwdKey(cwd: string, platform: string): string {
  * ni finales, y en minusculas — NTFS no distingue mayusculas.
  */
 function windowsKey(cwd: string): string {
+  // `toLowerCase` y no `toLocaleLowerCase`: la clave no puede depender de la
+  // configuracion regional del servidor.
+  return windowsForm(cwd).toLowerCase();
+}
+
+/** La forma de `windowsKey` con las mayusculas que tenia la ruta (Hito 56: `relativeUnder`). */
+function windowsForm(cwd: string): string {
   let key = cwd.replace(/\//g, '\\');
 
   if (key.startsWith('\\\\?\\UNC\\')) {
@@ -49,9 +56,30 @@ function windowsKey(cwd: string): string {
     key = key.slice(0, -1);
   }
 
-  // `toLowerCase` y no `toLocaleLowerCase`: la clave no puede depender de la
-  // configuracion regional del servidor.
-  return key.toLowerCase();
+  return key;
+}
+
+/**
+ * Lo que queda de `cwd` por debajo de `base` (Hito 56): `''` si es la misma
+ * carpeta, `web\src` si esta adentro, `null` si no.
+ *
+ * Compara con la forma de `normalizeCwdKey` y **por segmento entero**:
+ * `D:\x2` no esta debajo de `D:\x`. Lo que devuelve conserva las mayusculas de
+ * `cwd`, porque se usa para armar una ruta nueva (`D:\AWB\x` + `web\src`).
+ * `platform` es la del servidor, como en `normalizeCwdKey`.
+ */
+export function relativeUnder(cwd: string, base: string, platform: string): string | null {
+  if (cwd.length === 0 || base.length === 0) return null;
+  const windows = platform === 'win32';
+  const separator = windows ? '\\' : '/';
+  const own = windows ? windowsForm(cwd) : posixKey(cwd);
+  const root = windows ? windowsForm(base) : posixKey(base);
+  const fold = (value: string): string => (windows ? value.toLowerCase() : value);
+  if (fold(own) === fold(root)) return '';
+  // Solo la raiz de una unidad (`C:\`) o `/` ya terminan en separador.
+  const prefix = root.endsWith(separator) ? root : `${root}${separator}`;
+  if (own.length <= prefix.length || fold(own.slice(0, prefix.length)) !== fold(prefix)) return null;
+  return own.slice(prefix.length);
 }
 
 /**

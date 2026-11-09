@@ -235,6 +235,42 @@ synchronisierten Ordner oder ein Repository legen, wandern Ihre Unterhaltungen
 mit.
 
 <details>
+<summary>Auf einen anderen PC umziehen</summary>
+
+Ihre Projekte und die Sicherung können mit Ihnen umziehen, und die
+Unterhaltungen folgen den Projekten.
+
+1. **Auf dem alten PC** holen Sie aus den archivierten Unterhaltungen zurück,
+   was Sie mitnehmen möchten (die Sicherung überspringt Archiviertes),
+   schalten die Sicherung ein und warten, bis nichts mehr aussteht. Importieren
+   Sie im Tab **Gedächtnis** jedes Projekts die eigenen Notizen von Claude Code:
+   Sie liegen unter dem Namen des alten Ordners, und der neue PC würde sie nicht
+   finden.
+2. **Kopieren Sie den Ordner der Sicherung und Ihre Projektordner** vollständig
+   auf den neuen PC. Kopieren Sie die Ordner, kein `git clone`: `.agents/`,
+   `AGENTS.md` und `CLAUDE.md` liegen nicht in git.
+3. **Auf dem neuen PC** installieren Sie Ihre CLIs und melden sich an, starten
+   die App und wählen in der Sicherung **Ordner ändern…** und den kopierten
+   Ordner.
+4. Jedes Projekt zeigt **Ordner nicht gefunden**, weil seine Unterhaltungen sich
+   an den alten Pfad erinnern. Klicken Sie auf **Ordner zuordnen…** und wählen
+   Sie, wohin Sie den Ordner gelegt haben. Bevor etwas gespeichert wird, sehen
+   Sie, wie viele Unterhaltungen umziehen (die aus Unterordnern gehören dazu);
+   im alten Ordner geöffnete Tabs müssen vorher geschlossen werden.
+
+Es wird nichts kopiert oder gelöscht: Die Unterhaltungen bleiben, wo sie sind,
+und nur der Ordner des Projekts ändert sich in dieser App. Die alten
+Unterhaltungen öffnen sich als Markdown oder werden in einer neuen Sitzung im
+neuen Ordner fortgesetzt (die Schaltfläche **↪**, auch mit derselben CLI), mit
+ihren letzten Runden als Kontext; mit dem eigenen Zustand der CLI lassen sie
+sich nicht wieder aufnehmen. Der Speicherort wird nur auf diesem PC gespeichert,
+und **Speicherort ändern…** und **Zuordnung entfernen** stehen unter dem
+Projektnamen. Von einem Smartphone oder einem Remote-Rechner aus ist das nicht
+verfügbar.
+
+</details>
+
+<details>
 <summary>Historie aus Gemini CLI und der Antigravity IDE importieren</summary>
 
 Zwei Importer für den einmaligen Gebrauch holen Historie aus Werkzeugen, die die

@@ -227,6 +227,38 @@ anterior como estaba. Si lo pones en una carpeta sincronizada o en un
 repositorio, tus conversaciones viajan con él.
 
 <details>
+<summary>Mudarte a otra PC</summary>
+
+Tus proyectos y el respaldo pueden viajar contigo, y las conversaciones siguen a
+los proyectos.
+
+1. **En la PC de antes**, saca de archivadas las conversaciones que quieras
+   llevarte (el respaldo no copia lo archivado), enciende el respaldo y espera a
+   que no quede nada pendiente. En la pestaña **Memoria** de cada proyecto,
+   importa las notas propias de Claude Code: se guardan con el nombre de la
+   carpeta de antes, y la PC nueva no las encontraría.
+2. **Copia la carpeta del respaldo y las carpetas de tus proyectos**, enteras, a
+   la PC nueva. Copia las carpetas, no un `git clone`: `.agents/`, `AGENTS.md` y
+   `CLAUDE.md` no están en git.
+3. **En la PC nueva**, instala tus CLIs e inicia sesión, abre la app y, en el
+   respaldo, elige **Cambiar carpeta…** y la que copiaste.
+4. Cada proyecto dice **carpeta no encontrada**, porque sus conversaciones
+   recuerdan la ruta de antes. Pulsa **Ubicar carpeta…** y elige dónde la
+   pusiste. Antes de guardar nada ves cuántas conversaciones se mueven (las de
+   sus subcarpetas van con él), y las pestañas abiertas en la carpeta de antes
+   hay que cerrarlas primero.
+
+No se copia ni se borra nada: las conversaciones siguen donde están y solo
+cambia la carpeta del proyecto en esta app. Las conversaciones de antes se abren
+en Markdown, o se continúan en una sesión nueva en la carpeta nueva (el botón
+**↪**, también con la misma CLI) con sus últimos turnos como contexto; no se
+pueden retomar con el estado propio de la CLI. La ubicación se guarda solo en
+esta PC, y **Cambiar ubicación…** y **Quitar asociación** están bajo el nombre
+del proyecto. No está disponible desde un teléfono ni desde otro equipo remoto.
+
+</details>
+
+<details>
 <summary>Importar historial de Gemini CLI y del Antigravity IDE</summary>
 
 Dos importadores de un solo uso traen el historial de herramientas que la app no

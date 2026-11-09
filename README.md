@@ -226,6 +226,37 @@ leaves the old one as it was. If you put it in a synced folder or a repository,
 your conversations go with it.
 
 <details>
+<summary>Moving to another PC</summary>
+
+Your projects and the backup can move with you, and the conversations follow
+the projects.
+
+1. **On the old PC**, restore from the archived list any conversation you want
+   to take (the backup skips what's archived), turn the backup on and wait until
+   nothing is pending. In each project's **Memory** tab, import Claude Code's own
+   notes: they're stored under the old folder's name, so the new PC wouldn't
+   find them.
+2. **Copy the backup folder and your project folders**, whole, to the new PC.
+   Copy the folders, not a `git clone`: `.agents/`, `AGENTS.md` and `CLAUDE.md`
+   aren't in git.
+3. **On the new PC**, install your CLIs and sign in, start the app, and in the
+   backup choose **Change folder…** and pick the copied one.
+4. Each project shows **folder not found**, because its conversations remember
+   the old path. Click **Locate folder…** and pick where you put it. Before
+   anything is saved you see how many conversations move (the ones in subfolders
+   go with it), and the tabs open in the old folder have to be closed first.
+
+Nothing is copied or deleted: the conversations stay where they are, and only
+the project's folder changes in this app. The old conversations open as
+Markdown, or continue in a new session in the new folder (the **↪** button, also
+with the same CLI) with their last turns as context; they can't be resumed with
+the CLI's own state. The location is saved on this PC only, and **Change
+location…** and **Remove association** are under the project's name. It isn't
+available from a phone or a remote computer.
+
+</details>
+
+<details>
 <summary>Importing history from Gemini CLI and the Antigravity IDE</summary>
 
 Two one-time importers bring in history from tools the app doesn't read. They

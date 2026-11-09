@@ -518,7 +518,17 @@ export class VaultService {
     }
 
     const name = project.cwd.length > 0 ? path.basename(project.cwd) || project.cwd : project.fallbackName;
-    const index = renderProjectIndex({ name, cwd: project.cwd, exportedAt: this.now(), entries, skipped });
+    const index = renderProjectIndex({
+      name,
+      cwd: project.cwd,
+      exportedAt: this.now(),
+      entries,
+      skipped,
+      // Hito 56: si el proyecto se movio de carpeta, el indice dice de donde vienen sus conversaciones.
+      ...(project.relocations !== undefined
+        ? { relocations: project.relocations.map(({ from, paused }) => ({ from, paused })) }
+        : {}),
+    });
     await writeFileAtomic(path.join(folder, 'index.md'), index, this.writeDeps);
     this.openWithSystem(folder);
     return { sessions: entries.length, skipped, folder };

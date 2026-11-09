@@ -895,6 +895,10 @@ const matchingLines = (count, every = 1) =>
     ui.searchHitAction(hitB, context({ projects: [project([row()], { cwdExists: false })] })).kind === 'copy' &&
     ui.searchHitAction(hitB, context({ projects: [] })).kind === 'copy' &&
     ui.searchHitAction({ agent: 'gemini-cli', sessionId: ID.d }, context({ projects: [project([row({ agent: 'gemini-cli', sessionId: ID.d, storage: 'vault' })])] })).kind === 'copy');
+  // Hito 56: la fila de un proyecto que se movio de carpeta tiene la carpeta nueva en su proyecto, pero su CLI la busca en la anterior.
+  check('W (56) un acierto de una fila de un proyecto movido no se retoma: abre el Markdown de la copia, aunque el proyecto exista',
+    ui.searchHitAction(hitB, context({ projects: [project([row({ relocated: true })])] })).kind === 'copy' &&
+    ui.searchHitAction(hitB, context({ projects: [project([row()])] })).kind === 'resume');
 
   /*
     Lo que las funciones puras no ven: que la barra y `App` decidan con ellas.

@@ -352,6 +352,12 @@ export interface TranscriptHeader {
    * pestana que continua corre en la carpeta principal (20-10-2026).
    */
   movedTo?: { cwd: string; branch: string };
+  /**
+   * Hito 56. El proyecto cambio de carpeta despues de esta conversacion (otra
+   * PC, otra ruta): la pestana que continua corre en esta, y las rutas que
+   * aparezcan en el transcript son las de antes.
+   */
+  relocatedTo?: string;
 }
 
 function coverageSentence(included: number, total: number, complete: boolean): string {
@@ -387,6 +393,13 @@ function renderHeader(header: TranscriptHeader, included: number, selection: Tur
     facts.push(
       `- That folder was a separate checkout of the branch ${inlineCode(branch)}, and it was removed: ` +
         `you are in the project's main folder, ${inlineCode(mainCwd)}.`,
+    );
+  }
+  if (header.relocatedTo !== undefined) {
+    const folder = cutChars(sanitizeForPaste(header.relocatedTo).replace(/[\n\t]/g, ' ').trim(), HEADER_CWD_CHARS).text;
+    facts.push(
+      `- The project's folder moved after this conversation: you are in ${inlineCode(folder)} now, ` +
+        'and the file paths in the transcript are from the old location.',
     );
   }
   if (header.lastAt !== null && header.lastAt > 0) facts.push(`- Last reply: ${formatStamp(header.lastAt)}`);

@@ -228,12 +228,14 @@ import { parseNote, type Note } from './notes.js';
 import { parsePlanLimits, type PlanLimits } from './plan-limits.js';
 import {
   parseIndexStatus,
+  parseProjectLocationPreview,
   parseProjectSummary,
   parseTerminalDescriptor,
   TERMINAL_ACTIVITIES,
   TERMINAL_KINDS,
   TERMINAL_OFFLINE_REASONS,
   type IndexStatus,
+  type ProjectLocationPreview,
   type ProjectSummary,
   type SessionId,
   type TerminalActivity,
@@ -1065,6 +1067,38 @@ export interface ClientVaultRevealMessage {
 }
 
 /**
+ * Ubicar un proyecto que se movio de carpeta (`location.*`, hito 56, §13.14).
+ *
+ * **Ningun pedido nombra una ruta** (CLAUDE.md 2.4). El proyecto va por su
+ * `key`, y la carpeta nueva es donde esta parado un selector del servidor
+ * (`picker.*`): la vista previa la guarda en el servidor bajo un `previewId`, y
+ * confirmar manda ese id. Cada pedido lleva `requestId` y su respuesta o su
+ * `error` (`location-failed`) lo devuelve. Solo los atiende el anfitrion: un
+ * equipo remoto no cambia la configuracion del servidor.
+ */
+export interface ClientLocationPreviewMessage {
+  type: 'location.preview';
+  requestId: string;
+  projectKey: string;
+  /** El selector de este socket que esta parado en la carpeta nueva. */
+  pickerId: string;
+}
+
+/** Confirma una vista previa: el servidor rehace todo antes de guardar. */
+export interface ClientLocationApplyMessage {
+  type: 'location.apply';
+  requestId: string;
+  previewId: string;
+}
+
+/** Quita las ubicaciones de un proyecto. El historial queda como estaba. */
+export interface ClientLocationRemoveMessage {
+  type: 'location.remove';
+  requestId: string;
+  projectKey: string;
+}
+
+/**
  * Enciende o apaga el acceso remoto, o cambia su puerto (hito 37). Lleva al
  * menos uno de los dos. Solo lo atiende el servidor si quien lo pide entro con el
  * token del arranque: un equipo remoto no administra el acceso remoto.
@@ -1515,6 +1549,9 @@ export type ClientMessage =
   | ClientVaultExportProjectMessage
   | ClientVaultOpenSessionMessage
   | ClientVaultRevealMessage
+  | ClientLocationPreviewMessage
+  | ClientLocationApplyMessage
+  | ClientLocationRemoveMessage
   | ClientContinueSessionMessage
   | ClientGlobalSearchMessage
   | ClientCancelGlobalSearchMessage
@@ -2475,6 +2512,8 @@ export type ServerErrorCode =
   | 'memory-failed'
   /** Un pedido `vault.*` que no se pudo cumplir. El texto dice por que. */
   | 'vault-failed'
+  /** Un pedido `location.*` que no se hizo (hito 56). El texto dice por que; no se guardo ninguna ubicacion. */
+  | 'location-failed'
   /** Una continuacion en otra CLI que no se pudo armar. El texto dice por que. */
   | 'continue-failed'
   /** Un `search.global` que no se pudo hacer (no la sesion que no se leyo: esa se salta). */
@@ -2527,6 +2566,7 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'picker-failed',
   'memory-failed',
   'vault-failed',
+  'location-failed',
   'continue-failed',
   'search-failed',
   'remote-failed',
@@ -2541,6 +2581,28 @@ export const SERVER_ERROR_CODES: readonly ServerErrorCode[] = [
   'agent-unsupported',
   'internal',
 ];
+
+/**
+ * Hito 56. Lo que se va a asociar, antes de guardar nada: solo al socket que lo
+ * pidio. Confirmarlo es un `location.apply` con el `previewId`.
+ */
+export interface ServerLocationPreviewedMessage {
+  type: 'location.previewed';
+  requestId: string;
+  preview: ProjectLocationPreview;
+}
+
+/** Hito 56. La ubicacion quedo guardada. La barra nueva sale en `index.projects`, a todos. */
+export interface ServerLocationAppliedMessage {
+  type: 'location.applied';
+  requestId: string;
+}
+
+/** Hito 56. Las ubicaciones del proyecto se quitaron. */
+export interface ServerLocationRemovedMessage {
+  type: 'location.removed';
+  requestId: string;
+}
 
 /** Lo que el dialogo de crear una rama aparte muestra antes de crear nada (hito 48). */
 export interface ServerWorktreeInspectedMessage {
@@ -2709,6 +2771,9 @@ export type ServerMessage =
   | ServerMemoryContentMessage
   | ServerVaultStatusMessage
   | ServerVaultExportedMessage
+  | ServerLocationPreviewedMessage
+  | ServerLocationAppliedMessage
+  | ServerLocationRemovedMessage
   | ServerSessionContinuedMessage
   | ServerComposerPrefillMessage
   | ServerComposerDraftsMessage
@@ -3226,6 +3291,24 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     }
     case 'vault.reveal':
       return { type: 'vault.reveal' };
+    case 'location.preview': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const projectKey = asNonEmptyString(record['projectKey']);
+      const pickerId = asNonEmptyString(record['pickerId']);
+      return requestId === null || projectKey === null || pickerId === null
+        ? null
+        : { type: 'location.preview', requestId, projectKey, pickerId };
+    }
+    case 'location.apply': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const previewId = asNonEmptyString(record['previewId']);
+      return requestId === null || previewId === null ? null : { type: 'location.apply', requestId, previewId };
+    }
+    case 'location.remove': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const projectKey = asNonEmptyString(record['projectKey']);
+      return requestId === null || projectKey === null ? null : { type: 'location.remove', requestId, projectKey };
+    }
     case 'session.continue': {
       const requestId = asNonEmptyString(record['requestId']);
       // El origen es una fila que mando este servidor: un id que no se conoce no
@@ -4024,6 +4107,19 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return projectKey === null || sessions === null
         ? null
         : { type: 'vault.exported', projectKey, sessions };
+    }
+    case 'location.previewed': {
+      const requestId = asNonEmptyString(record['requestId']);
+      const preview = parseProjectLocationPreview(record['preview']);
+      return requestId === null || preview === null ? null : { type: 'location.previewed', requestId, preview };
+    }
+    case 'location.applied': {
+      const requestId = asNonEmptyString(record['requestId']);
+      return requestId === null ? null : { type: 'location.applied', requestId };
+    }
+    case 'location.removed': {
+      const requestId = asNonEmptyString(record['requestId']);
+      return requestId === null ? null : { type: 'location.removed', requestId };
     }
     case 'session.continued': {
       const requestId = asNonEmptyString(record['requestId']);

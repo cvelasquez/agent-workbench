@@ -260,8 +260,9 @@ export function searchHitAction(
   for (const project of context.projects) {
     const session = project.sessions.find((row) => row.agent === hit.agent && row.sessionId === hit.sessionId);
     if (session === undefined) continue;
-    // Las mismas condiciones que habilitan la fila (Sidebar: `openable`).
-    if (resumableSession(session) && project.cwdExists && context.canResume(session.agent)) {
+    // Las mismas condiciones que habilitan la fila (Sidebar: `openable`). La de un
+    // proyecto que se movio de carpeta (hito 56) no se retoma: su CLI la busca en la anterior.
+    if (resumableSession(session) && session.relocated !== true && project.cwdExists && context.canResume(session.agent)) {
       return { kind: 'resume', cwd: resumeCwdFor(session.cwd, project.cwd, context.platform), session };
     }
     return { kind: 'copy' };

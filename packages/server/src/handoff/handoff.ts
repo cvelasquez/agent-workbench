@@ -97,6 +97,12 @@ export interface ContinueDeps {
      * 48). Con la de una rama quitada se continua en la carpeta principal.
      */
     linkOf?(cwd: string): { mainCwd: string; worktree: { branch: string; exists: boolean } } | null;
+    /**
+     * A donde se movio la carpeta de un proyecto en esta PC (hito 56, §13.14), o
+     * null si no se movio o su ubicacion esta en pausa. La carpeta que le pasa
+     * es la del historial, ya con la rama aparte resuelta a su principal.
+     */
+    relocationOf?(cwd: string): { cwd: string } | null;
   };
   pasteStore: { saveText(terminalId: string, baseName: 'continuacion', content: string): Promise<{ path: string }> };
   /** La copia propia, o null si no hay (el chequeo, o un servidor sin copia). */
@@ -203,11 +209,22 @@ export async function continueSession(
   // La de una rama aparte quitada sigue en la carpeta principal: la suya ya no
   // esta, y abrir ahi terminaba en "la carpeta no existe" (20-10-2026).
   const link = deps.index.linkOf?.(summary.cwd) ?? null;
-  const moved = link !== null && !link.worktree.exists ? { cwd: link.mainCwd, branch: link.worktree.branch } : null;
+  const branchGone = link !== null && !link.worktree.exists;
+  const base = branchGone ? link.mainCwd : summary.cwd;
+  // Hito 56: y la de un proyecto que se movio de carpeta sigue en la carpeta nueva,
+  // tambien la principal de una rama quitada. La del historial queda como esta:
+  // de ella sale donde leer la conversacion.
+  const relocation = deps.index.relocationOf?.(base) ?? null;
+  const folder = relocation?.cwd ?? base;
+  const moved = branchGone ? { cwd: folder, branch: link.worktree.branch } : null;
 
   // Con la misma CLI, reanudarla es abrir su fila. Salvo la de una rama quitada:
   // su fila la reabre en la rama, y seguirla en la principal no tenia otro camino (23-10-2026).
-  if (request.agent === request.target && moved === null) return failed(serverText('continueSameCli'));
+  // Y salvo la que no se puede reanudar: la de un proyecto movido (su carpeta ya no esta)
+  // y la que solo queda en la copia (su CLI ya no la tiene), hito 56.
+  if (request.agent === request.target && moved === null && relocation === null && summary.storage !== 'vault') {
+    return failed(serverText('continueSameCli'));
+  }
 
   // 3. Los eventos: la copia si sirve, si no el seguidor de la CLI de origen.
   let source: (SourceEvents & { partial: boolean }) | null;
@@ -232,6 +249,7 @@ export async function continueSession(
       lastAt: summary.updatedAt,
       partial: summary.partial || source.partial,
       ...(moved !== null ? { movedTo: moved } : {}),
+      ...(relocation !== null ? { relocatedTo: folder } : {}),
     },
     events: source.events,
     state: source.state,
@@ -243,7 +261,7 @@ export async function continueSession(
   let descriptor: TerminalDescriptor;
   try {
     descriptor = await deps.registry.open({
-      cwd: moved?.cwd ?? summary.cwd,
+      cwd: folder,
       agent: request.target,
       kind: 'agent',
       label: request.label ?? continuationLabel(summary.title),

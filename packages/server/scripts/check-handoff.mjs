@@ -481,7 +481,7 @@ function fakeRegistry({ fail = null } = {}) {
 const pasteRoot = path.join(root, 'pegados');
 
 /** Deps de `continueSession` con todo falso salvo lo que se pise. */
-function continueDeps({ sessions = [summaryOf('opencode', 'ses_origen')], history = fakeHistory(events), archive = null, registry = fakeRegistry(), pasteStore = new PasteStore(pasteRoot), targets, maxEvents, linkOf } = {}) {
+function continueDeps({ sessions = [summaryOf('opencode', 'ses_origen')], history = fakeHistory(events), archive = null, registry = fakeRegistry(), pasteStore = new PasteStore(pasteRoot), targets, maxEvents, linkOf, relocationOf } = {}) {
   const closed = [];
   const agents = new Map([
     ['claude-code', registered('claude-code', 'Claude Code', CLAUDE_CODE_CAPABILITIES, CLAUDE_CODE_INPUT, fakeHistory([]))],
@@ -499,6 +499,7 @@ function continueDeps({ sessions = [summaryOf('opencode', 'ses_origen')], histor
       index: {
         find: (agent, sessionId) => sessions.find((s) => s.agent === agent && s.sessionId === sessionId) ?? null,
         ...(linkOf !== undefined ? { linkOf } : {}),
+        ...(relocationOf !== undefined ? { relocationOf } : {}),
       },
       pasteStore,
       archive,
@@ -671,6 +672,87 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
     passThrough instanceof TerminalOpenError && passThrough.code === 'cli-not-found');
   check('H6 (M1a) un plan sincronico y uno asincronico salen iguales',
     (await resolveLaunchPlan(() => plan)) === plan && (await resolveLaunchPlan(async () => plan)) === plan);
+}
+
+// ---------------------------------------------------------------------------
+// H6 (hito 56). Un proyecto que se movio de carpeta: se continua en la nueva
+// ---------------------------------------------------------------------------
+
+{
+  const OLD_CWD = path.join(root, 'viejo', 'proyecto');
+  const NEW_CWD = path.join(root, 'nuevo', 'proyecto');
+  await mkdir(NEW_CWD, { recursive: true });
+  const moved = (cwd) => (cwd === OLD_CWD ? { cwd: NEW_CWD, from: OLD_CWD, to: NEW_CWD, paused: false } : null);
+  const onOld = (extra = {}) => [summaryOf('opencode', 'ses_origen', { cwd: OLD_CWD, ...extra })];
+  const markdownOf = async (outcome) => {
+    const file = outcome.ok ? pathInMessage(outcome.message) : null;
+    return file === null ? '' : readFile(file, 'utf8');
+  };
+  const movedLine = (folder) => `- The project's folder moved after this conversation: you are in \`${folder}\` now, and the file paths in the transcript are from the old location.`;
+
+  const relocated = continueDeps({ sessions: onOld(), relocationOf: moved });
+  const outcome = await continueSession(relocated.deps, request());
+  const markdown = await markdownOf(outcome);
+  check('H6r.1 la de un proyecto movido se abre en la carpeta nueva, no en la que ya no esta',
+    outcome.ok && relocated.registry.opened.length === 1 && relocated.registry.opened[0].cwd === NEW_CWD && relocated.registry.opened[0].agent === 'claude-code', show(relocated.registry.opened));
+  check('H6r.1 el transcript sigue diciendo la carpeta donde corrio, y dice que el proyecto se movio y que las rutas son las de antes',
+    markdown.includes(`- Project: \`${OLD_CWD}\``) && markdown.includes(movedLine(NEW_CWD)), markdown.split('\n').slice(0, 8).join(' | '));
+  check('H6r.1 nada del texto de la conversacion se reescribe', markdown.includes('## Turn 30 · user') && !markdown.includes(NEW_CWD.replace(/\\/g, '\\\\') + '\\\\turno'));
+
+  const same = continueDeps({ sessions: onOld(), relocationOf: moved });
+  const sameOutcome = await continueSession(same.deps, request({ target: 'opencode' }));
+  check('H6r.2 con la misma CLI tambien: reanudarla en la carpeta vieja no se puede, y esta es la forma de seguirla',
+    sameOutcome.ok && same.registry.opened.length === 1 && same.registry.opened[0].cwd === NEW_CWD && same.registry.opened[0].agent === 'opencode', show(sameOutcome));
+
+  // Una fila "copia": la CLI ya no la tiene, asi que seguirla con ella no choca con reanudar.
+  const viaCopy = continueDeps({
+    sessions: [summaryOf('opencode', 'ses_origen', { storage: 'vault' })],
+    archive: { events: async () => ({ events, partial: false, complete: true }) },
+  });
+  const copyOutcome = await continueSession(viaCopy.deps, request({ target: 'opencode' }));
+  check('H6r.3 una fila que solo esta en la copia se continua con su misma CLI, en su carpeta',
+    copyOutcome.ok && viaCopy.registry.opened.length === 1 && viaCopy.registry.opened[0].cwd === HANDOFF_CWD && viaCopy.registry.opened[0].agent === 'opencode', show(copyOutcome));
+  const copyMarkdown = await markdownOf(copyOutcome);
+  check('H6r.3 sin ubicacion, el transcript no dice nada de que se haya movido', !copyMarkdown.includes('moved after this conversation'));
+
+  // Lo que no cambia: una nativa en su carpeta con la misma CLI se reanuda desde su fila.
+  const native = continueDeps({ sessions: [summaryOf('opencode', 'ses_origen')], relocationOf: moved });
+  const nativeSame = await continueSession(native.deps, request({ target: 'opencode' }));
+  check('H6r.4 una nativa que no se movio sigue rechazando la misma CLI',
+    nativeSame.ok === false && es(nativeSame.text).includes('ya es de esa CLI') && native.registry.opened.length === 0, show(nativeSame));
+  const nativeOther = await continueSession(native.deps, request());
+  const nativeOtherMarkdown = await markdownOf(nativeOther);
+  check('H6r.4 y con otra CLI se abre donde corrio, sin la linea de que se movio',
+    nativeOther.ok && native.registry.opened[0]?.cwd === HANDOFF_CWD && !nativeOtherMarkdown.includes('moved after this conversation'), show(native.registry.opened));
+
+  // Una rama aparte de la PC anterior, sin carpeta: cae en su principal, que tambien se movio.
+  const OLD_BRANCH = path.join(root, 'viejo', 'proyecto.worktrees', 'rama');
+  const branchLink = (cwd) => (cwd === OLD_BRANCH ? { mainCwd: OLD_CWD, worktree: { branch: 'feat/x', exists: false, reopenable: false } } : null);
+  const branch = continueDeps({ sessions: onOld({ cwd: OLD_BRANCH }), linkOf: branchLink, relocationOf: moved });
+  const branchOutcome = await continueSession(branch.deps, request());
+  const branchMarkdown = await markdownOf(branchOutcome);
+  check('H6r.5 la de una rama quitada de un proyecto movido se abre en la carpeta nueva del proyecto',
+    branchOutcome.ok && branch.registry.opened.length === 1 && branch.registry.opened[0].cwd === NEW_CWD, show(branch.registry.opened));
+  check('H6r.5 y el transcript dice las dos cosas: que era una rama quitada y que el proyecto se movio',
+    branchMarkdown.includes(`- Project: \`${OLD_BRANCH}\``) &&
+    branchMarkdown.includes(`separate checkout of the branch \`feat/x\`, and it was removed: you are in the project's main folder, \`${NEW_CWD}\`.`) &&
+    branchMarkdown.includes(movedLine(NEW_CWD)), branchMarkdown.split('\n').slice(0, 8).join(' | '));
+  const branchSame = continueDeps({ sessions: onOld({ cwd: OLD_BRANCH }), linkOf: branchLink, relocationOf: moved });
+  const branchSameOutcome = await continueSession(branchSame.deps, request({ target: 'opencode' }));
+  check('H6r.5 con su misma CLI tambien', branchSameOutcome.ok && branchSame.registry.opened[0]?.cwd === NEW_CWD, show(branchSameOutcome));
+
+  // Una rama quitada de un proyecto que no se movio: como antes.
+  const branchOnly = continueDeps({ sessions: onOld({ cwd: OLD_BRANCH }), linkOf: branchLink });
+  const branchOnlyOutcome = await continueSession(branchOnly.deps, request());
+  const branchOnlyMarkdown = await markdownOf(branchOnlyOutcome);
+  check('H6r.6 sin ubicacion la rama quitada se abre en la carpeta principal de siempre, sin la linea de que se movio',
+    branchOnlyOutcome.ok && branchOnly.registry.opened[0]?.cwd === OLD_CWD && !branchOnlyMarkdown.includes('moved after this conversation'), show(branchOnly.registry.opened));
+
+  // Una sesion sin carpeta sigue siendo un error claro, haya o no ubicaciones.
+  const noFolder = continueDeps({ sessions: [summaryOf('opencode', 'ses_origen', { cwd: '' })], relocationOf: moved });
+  const noFolderOutcome = await continueSession(noFolder.deps, request());
+  check('H6r.7 una sesion que no dice su carpeta se rechaza antes de abrir nada',
+    noFolderOutcome.ok === false && es(noFolderOutcome.text).includes('no dice en qué carpeta') && noFolder.registry.opened.length === 0);
 }
 
 // H6 con piezas reales: el indice encuentra la fila, y el seguidor de Claude Code la lee.
@@ -988,6 +1070,31 @@ const pathInMessage = (message) => /"([^"]+\.md)"/.exec(message)?.[1] ?? null;
     ids(ui.continueTargets(all, 'opencode', false, true)) === 'claude-code,codex,opencode,antigravity' &&
     ui.continueTargets(all, 'claude-code', true, true).length === 0 && ui.continueTargets([], 'claude-code', false, true).length === 0,
     ids(ui.continueTargets(onlyClaude, 'claude-code', false, true)));
+
+  // Hito 56: la fila que no se retoma con un clic se continua en una sesion nueva, tambien con su misma CLI.
+  const nativeRow = { storage: 'native', worktree: null };
+  const goneBranch = { branch: 'feat/x', exists: false, reopenable: false };
+  check('H10r (56) una nativa en su carpeta se reanuda desde su fila: no ofrece su misma CLI y titula como siempre',
+    ui.rowContinuation(nativeRow).sameCliToo === false && ui.rowContinuation(nativeRow).title === ui.continueButtonTitle() &&
+    ui.rowContinuation({ ...nativeRow, worktree: { ...goneBranch, exists: true } }).sameCliToo === false);
+  check('H10r (56) la de una rama quitada, la de un proyecto movido y la que solo queda en la copia ofrecen su misma CLI',
+    ui.rowContinuation({ ...nativeRow, worktree: goneBranch }).sameCliToo === true &&
+    ui.rowContinuation({ ...nativeRow, relocated: true }).sameCliToo === true &&
+    ui.rowContinuation({ ...nativeRow, storage: 'vault' }).sameCliToo === true);
+  check('H10r (56) y cada una titula su ↪ con lo que hace: la carpeta principal, la carpeta nueva o una sesion nueva',
+    ui.rowContinuation({ ...nativeRow, worktree: goneBranch }).title === 'Continuar esta conversación en la carpeta principal' &&
+    ui.rowContinuation({ ...nativeRow, relocated: true }).title === 'Continuar esta conversación en la carpeta nueva del proyecto' &&
+    ui.rowContinuation({ ...nativeRow, storage: 'vault' }).title === 'Continuar esta conversación en una sesión nueva' &&
+    ui.rowContinuation({ ...nativeRow, relocated: true, worktree: goneBranch }).title === 'Continuar esta conversación en la carpeta nueva del proyecto',
+    ui.rowContinuation({ ...nativeRow, relocated: true, worktree: goneBranch }).title);
+  check('H10r (56) con una sola CLI instalada, la fila movida o de la copia ofrece esa CLI y la nativa no',
+    ids(ui.continueTargets(onlyClaude, 'claude-code', false, ui.rowContinuation({ ...nativeRow, relocated: true }).sameCliToo)) === 'claude-code' &&
+    ids(ui.continueTargets(onlyClaude, 'claude-code', false, ui.rowContinuation({ ...nativeRow, storage: 'vault' }).sameCliToo)) === 'claude-code' &&
+    ui.continueTargets(onlyClaude, 'claude-code', false, ui.rowContinuation(nativeRow).sameCliToo).length === 0);
+  check('H10r (56) con la carpeta del proyecto ausente el ↪ se apaga y dice que hay que ubicarla; con carpeta, o sin ninguna, no',
+    ui.rowContinueBlockedReason({ cwd: 'D:\\Viejo', cwdExists: false }) === 'Ubica primero la carpeta del proyecto para continuar aquí' &&
+    ui.rowContinueBlockedReason({ cwd: 'D:\\Nuevo', cwdExists: true }) === null && ui.rowContinueBlockedReason({ cwd: '', cwdExists: false }) === null,
+    String(ui.rowContinueBlockedReason({ cwd: 'D:\\Viejo', cwdExists: false })));
 
   const sendable = {
     'claude-code': ui.controlsFor(CLAUDE_CODE_CAPABILITIES).noteSendable,

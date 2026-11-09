@@ -95,6 +95,57 @@ export interface SessionSummary {
    * como un proyecto aparte.
    */
   worktree: SessionWorktree | null;
+  /**
+   * Hito 56. true si su carpeta (`cwd`) es la anterior de un proyecto que se
+   * movio de lugar (`ProjectSummary.relocations`): la fila se lee y se continua
+   * en la carpeta nueva, pero no se retoma con un clic, porque su CLI la busca
+   * en una carpeta que ya no esta. Ausente es false: un servidor anterior no la
+   * manda, y una fila de siempre no la lleva.
+   */
+  relocated?: boolean;
+}
+
+/**
+ * Hito 56. A donde se movio la carpeta de un proyecto, vista desde el proyecto
+ * (§13.14): la carpeta que traia el historial y la que se asocio.
+ */
+export interface ProjectRelocation {
+  /** La carpeta anterior, tal cual la tenia el historial. */
+  from: string;
+  /** La carpeta de ahora, tal cual la eligio el usuario. */
+  to: string;
+  /** Cuantas conversaciones de este proyecto vienen de ahi. */
+  sessions: number;
+  /**
+   * true si la carpeta anterior existe otra vez: la ubicacion no se aplica y el
+   * historial vuelve a su carpeta. Quitarla o cambiarla lo decide el usuario.
+   */
+  paused: boolean;
+}
+
+/**
+ * Hito 56. Lo que el servidor muestra antes de asociar la carpeta de un
+ * proyecto a otra (`location.preview`). La carpeta elegida queda en el servidor
+ * bajo `previewId`: el cliente nunca nombra una ruta (CLAUDE.md 2.4).
+ */
+export interface ProjectLocationPreview {
+  /** Lo que se manda para confirmar. Vale mientras el servidor no reciba otra vista previa. */
+  previewId: string;
+  projectKey: string;
+  /** Las carpetas anteriores que se asocian (las del historial que no existen). */
+  from: string[];
+  /** La carpeta elegida. */
+  to: string;
+  /** Conversaciones que pasan a la carpeta nueva, las de subcarpetas y ramas aparte incluidas. */
+  moving: number;
+  /** De las que se mueven, las que corrieron en una subcarpeta. */
+  inSubfolders: number;
+  /** Conversaciones que la carpeta nueva ya tiene: quedan juntas con las que llegan. */
+  inDestination: number;
+  /** Pestanas abiertas en las carpetas anteriores, vivas o no. Hay que cerrarlas antes. */
+  tabs: number;
+  /** De esas pestanas, las que tienen mensajes en cola o programados. */
+  pending: number;
 }
 
 /**
@@ -125,6 +176,12 @@ export interface ProjectSummary {
   isGitRepo: boolean;
   sessions: SessionSummary[];
   lastActivityAt: number;
+  /**
+   * Hito 56. Las carpetas anteriores que se asociaron a este proyecto, con sus
+   * conversaciones. Ausente: ninguna (un servidor anterior, o un proyecto que
+   * no se movio).
+   */
+  relocations?: ProjectRelocation[];
 }
 
 export type IndexState = 'idle' | 'scanning' | 'ready';
@@ -313,7 +370,50 @@ export function parseSessionSummary(value: unknown): SessionSummary | null {
     partial: record['partial'] === true,
     // Ausente = un servidor anterior al hito 48, o una sesion de la carpeta del proyecto.
     worktree: parseSessionWorktree(record['worktree']),
+    // Hito 56. Solo cuando es true: una fila de siempre sale igual que antes.
+    ...(record['relocated'] === true ? { relocated: true } : {}),
   };
+}
+
+/** Hito 56. Una carpeta anterior de un proyecto, o null si no tiene la forma. */
+export function parseProjectRelocation(value: unknown): ProjectRelocation | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const from = asNonEmptyString(record['from']);
+  const to = asNonEmptyString(record['to']);
+  const sessions = asFiniteNumber(record['sessions']);
+  if (from === null || to === null || sessions === null) return null;
+  return { from, to, sessions, paused: record['paused'] === true };
+}
+
+/** Hito 56. La vista previa de ubicar un proyecto, o null si no tiene la forma. */
+export function parseProjectLocationPreview(value: unknown): ProjectLocationPreview | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const previewId = asNonEmptyString(record['previewId']);
+  const projectKey = asNonEmptyString(record['projectKey']);
+  const to = asNonEmptyString(record['to']);
+  const from = asArrayFiltered(record['from'], asNonEmptyString);
+  const moving = asFiniteNumber(record['moving']);
+  const inSubfolders = asFiniteNumber(record['inSubfolders']);
+  const inDestination = asFiniteNumber(record['inDestination']);
+  const tabs = asFiniteNumber(record['tabs']);
+  const pending = asFiniteNumber(record['pending']);
+  if (
+    previewId === null ||
+    projectKey === null ||
+    to === null ||
+    from === null ||
+    from.length === 0 ||
+    moving === null ||
+    inSubfolders === null ||
+    inDestination === null ||
+    tabs === null ||
+    pending === null
+  ) {
+    return null;
+  }
+  return { previewId, projectKey, from, to, moving, inSubfolders, inDestination, tabs, pending };
 }
 
 export function parseProjectSummary(value: unknown): ProjectSummary | null {
@@ -337,6 +437,8 @@ export function parseProjectSummary(value: unknown): ProjectSummary | null {
   */
   const key = asNonEmptyString(record['key']);
   if (key !== null) {
+    // Hito 56. Filtrada: una carpeta anterior que este lado no entiende no se lleva al proyecto.
+    const relocations = asArrayFiltered(record['relocations'], parseProjectRelocation) ?? [];
     return {
       key,
       fallbackName: asString(record['fallbackName']) ?? '',
@@ -345,6 +447,7 @@ export function parseProjectSummary(value: unknown): ProjectSummary | null {
       isGitRepo: record['isGitRepo'] === true,
       sessions,
       lastActivityAt,
+      ...(relocations.length > 0 ? { relocations } : {}),
     };
   }
   const slug = asNonEmptyString(record['slug']);

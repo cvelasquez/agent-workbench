@@ -345,7 +345,11 @@ export function deviceLabelFromUserAgent(userAgent: string | undefined): string 
 
 // ---- Qué no puede pedir un equipo remoto ---------------------------------------
 
-/** Administrar el acceso remoto: sólo quien entró con el token del arranque. */
+/**
+ * Administrar el acceso remoto: sólo quien entró con el token del arranque.
+ * Y ubicar un proyecto que se movió de carpeta (hito 56): cambia la
+ * configuración del anfitrión, como `settings.update`.
+ */
 const HOST_ONLY: ReadonlySet<ClientMessageType> = new Set<ClientMessageType>([
   'agent.voice',
   'remote.configure',
@@ -355,6 +359,9 @@ const HOST_ONLY: ReadonlySet<ClientMessageType> = new Set<ClientMessageType>([
   'remote.device.revoke',
   'remote.phone.start',
   'remote.phone.cancel',
+  'location.preview',
+  'location.apply',
+  'location.remove',
 ]);
 
 /**

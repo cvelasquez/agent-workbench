@@ -267,6 +267,12 @@ export interface ProjectIndexInput {
   entries: readonly ProjectIndexEntry[];
   /** Sesiones del proyecto que no se pudieron exportar. */
   skipped: number;
+  /**
+   * Hito 56. Las carpetas anteriores del proyecto, si se movio de lugar: `cwd` es
+   * la de ahora, y cada conversacion del indice corrio en la suya. `paused` es
+   * una ubicacion que no se aplica porque la carpeta anterior existe otra vez.
+   */
+  relocations?: ReadonlyArray<{ from: string; paused: boolean }>;
 }
 
 /** El `index.md` de un proyecto exportado: la lista de sesiones, de la mas reciente a la mas vieja. */
@@ -274,6 +280,9 @@ export function renderProjectIndex(input: ProjectIndexInput): string {
   const out: string[] = [`# ${oneLine(input.name).length > 0 ? oneLine(input.name) : 'Proyecto'}`];
   const facts = [
     `- Carpeta: ${input.cwd.length > 0 ? inlineCode(input.cwd) : 'desconocida'}`,
+    ...(input.relocations ?? []).map(
+      (relocation) => `- Ubicación anterior${relocation.paused ? ' (en pausa)' : ''}: ${inlineCode(relocation.from)}`,
+    ),
     `- Exportado el ${formatLocalDateTime(input.exportedAt)}`,
     `- ${input.entries.length === 1 ? 'Una sesión' : `${input.entries.length} sesiones`}`,
   ];

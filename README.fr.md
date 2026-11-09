@@ -234,6 +234,39 @@ copie dans un autre — un dossier synchronisé, un autre disque — sans rien
 synchronisé ou dans un dépôt, vos conversations voyagent avec elle.
 
 <details>
+<summary>Changer de PC</summary>
+
+Vos projets et la sauvegarde peuvent vous suivre, et les conversations suivent
+les projets.
+
+1. **Sur l'ancien PC**, sortez des archivées les conversations que vous voulez
+   emporter (la sauvegarde ignore ce qui est archivé), activez la sauvegarde et
+   attendez qu'il ne reste rien en attente. Dans l'onglet **Mémoire** de chaque
+   projet, importez les notes propres à Claude Code : elles sont rangées sous le
+   nom de l'ancien dossier, et le nouveau PC ne les trouverait pas.
+2. **Copiez le dossier de la sauvegarde et les dossiers de vos projets**, en
+   entier, vers le nouveau PC. Copiez les dossiers, pas un `git clone` :
+   `.agents/`, `AGENTS.md` et `CLAUDE.md` ne sont pas dans git.
+3. **Sur le nouveau PC**, installez vos CLI et connectez-vous, lancez l'app et,
+   dans la sauvegarde, choisissez **Changer de dossier…** puis le dossier copié.
+4. Chaque projet affiche **dossier introuvable**, car ses conversations
+   gardent l'ancien chemin. Cliquez sur **Localiser le dossier…** et choisissez
+   où vous l'avez mis. Avant que quoi que ce soit soit enregistré, vous voyez
+   combien de conversations se déplacent (celles des sous-dossiers suivent), et
+   les onglets ouverts dans l'ancien dossier doivent d'abord être fermés.
+
+Rien n'est copié ni supprimé : les conversations restent où elles sont, et seul
+le dossier du projet change dans cette app. Les anciennes conversations
+s'ouvrent en Markdown, ou se poursuivent dans une nouvelle session dans le
+nouveau dossier (le bouton **↪**, aussi avec la même CLI) avec leurs derniers
+tours comme contexte ; on ne peut pas les reprendre avec l'état propre de la
+CLI. L'emplacement n'est enregistré que sur ce PC, et **Changer
+l'emplacement…** et **Retirer l'association** se trouvent sous le nom du projet.
+Ce n'est pas disponible depuis un téléphone ni depuis un ordinateur distant.
+
+</details>
+
+<details>
 <summary>Importer l'historique de Gemini CLI et d'Antigravity IDE</summary>
 
 Deux importateurs à usage unique récupèrent l'historique d'outils que

@@ -2108,6 +2108,246 @@ const { buildProjects, migrateIndexCache, SessionIndex } = await import('../src/
 }
 
 // ---------------------------------------------------------------------------
+// 56. Un proyecto que se movio de carpeta (§13.14): la barra pura
+// ---------------------------------------------------------------------------
+
+{
+  const { resolveLocation, makeLocation } = await import('../src/project-locations.ts');
+  const { parseProjectSummary } = shared;
+  const WIN = 'win32';
+  const indexed = ({ id, group = 'g', cwd = null, at = 1, agent = 'claude-code', storage = 'native' }) => ({
+    agent,
+    ref: `/historial/${group}/${id}.jsonl`,
+    group,
+    cwd,
+    summary: {
+      agent, sessionId: id, cwd: cwd ?? '', title: id, titleSource: 'first-message',
+      updatedAt: at, sizeBytes: 1, archived: false, storage, partial: false, worktree: null,
+    },
+  });
+  const locations = [makeLocation('D:\\MyProject', 'D:\\AWB\\MyProject', WIN, 1)];
+  /** Como lo arma el indice: la ubicacion que alcanza a la carpeta, en pausa si la vieja existe otra vez. */
+  const relocateWith = (list, paused = new Set()) => (cwd) => {
+    const resolved = resolveLocation(cwd, list, WIN, 'C:\\Users\\yo');
+    if (resolved === null) return null;
+    const isPaused = paused.has(resolved.location.fromKey);
+    return { cwd: isPaused ? cwd : resolved.cwd, from: resolved.location.from, to: resolved.location.to, paused: isPaused };
+  };
+  const keyOf = (folder) => normalizeCwdKey(folder, WIN);
+  const rowIds = (project) => project?.sessions.map((s) => s.sessionId).join(',');
+  const none = () => null;
+
+  const projects = buildProjects([
+    indexed({ id: 'a', cwd: 'D:\\MyProject', at: 5 }),
+    indexed({ id: 'b', cwd: 'D:\\MyProject\\web', at: 4 }),
+    indexed({ id: 'c', cwd: 'D:\\AWB\\MyProject', at: 9 }),
+    indexed({ id: 'd', cwd: 'D:\\Otro', at: 1 }),
+    indexed({ id: 'e', cwd: 'D:\\MyProject2', at: 2 }),
+  ], WIN, none, relocateWith(locations));
+  const byProject = (key) => projects.find((p) => p.key === key);
+  const main = byProject(keyOf('D:\\AWB\\MyProject'));
+  const web = byProject(keyOf('D:\\AWB\\MyProject\\web'));
+
+  check('56.1 el historial de la carpeta vieja y las sesiones nuevas de la nueva son un solo proyecto, de la mas reciente a la mas vieja',
+    main !== undefined && rowIds(main) === 'c,a' && main.cwd === 'D:\\AWB\\MyProject' && main.lastActivityAt === 9, JSON.stringify(projects.map((p) => [p.key, rowIds(p)])));
+  check('56.1 una subcarpeta con historial va con su proyecto y conserva su resto',
+    web !== undefined && rowIds(web) === 'b' && web.cwd === 'D:\\AWB\\MyProject\\web', JSON.stringify(web));
+  check('56.1 lo que no es del proyecto queda donde estaba: D:\\Otro y D:\\MyProject2',
+    byProject(keyOf('D:\\Otro')) !== undefined && byProject(keyOf('D:\\MyProject2')) !== undefined && projects.length === 4, JSON.stringify(projects.map((p) => p.key)));
+  check('56.2 la fila conserva la carpeta con la que su CLI la encuentra, y dice que es la anterior',
+    main?.sessions.find((s) => s.sessionId === 'a')?.cwd === 'D:\\MyProject' && main.sessions.find((s) => s.sessionId === 'a')?.relocated === true &&
+    web?.sessions[0]?.cwd === 'D:\\MyProject\\web' && web.sessions[0].relocated === true);
+  check('56.2 las filas que no se movieron no llevan la marca, ni siquiera en false',
+    !('relocated' in (main?.sessions.find((s) => s.sessionId === 'c') ?? { relocated: 1 })) &&
+    projects.filter((p) => p !== main && p !== web).every((p) => p.sessions.every((s) => !('relocated' in s))));
+  check('56.3 el proyecto dice de donde vienen sus conversaciones: la carpeta anterior, la nueva y cuantas',
+    JSON.stringify(main?.relocations) === JSON.stringify([{ from: 'D:\\MyProject', to: 'D:\\AWB\\MyProject', sessions: 1, paused: false }]) &&
+    JSON.stringify(web?.relocations) === JSON.stringify([{ from: 'D:\\MyProject', to: 'D:\\AWB\\MyProject', sessions: 1, paused: false }]) &&
+    byProject(keyOf('D:\\Otro'))?.relocations === undefined, JSON.stringify(main?.relocations));
+
+  // Una ubicacion con la carpeta vieja otra vez en disco: en pausa, el historial vuelve a su carpeta.
+  const paused = buildProjects([
+    indexed({ id: 'a', cwd: 'D:\\MyProject', at: 5 }),
+    indexed({ id: 'b', cwd: 'D:\\MyProject\\web', at: 4 }),
+  ], WIN, none, relocateWith(locations, new Set([keyOf('D:\\MyProject')])));
+  check('56.4 en pausa: las sesiones quedan en su carpeta, sin marca, y el proyecto lo avisa',
+    paused.map((p) => p.key).sort().join('|') === [keyOf('D:\\MyProject'), keyOf('D:\\MyProject\\web')].sort().join('|') &&
+    paused.every((p) => p.sessions.every((s) => !('relocated' in s))) &&
+    JSON.stringify(paused.find((p) => p.cwd === 'D:\\MyProject')?.relocations) === JSON.stringify([{ from: 'D:\\MyProject', to: 'D:\\AWB\\MyProject', sessions: 1, paused: true }]),
+    JSON.stringify(paused));
+
+  // Una rama aparte de la PC anterior, ya sin carpeta: cae en su principal, que se movio.
+  const branchLink = (cwd) => (cwd === 'D:\\MyProject.worktrees\\rama'
+    ? { mainCwd: 'D:\\MyProject', worktree: { branch: 'rama', exists: false, reopenable: false } } : null);
+  const withBranch = buildProjects([
+    indexed({ id: 'r', cwd: 'D:\\MyProject.worktrees\\rama', at: 6 }),
+    indexed({ id: 'a', cwd: 'D:\\MyProject', at: 5 }),
+  ], WIN, branchLink, relocateWith(locations));
+  const branchRow = withBranch[0]?.sessions.find((s) => s.sessionId === 'r');
+  check('56.5 la sesion de una rama quitada va al proyecto de su principal ya movida, como rama quitada y como movida',
+    withBranch.length === 1 && withBranch[0].cwd === 'D:\\AWB\\MyProject' && branchRow?.worktree?.branch === 'rama' && branchRow.worktree.exists === false &&
+    branchRow.relocated === true && branchRow.cwd === 'D:\\MyProject.worktrees\\rama' &&
+    JSON.stringify(withBranch[0].relocations) === JSON.stringify([{ from: 'D:\\MyProject', to: 'D:\\AWB\\MyProject', sessions: 2, paused: false }]), JSON.stringify(withBranch));
+
+  // Sin ubicaciones todo sale como antes.
+  const plain = [indexed({ id: 'a', cwd: 'D:\\MyProject', at: 5 }), indexed({ id: 'x', group: 'g2' })];
+  check('56.6 sin ubicaciones, o sin la funcion, la barra es la de siempre',
+    JSON.stringify(buildProjects(plain, WIN)) === JSON.stringify(buildProjects(plain, WIN, none, none)) &&
+    JSON.stringify(buildProjects(plain, WIN)) === JSON.stringify(buildProjects(plain, WIN, none, relocateWith([]))));
+  const input = indexed({ id: 'a', cwd: 'D:\\MyProject' });
+  buildProjects([input], WIN, none, relocateWith(locations));
+  check('56.6 el resumen que llega no se toca: la marca va en una copia', !('relocated' in input.summary) && input.summary.cwd === 'D:\\MyProject');
+  const noCwd = buildProjects([indexed({ id: 'n', group: 'D--sin-cwd' })], WIN, none, relocateWith(locations));
+  check('56.6 un grupo sin carpeta no se ubica en ningun lado', noCwd.length === 1 && noCwd[0].key === 'unknown:claude-code:D--sin-cwd' && noCwd[0].relocations === undefined);
+  const viaCopy = buildProjects([indexed({ id: 'v', cwd: 'D:\\MyProject', storage: 'vault', agent: 'gemini-cli' })], WIN, none, relocateWith(locations));
+  check('56.6 una fila "copia" se ubica por el mismo camino', viaCopy.length === 1 && viaCopy[0].cwd === 'D:\\AWB\\MyProject' && viaCopy[0].sessions[0].relocated === true);
+
+  // Lo que viaja por el protocolo.
+  const wire = parseProjectSummary(JSON.parse(JSON.stringify({ ...main, cwdExists: true, isGitRepo: false })));
+  check('56.7 el proyecto y la marca de la fila sobreviven al protocolo',
+    wire?.relocations?.length === 1 && wire.relocations[0].from === 'D:\\MyProject' && wire.relocations[0].paused === false &&
+    wire.sessions.find((s) => s.sessionId === 'a')?.relocated === true && !('relocated' in (wire.sessions.find((s) => s.sessionId === 'c') ?? { relocated: 1 })), JSON.stringify(wire?.relocations));
+  const oldServer = parseProjectSummary({ key: 'k', cwd: 'D:\\x', cwdExists: true, sessions: [], lastActivityAt: 1 });
+  check('56.7 un servidor anterior no manda nada de esto y el proyecto se lee igual', oldServer !== null && oldServer.relocations === undefined);
+  const messy = parseProjectSummary({
+    key: 'k', cwd: 'D:\\x', cwdExists: true, sessions: [], lastActivityAt: 1,
+    relocations: [{ from: 'D:\\a', to: 'D:\\b', sessions: 2, paused: true }, { from: '', to: 'D:\\b', sessions: 1 }, { to: 'D:\\b' }, 'x', null],
+  });
+  check('56.7 una carpeta anterior mal formada se descarta sin llevarse el proyecto ni las buenas',
+    messy?.relocations?.length === 1 && messy.relocations[0].paused === true && messy.relocations[0].sessions === 2);
+}
+
+// ---------------------------------------------------------------------------
+// 56. Un proyecto que se movio de carpeta (§13.14): el indice sobre carpetas de verdad
+// ---------------------------------------------------------------------------
+
+{
+  const { ProjectLocationStore } = await import('../src/project-locations.ts');
+  const { sessionIndexCachePath } = await import('../src/paths.ts');
+  const { readFile: readFileFs } = await import('node:fs/promises');
+  const { SessionIndex: Index56 } = await import('../src/session-index.ts');
+  const adapter56 = createClaudeCodeAdapter();
+  const agents56 = new AgentRegistry([adapter56]);
+
+  const oldMain = path.join(root, 'migra', 'viejo', 'Proyecto');
+  const oldWeb = path.join(oldMain, 'web');
+  const newMain = path.join(root, 'migra', 'nuevo', 'Proyecto');
+  const newWeb = path.join(newMain, 'web');
+  // La vieja no existe en esta PC; la nueva si, con su subcarpeta.
+  await mkdir(newWeb, { recursive: true });
+  const ids = {
+    main: '56565656-0000-4000-8000-000000000001',
+    web: '56565656-0000-4000-8000-000000000002',
+    own: '56565656-0000-4000-8000-000000000003',
+  };
+  for (const [id, cwd] of [[ids.main, oldMain], [ids.web, oldWeb], [ids.own, newMain]]) {
+    const file = sessionFilePath(cwd, id);
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, userLine(`u-${id.slice(-1)}`, cwd, 'hola') + assistantLine(`a-${id.slice(-1)}`, 'claude-opus-5', 1000));
+  }
+
+  const store = new ProjectLocationStore(path.join(root, 'migra', 'project-locations.json'), { log: { warn: () => undefined } });
+  await store.load();
+  const index = new Index56(agents56, undefined, undefined, undefined, store);
+  const emitted = [];
+  index.on('projects', (list, replace) => { if (replace) emitted.push(list); });
+  await index.scan();
+
+  const find = (key) => index.getProjects().find((p) => p.key === key);
+  const rowIds = (project) => project?.sessions.map((s) => s.sessionId).join(',');
+  const rowOf = (id) => index.getProjects().flatMap((p) => p.sessions.map((s) => ({ project: p, session: s }))).find(({ session }) => session.sessionId === id);
+  const keyOld = normalizeCwdKey(oldMain, process.platform);
+  const keyNew = normalizeCwdKey(newMain, process.platform);
+  const keyNewWeb = normalizeCwdKey(newWeb, process.platform);
+
+  check('56.8 sin ubicaciones, cada una en su proyecto: la vieja tachada, la nueva existe',
+    find(keyOld)?.cwdExists === false && find(keyNew)?.cwdExists === true && rowIds(find(keyNew)) === ids.own && find(keyOld)?.relocations === undefined,
+    JSON.stringify(index.getProjects().filter((p) => [keyOld, keyNew].includes(p.key)).map((p) => [p.key, p.cwdExists])));
+  check('56.8 y sin ubicaciones, relocationOf no dice nada', index.relocationOf(oldMain) === null);
+
+  const before = emitted.length;
+  await store.set([{ from: oldMain, to: newMain }]);
+  await index.refreshLocations();
+  check('56.9 ubicarla vuelve a emitir la barra completa', emitted.length === before + 1, `${emitted.length - before} emisiones`);
+  const merged = find(keyNew);
+  check('56.9 el historial de la carpeta vieja y la sesion de la nueva son un proyecto que existe',
+    merged !== undefined && merged.cwdExists === true && merged.sessions.map((s) => s.sessionId).sort().join() === [ids.main, ids.own].sort().join() && find(keyOld) === undefined,
+    JSON.stringify(index.getProjects().map((p) => [p.key, p.sessions.map((s) => s.sessionId.slice(-1))])));
+  check('56.9 la subcarpeta con historial va con ella, y existe',
+    find(keyNewWeb)?.cwdExists === true && rowIds(find(keyNewWeb)) === ids.web);
+  check('56.9 la fila conserva la carpeta vieja y esta marcada; la nueva no',
+    rowOf(ids.main)?.session.cwd === oldMain && rowOf(ids.main)?.session.relocated === true && rowOf(ids.own)?.session.relocated === undefined);
+  check('56.9 find() da la carpeta con la que la CLI la encuentra, no la nueva',
+    index.find('claude-code', ids.main)?.cwd === oldMain && index.find('claude-code', ids.web)?.cwd === oldWeb);
+  check('56.9 relocationOf da a donde va cada carpeta del historial',
+    index.relocationOf(oldMain)?.cwd === newMain && index.relocationOf(oldWeb)?.cwd === newWeb && index.relocationOf(newMain) === null &&
+    index.relocationOf(oldMain)?.from === oldMain && index.relocationOf(oldMain)?.to === newMain && index.relocationOf(oldMain)?.paused === false);
+  check('56.9 relocationOf encuentra la carpeta aunque se escriba de otra forma',
+    index.relocationOf(oldMain.toUpperCase() + path.sep)?.cwd === newMain || process.platform !== 'win32');
+  const cache = JSON.parse(await readFileFs(sessionIndexCachePath(), 'utf8'));
+  const cachedCwds = Object.values(cache.entries).filter((entry) => [ids.main, ids.web].includes(entry.summary.sessionId)).map((entry) => entry.cwd);
+  check('56.9 la cache del indice no sabe nada de ubicaciones: sigue la carpeta del archivo', cachedCwds.length === 2 && cachedCwds.includes(oldMain) && cachedCwds.includes(oldWeb), JSON.stringify(cachedCwds));
+
+  const placements = index.locationPlacements();
+  const placed = placements.find((p) => p.sessionId === ids.main);
+  check('56.10 locationPlacements: donde cae cada sesion, de que carpeta salio y si existe',
+    placed?.base === oldMain && placed.baseExists === false && placed.projectKey === keyNew && placed.relocation?.to === newMain &&
+    placements.find((p) => p.sessionId === ids.own)?.baseExists === true && placements.find((p) => p.sessionId === ids.own)?.relocation === null, JSON.stringify(placed));
+
+  // La carpeta vieja vuelve a existir: la ubicacion queda en pausa y el historial vuelve a su carpeta.
+  await mkdir(oldMain, { recursive: true });
+  await index.refreshLocations();
+  const back = find(keyOld);
+  check('56.11 con la carpeta vieja otra vez en disco, el historial vuelve a ella y el proyecto avisa que la ubicacion esta en pausa',
+    back?.cwdExists === true && rowIds(back) === ids.main && back.relocations?.length === 1 && back.relocations[0].paused === true &&
+    back.sessions[0].relocated === undefined && index.relocationOf(oldMain) === null, JSON.stringify(back?.relocations));
+  check('56.11 lo de la nueva queda solo', rowIds(find(keyNew)) === ids.own && find(keyNew)?.relocations === undefined);
+  await rm(oldMain, { recursive: true, force: true });
+  await index.refreshLocations();
+  check('56.11 y si la vieja desaparece de nuevo, la ubicacion vuelve a aplicarse', find(keyOld) === undefined && find(keyNew)?.sessions.length === 2);
+
+  // La carpeta nueva desaparece: el proyecto sigue junto, tachado, y dice a donde apuntaba.
+  const gone = path.join(root, 'migra', 'nuevo2', 'Proyecto');
+  await store.set([{ from: oldMain, to: gone }]);
+  await index.refreshLocations();
+  const missing = find(normalizeCwdKey(gone, process.platform));
+  check('56.12 con la carpeta nueva ausente el proyecto sigue junto, tachado, con su ubicacion para cambiarla',
+    missing?.cwdExists === false && missing.relocations?.[0]?.to === gone && rowIds(missing) === ids.main, JSON.stringify(missing));
+
+  // Quitar la ubicacion: todo como al principio.
+  await store.remove(store.list().map((location) => location.fromKey));
+  await index.refreshLocations();
+  check('56.13 sin la ubicacion, cada sesion vuelve a su carpeta y no queda rastro',
+    find(keyOld)?.cwdExists === false && rowIds(find(keyOld)) === ids.main && rowIds(find(keyNew)) === ids.own &&
+    index.getProjects().every((p) => p.relocations === undefined && p.sessions.every((s) => s.relocated === undefined)));
+
+  // Con la ubicacion ya guardada, el proyecto movido sale tambien por grupo mientras se escanea: la fila
+  // movida es una copia del resumen, y el grupo se reconoce por CLI e id, no por el objeto.
+  await store.set([{ from: oldMain, to: newMain }]);
+  const early = new Index56(agents56, undefined, undefined, undefined, store);
+  const earlyPartials = [];
+  early.on('projects', (list, replace) => { if (!replace) earlyPartials.push(list); });
+  await early.scan();
+  const partialMoved = earlyPartials.flat().find((p) => p.key === keyNew && p.sessions.some((s) => s.sessionId === ids.main && s.relocated === true));
+  check('56.14 durante el escaneo el proyecto movido ya sale por grupo, con su fila marcada y su carpeta existente',
+    partialMoved !== undefined && partialMoved.cwdExists === true, `${earlyPartials.length} emisiones por grupo`);
+  early.dispose();
+
+  // Un reescaneo no arrastra lo aprendido de una carpeta que ya no tiene historial.
+  await index.refreshLocations();
+  check('56.14 preparacion: aplicada, relocationOf da la carpeta nueva', index.relocationOf(oldMain)?.cwd === newMain);
+  const { unlink: unlinkFile } = await import('node:fs/promises');
+  await unlinkFile(sessionFilePath(oldMain, ids.main));
+  await unlinkFile(sessionFilePath(oldWeb, ids.web));
+  await index.scan();
+  check('56.14 sin sesiones en la carpeta anterior, un reescaneo olvida a donde se movia',
+    index.relocationOf(oldMain) === null && index.relocationOf(oldWeb) === null, JSON.stringify(index.relocationOf(oldMain)));
+
+  index.dispose();
+  agents56.disposeAll();
+}
+
+// ---------------------------------------------------------------------------
 // 8. La cache del indice: v3 -> v4
 // ---------------------------------------------------------------------------
 

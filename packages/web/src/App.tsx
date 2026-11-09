@@ -85,6 +85,7 @@ import {
 import { useNarrow } from './useNarrow.js';
 import { useThreadTools } from './useThreadTools.js';
 import { requestedTab } from './session-token.js';
+import { useProjectLocations } from './useProjectLocations.js';
 import { useVault } from './useVault.js';
 import { useWorkspace } from './useWorkspace.js';
 import { useWorktreeDialogs, useWorktreeRows, useWorktreeTeam } from './useWorktrees.js';
@@ -105,6 +106,7 @@ import { useAppSettings } from './useAppSettings.js';
 import { useScheduledMessages } from './useScheduledMessages.js';
 import { scheduledCloseWarning, scheduledFor } from './scheduled-ui.js';
 import { CloseTabDialog } from './CloseTabDialog.js';
+import { ProjectLocationDialog } from './ProjectLocationDialog.js';
 import { VaultDialog } from './VaultDialog.js';
 import { RewindDialog } from './RewindDialog.js';
 import { changedFilesAfter, rewindPreview } from './rewind-ui.js';
@@ -361,6 +363,8 @@ export function App(): JSX.Element {
   */
   const vault = useVault(connection);
   const [vaultDialogVisible, setVaultDialogVisible] = useState(false);
+  // Hito 56: ubicar un proyecto que se movio de carpeta (§13.14).
+  const locations = useProjectLocations(connection);
 
   /*
     El acceso remoto (hito 37). El estado solo le llega a una ventana del
@@ -1481,6 +1485,17 @@ export function App(): JSX.Element {
         leaveDrawer();
         worktreeDialogs.reopen(session.agent, session.sessionId, project.cwd, session.worktree?.branch ?? '');
       }}
+      // Hito 56: cambia la configuracion del anfitrion, asi que un equipo remoto no lo ve.
+      onLocateProject={
+        remoteClient
+          ? null
+          : (project) => {
+              leaveDrawer();
+              locations.begin(project);
+            }
+      }
+      onRemoveLocation={remoteClient ? null : locations.remove}
+      removingLocation={locations.removing}
       moveToBranchOf={moveToBranchOf}
       onContinueSession={(session, target) => {
         leaveDrawer();
@@ -1969,6 +1984,16 @@ export function App(): JSX.Element {
         </div>
       )}
 
+      {/* Hito 56: quitar la ubicacion de un proyecto que fallo. Ubicarlo lo dice su dialogo. */}
+      {locations.removeProblem !== null && (
+        <div className="banner banner-error">
+          <span>{locations.removeProblem}</span>
+          <button className="banner-close" onClick={locations.dismissRemoveProblem} title={t('common.close')}>
+            ×
+          </button>
+        </div>
+      )}
+
       {/* La sugerencia de apoyar el proyecto, una vez por version (§6.28). */}
       <SupportNotice />
     </>
@@ -2192,6 +2217,32 @@ export function App(): JSX.Element {
             setPickerFor(null);
           }}
           onClose={() => setPickerFor(null)}
+        />
+      )}
+
+      {/*
+        Ubicar un proyecto que se movio de carpeta (hito 56, §13.14). El selector
+        elige la carpeta nueva y se cierra; el servidor la guarda y manda lo que
+        se asociaria, y el dialogo lo muestra antes de guardar nada. Elegir manda
+        el id del selector (`location.preview`) antes de cerrarlo: el servidor
+        lee la carpeta del selector abierto.
+      */}
+      {locations.step.kind === 'choosing' && (
+        <FolderPicker
+          connection={connection}
+          title={t('app.picker.location.title')}
+          confirmLabel={t('app.picker.location.confirm')}
+          confirmTitle={(path) => t('app.picker.location.confirmTitle', { path })}
+          onChoose={(pickerId) => locations.choose(pickerId)}
+          onClose={locations.cancel}
+        />
+      )}
+      {locations.step.kind !== 'idle' && locations.step.kind !== 'choosing' && (
+        <ProjectLocationDialog
+          step={locations.step}
+          onConfirm={locations.confirm}
+          onChooseAnother={locations.chooseAnother}
+          onCancel={locations.cancel}
         />
       )}
     </>
