@@ -145,13 +145,19 @@ const json = (value) => JSON.stringify(value);
     !TERMINAL_KEYS.some((key) => key.data === '\x16') && consoleById.get('ctrl-v')?.data === '\x16');
 
   // La Consola: que sobren y no que falten, porque lo que falta obliga a ir a la PC.
-  check('la Consola: dos líneas de dieciséis teclas, sin repetirse dentro de una línea',
-    CONSOLE_KEY_ROWS.length === 2 && CONSOLE_KEY_ROWS.every((row) => row.length === 16 && new Set(ids(row)).size === 16 &&
-      row.every((key) => key.data.length > 0 && key.label.length > 0)));
-  check('la Consola lleva todas las de la CLI, con Enter primero',
-    TERMINAL_KEYS.every((key) => consoleKeys.includes(key)) && CONSOLE_KEY_ROWS[0]?.[0]?.id === 'enter');
+  check('la Consola: dos líneas de 15 y de 14 teclas, ninguna repetida (ni dentro de una línea ni entre las dos)',
+    CONSOLE_KEY_ROWS.length === 2 && json(CONSOLE_KEY_ROWS.map((row) => row.length)) === json([15, 14]) &&
+    consoleKeys.length === 29 && new Set(ids(consoleKeys)).size === 29 &&
+    consoleKeys.every((key) => key.data.length > 0 && key.label.length > 0));
+  // El teclado del teléfono ya tiene los números; en la CLI están para contestar un menú sin abrirlo.
+  check('la Consola lleva las de la CLI con Enter primero, menos los números 1, 2 y 3',
+    TERMINAL_KEYS.filter((key) => !/^option-\d$/.test(key.id)).every((key) => consoleKeys.includes(key)) &&
+    !consoleKeys.some((key) => /^option-\d$/.test(key.id) || /^\d$/.test(key.data)) &&
+    CONSOLE_KEY_ROWS[0]?.[0]?.id === 'enter');
+  check('la primera pantalla de arriba son las ocho de siempre: Enter, Tab, ⇧Tab, Esc y las flechas',
+    json(ids(CONSOLE_KEY_ROWS[0].slice(0, 8))) === json(['enter', 'tab', 'shift-tab', 'esc', 'up', 'down', 'left', 'right']));
   check('Ctrl+O y Ctrl+X (guardar y salir de nano) están en la primera pantalla de su línea, detrás de Ctrl+C',
-    json(ids(CONSOLE_KEY_ROWS[1].slice(0, 3))) === json(['interrupt', 'ctrl-o', 'ctrl-x']));
+    json(ids(CONSOLE_KEY_ROWS[1].slice(0, 8))) === json(['interrupt', 'ctrl-o', 'ctrl-x', 'ctrl-k', 'ctrl-u', 'ctrl-w', 'ctrl-r', 'ctrl-l']));
   check('Home, End, RePág, AvPág y Supr, en la forma que leen los shells y nano',
     consoleById.get('home')?.data === '\x1b[H' && consoleById.get('end')?.data === '\x1b[F' &&
     consoleById.get('page-up')?.data === '\x1b[5~' && consoleById.get('page-down')?.data === '\x1b[6~' &&

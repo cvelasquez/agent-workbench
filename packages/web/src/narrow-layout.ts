@@ -201,15 +201,19 @@ export const TERMINAL_KEYS: readonly TerminalKey[] = [
 ];
 
 /**
- * La Consola, en dos líneas que se deslizan juntas, con todas las de la CLI y
- * las de un shell y de nano (pedido del usuario, 09-11-2026): que sobren y no
- * que falten, porque lo que no se puede apretar desde el teléfono obliga a ir a
- * la PC. Cada línea son dos pantallas de ocho: en la primera, lo de todos los
- * días; en la segunda, lo que se usa menos. Ctrl+O y Ctrl+X, que en nano
- * guardan y salen, están en la primera.
+ * La Consola, en dos líneas que se deslizan juntas, con las de la CLI y las de
+ * un shell y de nano (pedido del usuario, 09-11-2026): que sobren y no que
+ * falten, porque lo que no se puede apretar desde el teléfono obliga a ir a la
+ * PC. **Sin los números 1, 2 y 3**: el teclado del teléfono ya los tiene, y en la
+ * CLI están para contestar un menú sin abrirlo. Arriba, moverse (las flechas,
+ * Inicio, Fin, RePág, AvPág, Supr, y Ctrl+A y Ctrl+E junto a Inicio y Fin);
+ * abajo, las combinaciones con Ctrl, con Ctrl+O y Ctrl+X, que en nano guardan y
+ * salen, detrás de Ctrl+C. Las dos líneas tienen casi las mismas teclas para que
+ * ninguna se estire de más y la primera pantalla siga mostrando ocho arriba y
+ * siete u ocho abajo.
  */
 export const CONSOLE_KEY_ROWS: readonly (readonly TerminalKey[])[] = [
-  [ENTER, TAB, SHIFT_TAB, ESC, UP, DOWN, LEFT, RIGHT, HOME, END, PAGE_UP, PAGE_DOWN, DELETE, ...OPTIONS],
+  [ENTER, TAB, SHIFT_TAB, ESC, UP, DOWN, LEFT, RIGHT, HOME, END, ctrlKey('A'), ctrlKey('E'), PAGE_UP, PAGE_DOWN, DELETE],
   [
     INTERRUPT,
     CTRL_O,
@@ -221,8 +225,6 @@ export const CONSOLE_KEY_ROWS: readonly (readonly TerminalKey[])[] = [
     ctrlKey('L'),
     ctrlKey('D'),
     ctrlKey('Z'),
-    ctrlKey('A'),
-    ctrlKey('E'),
     ctrlKey('G'),
     CTRL_T,
     ctrlKey('V'),
