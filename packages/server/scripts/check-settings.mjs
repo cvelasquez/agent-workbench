@@ -29,14 +29,14 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { parseClientMessage, parseServerMessage, encodeServerMessage } from '@agent-workbench/shared';
+import { parseClientMessage, parseServerMessage, encodeServerMessage, shouldOfferAgentChoice } from '@agent-workbench/shared';
 import { SettingsStore, parseAppSettings, defaultAppSettings } from '../src/settings-store.ts';
 import { gitBashCandidates, locateShells, pickShell } from '../src/shell-locator.ts';
 import { AgentRegistry } from '../src/agents/registry.ts';
 import { AppSettingsChangeError, AppSettingsService } from '../src/app-settings-service.ts';
 import { remoteRefusal } from '../src/remote-access.ts';
 import { vaultOnlySessions } from '../src/session-index.ts';
-import { DEFAULT_HIDDEN_PANELS, HIDEABLE_PANELS, parseHiddenPanels, serializeHiddenPanels, withPanelVisible } from '../../web/src/panel-visibility.ts';
+import { HIDEABLE_PANELS, parseHiddenPanels, resolveHiddenPanels, serializeHiddenPanels, withPanelVisible } from '../../web/src/panel-visibility.ts';
 import { effectivePanelTab, scheduledNeedsStatusLine, statusLineAgentPrompt, visiblePanelTabs } from '../../web/src/agent-ui.ts';
 import { statusLineFragment } from '../src/agents/antigravity/statusline-script.ts';
 import { claudeStatusLineFragment } from '../src/agents/claude-code/statusline-script.ts';
@@ -247,8 +247,20 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
   check('6.1 se leen las que se conocen; la CLI y el chat no se pueden esconder',
     json([...hidden].sort()) === json(['console', 'notes']), json([...hidden]));
   check('6.2 ida y vuelta, en el orden de la lista', serializeHiddenPanels(hidden) === 'console,notes' && parseHiddenPanels('').size === 0);
-  check('6.2b sin nada guardado, Memoria arranca escondida (la mayoria usa una sola CLI); mostrarla se guarda como "none"',
-    json([...DEFAULT_HIDDEN_PANELS]) === json(['memory']) && serializeHiddenPanels(new Set()) === 'none' && parseHiddenPanels('none').size === 0);
+  for (const count of [0, 1, 2, 5]) {
+    const agents = Array.from({ length: count }, () => ({ available: true }));
+    agents.push({ available: false });
+    const multipleClis = shouldOfferAgentChoice(agents);
+    check(`6.2b con ${count} CLIs disponibles y sin preferencias, Memoria ${count > 1 ? 'se muestra' : 'se esconde'}`,
+      resolveHiddenPanels(null, multipleClis).has('memory') === (count <= 1));
+    for (const raw of ['memory,notes', 'none', '']) {
+      const saved = parseHiddenPanels(raw);
+      check(`6.2c con ${count} CLIs se respeta la preferencia guardada "${raw}"`,
+        resolveHiddenPanels(saved, multipleClis) === saved);
+    }
+  }
+  check('6.2d mostrar todos los paneles se guarda como "none"',
+    serializeHiddenPanels(new Set()) === 'none' && parseHiddenPanels('none').size === 0);
   check('6.3 mostrar y esconder', json([...withPanelVisible(withPanelVisible(hidden, 'notes', true), 'git', false)].sort()) === json(['console', 'git']));
   check('6.4 Ajustes lista seis, sin la CLI', HIDEABLE_PANELS.length === 6 && !HIDEABLE_PANELS.includes('cli'));
   const tabs = ['cli', 'git', 'files', 'plans', 'memory'].map((id) => ({ id }));

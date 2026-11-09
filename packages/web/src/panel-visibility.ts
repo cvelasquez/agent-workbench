@@ -28,14 +28,15 @@ function isHideablePanel(value: string): value is HideablePanel {
   return (HIDEABLE_PANELS as readonly string[]).includes(value);
 }
 
-/**
- * Las escondidas sin nada guardado: Memoria (pedido del usuario al probar el
- * Hito 41). La memoria compartida es para quien usa varias CLIs, y la mayoria
- * trabaja con una: la solapa, de entrada, confunde. Se muestra desde Ajustes.
- */
-export const DEFAULT_HIDDEN_PANELS: ReadonlySet<HideablePanel> = new Set<HideablePanel>(['memory']);
+/** Sin preferencias, Memoria se esconde solo con cero o una CLI disponible. */
+const DEFAULT_HIDDEN_PANELS: ReadonlySet<HideablePanel> = new Set<HideablePanel>(['memory']);
+const NO_HIDDEN_PANELS: ReadonlySet<HideablePanel> = new Set<HideablePanel>();
 
-/** Lo que se guarda cuando no hay ninguna escondida: distinto de "nada guardado", que esconde Memoria. */
+export function resolveHiddenPanels(saved: ReadonlySet<HideablePanel> | null, multipleClis: boolean): ReadonlySet<HideablePanel> {
+  return saved ?? (multipleClis ? NO_HIDDEN_PANELS : DEFAULT_HIDDEN_PANELS);
+}
+
+/** Lo que se guarda sin ninguna escondida, distinto de usar el valor por defecto. */
 const NONE_HIDDEN = 'none';
 
 /** Las escondidas guardadas. Lo que no se conoce se descarta; `none` o nada es "ninguna escondida". */
@@ -66,18 +67,21 @@ export interface PanelVisibility {
   setVisible: (panel: HideablePanel, visible: boolean) => void;
 }
 
-export function usePanelVisibility(): PanelVisibility {
-  const [hidden, setHidden] = useState<ReadonlySet<HideablePanel>>(() =>
-    readStored<ReadonlySet<HideablePanel>>(STORAGE_KEY, DEFAULT_HIDDEN_PANELS, parseHiddenPanels),
+export function usePanelVisibility(multipleClis: boolean): PanelVisibility {
+  const [savedHidden, setHidden] = useState<ReadonlySet<HideablePanel> | null>(() =>
+    readStored<ReadonlySet<HideablePanel> | null>(STORAGE_KEY, null, parseHiddenPanels),
   );
+  // La lista de CLIs llega despues del primer render. Solo una eleccion del
+  // usuario se guarda; el valor por defecto se resuelve con la lista actual.
+  const hidden = resolveHiddenPanels(savedHidden, multipleClis);
 
   const setVisible = useCallback((panel: HideablePanel, visible: boolean) => {
     setHidden((current) => {
-      const next = withPanelVisible(current, panel, visible);
+      const next = withPanelVisible(resolveHiddenPanels(current, multipleClis), panel, visible);
       writeStored(STORAGE_KEY, serializeHiddenPanels(next));
       return next;
     });
-  }, []);
+  }, [multipleClis]);
 
   const isVisible = useCallback((panel: HideablePanel) => !hidden.has(panel), [hidden]);
 

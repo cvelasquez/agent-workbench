@@ -385,7 +385,7 @@ export function App(): JSX.Element {
   // La barra del hilo plegable (29-10-2026): cada vista guarda la suya.
   const threadTools = useThreadTools(narrow);
   /** Que paneles se ven: los escondidos en Ajustes no se ofrecen (Hito 41, §6.32). */
-  const panels = usePanelVisibility();
+  const panels = usePanelVisibility(offerAgentChoice);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const leaveDrawer = useCallback(() => setDrawerOpen(false), []);
   const [narrowViewWanted, setNarrowViewWanted] = useState<NarrowView>(() =>
