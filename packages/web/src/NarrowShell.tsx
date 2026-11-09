@@ -231,6 +231,9 @@ export function NarrowShell({
     return null;
   };
 
+  // La Consola lleva más teclas que la CLI; con la `key`, al cambiar de vista la fila vuelve al principio.
+  const keysKind = view === 'console' ? 'console' : 'cli';
+
   return (
     <>
       <header className="app-header narrow-header">
@@ -295,7 +298,7 @@ export function NarrowShell({
           <div className={`narrow-pane${view === 'notes' ? '' : ' narrow-pane-hidden'}`}>{notes}</div>
           <div className={`narrow-pane${view === 'console' ? '' : ' narrow-pane-hidden'}`}>{consolePane}</div>
         </div>
-        {onTerminalKey !== null && <TerminalKeys onKey={onTerminalKey} />}
+        {onTerminalKey !== null && <TerminalKeys key={keysKind} kind={keysKind} onKey={onTerminalKey} />}
       </div>
 
       {drawerOpen && (

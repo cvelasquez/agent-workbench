@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  CONSOLE_KEY_ROWS,
   NARROW_MAX_WIDTH,
   NARROW_MEDIA_QUERY,
   NARROW_VIEWS,
@@ -35,6 +36,7 @@ import {
   parseStoredNarrowView,
   readTabParam,
   resolveNarrowView,
+  terminalKeyRows,
   withoutParams,
 } from '../../web/src/narrow-layout.ts';
 import {
@@ -110,20 +112,78 @@ const json = (value) => JSON.stringify(value);
 
 // --- 3. La fila de teclas -----------------------------------------------------------
 {
+  const ids = (keys) => keys.map((key) => key.id);
   const byId = new Map(TERMINAL_KEYS.map((key) => [key.id, key]));
-  check('diez teclas, cada una con su secuencia',
-    TERMINAL_KEYS.length === 10 && TERMINAL_KEYS.every((key) => key.data.length > 0 && key.label.length > 0) &&
-    new Set(TERMINAL_KEYS.map((key) => key.id)).size === 10);
+  const consoleKeys = CONSOLE_KEY_ROWS.flat();
+  const consoleById = new Map(consoleKeys.map((key) => [key.id, key]));
+  const everyKey = [...new Set([...TERMINAL_KEYS, ...consoleKeys])];
+
+  // La CLI: con Enter, los números, Esc y las flechas se contesta un menú que el hilo no dibuja.
+  check('la CLI: quince teclas, cada una con su secuencia y sin repetirse',
+    TERMINAL_KEYS.length === 15 && TERMINAL_KEYS.every((key) => key.data.length > 0 && key.label.length > 0) &&
+    new Set(ids(TERMINAL_KEYS)).size === 15);
+  check('Enter va primera, manda el retorno de carro y es la única destacada',
+    TERMINAL_KEYS[0]?.id === 'enter' && TERMINAL_KEYS[0]?.data === '\r' && TERMINAL_KEYS[0]?.label === 'Enter' &&
+    TERMINAL_KEYS.filter((key) => key.primary === true).length === 1 && TERMINAL_KEYS[0]?.primary === true);
+  check('los números 1, 2 y 3, detrás de Enter, mandan ese carácter',
+    json(TERMINAL_KEYS.slice(1, 4).map((key) => [key.label, key.data])) === json([['1', '1'], ['2', '2'], ['3', '3']]));
+  check('con lo que se contesta un menú (Enter, 1 a 3, Esc y las flechas) delante de Tab y de las combinaciones con Ctrl',
+    json(ids(TERMINAL_KEYS.slice(0, 9))) === json(['enter', 'option-1', 'option-2', 'option-3', 'esc', 'up', 'down', 'left', 'right']) &&
+    json(ids(TERMINAL_KEYS.slice(9))) === json(['tab', 'shift-tab', 'interrupt', 'ctrl-o', 'ctrl-t', 'ctrl-x']));
   check('Esc, Tab y Shift+Tab mandan lo que manda un teclado',
     byId.get('esc')?.data === '\x1b' && byId.get('tab')?.data === '\t' && byId.get('shift-tab')?.data === '\x1b[Z');
   check('las flechas, en la forma que leen las CLIs',
     byId.get('up')?.data === '\x1b[A' && byId.get('down')?.data === '\x1b[B' && byId.get('left')?.data === '\x1b[D' && byId.get('right')?.data === '\x1b[C');
-  check('Ctrl+C es el byte 3', byId.get('interrupt')?.data === '\x03');
-  check('Ctrl+O y Ctrl+X son los bytes 15 y 24, detrás de Ctrl+C',
-    byId.get('ctrl-o')?.data === '\x0f' && byId.get('ctrl-x')?.data === '\x18' &&
-    byId.get('ctrl-o')?.label === '^O' && byId.get('ctrl-x')?.label === '^X' &&
-    json(TERMINAL_KEYS.slice(-3).map((key) => key.id)) === json(['interrupt', 'ctrl-o', 'ctrl-x']));
-  check('cada tecla tiene su texto', TERMINAL_KEYS.every((key) => t(key.titleKey).length > 0));
+  check('Ctrl+C es el byte 3',
+    byId.get('interrupt')?.data === '\x03');
+  check('Ctrl+O, Ctrl+T y Ctrl+X son los bytes 15, 20 y 24',
+    byId.get('ctrl-o')?.data === '\x0f' && byId.get('ctrl-t')?.data === '\x14' && byId.get('ctrl-x')?.data === '\x18' &&
+    byId.get('ctrl-o')?.label === '^O' && byId.get('ctrl-t')?.label === '^T' && byId.get('ctrl-x')?.label === '^X');
+  // Desde el teléfono el byte llega a la PC y pega su portapapeles, no el del teléfono (§5.2):
+  // la CLI no lo ofrece, y la Consola lo trae sólo por nano, donde es "página siguiente".
+  check('Ctrl+V no está en la CLI (pegaría el portapapeles de la PC); la Consola lo trae por nano',
+    !TERMINAL_KEYS.some((key) => key.data === '\x16') && consoleById.get('ctrl-v')?.data === '\x16');
+
+  // La Consola: que sobren y no que falten, porque lo que falta obliga a ir a la PC.
+  check('la Consola: dos líneas de dieciséis teclas, sin repetirse dentro de una línea',
+    CONSOLE_KEY_ROWS.length === 2 && CONSOLE_KEY_ROWS.every((row) => row.length === 16 && new Set(ids(row)).size === 16 &&
+      row.every((key) => key.data.length > 0 && key.label.length > 0)));
+  check('la Consola lleva todas las de la CLI, con Enter primero',
+    TERMINAL_KEYS.every((key) => consoleKeys.includes(key)) && CONSOLE_KEY_ROWS[0]?.[0]?.id === 'enter');
+  check('Ctrl+O y Ctrl+X (guardar y salir de nano) están en la primera pantalla de su línea, detrás de Ctrl+C',
+    json(ids(CONSOLE_KEY_ROWS[1].slice(0, 3))) === json(['interrupt', 'ctrl-o', 'ctrl-x']));
+  check('Home, End, RePág, AvPág y Supr, en la forma que leen los shells y nano',
+    consoleById.get('home')?.data === '\x1b[H' && consoleById.get('end')?.data === '\x1b[F' &&
+    consoleById.get('page-up')?.data === '\x1b[5~' && consoleById.get('page-down')?.data === '\x1b[6~' &&
+    consoleById.get('delete')?.data === '\x1b[3~');
+  const ctrlKeys = consoleKeys.filter((key) => /^\^[A-Z]$/.test(key.label));
+  check('cada Ctrl+letra de la Consola (dieciséis) manda el byte de su letra, que es la letra menos 64',
+    ctrlKeys.length === 16 && ctrlKeys.every((key) => key.data === String.fromCharCode(key.label.charCodeAt(1) - 64)));
+  check('las de un shell y de nano están: K, U, W, R, L, D, Z, A, E, G, V e Y',
+    ['K', 'U', 'W', 'R', 'L', 'D', 'Z', 'A', 'E', 'G', 'V', 'Y'].every((letter) => consoleById.get(`ctrl-${letter.toLowerCase()}`)?.label === `^${letter}`));
+  check('la CLI se ve en una línea y la Consola en dos',
+    terminalKeyRows('cli').length === 1 && terminalKeyRows('cli')[0] === TERMINAL_KEYS &&
+    terminalKeyRows('console') === CONSOLE_KEY_ROWS);
+
+  check('cada tecla tiene su texto, con sus valores puestos',
+    everyKey.every((key) => {
+      const text = t(key.titleKey, key.titleParams);
+      return text.length > 0 && !text.includes('{{');
+    }));
+  check('los textos nuevos, en español',
+    t('narrow.keys.enter') === 'Enter (confirma la opción marcada)' &&
+    t('narrow.keys.number', { number: '2' }) === 'Tecla 2 (elige la opción 2 de un menú)' &&
+    t('narrow.keys.ctrl', { letter: 'K' }) === 'Ctrl+K' && t('narrow.keys.ctrlT') === 'Ctrl+T (en Codex muestra la transcripción)');
+
+  // El cableado: qué fila ve cada vista, y que un botón no le robe el foco al teclado en pantalla.
+  const shell = readFileSync(join(WEB, 'src', 'NarrowShell.tsx'), 'utf8');
+  const keysView = readFileSync(join(WEB, 'src', 'TerminalKeys.tsx'), 'utf8');
+  check('la Consola ve su fila y la CLI la suya, y al cambiar de vista la fila vuelve al principio',
+    /const keysKind = view === 'console' \? 'console' : 'cli';/.test(shell) &&
+    /<TerminalKeys key=\{keysKind\} kind=\{keysKind\} onKey=\{onTerminalKey\} \/>/.test(shell) &&
+    /terminalKeyRows\(kind\)/.test(keysView));
+  check('cada botón manda su secuencia, y no toma el foco: si no, el teclado en pantalla se cerraría',
+    /onClick=\{\(\) => onKey\(key\.data\)\}/.test(keysView) && /onPointerDown=\{\(event\) => event\.preventDefault\(\)\}/.test(keysView));
 }
 
 // --- 3b. Enter en el cuadro de escritura --------------------------------------------
@@ -257,6 +317,14 @@ const json = (value) => JSON.stringify(value);
   const outside = css.replace(narrow.body, '').replace(touch.body, '');
   check('la terminal se queda con el gesto del dedo, en cualquier ancho',
     /\n\.terminal-surface \{[^}]*touch-action:\s*none;/.test(outside));
+
+  // La fila de teclas: una o dos líneas dentro de una caja que se desliza de lado.
+  check('la fila de teclas se desliza de lado, y sus líneas miden lo que la más larga para terminar alineadas',
+    /\n {2}\.narrow-keys \{[^}]*overflow-x:\s*auto;/.test(narrow.body) &&
+    /\n {2}\.narrow-keys-grid \{[^}]*width:\s*max-content;[^}]*min-width:\s*100%;/.test(narrow.body));
+  const keyRule = narrow.body.indexOf('.narrow-key {');
+  check('Enter lleva su color y su ancho después de `.narrow-key`: antes, la regla de todas se los pisa',
+    keyRule > -1 && narrow.body.indexOf('.narrow-key-primary {') > keyRule);
 }
 
 // --- 4b. La app del teléfono (hito 38, Fase B) -------------------------------------

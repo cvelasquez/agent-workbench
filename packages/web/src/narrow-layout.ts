@@ -12,7 +12,7 @@
  * PC aparecen al pasar por encima.
  */
 
-import type { MessageKey } from './i18n/index.js';
+import type { MessageKey, MessageParams } from './i18n/index.js';
 import type { PanelTab } from './SidePanel.js';
 
 /**
@@ -126,27 +126,117 @@ export interface TerminalKey {
   /** La secuencia que mandaría la tecla, tal como la lee la CLI. */
   data: string;
   titleKey: MessageKey;
+  /** Los valores que lleva el texto de `titleKey`, si lleva. */
+  titleParams?: MessageParams;
+  /** La que más se aprieta (Enter): un poco más ancha y con el color de acento. */
+  primary?: boolean;
 }
 
+/** Ctrl+letra: el byte de control de esa letra (`^K` es 0x0b). */
+function ctrlKey(letter: string): TerminalKey {
+  return {
+    id: `ctrl-${letter.toLowerCase()}`,
+    label: `^${letter}`,
+    data: String.fromCharCode(letter.charCodeAt(0) & 0x1f),
+    titleKey: 'narrow.keys.ctrl',
+    titleParams: { letter },
+  };
+}
+
+const ENTER: TerminalKey = { id: 'enter', label: 'Enter', data: '\r', titleKey: 'narrow.keys.enter', primary: true };
+const OPTIONS: readonly TerminalKey[] = ['1', '2', '3'].map(
+  (number): TerminalKey => ({
+    id: `option-${number}`,
+    label: number,
+    data: number,
+    titleKey: 'narrow.keys.number',
+    titleParams: { number },
+  }),
+);
+const ESC: TerminalKey = { id: 'esc', label: 'Esc', data: '\x1b', titleKey: 'narrow.keys.esc' };
+const TAB: TerminalKey = { id: 'tab', label: 'Tab', data: '\t', titleKey: 'narrow.keys.tab' };
+const SHIFT_TAB: TerminalKey = { id: 'shift-tab', label: '⇧Tab', data: '\x1b[Z', titleKey: 'narrow.keys.shiftTab' };
+const UP: TerminalKey = { id: 'up', label: '↑', data: '\x1b[A', titleKey: 'narrow.keys.up' };
+const DOWN: TerminalKey = { id: 'down', label: '↓', data: '\x1b[B', titleKey: 'narrow.keys.down' };
+const LEFT: TerminalKey = { id: 'left', label: '←', data: '\x1b[D', titleKey: 'narrow.keys.left' };
+const RIGHT: TerminalKey = { id: 'right', label: '→', data: '\x1b[C', titleKey: 'narrow.keys.right' };
+const INTERRUPT: TerminalKey = { id: 'interrupt', label: '^C', data: '\x03', titleKey: 'narrow.keys.interrupt' };
+const CTRL_O: TerminalKey = { id: 'ctrl-o', label: '^O', data: '\x0f', titleKey: 'narrow.keys.ctrlO' };
+const CTRL_T: TerminalKey = { id: 'ctrl-t', label: '^T', data: '\x14', titleKey: 'narrow.keys.ctrlT' };
+const CTRL_X: TerminalKey = { id: 'ctrl-x', label: '^X', data: '\x18', titleKey: 'narrow.keys.ctrlX' };
+const HOME: TerminalKey = { id: 'home', label: 'Home', data: '\x1b[H', titleKey: 'narrow.keys.home' };
+const END: TerminalKey = { id: 'end', label: 'End', data: '\x1b[F', titleKey: 'narrow.keys.end' };
+const PAGE_UP: TerminalKey = { id: 'page-up', label: 'PgUp', data: '\x1b[5~', titleKey: 'narrow.keys.pageUp' };
+const PAGE_DOWN: TerminalKey = { id: 'page-down', label: 'PgDn', data: '\x1b[6~', titleKey: 'narrow.keys.pageDown' };
+const DELETE: TerminalKey = { id: 'delete', label: 'Del', data: '\x1b[3~', titleKey: 'narrow.keys.delete' };
+
 /**
- * Las teclas que el teclado de un teléfono no trae, en la vista CLI y en la
- * Consola. Ctrl no es un modificador de la fila: aplicarlo a la siguiente letra
- * del teclado en pantalla exigiría interceptar lo que teclea xterm. Las
- * combinaciones que se usan de verdad van como teclas propias: Shift+Tab,
- * Ctrl+C, y desde el 25-09-2026 Ctrl+O y Ctrl+X, a pedido del usuario.
+ * Las teclas que el teclado de un teléfono no trae, en la vista CLI. Enter va
+ * primero, y los números, Esc y las flechas le siguen: son con lo que se
+ * contesta un menú de la CLI (un permiso, una aprobación) que el hilo no dibuja
+ * como tarjeta y vive sólo en la solapa CLI (§4.13, §10.20). Tab y Shift+Tab, y
+ * las combinaciones con Ctrl que usan los agentes, al final: Ctrl+C, Ctrl+O
+ * (Claude Code), Ctrl+T (la transcripción de Codex) y Ctrl+X.
+ *
+ * Ctrl no es un modificador de la fila: aplicarlo a la siguiente letra del
+ * teclado en pantalla exigiría interceptar lo que teclea xterm. Las
+ * combinaciones que se usan de verdad van como teclas propias. **Ctrl+V no
+ * está**: desde el teléfono manda el byte a la PC y pega el portapapeles de la
+ * PC, no el del teléfono (§5.2).
  */
 export const TERMINAL_KEYS: readonly TerminalKey[] = [
-  { id: 'esc', label: 'Esc', data: '\x1b', titleKey: 'narrow.keys.esc' },
-  { id: 'tab', label: 'Tab', data: '\t', titleKey: 'narrow.keys.tab' },
-  { id: 'shift-tab', label: '⇧Tab', data: '\x1b[Z', titleKey: 'narrow.keys.shiftTab' },
-  { id: 'up', label: '↑', data: '\x1b[A', titleKey: 'narrow.keys.up' },
-  { id: 'down', label: '↓', data: '\x1b[B', titleKey: 'narrow.keys.down' },
-  { id: 'left', label: '←', data: '\x1b[D', titleKey: 'narrow.keys.left' },
-  { id: 'right', label: '→', data: '\x1b[C', titleKey: 'narrow.keys.right' },
-  { id: 'interrupt', label: '^C', data: '\x03', titleKey: 'narrow.keys.interrupt' },
-  { id: 'ctrl-o', label: '^O', data: '\x0f', titleKey: 'narrow.keys.ctrlO' },
-  { id: 'ctrl-x', label: '^X', data: '\x18', titleKey: 'narrow.keys.ctrlX' },
+  ENTER,
+  ...OPTIONS,
+  ESC,
+  UP,
+  DOWN,
+  LEFT,
+  RIGHT,
+  TAB,
+  SHIFT_TAB,
+  INTERRUPT,
+  CTRL_O,
+  CTRL_T,
+  CTRL_X,
 ];
+
+/**
+ * La Consola, en dos líneas que se deslizan juntas, con todas las de la CLI y
+ * las de un shell y de nano (pedido del usuario, 09-11-2026): que sobren y no
+ * que falten, porque lo que no se puede apretar desde el teléfono obliga a ir a
+ * la PC. Cada línea son dos pantallas de ocho: en la primera, lo de todos los
+ * días; en la segunda, lo que se usa menos. Ctrl+O y Ctrl+X, que en nano
+ * guardan y salen, están en la primera.
+ */
+export const CONSOLE_KEY_ROWS: readonly (readonly TerminalKey[])[] = [
+  [ENTER, TAB, SHIFT_TAB, ESC, UP, DOWN, LEFT, RIGHT, HOME, END, PAGE_UP, PAGE_DOWN, DELETE, ...OPTIONS],
+  [
+    INTERRUPT,
+    CTRL_O,
+    CTRL_X,
+    ctrlKey('K'),
+    ctrlKey('U'),
+    ctrlKey('W'),
+    ctrlKey('R'),
+    ctrlKey('L'),
+    ctrlKey('D'),
+    ctrlKey('Z'),
+    ctrlKey('A'),
+    ctrlKey('E'),
+    ctrlKey('G'),
+    CTRL_T,
+    ctrlKey('V'),
+    ctrlKey('Y'),
+  ],
+];
+
+/** Qué terminal se ve debajo de la fila: la de la pestaña (la CLI) o el shell de la Consola. */
+export type TerminalKeysKind = 'cli' | 'console';
+
+/** Las líneas de teclas de esa terminal: una en la CLI, dos en la Consola. */
+export function terminalKeyRows(kind: TerminalKeysKind): readonly (readonly TerminalKey[])[] {
+  return kind === 'console' ? CONSOLE_KEY_ROWS : [TERMINAL_KEYS];
+}
 
 // ---- Enter en el cuadro de escritura ---------------------------------------------
 

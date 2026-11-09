@@ -7146,14 +7146,26 @@ kbd {
 
   .narrow-keys {
     flex: 0 0 auto;
-    display: flex;
-    gap: 4px;
     padding: 4px 6px;
     padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
     background: var(--chrome);
     border-top: 1px solid var(--border);
     overflow-x: auto;
     scrollbar-width: none;
+  }
+
+  /* Una o dos líneas, tan ancha la caja como la más larga: las otras se estiran y terminan alineadas. */
+  .narrow-keys-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .narrow-keys-line {
+    display: flex;
+    gap: 4px;
   }
 
   .narrow-key {
@@ -7167,6 +7179,14 @@ kbd {
     color: var(--text);
     font-family: 'Cascadia Mono', Consolas, monospace;
     font-size: 13px;
+  }
+
+  /* Enter: la que más se aprieta, un poco más ancha y con el acento. Va después de `.narrow-key`, que si no le pisa el color. */
+  .narrow-key-primary {
+    min-width: 58px;
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
   }
 
   .narrow-key:active {
