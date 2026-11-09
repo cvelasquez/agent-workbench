@@ -879,6 +879,23 @@ export interface ClientAddNoteImageMessage {
   image: SubmitImage;
 }
 
+export interface ClientAddNoteFileMessage {
+  type: 'notes.addFile';
+  noteId: string;
+  file: SubmitFile;
+}
+
+export interface ClientRemoveNoteFileMessage {
+  type: 'notes.removeFile';
+  noteId: string;
+  fileId: string;
+}
+
+export interface ClientNoteFileMessage {
+  type: 'notes.file';
+  fileId: string;
+}
+
 export interface ClientRemoveNoteImageMessage {
   type: 'notes.removeImage';
   noteId: string;
@@ -1527,6 +1544,9 @@ export type ClientMessage =
   | ClientCreateNoteMessage
   | ClientUpdateNoteMessage
   | ClientDeleteNoteMessage
+  | ClientAddNoteFileMessage
+  | ClientRemoveNoteFileMessage
+  | ClientNoteFileMessage
   | ClientAddNoteImageMessage
   | ClientRemoveNoteImageMessage
   | ClientNoteImageMessage
@@ -2220,6 +2240,14 @@ export interface ServerNotesListMessage {
   notes: Note[];
 }
 
+export interface ServerNoteFileMessage {
+  type: 'notes.fileData';
+  fileId: string;
+  name: string;
+  /** Base64 al leer; null como acuse de subida o si ya no existe. */
+  data: string | null;
+}
+
 export interface ServerNoteImageMessage {
   type: 'notes.imageData';
   imageId: string;
@@ -2763,6 +2791,7 @@ export type ServerMessage =
   | ServerAgentCodexPermissionsResultMessage
   | ServerPlanContentMessage
   | ServerNotesListMessage
+  | ServerNoteFileMessage
   | ServerNoteImageMessage
   | ServerMemoryStatusMessage
   | ServerMemoryPlannedMessage
@@ -3176,6 +3205,20 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'notes.delete': {
       const noteId = asNonEmptyString(record['noteId']);
       return noteId === null ? null : { type: 'notes.delete', noteId };
+    }
+    case 'notes.addFile': {
+      const noteId = asNonEmptyString(record['noteId']);
+      const file = parseSubmitFile(record['file']);
+      return noteId === null || file === null ? null : { type: 'notes.addFile', noteId, file };
+    }
+    case 'notes.removeFile': {
+      const noteId = asNonEmptyString(record['noteId']);
+      const fileId = asNonEmptyString(record['fileId']);
+      return noteId === null || fileId === null ? null : { type: 'notes.removeFile', noteId, fileId };
+    }
+    case 'notes.file': {
+      const fileId = asNonEmptyString(record['fileId']);
+      return fileId === null ? null : { type: 'notes.file', fileId };
     }
     case 'notes.addImage': {
       const noteId = asNonEmptyString(record['noteId']);
@@ -4048,6 +4091,13 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     case 'notes.list': {
       const notes = asArrayOf(record['notes'], parseNote);
       return notes === null ? null : { type: 'notes.list', notes };
+    }
+    case 'notes.fileData': {
+      const fileId = asNonEmptyString(record['fileId']);
+      const name = asString(record['name']);
+      const data = record['data'];
+      return fileId === null || name === null || (data !== null && typeof data !== 'string')
+        ? null : { type: 'notes.fileData', fileId, name, data };
     }
     case 'notes.imageData': {
       const imageId = asNonEmptyString(record['imageId']);

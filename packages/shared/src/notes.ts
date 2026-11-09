@@ -16,6 +16,7 @@ import { asArrayOf, asFiniteNumber, asNonEmptyString, asRecord, asString } from 
 /** Mas que esto no es una nota, es un documento. */
 export const MAX_NOTE_TEXT_CHARS = 100_000;
 export const MAX_NOTE_IMAGES = 20;
+export const MAX_NOTE_FILES = 20;
 export const MAX_NOTES = 100;
 
 /** Forma valida de un id generado en el cliente. Solo se usa como clave. */
@@ -31,10 +32,18 @@ export interface NoteImage {
   bytes: number;
 }
 
+export interface NoteFile {
+  fileId: string;
+  name: string;
+  bytes: number;
+}
+
 export interface Note {
   noteId: string;
   text: string;
   images: NoteImage[];
+  /** Ausente en notas de versiones anteriores. */
+  files?: NoteFile[];
   createdAt: number;
   updatedAt: number;
 }
@@ -50,7 +59,7 @@ export function noteTitle(note: Note, fallback = 'Nota'): string {
     .split('\n')
     .map((part) => part.trim())
     .find((part) => part.length > 0);
-  if (line === undefined) return note.images.length > 0 ? 'Imagen' : fallback;
+  if (line === undefined) return note.files?.[0]?.name ?? (note.images.length > 0 ? 'Imagen' : fallback);
   return line.length > 40 ? `${line.slice(0, 40)}…` : line;
 }
 
@@ -65,19 +74,32 @@ export function parseNoteImage(value: unknown): NoteImage | null {
     : { imageId, mediaType, bytes };
 }
 
+export function parseNoteFile(value: unknown): NoteFile | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const fileId = asNonEmptyString(record['fileId']);
+  const name = asNonEmptyString(record['name']);
+  const bytes = asFiniteNumber(record['bytes']);
+  return fileId === null || name === null || bytes === null || !isValidNoteId(fileId) || bytes < 0 || !Number.isInteger(bytes)
+    ? null
+    : { fileId, name, bytes };
+}
+
 export function parseNote(value: unknown): Note | null {
   const record = asRecord(value);
   if (record === null) return null;
   const noteId = asNonEmptyString(record['noteId']);
   const text = asString(record['text']);
   const images = asArrayOf(record['images'], parseNoteImage);
+  const files = record['files'] === undefined ? [] : asArrayOf(record['files'], parseNoteFile);
   const createdAt = asFiniteNumber(record['createdAt']);
   const updatedAt = asFiniteNumber(record['updatedAt']);
-  if (noteId === null || text === null || images === null) return null;
+  if (noteId === null || text === null || images === null || files === null) return null;
   return {
     noteId,
     text,
     images,
+    files,
     createdAt: createdAt ?? 0,
     updatedAt: updatedAt ?? 0,
   };

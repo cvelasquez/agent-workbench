@@ -104,4 +104,15 @@ class SharedItemsTest {
         val id = SharedItems.newNoteId()
         assertTrue(id, Regex("^[a-zA-Z0-9-]{1,64}$").matches(id))
     }
+
+    @Test
+    fun `los archivos usan límites independientes y escapan su nombre al enviarse`() {
+        assertNull(SharedItems.room(20, 0, 10, existingFiles = 19, addingFiles = 1))
+        assertEquals(SharedItems.Room.TooManyFiles, SharedItems.room(0, 0, 10, existingFiles = 20, addingFiles = 1))
+        val name = "informe \"final\".pdf"
+        val file = JSONObject(SharedItems.addFile("n-1", name, "YWJj"))
+        assertEquals("notes.addFile", file.getString("type"))
+        assertEquals(name, file.getJSONObject("file").getString("name"))
+        assertEquals("YWJj", file.getJSONObject("file").getString("data"))
+    }
 }

@@ -3022,6 +3022,27 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             .catch(sendNotesError);
           break;
 
+        case 'notes.addFile':
+          void notes.addFile(message.noteId, message.file.name, message.file.data)
+            .then((file) => {
+              send(socket, { type: 'notes.fileData', fileId: file.fileId, name: file.name, data: null });
+              broadcast({ type: 'notes.list', notes: notes.list() });
+            }).catch(sendNotesError);
+          break;
+
+        case 'notes.removeFile':
+          void notes.removeFile(message.noteId, message.fileId)
+            .then((changed) => {
+              if (changed) broadcast({ type: 'notes.list', notes: notes.list() });
+            }).catch(sendNotesError);
+          break;
+
+        case 'notes.file':
+          void notes.readFile(message.fileId).then((file) => {
+            send(socket, { type: 'notes.fileData', fileId: message.fileId, name: file?.name ?? '', data: file?.data ?? null });
+          }).catch(sendNotesError);
+          break;
+
         case 'notes.removeImage':
           void notes
             .removeImage(message.noteId, message.imageId)
@@ -3194,7 +3215,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               sendError(socket, 'submit-failed', serverText('noteGone'));
               return;
             }
-            if (note.text.trim().length === 0 && note.images.length === 0) {
+            if (note.text.trim().length === 0 && note.images.length === 0 && note.files.length === 0) {
               sendError(socket, 'submit-failed', serverText('noteEmpty'));
               return;
             }
@@ -3211,9 +3232,19 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               (M3): mismas comprobaciones en el mismo orden, misma fila, mismas
               piezas. Los textos de cada fallo siguen aca.
             */
+            const attachmentLines: string[] = [];
+            const input = adapterOf(message.terminalId)?.input;
+            if (input === undefined) {
+              sendError(socket, 'submit-failed', serverText('noteNoAgent'));
+              return;
+            }
+            for (const file of note.files) {
+              const stored = await pasteStore.saveAttachment(message.terminalId, file.name, file.data);
+              attachmentLines.push(attachmentLine(file.name, stored.bytes, attachmentReference(stored.path, input.transcriptReference)));
+            }
             const outcome = await deliverWhenReady(deliverDeps, {
               terminalId: message.terminalId,
-              text: note.text,
+              text: textWithAttachments(note.text, attachmentLines),
               images: note.images,
               timeoutMs: NOTE_SEND_TIMEOUT_MS,
               write: pieceWriter(socket, message.terminalId),
@@ -3250,7 +3281,7 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 sendError(socket, 'submit-failed', serverText('noteCliDraft', { label: adapterOf(message.terminalId)?.label ?? '' }));
                 return;
             }
-          })();
+          })().catch(sendNotesError);
           break;
 
         /*

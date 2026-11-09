@@ -17,9 +17,11 @@ object SharedItems {
      * imagen de 12 MiB en base64 ya ocupa eso. Una captura pesa de 1 a 3 MB.
      */
     const val MAX_IMAGE_BYTES = 11 * 1024 * 1024
+    const val MAX_FILE_BYTES = 10 * 1024 * 1024
 
     /** Los topes de las notas (`shared/src/notes.ts`). */
     const val MAX_NOTE_IMAGES = 20
+    const val MAX_NOTE_FILES = 20
     const val MAX_NOTES = 100
 
     /** El título, como `noteTitle` de la web: hasta 40 caracteres de la primera línea. */
@@ -77,14 +79,15 @@ object SharedItems {
         }
     }
 
-    enum class Room { TooManyImages, TooManyNotes }
+    enum class Room { TooManyImages, TooManyFiles, TooManyNotes }
 
     /**
      * Si lo compartido entra: en una nota nueva (`existingImages` null) o en una que
      * ya tiene esas imágenes. null si entra.
      */
-    fun room(existingImages: Int?, adding: Int, notes: Int): Room? = when {
+    fun room(existingImages: Int?, adding: Int, notes: Int, existingFiles: Int = 0, addingFiles: Int = 0): Room? = when {
         (existingImages ?: 0) + adding > MAX_NOTE_IMAGES -> Room.TooManyImages
+        existingFiles + addingFiles > MAX_NOTE_FILES -> Room.TooManyFiles
         existingImages == null && notes >= MAX_NOTES -> Room.TooManyNotes
         else -> null
     }
@@ -105,4 +108,13 @@ object SharedItems {
     fun addImage(noteId: String, mediaType: String, base64: String): String =
         "{\"type\":\"notes.addImage\",\"noteId\":${JSONObject.quote(noteId)}," +
             "\"image\":{\"mediaType\":${JSONObject.quote(mediaType)},\"data\":\"$base64\"}}"
+
+    fun addFile(noteId: String, name: String, base64: String): String =
+        "{\"type\":\"notes.addFile\",\"noteId\":${JSONObject.quote(noteId)}," +
+            "\"file\":{\"name\":${JSONObject.quote(name)},\"data\":\"$base64\"}}"
+
+    /** La misma lista que `server/src/attachments.ts`; el servidor vuelve a comprobarla. */
+    fun isBlockedFile(name: String): Boolean = name.trimEnd('.', ' ').substringAfterLast('.', "").lowercase() in setOf(
+        "exe", "dll", "msi", "msp", "scr", "com", "pif", "cpl", "sys", "lnk", "hta", "jar", "app", "dmg",
+    )
 }

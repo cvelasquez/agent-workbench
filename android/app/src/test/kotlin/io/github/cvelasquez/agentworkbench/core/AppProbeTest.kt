@@ -3,8 +3,10 @@ package io.github.cvelasquez.agentworkbench.core
 import io.github.cvelasquez.agentworkbench.tunnel.AppProbe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.Closeable
+import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.Semaphore
@@ -23,10 +25,11 @@ class AppProbeTest {
      * conexión abierta y la cierra enseguida, como el de un túnel que se corta.
      * `closed` suma uno cada vez que cerró una.
      */
-    private class OneShotServer(status: String, headers: String = "") : Closeable {
+    private class OneShotServer(status: String, headers: String = "", body: String = "") : Closeable {
         private val server = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
         val port: Int get() = server.localPort
         val closed = Semaphore(0)
+        val requests = java.util.concurrent.LinkedBlockingQueue<List<String>>()
 
         init {
             thread(isDaemon = true) {
@@ -34,11 +37,14 @@ class AppProbeTest {
                     val socket = runCatching { server.accept() }.getOrNull() ?: break
                     socket.use {
                         val reader = it.getInputStream().bufferedReader()
+                        val request = ArrayList<String>()
                         while (true) {
                             val line = reader.readLine() ?: break
                             if (line.isEmpty()) break
+                            request += line
                         }
-                        val response = "HTTP/1.1 $status\r\nContent-Length: 0\r\nConnection: keep-alive\r\n$headers\r\n"
+                        requests.put(request)
+                        val response = "HTTP/1.1 $status\r\nContent-Length: ${body.toByteArray().size}\r\nConnection: keep-alive\r\n$headers\r\n$body"
                         it.getOutputStream().write(response.toByteArray())
                         it.getOutputStream().flush()
                     }
@@ -68,6 +74,19 @@ class AppProbeTest {
             val redeemed = AppProbe.redeem(server.port, "K7QMX2RD", "prueba")
             assertTrue("dio $redeemed", redeemed is AppProbe.Redeem.Paired)
             assertEquals("nueva", (redeemed as AppProbe.Redeem.Paired).credential)
+        }
+    }
+
+    @Test
+    fun `descarga el adjunto por id con la cookie y no sigue redirecciones`() {
+        OneShotServer("200 OK", body = "RIFF_audio").use { server ->
+            assertEquals("RIFF_audio", String(AppProbe.noteFile(server.port, "credencial", "prueba", "file-1")))
+            val request = server.requests.poll(5, TimeUnit.SECONDS)!!
+            assertEquals("GET /api/notes/files/file-1 HTTP/1.1", request.first())
+            assertTrue(request.contains("Cookie: ${AppProbe.DEVICE_COOKIE}=credencial"))
+        }
+        OneShotServer("302 Found", "Location: http://example.com/\r\n").use { server ->
+            assertThrows(IOException::class.java) { AppProbe.noteFile(server.port, "credencial", "prueba", "file-1") }
         }
     }
 }

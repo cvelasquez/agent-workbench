@@ -133,6 +133,7 @@ export const SERVER_TEXTS = {
   noteIdInvalid: [],
   noteImageFailed: [],
   noteImagesMax: ['max'],
+  noteFilesMax: ['max'],
   noteImagesUnsupported: [],
   noteInterrupted: [],
   noteNoAgent: [],

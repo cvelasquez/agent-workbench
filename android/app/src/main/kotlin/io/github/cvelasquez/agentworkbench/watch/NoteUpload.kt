@@ -26,11 +26,14 @@ fun interface SharedImage {
     fun read(): ByteArray
 }
 
+/** Archivo leído de a uno, sin conservar todos los bytes compartidos en memoria. */
+class SharedFile(val name: String, val read: () -> ByteArray)
+
 /**
  * Lo compartido, a una nota (hito 50, §15.12): crearla si es nueva, sumarle el
- * texto y subir cada imagen esperando su acuse, en ese orden.
+ * texto y subir cada adjunto esperando su acuse, en ese orden.
  *
- * Nada se manda hasta saber que todas las imágenes se pueden leer y entran: así una
+ * Nada se manda hasta saber que todos los adjuntos se pueden leer y entran: así uno
  * mala no deja una nota vacía ni la mitad de las capturas.
  */
 class NoteUpload(
@@ -38,8 +41,8 @@ class NoteUpload(
     private val barrierId: () -> String = { "share-" + UUID.randomUUID() },
 ) {
     sealed class Outcome {
-        /** Guardado: el texto y la cantidad de imágenes con que quedó la nota, para nombrarla. */
-        data class Saved(val noteId: String, val text: String, val images: Int) : Outcome()
+        /** Guardado: el texto y las cantidades de adjuntos con que quedó la nota, para nombrarla. */
+        data class Saved(val noteId: String, val text: String, val images: Int, val files: Int = 0) : Outcome()
         data class Failed(val saved: Int, val total: Int, val problem: Problem) : Outcome()
     }
 
@@ -50,22 +53,30 @@ class NoteUpload(
         data object Unreadable : Problem()
         data object NotAnImage : Problem()
         data object TooLarge : Problem()
+        data object FileTooLarge : Problem()
+        data object EmptyFile : Problem()
+        data object BlockedFile : Problem()
     }
 
     /**
      * Sube a `target`, o a una nota nueva con `newNoteId` si es null. Bloquea hasta
      * terminar: se llama fuera del hilo principal. `progress` recibe el número de la
-     * imagen que se está subiendo.
+     * adjunto que se está subiendo.
      */
     fun run(
         target: ServerMessage.NoteSummary?,
         newNoteId: String,
         addition: String,
         images: List<SharedImage>,
+        files: List<SharedFile> = emptyList(),
         progress: (Int) -> Unit,
     ): Outcome {
-        val total = images.size
+        val total = images.size + files.size
         for (image in images) checkImage(image)?.let { return Outcome.Failed(0, total, it) }
+        for (file in files) {
+            val bytes = try { file.read() } catch (_: IOException) { return Outcome.Failed(0, total, Problem.Unreadable) }
+            fileProblemOf(file.name, bytes)?.let { return Outcome.Failed(0, total, it) }
+        }
 
         val noteId = target?.noteId ?: newNoteId
         val before = target?.text.orEmpty()
@@ -98,7 +109,21 @@ class NoteUpload(
                 else -> return Outcome.Failed(index, total, Problem.NoAnswer)
             }
         }
-        return Outcome.Saved(noteId, text, (target?.images ?: 0) + total)
+        files.forEachIndexed { index, file ->
+            val saved = images.size + index
+            progress(saved + 1)
+            val bytes = try { file.read() } catch (_: IOException) { return Outcome.Failed(saved, total, Problem.Unreadable) }
+            fileProblemOf(file.name, bytes)?.let { return Outcome.Failed(saved, total, it) }
+            if (!channel.send(SharedItems.addFile(noteId, file.name, Base64.getEncoder().encodeToString(bytes)))) {
+                return Outcome.Failed(saved, total, Problem.NoAnswer)
+            }
+            when (val reply = channel.nextReply(IMAGE_TIMEOUT_MS)) {
+                is ServerMessage.NoteFileStored -> Unit
+                is ServerMessage.Failure -> return Outcome.Failed(saved, total, Problem.Server(reply.key, reply.params))
+                else -> return Outcome.Failed(saved, total, Problem.NoAnswer)
+            }
+        }
+        return Outcome.Saved(noteId, text, (target?.images ?: 0) + images.size, (target?.files ?: 0) + files.size)
     }
 
     private fun checkImage(image: SharedImage): Problem? {
@@ -129,6 +154,12 @@ class NoteUpload(
     }
 
     companion object {
+        fun fileProblemOf(name: String, bytes: ByteArray): Problem? = when {
+            SharedItems.isBlockedFile(name) -> Problem.BlockedFile
+            bytes.isEmpty() -> Problem.EmptyFile
+            bytes.size > SharedItems.MAX_FILE_BYTES -> Problem.FileTooLarge
+            else -> null
+        }
         /** Por qué una imagen no entra en una nota, o null si entra. Lo usa también la pantalla, al abrirse. */
         fun problemOf(bytes: ByteArray): Problem? = when {
             SharedItems.imageType(bytes) == null -> Problem.NotAnImage

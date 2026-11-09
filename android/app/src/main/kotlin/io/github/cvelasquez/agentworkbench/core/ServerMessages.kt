@@ -17,13 +17,14 @@ sealed class ServerMessage {
 
     /** `notes.imageData`: la PC guardó la imagen que le mandó esta conexión. */
     data class NoteImageStored(val imageId: String) : ServerMessage()
+    data class NoteFileStored(val fileId: String) : ServerMessage()
 
     /** `error`: el texto viaja como clave y valores (§6.23), y la app arma la frase. */
     data class Failure(val code: String, val key: String, val params: Map<String, String>) : ServerMessage()
     data object Other : ServerMessage()
 
     /** Una nota, con lo que hace falta para elegirla: el texto da el título. */
-    data class NoteSummary(val noteId: String, val text: String, val images: Int, val updatedAt: Long)
+    data class NoteSummary(val noteId: String, val text: String, val images: Int, val updatedAt: Long, val files: Int = 0)
 
     /** Una pestaña: lo que hace falta para nombrarla en un aviso. */
     data class Terminal(val terminalId: String, val label: String, val cwd: String) {
@@ -70,12 +71,13 @@ sealed class ServerMessage {
                         val item = array.optJSONObject(index) ?: return@mapNotNull null
                         val id = item.optString("noteId")
                         if (id.isEmpty()) null
-                        else NoteSummary(id, item.optString("text"), item.optJSONArray("images")?.length() ?: 0, item.optLong("updatedAt"))
+                        else NoteSummary(id, item.optString("text"), item.optJSONArray("images")?.length() ?: 0, item.optLong("updatedAt"), item.optJSONArray("files")?.length() ?: 0)
                     }
                     NotesList(notes)
                 }
                 // Por si un día cambia el orden de los campos: más lento, pero no se pierde el acuse.
                 "notes.imageData" -> json.optString("imageId").let { if (it.isEmpty()) Other else NoteImageStored(it) }
+                "notes.fileData" -> json.optString("fileId").let { if (it.isEmpty()) Other else NoteFileStored(it) }
                 "error" -> {
                     val textJson = json.optJSONObject("text")
                     val params = textJson?.optJSONObject("params")

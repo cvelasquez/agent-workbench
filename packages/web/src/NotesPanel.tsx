@@ -52,7 +52,8 @@ const DEFAULT_HEIGHT = 300;
  */
 function tabTitle(note: Note): string {
   if (note.text.trim().length === 0) {
-    return note.images.length > 0 ? t('notes.imageOnly') : t('notes.untitled');
+    return (note.files?.length ?? 0) > 0 ? note.files?.[0]?.name ?? t('notes.fileOnly')
+      : note.images.length > 0 ? t('notes.imageOnly') : t('notes.untitled');
   }
   return noteTitle(note);
 }
@@ -74,7 +75,7 @@ interface NotesPanelProps {
    * "Al cuadro" (hito 50, §6.6.2): la nota al cuadro de la pestana activa, a la
    * conversacion que ya existe. null sin pestana.
    */
-  onNoteToComposer: ((noteId: string) => void) | null;
+  onNoteToComposer: ((noteId: string) => void | Promise<void>) | null;
   /** El nombre de esa pestana, para el titulo del boton. */
   composerTarget: string | null;
   /**
@@ -153,7 +154,7 @@ export function NotesPanel({
   /** Una nota vacia se cierra sin preguntar: no hay nada que perder. */
   const requestClose = useCallback(
     (note: Note) => {
-      if (note.text.trim().length === 0 && note.images.length === 0) {
+      if (note.text.trim().length === 0 && note.images.length === 0 && (note.files?.length ?? 0) === 0) {
         notes.remove(note.noteId);
         return;
       }
@@ -365,7 +366,7 @@ interface NoteEditorProps {
   /** Donde se abriria esa conversacion. Para el titulo del boton. */
   sendTargetCwd: string | null;
   /** La pone en el cuadro de la pestana activa (hito 50), o null sin pestana. */
-  onToComposer: (() => void) | null;
+  onToComposer: (() => void | Promise<void>) | null;
   composerTarget: string | null;
 }
 
@@ -436,7 +437,8 @@ function NoteEditor({
 }: NoteEditorProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [dragging, setDragging] = useState(false);
-  const empty = note.text.trim().length === 0 && note.images.length === 0;
+  const [loading, setLoading] = useState(false);
+  const empty = note.text.trim().length === 0 && note.images.length === 0 && (note.files?.length ?? 0) === 0;
   const imagesReady = noteImagesReady(note.images, notes.images);
 
   // Solo se roba el foco al crear una nota: es lo que el usuario acaba de pedir.
@@ -446,9 +448,11 @@ function NoteEditor({
 
   const acceptFiles = useCallback(
     (files: FileList | File[]): boolean => {
-      const images = Array.from(files).filter((file) => file.type.startsWith('image/'));
-      for (const file of images) notes.addImage(note.noteId, file);
-      return images.length > 0;
+      for (const file of Array.from(files)) {
+        if (['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) notes.addImage(note.noteId, file);
+        else notes.addFile(note.noteId, file);
+      }
+      return files.length > 0;
     },
     [notes, note.noteId],
   );
@@ -456,7 +460,7 @@ function NoteEditor({
   const onPaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       if (event.clipboardData === null) return;
-      // Solo se intercepta una imagen. El texto lo pega el navegador, con su
+      // Solo se interceptan archivos. El texto lo pega el navegador, con su
       // deshacer y su cursor.
       if (acceptFiles(event.clipboardData.files)) event.preventDefault();
     },
@@ -552,6 +556,26 @@ function NoteEditor({
         </div>
       )}
 
+      {(note.files?.length ?? 0) > 0 && (
+        <div className="note-images">
+          {(note.files ?? []).map((file) => (
+            <div className="chip chip-text chip-file" key={file.fileId} title={`${file.name} · ${formatBytes(file.bytes)}`}>
+              <a
+                className="chip-toggle chip-file-label"
+                title={t('notes.downloadFile')}
+                href={`/api/notes/files/${encodeURIComponent(file.fileId)}?name=${encodeURIComponent(file.name)}`}
+                download={file.name}
+              >
+                <span aria-hidden="true">↓</span>
+                <span className="chip-file-name">{file.name}</span>
+                <span className="chip-file-size">{formatBytes(file.bytes)}</span>
+              </a>
+              <button className="chip-remove" onClick={() => notes.removeFile(note.noteId, file.fileId)} title={t('notes.removeFile')}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="note-footer">
         <span className="note-meta">{formatWhen(note.updatedAt)}</span>
         <span className="composer-spacer" />
@@ -563,11 +587,14 @@ function NoteEditor({
         */}
         <button
           className="link-button note-to-composer"
-          onClick={() => onToComposer?.()}
-          disabled={onToComposer === null || empty || !imagesReady}
+          onClick={() => {
+            setLoading(true);
+            void Promise.resolve(onToComposer?.()).finally(() => setLoading(false));
+          }}
+          disabled={onToComposer === null || empty || !imagesReady || loading}
           title={noteToComposerTitle(onToComposer === null ? null : composerTarget ?? '', empty, imagesReady)}
         >
-          {t('notes.toComposer')}
+          {loading ? t('notes.loadingFiles') : t('notes.toComposer')}
         </button>
         {/*
           Mandar la nota al agente, en una conversacion nueva del proyecto que
@@ -587,7 +614,6 @@ function NoteEditor({
           <ClipIcon />
           <input
             type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
             multiple
             hidden
             onChange={(event) => {

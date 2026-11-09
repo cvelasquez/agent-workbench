@@ -71,7 +71,7 @@ import { useRemoteAccess } from './useRemoteAccess.js';
 import { RemoteAccessDialog } from './RemoteAccessDialog.js';
 import { remoteButtonOn, remoteStateText } from './remote-access-ui.js';
 import { projectColor } from './project-color.js';
-import { noteImagesForComposer } from './note-to-composer.js';
+import { noteFilesForComposer, noteImagesForComposer } from './note-to-composer.js';
 import { NotesPanel } from './NotesPanel.js';
 import { NarrowShell } from './NarrowShell.js';
 import {
@@ -1850,11 +1850,16 @@ export function App(): JSX.Element {
       onNoteToComposer={
         activeTerminal === null
           ? null
-          : (noteId) => {
+          : async (noteId) => {
               const note = notes.notes.find((entry) => entry.noteId === noteId);
               if (note === undefined) return;
+              const insert = composerNoteRef.current;
+              const files = (note.files?.length ?? 0) > 0 ? await notes.filesForComposer(note) : [];
+              // La lectura puede tardar: cambiar de pestana no debe pegar en otra conversacion.
+              if (files === null || insert === null || composerNoteRef.current !== insert) return;
               const images = noteImagesForComposer(note.images, notes.images, (index) => `${t('notes.imageOnly')} ${index + 1}`);
-              composerNoteRef.current?.(note.text, images, !narrow);
+              insert(note.text, images, !narrow, noteFilesForComposer(files));
+              // El cuadro muestra tambien el aviso si sus adjuntos ya no dejan lugar.
               if (narrow) changeNarrowView('chat');
             }
       }

@@ -8,9 +8,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.provider.OpenableColumns
 import android.text.format.DateUtils
 import android.util.TypedValue
 import android.view.View
+import android.webkit.MimeTypeMap
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
@@ -32,13 +34,14 @@ import io.github.cvelasquez.agentworkbench.tunnel.TunnelStatus
 import io.github.cvelasquez.agentworkbench.watch.NoteUpload
 import io.github.cvelasquez.agentworkbench.watch.NotesClient
 import io.github.cvelasquez.agentworkbench.watch.SharedImage
+import io.github.cvelasquez.agentworkbench.watch.SharedFile
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import kotlin.concurrent.thread
 
 /**
  * Compartir a una nota (hito 50, §15.12): la pantalla que aparece en "Compartir" de
- * cualquier app, para imágenes y texto. Lista las notas de la PC y lo compartido va
+ * cualquier app, para archivos y texto. Lista las notas de la PC y lo compartido va
  * a la que se toque, o a una nueva, con el comentario que se escriba. Después vuelve
  * sola a la app desde la que se compartió.
  *
@@ -67,10 +70,12 @@ class ShareActivity : Activity(), NotesClient.Listener {
     private lateinit var credential: String
     private lateinit var userAgent: String
 
-    /** Las imágenes compartidas: se leen de la app que las comparte, de a una, cuando hace falta. */
+    /** Se leen de la app que comparte, de a uno, cuando hace falta. */
+    private val items = ArrayList<Uri>()
     private val images = ArrayList<Uri>()
+    private val files = ArrayList<Pair<Uri, String>>()
 
-    /** Ya se leyó cada imagen una vez, al abrir. */
+    /** Ya se comprobó cada adjunto una vez, al abrir. */
     private var checked = false
 
     /** Por qué lo compartido no puede ir a ninguna nota, si no puede. */
@@ -112,14 +117,14 @@ class ShareActivity : Activity(), NotesClient.Listener {
         userAgent = PhoneIdentity.userAgent(BuildConfig.VERSION_NAME, Build.VERSION.RELEASE, deviceName)
 
         val sharedText = readShared()
-        if (images.isEmpty() && sharedText == null && unusable == null) unusable = getString(R.string.share_nothing)
+        if (items.isEmpty() && sharedText == null && unusable == null) unusable = getString(R.string.share_nothing)
         // El texto que vino va al comentario, a la vista: se edita o se borra antes de guardar.
         sharedText?.let { comment.setText(it) }
         findViewById<TextView>(R.id.summary).apply {
-            if (images.isEmpty()) visibility = View.GONE
-            else text = resources.getQuantityString(R.plurals.share_images, images.size, images.size)
+            if (items.isEmpty()) visibility = View.GONE
+            else text = resources.getQuantityString(R.plurals.share_attachments, items.size, items.size)
         }
-        checkImages()
+        checkAttachments()
         // Conecta, o corta la espera si estaba reintentando. Conectado no hace falta: el aviso fijo diría "Conectando".
         if (unusable == null && Tunnel.status !is TunnelStatus.Connected) TunnelService.start(this)
         render()
@@ -145,7 +150,7 @@ class ShareActivity : Activity(), NotesClient.Listener {
     // ---- Lo compartido ---------------------------------------------------------------
 
     /**
-     * Las imágenes y el texto del pedido. Lo que no se puede leer con seguridad (un
+     * Los archivos y el texto del pedido. Lo que no se puede leer con seguridad (un
      * `file://`, algo de la propia app) se dice, no se salta en silencio.
      */
     private fun readShared(): String? {
@@ -157,7 +162,7 @@ class ShareActivity : Activity(), NotesClient.Listener {
         // Algunas apps las mandan sólo en el ClipData, que es además lo que lleva el permiso de lectura.
         intent.clipData?.let { clip -> for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let(found::add) }
         for (uri in found) {
-            if (SharedItems.acceptsUri(uri.scheme, uri.authority, packageName)) images += uri
+            if (SharedItems.acceptsUri(uri.scheme, uri.authority, packageName)) items += uri
             else unusable = getString(R.string.share_error_unreadable)
         }
         return SharedItems.sharedText(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
@@ -193,9 +198,25 @@ class ShareActivity : Activity(), NotesClient.Listener {
         }
     }
 
-    /** Cada imagen se lee una vez al abrir: la miniatura, y si alguna no entra se dice antes de elegir la nota. */
-    private fun checkImages() {
-        if (images.isEmpty() || unusable != null) {
+    /** Consulta el nombre del proveedor, sin convertir una dirección compartida en ruta local. */
+    private fun fileName(uri: Uri): String {
+        try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0 && cursor.moveToFirst()) cursor.getString(column)?.takeIf { it.isNotBlank() }?.let { return it.take(255) }
+            }
+            val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(contentResolver.getType(uri))
+            return if (extension == null) "attachment" else "attachment.$extension"
+        } catch (error: SecurityException) {
+            throw IOException(error)
+        } catch (_: RuntimeException) {
+            return "attachment"
+        }
+    }
+
+    /** Cada adjunto se comprueba antes de elegir la nota; solo las imágenes generan miniatura. */
+    private fun checkAttachments() {
+        if (items.isEmpty() || unusable != null) {
             checked = true
             return
         }
@@ -203,22 +224,32 @@ class ShareActivity : Activity(), NotesClient.Listener {
         thread(name = "share-check") {
             val thumbs = ArrayList<Bitmap>()
             var problem: NoteUpload.Problem? = null
-            for (uri in images) {
+            for (uri in items) {
                 val bytes = try {
                     readUri(uri)
                 } catch (_: IOException) {
                     problem = NoteUpload.Problem.Unreadable
                     break
                 }
-                problem = NoteUpload.problemOf(bytes)
+                val image = SharedItems.imageType(bytes) != null
+                val name = try { fileName(uri) } catch (_: IOException) {
+                    problem = NoteUpload.Problem.Unreadable
+                    break
+                }
+                problem = if (image) NoteUpload.problemOf(bytes) else NoteUpload.fileProblemOf(name, bytes)
                 if (problem != null) break
-                if (thumbs.size < MAX_THUMBS) thumbnail(bytes, size)?.let(thumbs::add)
+                if (image) {
+                    images += uri
+                    if (thumbs.size < MAX_THUMBS) thumbnail(bytes, size)?.let(thumbs::add)
+                } else files += uri to name
             }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 checked = true
                 problem?.let { unusable = problemText(it) }
                 showThumbs(thumbs)
+                val summary = findViewById<TextView>(R.id.summary)
+                if (files.isNotEmpty()) summary.text = (listOf(summary.text.toString()) + files.map { it.second }).joinToString("\n")
                 render()
             }
         }
@@ -317,11 +348,12 @@ class ShareActivity : Activity(), NotesClient.Listener {
         notesBox.addView(row(getString(R.string.share_new_note), null, accent = true) { pick(null) })
         val now = System.currentTimeMillis()
         val untitled = getString(R.string.share_note_untitled)
-        val imageOnly = getString(R.string.share_note_image_only)
         for (note in list.sortedByDescending { it.updatedAt }) {
-            val count = if (note.images == 0) getString(R.string.share_no_images)
-            else resources.getQuantityString(R.plurals.share_images, note.images, note.images)
-            notesBox.addView(row(SharedItems.noteTitle(note.text, note.images, untitled, imageOnly), "$count · ${ago(note.updatedAt, now)}") { pick(note) })
+            val total = note.images + note.files
+            val count = if (total == 0) getString(R.string.share_no_attachments)
+            else resources.getQuantityString(R.plurals.share_attachments, total, total)
+            val fallback = getString(if (note.files > 0) R.string.share_note_file_only else R.string.share_note_image_only)
+            notesBox.addView(row(SharedItems.noteTitle(note.text, total, untitled, fallback), "$count · ${ago(note.updatedAt, now)}") { pick(note) })
         }
     }
 
@@ -401,19 +433,21 @@ class ShareActivity : Activity(), NotesClient.Listener {
         val channel = client ?: return
         val list = notes ?: return
         if (uploading) return
-        when (SharedItems.room(note?.images, images.size, list.size)) {
+        when (SharedItems.room(note?.images, images.size, list.size, note?.files ?: 0, files.size)) {
             SharedItems.Room.TooManyImages -> return showError(getString(R.string.share_too_many_images, SharedItems.MAX_NOTE_IMAGES))
+            SharedItems.Room.TooManyFiles -> return showError(getString(R.string.share_too_many_files, SharedItems.MAX_NOTE_FILES))
             SharedItems.Room.TooManyNotes -> return showError(getString(R.string.share_too_many_notes, SharedItems.MAX_NOTES))
             null -> Unit
         }
         uploading = true
         setEnabled(false)
-        showBusy(if (images.isEmpty()) getString(R.string.share_saving) else getString(R.string.share_uploading, 1, images.size))
+        showBusy(if (items.isEmpty()) getString(R.string.share_saving) else getString(R.string.share_uploading, 1, items.size))
         val addition = comment.text.toString()
         val sources = images.map { uri -> SharedImage { readUri(uri) } }
+        val fileSources = files.map { (uri, name) -> SharedFile(name) { readUri(uri) } }
         thread(name = "share-upload") {
-            val outcome = NoteUpload(channel).run(note, SharedItems.newNoteId(), addition, sources) { index ->
-                runOnUiThread { status.text = getString(R.string.share_uploading, index, sources.size) }
+            val outcome = NoteUpload(channel).run(note, SharedItems.newNoteId(), addition, sources, fileSources) { index ->
+                runOnUiThread { status.text = getString(R.string.share_uploading, index, items.size) }
             }
             runOnUiThread { done(outcome) }
         }
@@ -426,9 +460,9 @@ class ShareActivity : Activity(), NotesClient.Listener {
             is NoteUpload.Outcome.Saved -> {
                 val title = SharedItems.noteTitle(
                     outcome.text,
-                    outcome.images,
+                    outcome.images + outcome.files,
                     getString(R.string.share_note_untitled),
-                    getString(R.string.share_note_image_only),
+                    getString(if (outcome.files > 0) R.string.share_note_file_only else R.string.share_note_image_only),
                 )
                 Toast.makeText(this, getString(R.string.share_saved, title), Toast.LENGTH_LONG).show()
                 finish()
@@ -457,11 +491,18 @@ class ShareActivity : Activity(), NotesClient.Listener {
         NoteUpload.Problem.Unreadable -> getString(R.string.share_error_unreadable)
         NoteUpload.Problem.NotAnImage -> getString(R.string.share_error_format)
         NoteUpload.Problem.TooLarge -> getString(R.string.share_error_too_large, SharedItems.MAX_IMAGE_BYTES / 1024 / 1024)
+        NoteUpload.Problem.FileTooLarge -> getString(R.string.share_error_file_too_large, SharedItems.MAX_FILE_BYTES / 1024 / 1024)
+        NoteUpload.Problem.EmptyFile -> getString(R.string.share_error_file_empty)
+        NoteUpload.Problem.BlockedFile -> getString(R.string.share_error_file_blocked)
         is NoteUpload.Problem.Server -> {
             val max = problem.params["max"]?.toIntOrNull()
             when (problem.key) {
                 "noteGone" -> getString(R.string.share_error_note_gone)
                 "noteImagesMax" -> getString(R.string.share_too_many_images, max ?: SharedItems.MAX_NOTE_IMAGES)
+                "noteFilesMax" -> getString(R.string.share_too_many_files, max ?: SharedItems.MAX_NOTE_FILES)
+                "attachmentTooLarge" -> getString(R.string.share_error_file_too_large, max ?: SharedItems.MAX_FILE_BYTES / 1024 / 1024)
+                "attachmentEmpty" -> getString(R.string.share_error_file_empty)
+                "attachmentExecutable" -> getString(R.string.share_error_file_blocked)
                 "notesMax" -> getString(R.string.share_too_many_notes, max ?: SharedItems.MAX_NOTES)
                 "noteTooLong" -> getString(R.string.share_error_too_long, max ?: 0)
                 "imageTooLarge", "imageUnknownFormat", "imageTypeUnsupported", "imageEmpty" -> getString(R.string.share_error_image_rejected)

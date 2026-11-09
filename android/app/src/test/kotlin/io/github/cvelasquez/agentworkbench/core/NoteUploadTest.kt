@@ -3,6 +3,7 @@ package io.github.cvelasquez.agentworkbench.core
 import io.github.cvelasquez.agentworkbench.watch.NoteUpload
 import io.github.cvelasquez.agentworkbench.watch.NotesChannel
 import io.github.cvelasquez.agentworkbench.watch.SharedImage
+import io.github.cvelasquez.agentworkbench.watch.SharedFile
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -31,6 +32,7 @@ class NoteUploadTest {
                 }
                 // Como `notes.image` de la PC con un id que no es de ninguna nota: contesta con data null.
                 "notes.image" -> replies += ServerMessage.NoteImageStored(json.getString("imageId"))
+                "notes.addFile" -> replies += ServerMessage.NoteFileStored("file-${sent.size}")
             }
             return true
         }
@@ -41,6 +43,42 @@ class NoteUploadTest {
     }
 
     private fun upload(pc: FakePc) = NoteUpload(pc) { "share-barrera" }
+
+    @Test
+    fun `una nota mezcla imágenes PDF audio y video conservando nombres y bytes`() {
+        val pc = FakePc()
+        val names = listOf("informe.pdf", "voz.wav", "video.mp4", "foto.heic")
+        val files = names.map { name -> SharedFile(name) { "contenido de $name".toByteArray() } }
+        val result = upload(pc).run(null, "n-1", "", listOf(SharedImage { png }), files) {}
+        assertEquals(NoteUpload.Outcome.Saved("n-1", "", 1, 4), result)
+        assertEquals(listOf("notes.create", "notes.image", "notes.addImage") + List(4) { "notes.addFile" }, pc.types)
+        val stored = pc.sent.filter { it.getString("type") == "notes.addFile" }.map { it.getJSONObject("file") }
+        assertEquals(names, stored.map { it.getString("name") })
+        assertEquals("contenido de voz.wav", String(java.util.Base64.getDecoder().decode(stored[1].getString("data"))))
+    }
+
+    @Test
+    fun `archivos vacíos bloqueados grandes o ilegibles fallan antes de crear la nota`() {
+        val cases = listOf(
+            SharedFile("vacio.pdf") { ByteArray(0) } to NoteUpload.Problem.EmptyFile,
+            SharedFile("programa.EXE") { byteArrayOf(1) } to NoteUpload.Problem.BlockedFile,
+            SharedFile("video.mp4") { ByteArray(SharedItems.MAX_FILE_BYTES + 1) } to NoteUpload.Problem.FileTooLarge,
+            SharedFile("voz.wav") { throw IOException("sin permiso") } to NoteUpload.Problem.Unreadable,
+        )
+        for ((file, problem) in cases) {
+            val pc = FakePc()
+            assertEquals(NoteUpload.Outcome.Failed(0, 2, problem), upload(pc).run(null, "n-1", "", listOf(SharedImage { png }), listOf(file)) {})
+            assertEquals(emptyList<String>(), pc.types)
+        }
+    }
+
+    @Test
+    fun `un archivo de exactamente diez MiB entra y suma los archivos existentes`() {
+        val pc = FakePc()
+        val note = ServerMessage.NoteSummary("n-9", "", 0, 1, files = 2)
+        val result = upload(pc).run(note, "sin-usar", "", emptyList(), listOf(SharedFile("video.mp4") { ByteArray(SharedItems.MAX_FILE_BYTES) })) {}
+        assertEquals(NoteUpload.Outcome.Saved("n-9", "", 0, 3), result)
+    }
 
     @Test
     fun `una nota nueva con comentario y dos imágenes`() {

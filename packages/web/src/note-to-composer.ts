@@ -8,8 +8,16 @@
  * sigue siendo lo único que la borra.
  */
 
-import type { NoteImage } from '@agent-workbench/shared';
-import type { ComposerImage } from './useComposerAttachments.js';
+import type { NoteImage, SubmitFile } from '@agent-workbench/shared';
+import type { ComposerFile, ComposerImage } from './useComposerAttachments.js';
+
+/** Conserva nombre, orden y bytes de los archivos leidos al pulsar "Al cuadro". */
+export function noteFilesForComposer(files: readonly SubmitFile[]): ComposerFile[] {
+  return files.map((file) => {
+    const padding = file.data.endsWith('==') ? 2 : file.data.endsWith('=') ? 1 : 0;
+    return { name: file.name, base64: file.data, bytes: file.data.length / 4 * 3 - padding };
+  });
+}
 
 /** Qué se escribe y desde dónde: lo que hay después de `from` se reemplaza por `inserted`. */
 export interface NoteTextInsertion {

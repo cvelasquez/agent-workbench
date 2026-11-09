@@ -1,6 +1,7 @@
 package io.github.cvelasquez.agentworkbench.tunnel
 
 import okhttp3.ConnectionPool
+import io.github.cvelasquez.agentworkbench.core.NoteDownloads
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -77,6 +78,22 @@ object AppProbe {
         data object NotAccepted : Check()
         data object NotReachable : Check()
         class Unexpected(val status: Int) : Check()
+    }
+
+    /** Descarga por el túnel actual; nunca sigue una redirección con la cookie del equipo. */
+    @Throws(IOException::class)
+    fun noteFile(appPort: Int, credential: String, userAgent: String, fileId: String): ByteArray {
+        if (!Regex("^[A-Za-z0-9-]{1,64}$").matches(fileId)) throw IOException("invalid file id")
+        val request = Request.Builder()
+            .url("http://127.0.0.1:$appPort/api/notes/files/$fileId")
+            .header("Cookie", "$DEVICE_COOKIE=$credential")
+            .header("User-Agent", userAgent)
+            .build()
+        return client.newCall(request).execute().use { response ->
+            if (response.code != 200) throw IOException("attachment response ${response.code}")
+            val body = response.body ?: throw IOException("attachment missing")
+            body.byteStream().use(NoteDownloads::read)
+        }
     }
 
     /**

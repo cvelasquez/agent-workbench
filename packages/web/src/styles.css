@@ -6357,6 +6357,21 @@ kbd {
   scrollbar-width: thin;
 }
 
+.note-images .chip-file-label {
+  cursor: pointer;
+  text-decoration: none;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.note-images .chip-file-name {
+  min-width: 0;
+}
+
+.note-images .chip-file-size {
+  flex-shrink: 0;
+}
+
 .note-thumb img {
   cursor: zoom-in;
 }

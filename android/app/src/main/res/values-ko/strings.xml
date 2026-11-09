@@ -85,7 +85,6 @@
     <string name="share_new_note">+ 새 메모</string>
     <string name="share_note_untitled">메모</string>
     <string name="share_note_image_only">이미지</string>
-    <string name="share_no_images">이미지 없음</string>
     <string name="share_just_now">방금 전</string>
     <string name="share_loading">메모를 찾는 중…</string>
     <string name="share_saving">저장 중…</string>
@@ -93,12 +92,12 @@
     <string name="share_saved">“%1$s”에 저장했습니다</string>
     <string name="share_saved_partly">저장됨: %2$d개 중 %1$d개.</string>
     <string name="share_close">닫기</string>
-    <string name="share_nothing">저장할 것이 없습니다. 메모에는 이미지(PNG, JPEG, GIF, WebP)와 텍스트를 넣을 수 있습니다.</string>
+    <string name="share_nothing">저장할 내용이 없습니다. 텍스트나 파일을 공유하세요.</string>
     <string name="share_open_app">Agent Workbench 열기</string>
     <string name="share_connection_lost">컴퓨터와의 연결이 끊어졌습니다.</string>
     <string name="share_error_no_answer">컴퓨터가 응답하지 않았습니다. 다시 시도하세요.</string>
-    <string name="share_error_unreadable">공유한 앱에서 이미지를 읽을 수 없었습니다.</string>
-    <string name="share_error_format">메모에는 PNG, JPEG, GIF, WebP 이미지만 넣을 수 있습니다.</string>
+    <string name="share_error_unreadable">공유한 앱에서 파일을 읽을 수 없습니다.</string>
+    <string name="share_error_format">이미지 형식을 읽을 수 없습니다.</string>
     <string name="share_error_too_large">최대 크기인 %1$d MB를 넘는 이미지가 있습니다.</string>
     <string name="share_error_note_gone">그 메모는 더 이상 없습니다. 컴퓨터에서 닫혔습니다.</string>
     <string name="share_error_too_long">메모 텍스트가 최대 %1$d자를 넘게 됩니다.</string>
@@ -106,7 +105,15 @@
     <string name="share_error_generic">메모에 저장할 수 없었습니다.</string>
     <string name="share_too_many_images">그 메모의 이미지가 최대 %1$d개를 넘게 됩니다.</string>
     <string name="share_too_many_notes">메모가 이미 최대인 %1$d개입니다. 컴퓨터에서 하나를 닫으세요.</string>
-    <plurals name="share_images">
-        <item quantity="other">이미지 %d개</item>
+    <string name="share_note_file_only">파일</string>
+    <string name="share_no_attachments">첨부 없음</string>
+    <string name="share_error_file_too_large">파일이 최대 크기인 %1$d MB를 초과합니다.</string>
+    <string name="share_error_file_empty">빈 파일은 첨부할 수 없습니다.</string>
+    <string name="share_error_file_blocked">실행 파일은 첨부할 수 없습니다.</string>
+    <string name="share_too_many_files">노트의 파일 수가 최대 %1$d개를 초과합니다.</string>
+    <plurals name="share_attachments">
+        <item quantity="other">첨부 %d개</item>
     </plurals>
+    <string name="attachment_download_saved">파일을 저장했습니다.</string>
+    <string name="attachment_download_failed">파일을 다운로드할 수 없습니다.</string>
 </resources>

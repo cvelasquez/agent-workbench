@@ -85,7 +85,6 @@
     <string name="share_new_note">+ Nouvelle note</string>
     <string name="share_note_untitled">Note</string>
     <string name="share_note_image_only">Image</string>
-    <string name="share_no_images">aucune image</string>
     <string name="share_just_now">à l’instant</string>
     <string name="share_loading">Recherche de vos notes…</string>
     <string name="share_saving">Enregistrement…</string>
@@ -93,12 +92,12 @@
     <string name="share_saved">Enregistré dans « %1$s »</string>
     <string name="share_saved_partly">Enregistrées : %1$d sur %2$d.</string>
     <string name="share_close">Fermer</string>
-    <string name="share_nothing">Rien à enregistrer : une note accepte des images (PNG, JPEG, GIF ou WebP) et du texte.</string>
+    <string name="share_nothing">Rien à enregistrer : partagez du texte ou un fichier.</string>
     <string name="share_open_app">Ouvrir Agent Workbench</string>
     <string name="share_connection_lost">La connexion avec votre ordinateur a été coupée.</string>
     <string name="share_error_no_answer">Votre ordinateur n’a pas répondu. Réessayez.</string>
-    <string name="share_error_unreadable">Une image n’a pas pu être lue depuis l’application qui l’a partagée.</string>
-    <string name="share_error_format">Une note n’accepte que des images PNG, JPEG, GIF ou WebP.</string>
+    <string name="share_error_unreadable">Impossible de lire un fichier depuis l’application qui l’a partagé.</string>
+    <string name="share_error_format">Impossible de lire le format de l’image.</string>
     <string name="share_error_too_large">Une image pèse plus de %1$d Mo, le maximum.</string>
     <string name="share_error_note_gone">Cette note n’existe plus : elle a été fermée sur l’ordinateur.</string>
     <string name="share_error_too_long">Le texte de la note dépasserait %1$d caractères, le maximum.</string>
@@ -106,9 +105,17 @@
     <string name="share_error_generic">Impossible d’enregistrer dans la note.</string>
     <string name="share_too_many_images">Cette note aurait plus de %1$d images, le maximum.</string>
     <string name="share_too_many_notes">Il y a déjà %1$d notes, le maximum. Fermez-en une sur l’ordinateur.</string>
-    <plurals name="share_images">
-        <item quantity="one">%d image</item>
-        <item quantity="many">%d images</item>
-        <item quantity="other">%d images</item>
+    <string name="share_note_file_only">Fichier</string>
+    <string name="share_no_attachments">aucune pièce jointe</string>
+    <string name="share_error_file_too_large">Un fichier dépasse %1$d Mo, le maximum.</string>
+    <string name="share_error_file_empty">Impossible de joindre un fichier vide.</string>
+    <string name="share_error_file_blocked">Les fichiers exécutables ne peuvent pas être joints.</string>
+    <string name="share_too_many_files">Cette note dépasserait la limite de %1$d fichiers.</string>
+    <plurals name="share_attachments">
+        <item quantity="one">%d pièce jointe</item>
+        <item quantity="many">%d pièces jointes</item>
+        <item quantity="other">%d pièces jointes</item>
     </plurals>
+    <string name="attachment_download_saved">Fichier enregistré.</string>
+    <string name="attachment_download_failed">Impossible de télécharger le fichier.</string>
 </resources>

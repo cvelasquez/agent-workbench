@@ -50,7 +50,7 @@ class NotesClient(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 when (val message = ServerMessage.parse(text)) {
                     is ServerMessage.NotesList -> listener.onNotes(message.notes)
-                    is ServerMessage.NoteImageStored, is ServerMessage.Failure -> replies.put(message)
+                    is ServerMessage.NoteImageStored, is ServerMessage.NoteFileStored, is ServerMessage.Failure -> replies.put(message)
                     else -> Unit
                 }
             }

@@ -101,6 +101,8 @@ export interface ComposerAttachments {
    * terminaria antes, cambiando el orden de las que se nombran en el texto.
    */
   acceptImages: (images: readonly ComposerImage[]) => void;
+  /** Archivos de una nota ya leidos. Rechaza la tanda completa si excede los topes. */
+  acceptStoredFiles: (files: readonly ComposerFile[]) => boolean;
   remove: (id: string) => void;
   /** Lo editado en la ficha de un texto pegado: es lo que se manda. */
   updateText: (id: string, text: string) => void;
@@ -117,6 +119,7 @@ export interface ComposerAttachments {
 
 /** Una imagen ya leida, lista para ser ficha: la de un adjunto sin su id. */
 export type ComposerImage = Omit<Extract<Attachment, { kind: 'image' }>, 'id' | 'kind'>;
+export type ComposerFile = Omit<Extract<Attachment, { kind: 'file' }>, 'id' | 'kind'>;
 
 function newId(): string {
   return crypto.randomUUID();
@@ -293,6 +296,29 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
     [items, imagesAllowed],
   );
 
+  const acceptStoredFiles = useCallback((files: readonly ComposerFile[]): boolean => {
+    if (files.length === 0) return true;
+    const room = MAX_SUBMIT_FILES - items.filter((item) => item.kind === 'file').length;
+    if (files.length > room) {
+      setProblem(t('composer.problem.tooManyFiles', { count: MAX_SUBMIT_FILES }));
+      return false;
+    }
+    for (const file of files) {
+      if (file.bytes === 0) {
+        setProblem(t('composer.problem.empty', { name: file.name }));
+        return false;
+      }
+      if (file.bytes > MAX_SUBMIT_FILE_BYTES) {
+        setProblem(t('composer.problem.tooBig', {
+          name: file.name, size: Math.round(file.bytes / 1024 / 1024), max: MAX_SUBMIT_FILE_BYTES / 1024 / 1024,
+        }));
+        return false;
+      }
+    }
+    setItems((current) => [...current, ...files.map((file): Attachment => ({ ...file, id: newId(), kind: 'file' }))]);
+    return true;
+  }, [items]);
+
   const remove = useCallback((id: string) => {
     setItems((current) => current.filter((item) => item.id !== id));
   }, []);
@@ -314,5 +340,5 @@ export function useComposerAttachments(imagesAllowed = true): ComposerAttachment
 
   const dismissProblem = useCallback(() => setProblem(null), []);
 
-  return { items, problem, acceptPaste, acceptFiles, acceptImages, remove, updateText, replace, clear, dismissProblem };
+  return { items, problem, acceptPaste, acceptFiles, acceptImages, acceptStoredFiles, remove, updateText, replace, clear, dismissProblem };
 }

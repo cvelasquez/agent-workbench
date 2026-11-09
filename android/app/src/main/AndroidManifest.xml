@@ -67,7 +67,7 @@
 
         <!--
           Compartir a una nota (hito 50, §15.12): aparece en "Compartir" de cualquier
-          app para imágenes y texto. La abre otra app, con lo que quiera adentro: sólo
+          app para archivos y texto. La abre otra app, con lo que quiera adentro: sólo
           lee direcciones content:// de otras apps y mira la firma de cada imagen
           (ShareActivity, SharedItems). Corre en la tarea de la app que comparte, y
           al terminar se vuelve a ella.
@@ -80,13 +80,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="text/plain" />
+                <data android:mimeType="*/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 

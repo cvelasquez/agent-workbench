@@ -13,9 +13,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   MAX_NOTE_IMAGES,
+  MAX_NOTE_FILES,
+  MAX_SUBMIT_FILES,
+  MAX_SUBMIT_FILE_BYTES,
   MAX_SUBMIT_IMAGE_BYTES,
   type Note,
   type ServerMessage,
+  type SubmitFile,
 } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
 import { t } from './i18n/index.js';
@@ -38,6 +42,10 @@ export interface NotesApi {
   remove: (noteId: string) => void;
   addImage: (noteId: string, file: File) => void;
   removeImage: (noteId: string, imageId: string) => void;
+  addFile: (noteId: string, file: File) => void;
+  removeFile: (noteId: string, fileId: string) => void;
+  requestFile: (fileId: string) => Promise<SubmitFile | null>;
+  filesForComposer: (note: Note) => Promise<SubmitFile[] | null>;
   /**
    * Manda la nota entera al agente de una pestana, con sus imagenes.
    *
@@ -53,6 +61,7 @@ export function useNotes(connection: AgentConnection): NotesApi {
   const [images, setImages] = useState<Record<string, string | null>>({});
   const [problem, setProblem] = useState<string | null>(null);
   const requested = useRef(new Set<string>());
+  const pendingFiles = useRef(new Map<string, (file: SubmitFile | null) => void>());
 
   useEffect(() => {
     const offMessage = connection.onMessage((message: ServerMessage) => {
@@ -70,6 +79,13 @@ export function useNotes(connection: AgentConnection): NotesApi {
           }));
           break;
 
+        case 'notes.fileData':
+          // Un acuse de subida no es una lectura ni debe conservar sus bytes.
+          pendingFiles.current.get(message.fileId)?.(
+            message.data === null ? null : { name: message.name, data: message.data },
+          );
+          break;
+
         case 'error':
           if (message.code === 'notes-failed') setProblem(serverTextMessage(message.text));
           break;
@@ -82,10 +98,12 @@ export function useNotes(connection: AgentConnection): NotesApi {
     // lo que se olvida es que imagenes ya se pidieron, por si alguna se perdio.
     const offReopen = connection.onReopen(() => {
       requested.current.clear();
+      for (const resolve of pendingFiles.current.values()) resolve(null);
     });
     return () => {
       offMessage();
       offReopen();
+      for (const resolve of pendingFiles.current.values()) resolve(null);
     };
   }, [connection]);
 
@@ -187,6 +205,69 @@ export function useNotes(connection: AgentConnection): NotesApi {
     [connection],
   );
 
+  const addFile = useCallback((noteId: string, file: File) => {
+    const note = notes.find((entry) => entry.noteId === noteId);
+    if ((note?.files?.length ?? 0) >= MAX_NOTE_FILES) {
+      setProblem(t('notes.tooManyFiles', { max: MAX_NOTE_FILES }));
+      return;
+    }
+    if (file.size === 0) {
+      setProblem(t('composer.problem.empty', { name: file.name }));
+      return;
+    }
+    if (file.size > MAX_SUBMIT_FILE_BYTES) {
+      setProblem(t('composer.problem.tooBig', {
+        name: file.name, size: Math.round(file.size / 1024 / 1024), max: MAX_SUBMIT_FILE_BYTES / 1024 / 1024,
+      }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return;
+      const comma = reader.result.indexOf(',');
+      if (comma < 0) return;
+      connection.send({ type: 'notes.addFile', noteId, file: { name: file.name, data: reader.result.slice(comma + 1) } });
+    };
+    reader.onerror = () => setProblem(t('composer.problem.unreadable', { name: file.name }));
+    reader.readAsDataURL(file);
+  }, [connection, notes]);
+
+  const removeFile = useCallback((noteId: string, fileId: string) => {
+    setNotes((current) => current.map((note) => note.noteId === noteId
+      ? { ...note, files: (note.files ?? []).filter((file) => file.fileId !== fileId) } : note));
+    connection.send({ type: 'notes.removeFile', noteId, fileId });
+  }, [connection]);
+
+  const requestFile = useCallback((fileId: string): Promise<SubmitFile | null> => {
+    // Una sola lectura por id. Los archivos no se cargan al abrir una nota.
+    if (pendingFiles.current.has(fileId)) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const finish = (file: SubmitFile | null): void => {
+        clearTimeout(timeout);
+        pendingFiles.current.delete(fileId);
+        if (file === null) setProblem(t('notes.fileUnavailable'));
+        resolve(file);
+      };
+      const timeout = setTimeout(() => finish(null), 60_000);
+      pendingFiles.current.set(fileId, finish);
+      connection.send({ type: 'notes.file', fileId });
+    });
+  }, [connection]);
+
+  const filesForComposer = useCallback(async (note: Note): Promise<SubmitFile[] | null> => {
+    if ((note.files?.length ?? 0) > MAX_SUBMIT_FILES) {
+      setProblem(t('composer.problem.tooManyFiles', { count: MAX_SUBMIT_FILES }));
+      return null;
+    }
+    const files: SubmitFile[] = [];
+    for (const entry of note.files ?? []) {
+      const file = await requestFile(entry.fileId);
+      if (file === null) return null;
+      files.push(file);
+    }
+    return files;
+  }, [requestFile]);
+
   const dismissProblem = useCallback(() => setProblem(null), []);
 
   return {
@@ -199,6 +280,10 @@ export function useNotes(connection: AgentConnection): NotesApi {
     remove,
     addImage,
     removeImage,
+    addFile,
+    removeFile,
+    requestFile,
+    filesForComposer,
     sendToAgent,
     dismissProblem,
   };

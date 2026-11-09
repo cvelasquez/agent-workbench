@@ -43,6 +43,7 @@ import {
   supportStartupLineColored,
 } from './startup-summary.js';
 import { NotesStore } from './notes-store.js';
+import { safeFileName } from './attachments.js';
 import { DraftStore, workspaceDraftOwners } from './draft-store.js';
 import { ScheduledMessageStore } from './scheduled-messages/store.js';
 import { RunningInstances } from './scheduled-messages/instances.js';
@@ -526,6 +527,20 @@ async function main(): Promise<void> {
   await remote.load();
 
   app.use(createAuthMiddleware(port, token, remote));
+
+  // La descarga usa la misma cookie y guardia que la interfaz, tambien por el tunel.
+  app.get('/api/notes/files/:fileId', async (request: Request, response: Response) => {
+    const fileId = request.params['fileId'];
+    const file = typeof fileId === 'string' ? await notes.readFile(fileId) : null;
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    if (file === null) {
+      response.status(404).type('text/plain').send(NOT_FOUND_TEXT);
+      return;
+    }
+    response.attachment(safeFileName(file.name));
+    response.type('application/octet-stream').send(Buffer.from(file.data, 'base64'));
+  });
   const closeUi = isProduction ? mountBuiltUi(app) : await mountDevUi(app, httpServer);
 
   const detachSocket = attachTerminalSocket({

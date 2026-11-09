@@ -23,6 +23,8 @@
 import {
   MAX_NOTES,
   MAX_NOTE_IMAGES,
+  MAX_NOTE_FILES,
+  MAX_SUBMIT_FILE_BYTES,
   MAX_NOTE_TEXT_CHARS,
   MAX_SUBMIT_IMAGE_BYTES,
   ServerTextError,
@@ -31,10 +33,13 @@ import {
   serverText,
   type Note,
   type NoteImage,
+  type NoteFile,
+  type SubmitFile,
 } from '@agent-workbench/shared';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { isBlockedExtension, safeFileName } from './attachments.js';
 import { IMAGE_MEDIA_TYPES, detectImageFormat } from './image-signature.js';
 import { notesImagesDir, notesStatePath } from './paths.js';
 
@@ -81,6 +86,7 @@ export class NotesStore {
   private dirty = false;
   private readonly statePath: string;
   private readonly imagesDir: string;
+  private readonly pendingFiles = new Map<string, number>();
 
   /** Rutas inyectables para las pruebas; por defecto, el directorio de configuracion. */
   constructor(statePath?: string, imagesDir?: string) {
@@ -100,7 +106,7 @@ export class NotesStore {
 
   /** Copia: nadie de afuera toca la lista viva. */
   list(): Note[] {
-    return this.notes.map((note) => ({ ...note, images: [...note.images] }));
+    return this.notes.map((note) => ({ ...note, images: [...note.images], files: [...(note.files ?? [])] }));
   }
 
   get(noteId: string): Note | null {
@@ -119,7 +125,7 @@ export class NotesStore {
     if (this.notes.length >= MAX_NOTES) {
       throw new NotesError(serverText('notesMax', { max: MAX_NOTES }));
     }
-    const note: Note = { noteId, text: '', images: [], createdAt: now, updatedAt: now };
+    const note: Note = { noteId, text: '', images: [], files: [], createdAt: now, updatedAt: now };
     this.notes.push(note);
     this.schedule();
     return note;
@@ -146,7 +152,10 @@ export class NotesStore {
     const [removed] = this.notes.splice(index, 1);
     this.schedule();
     if (removed !== undefined) {
-      await Promise.all(removed.images.map((image) => this.unlinkImage(image)));
+      await Promise.all([
+        ...removed.images.map((image) => this.unlinkImage(image)),
+        ...(removed.files ?? []).map((file) => rm(this.filePath(file), { force: true }).catch(() => undefined)),
+      ]);
     }
     return true;
   }
@@ -201,6 +210,74 @@ export class NotesStore {
     return image;
   }
 
+  /** Los archivos generales se leen solo al descargarlos o enviarlos. */
+  async addFile(noteId: string, nameHint: string, base64: string, now = Date.now()): Promise<NoteFile> {
+    const note = this.get(noteId);
+    if (note === null) throw new NotesError(serverText('noteGone'));
+    const files = note.files ??= [];
+    const pending = this.pendingFiles.get(noteId) ?? 0;
+    if (files.length + pending >= MAX_NOTE_FILES) throw new NotesError(serverText('noteFilesMax', { max: MAX_NOTE_FILES }));
+    const name = nameHint.slice(0, 255);
+    const safe = safeFileName(name);
+    if (isBlockedExtension(safe) || isBlockedExtension(safeFileName(nameHint))) {
+      throw new NotesError(serverText('attachmentExecutable', { name: safe }));
+    }
+    const tooLarge = () => new NotesError(serverText('attachmentTooLarge', {
+      name, size: Math.ceil(base64.length * 3 / 4 / 1024 / 1024), max: MAX_SUBMIT_FILE_BYTES / 1024 / 1024,
+    }));
+    if (base64.length > Math.ceil(MAX_SUBMIT_FILE_BYTES / 3) * 4) throw tooLarge();
+    const bytes = Buffer.from(base64, 'base64');
+    if (bytes.length === 0 || name.trim().length === 0) throw new NotesError(serverText('attachmentEmpty', { name }));
+    if (bytes.length > MAX_SUBMIT_FILE_BYTES) throw tooLarge();
+    const file: NoteFile = { fileId: randomUUID(), name, bytes: bytes.length };
+    this.pendingFiles.set(noteId, pending + 1);
+    try {
+      await mkdir(path.dirname(this.filePath(file)), { recursive: true });
+      await writeFile(this.filePath(file), bytes);
+      // Cerrar la nota mientras se sube no debe dejar un archivo huerfano.
+      if (this.get(noteId) !== note) {
+        await rm(this.filePath(file), { force: true });
+        throw new NotesError(serverText('noteGone'));
+      }
+      files.push(file);
+      note.updatedAt = now;
+      this.schedule();
+      return file;
+    } finally {
+      const remaining = (this.pendingFiles.get(noteId) ?? 1) - 1;
+      if (remaining === 0) this.pendingFiles.delete(noteId);
+      else this.pendingFiles.set(noteId, remaining);
+    }
+  }
+
+  async removeFile(noteId: string, fileId: string, now = Date.now()): Promise<boolean> {
+    const note = this.get(noteId);
+    const files = note?.files;
+    if (note === null || files === undefined) return false;
+    const index = files.findIndex((file) => file.fileId === fileId);
+    if (index === -1) return false;
+    const [removed] = files.splice(index, 1);
+    note.updatedAt = now;
+    this.schedule();
+    if (removed !== undefined) await rm(this.filePath(removed), { force: true }).catch(() => undefined);
+    return true;
+  }
+
+  async readFile(fileId: string): Promise<SubmitFile | null> {
+    const file = this.notes.flatMap((note) => note.files ?? []).find((entry) => entry.fileId === fileId);
+    if (file === undefined) return null;
+    try {
+      return { name: file.name, data: (await readFile(this.filePath(file))).toString('base64') };
+    } catch {
+      return null;
+    }
+  }
+
+  private filePath(file: NoteFile): string {
+    const id = file.fileId.replace(/[^a-zA-Z0-9-]/g, '');
+    return path.join(this.imagesDir, 'files', id + '-' + safeFileName(file.name));
+  }
+
   async removeImage(noteId: string, imageId: string, now = Date.now()): Promise<boolean> {
     const note = this.get(noteId);
     if (note === null) return false;
@@ -241,7 +318,7 @@ export class NotesStore {
    */
   async readForSubmit(
     noteId: string,
-  ): Promise<{ text: string; images: { mediaType: string; data: string }[] } | null> {
+  ): Promise<{ text: string; images: { mediaType: string; data: string }[]; files: SubmitFile[] } | null> {
     const note = this.get(noteId);
     if (note === null) return null;
 
@@ -254,7 +331,13 @@ export class NotesStore {
         // Ver arriba: se sigue sin ella.
       }
     }
-    return { text: note.text, images };
+    const files: SubmitFile[] = [];
+    for (const file of note.files ?? []) {
+      const content = await this.readFile(file.fileId);
+      if (content === null) throw new NotesError(serverText('attachmentSaveFailed'));
+      files.push(content);
+    }
+    return { text: note.text, images, files };
   }
 
   /** Escritura inmediata, para el apagado. */

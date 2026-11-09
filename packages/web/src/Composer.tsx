@@ -56,7 +56,7 @@ import { ScheduleMenu } from './ScheduleMenu.js';
 import type { ThreadFontSize } from './thread-font.js';
 import { newSubmitRequestId } from './thread-status.js';
 import type { ComposerPrefill } from './useWorkspace.js';
-import { useComposerAttachments, type Attachment, type ComposerImage } from './useComposerAttachments.js';
+import { useComposerAttachments, type Attachment, type ComposerFile, type ComposerImage } from './useComposerAttachments.js';
 import { useComposerVoice } from './useComposerVoice.js';
 import { useDragSize } from './useDragSize.js';
 import { useTouch } from './useNarrow.js';
@@ -91,7 +91,7 @@ export type ComposerInsert = (text: string, focus: boolean) => void;
  * Pone una nota en el cuadro (hito 50, §6.6.2): su texto al final de lo escrito y
  * sus imágenes como si se hubieran pegado. `focus`, como en `ComposerInsert`.
  */
-export type ComposerNoteInsert = (text: string, images: readonly ComposerImage[], focus: boolean) => void;
+export type ComposerNoteInsert = (text: string, images: readonly ComposerImage[], focus: boolean, files?: readonly ComposerFile[]) => boolean;
 
 interface ComposerProps {
   connection: AgentConnection;
@@ -876,9 +876,10 @@ export function Composer({
     saca. Las imagenes entran ya leidas y en su orden (`acceptImages`), con los
     topes de un pegado y su aviso si la CLI no las recibe.
   */
-  const { acceptImages } = attachments;
+  const { acceptImages, acceptStoredFiles } = attachments;
   const insertNote = useCallback<ComposerNoteInsert>(
-    (noteText, images, focus) => {
+    (noteText, images, focus, files = []) => {
+      if (!acceptStoredFiles(files)) return false;
       const element = textareaRef.current;
       if (element === null || element.disabled) {
         setText((current) => {
@@ -905,8 +906,9 @@ export function Composer({
         }
       }
       acceptImages(images);
+      return true;
     },
-    [acceptImages],
+    [acceptImages, acceptStoredFiles],
   );
 
   useEffect(() => {

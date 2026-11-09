@@ -28,10 +28,12 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import android.window.OnBackInvokedDispatcher
 import io.github.cvelasquez.agentworkbench.BuildConfig
 import io.github.cvelasquez.agentworkbench.R
 import io.github.cvelasquez.agentworkbench.core.PhoneIdentity
+import io.github.cvelasquez.agentworkbench.core.NoteDownloads
 import io.github.cvelasquez.agentworkbench.store.PairedPc
 import io.github.cvelasquez.agentworkbench.store.PcStore
 import io.github.cvelasquez.agentworkbench.tunnel.AppProbe
@@ -40,6 +42,8 @@ import io.github.cvelasquez.agentworkbench.tunnel.TunnelProblem
 import io.github.cvelasquez.agentworkbench.tunnel.TunnelService
 import io.github.cvelasquez.agentworkbench.tunnel.TunnelStatus
 import io.github.cvelasquez.agentworkbench.watch.AgentNotifier
+import java.io.IOException
+import kotlin.concurrent.thread
 
 /**
  * La pantalla principal (hito 38, §15): **la interfaz que sirve la PC**, en un
@@ -66,6 +70,7 @@ class MainActivity : Activity() {
         const val EXTRA_TAB = "tab"
         private const val REQUEST_FILES = 7
         private const val REQUEST_NOTIFICATIONS = 8
+        private const val REQUEST_SAVE_ATTACHMENT = 9
         private const val TAG = "AgentWorkbench"
     }
 
@@ -84,6 +89,7 @@ class MainActivity : Activity() {
     private var loading = false
     private var pendingTab: String? = null
     private var filesCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingDownload: NoteDownloads.Target? = null
     private var stopObserving: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -177,6 +183,9 @@ class MainActivity : Activity() {
         }
         web.webViewClient = Client()
         web.webChromeClient = Chrome()
+        web.setDownloadListener { url, _, _, _, _ ->
+            NoteDownloads.targetOf(url, pc.appPort)?.let(::saveAttachment)
+        }
         root.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         overlay = LinearLayout(this).apply {
@@ -304,6 +313,11 @@ class MainActivity : Activity() {
                 return true
             }
             val local = url.scheme == "http" && (url.host == "127.0.0.1" || url.host == "localhost") && url.port == pc.appPort
+            val download = NoteDownloads.targetOf(url.toString(), pc.appPort)
+            if (download != null) {
+                saveAttachment(download)
+                return true
+            }
             if (local) return false
             // Un enlace de afuera se abre en el navegador, no en el visor de la app.
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, url)) }
@@ -359,6 +373,13 @@ class MainActivity : Activity() {
 
     @Deprecated("El selector de archivos devuelve su resultado por acá.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_SAVE_ATTACHMENT) {
+            val target = pendingDownload
+            pendingDownload = null
+            val destination = data?.data
+            if (resultCode == RESULT_OK && target != null && destination != null) downloadAttachment(target, destination)
+            return
+        }
         if (requestCode != REQUEST_FILES) {
             @Suppress("DEPRECATION")
             super.onActivityResult(requestCode, resultCode, data)
@@ -373,6 +394,39 @@ class MainActivity : Activity() {
             else -> WebChromeClient.FileChooserParams.parseResult(resultCode, data)
         }
         callback.onReceiveValue(uris)
+    }
+
+    private fun saveAttachment(target: NoteDownloads.Target) {
+        if (pendingDownload != null) return
+        pendingDownload = target
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_TITLE, target.name)
+        }
+        runCatching {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQUEST_SAVE_ATTACHMENT)
+        }.onFailure {
+            pendingDownload = null
+            Toast.makeText(this, R.string.attachment_download_failed, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun downloadAttachment(target: NoteDownloads.Target, destination: Uri) {
+        val port = pc.appPort
+        val cookie = credential
+        val userAgent = web.settings.userAgentString
+        thread(name = "note-download") {
+            val saved = runCatching {
+                val bytes = AppProbe.noteFile(port, cookie, userAgent, target.fileId)
+                val output = contentResolver.openOutputStream(destination, "w") ?: throw IOException("destination unavailable")
+                output.use { it.write(bytes) }
+            }.isSuccess
+            runOnUiThread {
+                if (!isDestroyed) Toast.makeText(this, if (saved) R.string.attachment_download_saved else R.string.attachment_download_failed, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     // ---- Atrás y avisos --------------------------------------------------------------

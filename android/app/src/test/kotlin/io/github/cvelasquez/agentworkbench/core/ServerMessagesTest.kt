@@ -49,6 +49,16 @@ class ServerMessagesTest {
     }
 
     @Test
+    fun `archivos en notas y su acuse conservan compatibilidad con notas anteriores`() {
+        assertEquals(
+            ServerMessage.NotesList(listOf(ServerMessage.NoteSummary("n-1", "", 0, 3, 2))),
+            ServerMessage.parse("""{"type":"notes.list","notes":[{"noteId":"n-1","text":"","images":[],"files":[{"fileId":"a","name":"voz.wav","bytes":10},{"fileId":"b","name":"video.mp4","bytes":20}],"updatedAt":3}]}"""),
+        )
+        assertEquals(ServerMessage.NoteFileStored("file-1"), ServerMessage.parse("""{"type":"notes.fileData","fileId":"file-1","name":"voz.wav","data":null}"""))
+        assertEquals(ServerMessage.Other, ServerMessage.parse("""{"type":"notes.fileData","fileId":""}"""))
+    }
+
+    @Test
     fun `el nombre de una pestaña es su etiqueta, o la última carpeta`() {
         assertEquals("Backend", ServerMessage.tabName("Backend", "D:\\x"))
         assertEquals("Mi App", ServerMessage.tabName("", "D:\\Proyectos\\Mi App\\"))
