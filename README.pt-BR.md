@@ -23,6 +23,8 @@ npx agent-workbench
 
 ▶ **[Vídeo tutorial](https://youtu.be/C0Iea1cKQ7o)**: o app inteiro em 6 minutos, com capítulos para ir direto ao que você precisa. Em inglês.
 
+[Canal oficial no YouTube](https://www.youtube.com/channel/UCVnU5e6NnF9xVSCRhy_UJQA): tutoriais e demonstrações.
+
 ## Como funciona
 
 O Agent Workbench não fala com nenhum serviço de IA. Ele inicia a CLI que você já
@@ -44,20 +46,22 @@ CLI.
 | **Início rápido** | Ao abrir o app, as suas abas voltam **suspensas**: dá para lê-las por inteiro, e nenhuma CLI é iniciada até você clicar em **Abrir CLI**. |
 | **Histórico** | Os seus projetos e conversas anteriores na barra lateral, de todas as CLIs, com um filtro. Clique em uma para retomá-la de onde você parou, com a CLI dela. Arquive sessões antigas ou um projeto inteiro para organizar: nada é excluído, e dá para desfazer. |
 | **Conversa** | As mensagens como cartões, ao vivo, com as chamadas de ferramentas recolhidas. As mensagens mais antigas carregam conforme você rola para cima. Busque, copie qualquer mensagem ou bloco de código, e vá para a sua mensagem anterior (↑) ou para o final (↓). Uma linha embaixo mostra quando a sua mensagem chegou à CLI e se o agente ainda está trabalhando. Dependendo da CLI, você pode responder às perguntas do agente ali mesmo. Um arquivo do projeto que o agente menciona abre na aba Arquivos com um clique, e uma pasta, no explorador de arquivos do sistema. Com o Claude Code, uma mensagem que você interrompe antes de o agente começar volta para a caixa para você corrigir, e **↩** em uma mensagem volta para antes dela: a conversa e, se você quiser, o código. Uma mensagem enviada com o agente trabalhando espera no final, marcada na fila; dependendo da CLI, **Forçar envio agora** faz o agente lê-la na hora, e **Editar** (ou ↑ com a caixa vazia) a traz de volta para a caixa para você corrigir. |
-| **Caixa de mensagem** | Espaço para escrever, colar imagens e anexar arquivos; um texto longo colado vira um chip compacto. O que você está digitando não se perde ao fechar o app e aparece ao vivo em todas as janelas abertas. Shift+Enter continua uma lista numerada ou com marcadores. O relógio envia sozinho o que você escreveu, no dia e na hora que você escolher, na mesma conversa; ative em Configurações (o Antigravity CLI precisa da status line dele). |
-| **Medidor de contexto** | Quanto da janela de contexto do modelo a conversa está usando. Tokens, nunca dinheiro. A partir de 70%, **Compactar** pede à CLI que compacte a conversa. Ao lado dele, com o Claude Code, o Codex e o Antigravity CLI, quanto você já usou dos limites de uso do seu plano e quando eles renovam. |
+| **Caixa de mensagem** | Espaço para escrever, colar imagens e anexar arquivos; um texto longo colado vira um chip compacto. O que você está digitando não se perde ao fechar o app e aparece ao vivo em todas as janelas abertas. Shift+Enter continua uma lista numerada ou com marcadores. Os controles nativos de voz oferecem ditado com o Claude Code, conversa ao vivo com o Codex e os dois recursos com o Antigravity CLI, conforme a versão da CLI instalada. O texto ditado volta para a caixa para você revisar e enviar. O relógio envia sozinho o que você escreveu, no dia e na hora que você escolher, na mesma conversa; ative em Configurações (o Antigravity CLI precisa da status line dele). |
+| **Medidor de contexto** | Quanto da janela de contexto do modelo a conversa está usando. Tokens, nunca dinheiro. Passe o mouse sobre o medidor ou dê foco a ele com o teclado para mostrar **Compactar**; a partir de 70%, o botão fica visível. Ele pede à CLI que compacte a conversa. Ao lado dele, com o Claude Code, o Codex e o Antigravity CLI, quanto você já usou dos limites de uso do seu plano e quando eles renovam. |
 | **Alterações** | O branch, os arquivos alterados e o diff deles. **Orquestra agentes em paralelo**: abra o projeto em um branch novo, na sua própria pasta, e vários agentes trabalham ao mesmo tempo sem pisar nas alterações uns dos outros. Uma conversa já começada também passa para um branch novo, com todo o contexto (com o Claude Code, o Codex e o OpenCode). Alterações mostra cada branch: o que falta fazer commit, quantos commits ele tem e se já está integrado. Outra CLI revisa um branch sem mexer nele, e você o integra no main com um clique. |
 | **Arquivos** | A árvore de arquivos do projeto, com busca e pré-visualização com realce de sintaxe. Abra vários arquivos ao mesmo tempo, cada um na sua aba; os arquivos Markdown abrem formatados. Um clique coloca o caminho de um arquivo na sua mensagem. Edite um arquivo de texto, um `.env` por exemplo, e salve ali mesmo: se o agente o alterou enquanto você editava, nada é sobrescrito, e você passa suas alterações para a versão nova. |
 | **Planos** | Os planos e os documentos `.md` que a conversa escreveu, renderizados. Um clique coloca o caminho de um documento na sua mensagem. |
-| **Notas** | Um bloco de anotações ao lado da conversa, com imagens. **Para a caixa** coloca uma nota na caixa de mensagem, para enviá-la à conversa em que você está; com o Claude Code, um clique a envia para uma nova. |
-| **Console** | O terminal do seu sistema embaixo, na pasta do projeto: PowerShell, cmd ou Git Bash no Windows; bash ou zsh no macOS e no Linux. |
-| **Continuar com…** | Com mais de uma CLI, continue uma conversa com outra na mesma pasta. O novo agente parte de uma transcrição dos últimos turnos. |
+| **Notas** | Um bloco de anotações ao lado da conversa, com imagens e arquivos anexados que você pode baixar. Shift+Enter continua uma lista numerada ou com marcadores. **Para a caixa** coloca a nota e os anexos na caixa de mensagem, para enviá-los à conversa em que você está; com o Claude Code, um clique a envia para uma nova. |
+| **Console** | O terminal do seu sistema embaixo, na pasta do projeto: PowerShell, cmd ou Git Bash no Windows; bash ou zsh no macOS e no Linux. No celular, a CLI tem Enter e 1, 2, 3 para os menus, e o console tem mais teclas de navegação e edição. |
+| **Continuar com…** | Com mais de uma CLI, continue uma conversa com outra na mesma pasta. O novo agente parte de uma transcrição dos últimos turnos, com instruções para preservar o trabalho concluído, os planos mencionados e as aprovações pendentes. A continuação fica editável na caixa de mensagem para você acrescentar instruções e escolher o modelo antes de enviar. Conversas mantidas só no backup ou de um projeto realocado também podem continuar com a mesma CLI em uma sessão nova. |
 | **Notificações** | Um som, e notificações do sistema opcionais, quando um agente termina ou está esperando por você. |
 | **Configurações** | ⚙ no cabeçalho: o idioma, o tema do terminal, quais painéis aparecem, qual console abre, quais CLIs o app usa e se dá para agendar mensagens. |
 | **Nove idiomas** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français e Deutsch. Segue o idioma do seu navegador. |
 | **Tema** | Claro, escuro ou o do sistema. O terminal fica escuro por padrão, para que as cores das CLIs continuem legíveis. |
 
-Com o Codex, a conversa também oferece controles de modelo e permissões, planos e perguntas e aprovações reconhecidas. Os controles disponíveis dependem da versão do Codex. As sugestões do Claude Code podem ser aceitas na caixa de mensagem.
+Com o Codex, a conversa também oferece controles de modelo e permissões, planos e cartões para aprovações de comandos, edições de arquivos, entrada no terminal, ferramentas MCP, opções de planos e perguntas reconhecidas, inclusive em terminais estreitos. Os controles disponíveis dependem da versão do Codex; menus não reconhecidos continuam na CLI. O Antigravity CLI aceita imagens, cartões de perguntas, planos e documentos Markdown, e mostra os subagentes em execução. As sugestões do Claude Code podem ser aceitas na caixa de mensagem.
+
+A voz usa o suporte de áudio da própria CLI no computador em que ela roda. Mantenha pressionado o botão de ditado, ou Espaço por um segundo na caixa de mensagem, para começar a ditar; a conversa ao vivo tem seu próprio controle. O Agent Workbench não grava nem transcreve o áudio por conta própria.
 
 Opcionais, e desativados por padrão: [memória compartilhada](#memória-compartilhada-entre-clis)
 entre CLIs, um [backup](#backup-do-seu-histórico) do seu histórico, os
@@ -83,11 +87,11 @@ dependem da CLI:
 | | Claude Code | Codex | OpenCode | Antigravity CLI | Pi |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Ponto da aba: trabalhando, ocioso, esperando por você | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
-| Responder às perguntas do agente pela conversa | ✓ | — | ✓ ¹ | — | — |
+| Responder às perguntas do agente pela conversa | ✓ | ✓ ⁴ | ✓ ¹ | ✓ | — |
 | Medidor de contexto | ✓ | ✓ | ✓ | ✓ ² | ✓ |
-| Seletores de modo e de modelo | ✓ | — | — | ✓ | ✓ ³ |
-| Colar imagens | ✓ | ✓ | ✓ | — | ✓ ³ |
-| Aba Planos | ✓ | — | — | — | — |
+| Seletores de modo e de modelo | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Colar imagens | ✓ | ✓ | ✓ | ✓ | ✓ ³ |
+| Aba Planos | ✓ | ✓ | — | ✓ | — |
 | Enviar uma nota para uma nova conversa | ✓ | — | — | — | — |
 
 Para o resto, o terminal da própria CLI está sempre lá: onde há um "—", as
@@ -100,6 +104,10 @@ perguntas, por exemplo, são respondidas nele.
 ³ O Pi não tem modos de permissão: os seletores dele são o modelo e o nível de
 raciocínio. E ele não anexa o que você cola: uma imagem vai como um caminho de
 arquivo que o próprio modelo abre.
+
+⁴ Os controles do Codex dependem da versão instalada. Os cartões de perguntas
+e aprovações cobrem os menus reconhecidos; o terminal da CLI continua disponível
+para o restante.
 
 ---
 
@@ -185,9 +193,11 @@ Windows Terminal.
 
 Cada CLI guarda o que aprende sobre um projeto no seu próprio canto, e as outras
 não conseguem ver. A aba **Memória** configura uma única memória para todas elas:
-notas na pasta `.agents/memory/` do projeto, que todas as CLIs leem e escrevem —
-daqui ou do próprio terminal — por meio de `AGENTS.md` e `CLAUDE.md`. A aba
-começa oculta: mostre-a em ⚙ Configurações.
+notas na pasta `.agents/memory/` do projeto, que todas as CLIs leem e escrevem
+daqui ou do próprio terminal por meio de `AGENTS.md` e `CLAUDE.md`. Sem uma
+preferência salva, a aba fica visível quando há mais de uma CLI disponível;
+nos outros casos, mostre-a em ⚙ Configurações. Configurar a memória
+compartilhada continua sendo opcional.
 
 **Visualizar alterações** mostra, arquivo por arquivo, o que seria gravado, e
 nada é alterado até você confirmar. Ao configurar, a memória que o Claude Code
@@ -449,11 +459,13 @@ foto desse QR code**. O celular memoriza a impressão digital SSH do seu
 computador na primeira conexão e, se ela mudar algum dia, ele se recusa a
 conectar e avisa você.
 
-**Compartilhe uma captura com o seu agente.** Em qualquer app,
-**Compartilhar → Agent Workbench** salva imagens (PNG, JPEG, GIF ou WebP) e
-texto em uma nota do seu computador, nova ou uma que você escolher, com um
-comentário se quiser. Depois, **Para a caixa** na nota a coloca na conversa que
-você escolher. O celular não guarda nenhuma cópia.
+**Compartilhe arquivos com o seu agente.** Em qualquer app,
+**Compartilhar → Agent Workbench** salva arquivos, imagens (PNG, JPEG, GIF ou
+WebP) e texto em uma nota do seu computador, nova ou uma que você escolher,
+com um comentário se quiser. Depois, **Para a caixa** na nota a coloca com os
+anexos na conversa que você escolher. O celular não guarda nenhuma cópia.
+Com o app de Android 1.0.0, você também pode baixar os arquivos anexados a uma
+nota e escolher onde salvá-los no celular.
 
 **Se o endereço IP do seu computador mudar**, **Configurações → Mudar endereço**
 aceita o novo, sem parear de novo. O app só o salva se o seu computador

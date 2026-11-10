@@ -103,12 +103,12 @@ check('trimUrl no se come una ruta normal', trimUrl('https://x.dev/a/b') === 'ht
   );
 }
 {
-  const raw = '[evidencia y pendientes](</D:/Agent Explorer/docs/evidencia.md>)';
+  const raw = '[evidencia y pendientes](</D:/My Project/docs/evidence.md>)';
   const parsed = parseMarkdownLink(raw);
   const tokens = tokenize(raw);
   check(
     'destino local entre angulos conserva una ruta de Codex con espacios',
-    parsed?.label === 'evidencia y pendientes' && parsed.href === '/D:/Agent Explorer/docs/evidencia.md' &&
+    parsed?.label === 'evidencia y pendientes' && parsed.href === '/D:/My Project/docs/evidence.md' &&
       tokens.length === 1 && tokens[0]?.kind === 'plain' && tokens[0].text === raw,
     JSON.stringify({ parsed, tokens }),
   );

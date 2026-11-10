@@ -1,8 +1,61 @@
 # Changelog
 
 All notable changes to Agent Workbench. Versions follow
-[semantic versioning](https://semver.org); while in `0.x`, a minor version may
-change behavior.
+[semantic versioning](https://semver.org).
+
+## 1.0.0 - 2026-11-09
+
+### Added
+
+- **Native voice controls in the message box.** Dictation with Claude Code,
+  live conversation with Codex, and both dictation and live conversation with
+  Antigravity CLI, depending on the installed CLI version. Hold the dictation
+  button or Space for a second to dictate. Dictated text returns to the message
+  box for review and sending. Audio is handled by the CLI on its computer.
+- **Locate a project after moving its folder or changing PCs.** Pick the new
+  folder, preview the conversations that will appear together, and save a local
+  association. Conversations in subfolders follow the project too. Old history
+  stays intact and can continue in a new session in the new folder, including
+  with the same CLI. Available on the host computer only.
+- **File attachments in notes.** Add files alongside images, download them, and
+  put the note and its attachments in the message box. Shift+Enter continues
+  numbered and bulleted lists in notes too.
+- **Android app 1.0.0:** share files from other apps to a note on your computer,
+  and download note attachments to a location you choose on your phone.
+- **More Codex menus as cards in the conversation:** command approvals, file
+  edits, terminal input, MCP tools, plan choices and questions. Recognition
+  handles wrapped lines and narrow terminals, including the phone layout.
+- **More Antigravity CLI features:** image attachments and images in history,
+  question cards, plans and Markdown artifacts, running subagents, and token
+  counts read from conversation history.
+- **More terminal keys on phones:** Enter and 1, 2, 3 for CLI menus, plus more
+  navigation, editing and control keys in the console.
+
+### Changed
+
+- Continuing with another CLI leaves the continuation editable in the message
+  box so you can add instructions and choose the model before sending. The
+  continuation asks the agent to preserve completed work, referenced plans and
+  pending approvals; switching CLI does not approve a plan.
+  Conversations kept only in the backup can continue with the same CLI too.
+- **Compact** appears when hovering over or focusing the context meter, even
+  below 70%; from 70% it stays visible.
+- With no saved panel preference, **Memory** is visible by default when more
+  than one CLI is available.
+- The README in all nine languages describes the new features and links to the
+  official YouTube channel.
+
+### Fixed
+
+- Codex permission changes can be requested during a session, with feedback
+  until the CLI confirms them. The initial model is not assumed before the
+  session reports it.
+- Codex completion is detected in background tabs. Unrecognized open menus
+  count as waiting so a message cannot land inside them.
+- Resizing the terminal no longer leaves stale text beyond the current width,
+  which could prevent Codex menus from being recognized.
+- Codex session Markdown documents and links with spaces open correctly.
+- The message box shows **Stop** only while the agent is working or waiting.
 
 ## 0.9.1 - 2026-11-04
 

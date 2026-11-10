@@ -23,6 +23,8 @@ npx agent-workbench
 
 ▶ **[Video-Tutorial](https://youtu.be/C0Iea1cKQ7o)**: die ganze App in 6 Minuten, mit Kapiteln, um direkt zu dem zu springen, was Sie brauchen. Auf Englisch.
 
+[Offizieller YouTube-Kanal](https://www.youtube.com/channel/UCVnU5e6NnF9xVSCRhy_UJQA): Tutorials und Demos.
+
 ## So funktioniert es
 
 Agent Workbench spricht mit keinem KI-Dienst. Es startet die CLI, die Sie bereits
@@ -43,20 +45,22 @@ Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 | **Schneller Start** | Wenn Sie die App öffnen, kommen Ihre Tabs **schlafend** zurück: Sie können sie vollständig lesen, und keine CLI startet, bevor Sie auf **CLI öffnen** klicken. |
 | **Historie** | Ihre Projekte und früheren Unterhaltungen in der Seitenleiste, aus allen CLIs, mit Filter. Ein Klick auf eine Unterhaltung setzt sie dort fort, wo Sie aufgehört haben, mit ihrer CLI. Archivieren Sie alte Sitzungen oder ein ganzes Projekt, um aufzuräumen: Es wird nichts gelöscht, und es lässt sich rückgängig machen. |
 | **Unterhaltung** | Die Nachrichten als Karten, live, mit eingeklappten Tool-Aufrufen. Ältere Nachrichten werden beim Hochscrollen geladen. Sie können suchen, jede Nachricht und jeden Codeblock kopieren und zu Ihrer vorherigen Nachricht (↑) oder ans Ende (↓) springen. Eine Zeile unten zeigt, wann Ihre Nachricht bei der CLI angekommen ist und ob der Agent noch arbeitet. Je nach CLI können Sie die Fragen des Agenten direkt dort beantworten. Eine Datei des Projekts, die der Agent nennt, öffnet sich mit einem Klick im Tab „Dateien“, ein Ordner im Dateiexplorer des Systems. Mit Claude Code kommt eine Nachricht, die Sie anhalten, bevor der Agent beginnt, zum Korrigieren ins Eingabefeld zurück, und **↩** an einer Nachricht geht zurück vor sie: die Unterhaltung und, wenn Sie wollen, der Code. Eine Nachricht, die Sie senden, während der Agent arbeitet, wartet am Ende als eingereiht; je nach CLI lässt **Senden jetzt erzwingen** den Agenten sie sofort lesen, und **Bearbeiten** (oder ↑ im leeren Feld) holt sie zum Korrigieren ins Eingabefeld zurück. |
-| **Eingabefeld** | Platz zum Schreiben, zum Einfügen von Bildern und zum Anhängen von Dateien; langer eingefügter Text wird zu einem übersichtlichen Chip. Was Sie gerade tippen, übersteht das Schließen der App und erscheint live in jedem offenen Fenster. Umschalt+Eingabe setzt eine nummerierte Liste oder eine Aufzählung fort. Die Uhr schickt das Geschriebene von selbst an dem Tag und zu der Uhrzeit, die Sie wählen, in dieselbe Unterhaltung; einschalten lässt sie sich in den Einstellungen (Antigravity CLI braucht dafür seine Statuszeile). |
-| **Kontextanzeige** | Wie viel vom Kontextfenster des Modells die Unterhaltung belegt. Tokens, nie Geld. Ab 70 % bittet **Kompaktieren** die CLI, die Unterhaltung zu kompaktieren. Daneben steht bei Claude Code, Codex und Antigravity CLI, wie viel Sie von den Nutzungslimits Ihres Plans verbraucht haben und wann sie zurückgesetzt werden. |
+| **Eingabefeld** | Platz zum Schreiben, zum Einfügen von Bildern und zum Anhängen von Dateien; langer eingefügter Text wird zu einem übersichtlichen Chip. Was Sie gerade tippen, übersteht das Schließen der App und erscheint live in jedem offenen Fenster. Umschalt+Eingabe setzt eine nummerierte Liste oder eine Aufzählung fort. Native Sprachfunktionen bieten Diktieren mit Claude Code, Live-Gespräche mit Codex und beides mit Antigravity CLI, abhängig von der installierten CLI-Version. Diktierter Text kommt zum Prüfen und Senden ins Eingabefeld zurück. Die Uhr schickt das Geschriebene von selbst an dem Tag und zu der Uhrzeit, die Sie wählen, in dieselbe Unterhaltung; einschalten lässt sie sich in den Einstellungen (Antigravity CLI braucht dafür seine Statuszeile). |
+| **Kontextanzeige** | Wie viel vom Kontextfenster des Modells die Unterhaltung belegt. Tokens, nie Geld. Bewegen Sie den Mauszeiger auf die Anzeige oder fokussieren Sie sie, um **Kompaktieren** einzublenden; ab 70 % bleibt die Schaltfläche sichtbar. Sie bittet die CLI, die Unterhaltung zu kompaktieren. Daneben steht bei Claude Code, Codex und Antigravity CLI, wie viel Sie von den Nutzungslimits Ihres Plans verbraucht haben und wann sie zurückgesetzt werden. |
 | **Änderungen** | Der Branch, die geänderten Dateien und ihr Diff. **Orchestriert Agenten parallel**: Öffnen Sie das Projekt in einem neuen Branch, in einem eigenen Ordner, und mehrere Agenten arbeiten gleichzeitig, ohne sich gegenseitig die Änderungen zu überschreiben. Auch eine laufende Unterhaltung lässt sich mit ihrem ganzen Kontext in einen neuen Branch verschieben (mit Claude Code, Codex und OpenCode). „Änderungen“ zeigt jeden Branch: was noch nicht committet ist, wie viele Commits er hat und ob er schon integriert ist. Eine andere CLI prüft einen Branch, ohne ihn zu ändern, und Sie integrieren ihn mit einem Klick in main. |
 | **Dateien** | Der Dateibaum des Projekts, mit Suche und einer Vorschau mit Syntaxhervorhebung. Öffnen Sie mehrere Dateien gleichzeitig, jede in ihrem eigenen Tab; Markdown-Dateien öffnen sich formatiert. Ein Klick fügt den Pfad einer Datei in Ihre Nachricht ein. Bearbeiten Sie eine Textdatei, etwa eine `.env`, und speichern Sie sie direkt dort: Hat der Agent sie inzwischen geändert, wird nichts überschrieben, und Sie übernehmen Ihre Änderungen in die neue Version. |
 | **Pläne** | Die Pläne und `.md`-Dokumente, die die Unterhaltung geschrieben hat, formatiert dargestellt. Ein Klick fügt den Pfad eines Dokuments in Ihre Nachricht ein. |
-| **Notizen** | Ein Notizblock neben der Unterhaltung, Bilder inklusive. **Ins Eingabefeld** übernimmt eine Notiz in das Eingabefeld, um sie an die Unterhaltung zu senden, in der Sie gerade sind; mit Claude Code schickt ein Klick sie an eine neue. |
-| **Konsole** | Das Terminal Ihres Systems am unteren Rand, im Ordner des Projekts: PowerShell, cmd oder Git Bash unter Windows; bash oder zsh unter macOS und Linux. |
-| **Fortsetzen mit…** | Mit mehr als einer CLI setzen Sie eine Unterhaltung mit einer anderen CLI im selben Ordner fort. Der neue Agent startet mit einem Transkript der letzten Runden. |
+| **Notizen** | Ein Notizblock neben der Unterhaltung, mit Bildern und Dateianhängen, die Sie herunterladen können. Umschalt+Eingabe setzt eine nummerierte Liste oder eine Aufzählung fort. **Ins Eingabefeld** übernimmt die Notiz samt Anhängen in das Eingabefeld, um sie an die aktuelle Unterhaltung zu senden; mit Claude Code schickt ein Klick sie an eine neue. |
+| **Konsole** | Das Terminal Ihres Systems am unteren Rand, im Ordner des Projekts: PowerShell, cmd oder Git Bash unter Windows; bash oder zsh unter macOS und Linux. Auf dem Telefon bietet die CLI Eingabe und 1, 2, 3 für Menüs; die Konsole hat zusätzliche Tasten zur Navigation und Bearbeitung. |
+| **Fortsetzen mit…** | Mit mehr als einer CLI setzen Sie eine Unterhaltung mit einer anderen CLI im selben Ordner fort. Der neue Agent startet mit einem Transkript der letzten Runden und Anweisungen, um abgeschlossene Arbeit, referenzierte Pläne und ausstehende Freigaben zu bewahren. Die Fortsetzung bleibt im Eingabefeld bearbeitbar, damit Sie vor dem Senden Anweisungen ergänzen und das Modell wählen können. Unterhaltungen, die nur noch in der Sicherung liegen oder zu einem verschobenen Projekt gehören, lassen sich auch mit derselben CLI in einer neuen Sitzung fortsetzen. |
 | **Benachrichtigungen** | Ein Ton und auf Wunsch Systembenachrichtigungen, wenn ein Agent fertig ist oder auf Sie wartet. |
 | **Einstellungen** | ⚙ in der Kopfzeile: die Sprache, das Design des Terminals, welche Bereiche angezeigt werden, welche Konsole sich öffnet, welche CLIs die App verwendet und ob sich Nachrichten planen lassen. |
 | **Neun Sprachen** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français und Deutsch. Die App folgt der Sprache Ihres Browsers. |
 | **Design** | Hell, dunkel oder wie das System. Das Terminal bleibt standardmäßig dunkel, damit die Farben der CLIs lesbar bleiben. |
 
-Bei Codex bietet die Unterhaltung auch Steuerelemente für Modell und Berechtigungen, Pläne sowie erkannte Fragen und Genehmigungen. Die verfügbaren Steuerelemente hängen von deiner Codex-Version ab. Vorschläge von Claude Code lassen sich im Nachrichtenfeld übernehmen.
+Bei Codex bietet die Unterhaltung auch Steuerelemente für Modell und Berechtigungen, Pläne sowie Karten für erkannte Befehlsfreigaben, Dateiänderungen, Terminaleingaben, MCP-Werkzeuge, Planentscheidungen und Fragen, auch in schmalen Terminals. Die verfügbaren Steuerelemente hängen von Ihrer Codex-Version ab; nicht erkannte Menüs bleiben in der CLI. Antigravity CLI unterstützt Bilder, Fragekarten, Pläne und Markdown-Dokumente und zeigt laufende Unteragenten. Vorschläge von Claude Code lassen sich im Eingabefeld übernehmen.
+
+Die Sprachfunktionen nutzen die Audio-Unterstützung der CLI auf dem Computer, auf dem sie läuft. Halten Sie die Diktier-Schaltfläche oder im Eingabefeld eine Sekunde lang die Leertaste gedrückt, um zu diktieren; Live-Gespräche haben ein eigenes Steuerelement. Agent Workbench nimmt selbst keinen Ton auf und transkribiert ihn nicht.
 
 Optional und standardmäßig ausgeschaltet: ein
 [gemeinsames Gedächtnis](#gemeinsames-gedächtnis-für-alle-clis) für alle CLIs,
@@ -84,11 +88,11 @@ Funktionen von der CLI ab:
 | | Claude Code | Codex | OpenCode | Antigravity CLI | Pi |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Punkt auf dem Tab: arbeitet, bereit, wartet auf Sie | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
-| Fragen des Agenten in der Unterhaltung beantworten | ✓ | — | ✓ ¹ | — | — |
+| Fragen des Agenten in der Unterhaltung beantworten | ✓ | ✓ ⁴ | ✓ ¹ | ✓ | — |
 | Kontextanzeige | ✓ | ✓ | ✓ | ✓ ² | ✓ |
-| Auswahl von Modus und Modell | ✓ | — | — | ✓ | ✓ ³ |
-| Bilder einfügen | ✓ | ✓ | ✓ | — | ✓ ³ |
-| Tab „Pläne“ | ✓ | — | — | — | — |
+| Auswahl von Modus und Modell | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Bilder einfügen | ✓ | ✓ | ✓ | ✓ | ✓ ³ |
+| Tab „Pläne“ | ✓ | ✓ | — | ✓ | — |
 | Notiz an eine neue Unterhaltung senden | ✓ | — | — | — | — |
 
 Für alles andere ist immer das eigene Terminal der CLI da: Wo ein „—“ steht,
@@ -101,6 +105,10 @@ beantworten Sie zum Beispiel Fragen dort.
 ³ Pi hat keine Berechtigungsmodi: Auswählen lassen sich das Modell und die
 Denkstufe. Außerdem hängt Pi nicht an, was Sie einfügen: Ein Bild wird als
 Dateipfad übergeben, den das Modell selbst öffnet.
+
+⁴ Die Steuerelemente von Codex hängen von der installierten Version ab. Frage-
+und Freigabekarten decken erkannte Menüs ab; für alles andere bleibt das
+Terminal der CLI verfügbar.
 
 ---
 
@@ -189,10 +197,11 @@ Konsole unten fügt `Ctrl+V` unter Windows Text ein, wie im Windows Terminal.
 
 Jede CLI legt das, was sie über ein Projekt lernt, an ihrem eigenen Ort ab, und
 die anderen sehen es nicht. Der Tab **Gedächtnis** richtet ein Gedächtnis für
-sie alle ein: Notizen im Ordner `.agents/memory/` des Projekts, die jede CLI –
-von hier oder aus ihrem eigenen Terminal – über `AGENTS.md` und `CLAUDE.md`
-liest und schreibt. Der Tab ist anfangs ausgeblendet: Blenden Sie ihn über
-⚙ Einstellungen ein.
+sie alle ein: Notizen im Ordner `.agents/memory/` des Projekts, die jede CLI
+von hier oder aus ihrem eigenen Terminal über `AGENTS.md` und `CLAUDE.md`
+liest und schreibt. Ohne gespeicherte Einstellung ist der Tab sichtbar, wenn
+mehr als eine CLI verfügbar ist; andernfalls blenden Sie ihn über
+⚙ Einstellungen ein. Das Einrichten des gemeinsamen Gedächtnisses bleibt optional.
 
 **Vorschau der Änderungen** zeigt Datei für Datei, was geschrieben würde, und
 nichts wird angerührt, bevor Sie bestätigen. Beim Einrichten wird das Gedächtnis
@@ -479,11 +488,13 @@ auf den Datenträger: **Teilen Sie kein Foto dieses QR-Codes**. Das Telefon merk
 sich beim ersten Verbinden den SSH-Fingerabdruck Ihres Computers, und falls er
 sich je ändert, verweigert es die Verbindung und sagt es Ihnen.
 
-**Teilen Sie einen Screenshot mit Ihrem Agenten.** In jeder App speichert
-**Teilen → Agent Workbench** Bilder (PNG, JPEG, GIF oder WebP) und Text in einer
-Notiz auf Ihrem Computer, einer neuen oder einer, die Sie auswählen, auf Wunsch
-mit einem Kommentar. Danach übernimmt **Ins Eingabefeld** in der Notiz sie in
-die Unterhaltung, die Sie wählen. Das Telefon behält keine Kopie.
+**Teilen Sie Dateien mit Ihrem Agenten.** In jeder App speichert
+**Teilen → Agent Workbench** Dateien, Bilder (PNG, JPEG, GIF oder WebP) und Text
+in einer Notiz auf Ihrem Computer, einer neuen oder einer, die Sie auswählen,
+auf Wunsch mit einem Kommentar. Danach übernimmt **Ins Eingabefeld** die Notiz
+samt Anhängen in die Unterhaltung, die Sie wählen. Das Telefon behält keine
+Kopie. Mit der Android-App 1.0.0 können Sie auch Dateianhänge einer Notiz
+herunterladen und wählen, wo sie auf dem Telefon gespeichert werden.
 
 **Wenn sich die IP-Adresse Ihres Computers ändert**, übernimmt
 **Einstellungen → Adresse ändern** die neue, ohne erneutes Koppeln. Die App

@@ -22,6 +22,8 @@ npx agent-workbench
 
 ▶ **[Video tutorial](https://youtu.be/C0Iea1cKQ7o)**: the whole app in 6 minutes, with chapters to jump straight to what you need.
 
+[Official YouTube channel](https://www.youtube.com/channel/UCVnU5e6NnF9xVSCRhy_UJQA): tutorials and demos.
+
 ## How it works
 
 Agent Workbench doesn't talk to any AI service. It starts the CLI you already
@@ -43,20 +45,22 @@ CLI.
 | **Fast start** | When you open the app, your tabs come back **asleep**: you can read them in full, and no CLI starts until you click **Open CLI**. |
 | **History** | Your projects and past conversations in the sidebar, from every CLI, with a filter. Click one to pick it up where you left it, with its CLI. Archive old sessions or a whole project to tidy up: nothing is deleted, and it can be undone. |
 | **Conversation** | The messages as cards, live, with tool calls folded. Older messages load as you scroll up. Search, copy any message or code block, and jump back to your previous message (↑) or to the end (↓). A row at the bottom says when your message reached the CLI and whether the agent is still working. Depending on the CLI, you can answer the agent's questions right there. A file of the project that the agent names opens in the Files tab with one click, and a folder, in the system's file explorer. With Claude Code, a message you stop before the agent starts comes back to the box so you can fix it, and **↩** on a message goes back to before it: the conversation and, if you want, the code. A message you send while the agent works waits at the end, marked as queued; depending on the CLI, **Force send now** makes the agent read it right away, and **Edit** (or ↑ in the empty box) brings it back to the box to fix it. |
-| **Message box** | Room to write, paste images, attach files, and long pasted text kept as a tidy chip. What you're typing survives closing the app, and shows up live in every open window. Shift+Enter continues a numbered or bulleted list. The clock sends what you wrote on its own, on the day and at the time you choose, in the same conversation; turn it on in Settings (Antigravity CLI needs its status line). |
-| **Context meter** | How much of the model's context window the conversation is using. Tokens, never money. From 70%, **Compact** asks the CLI to compact the conversation. Next to it, with Claude Code, Codex and Antigravity CLI, how much of your plan's usage limits you've used and when they reset. |
+| **Message box** | Room to write, paste images, attach files, and long pasted text kept as a tidy chip. What you're typing survives closing the app, and shows up live in every open window. Shift+Enter continues a numbered or bulleted list. Native voice controls offer dictation with Claude Code, live conversation with Codex, and both with Antigravity CLI, depending on the installed CLI version. Dictated text returns to the box for you to review and send. The clock sends what you wrote on its own, on the day and at the time you choose, in the same conversation; turn it on in Settings (Antigravity CLI needs its status line). |
+| **Context meter** | How much of the model's context window the conversation is using. Tokens, never money. Hover over or focus the meter to reveal **Compact**; from 70% it stays visible. It asks the CLI to compact the conversation. Next to it, with Claude Code, Codex and Antigravity CLI, how much of your plan's usage limits you've used and when they reset. |
 | **Changes** | The branch, the changed files and their diff. **Orchestrates agents in parallel**: open the project on a new branch, in its own folder, and several agents work at once without stepping on each other's changes. A conversation already under way moves to a new branch too, with all its context (with Claude Code, Codex and OpenCode). Changes shows every branch: what isn't committed yet, how many commits it has and whether it's merged. Another CLI reviews a branch without touching it, and you merge it into main with one click. |
 | **Files** | The project's file tree, with search and a preview with syntax highlighting. Open several files at once, each in its own tab; Markdown files open formatted. One click puts a file's path in your message. Edit a text file, a `.env` for instance, and save it right there: if the agent changed it while you were editing, nothing is overwritten, and you move your changes to the new version. |
 | **Plans** | The plans and `.md` documents the conversation wrote, rendered. One click puts a document's path in your message. |
-| **Notes** | A scratchpad next to the conversation, images included. **To message box** puts a note in the message box, to send it to the conversation you're in; with Claude Code, one click sends it to a new one. |
-| **Console** | Your system's terminal at the bottom, in the project's folder: PowerShell, cmd or Git Bash on Windows; bash or zsh on macOS and Linux. |
-| **Continue with…** | With more than one CLI, continue a conversation with another one in the same folder. The new agent starts from a transcript of the last turns. |
+| **Notes** | A scratchpad next to the conversation, with images and file attachments you can download. Shift+Enter continues a numbered or bulleted list. **To message box** puts the note and its attachments in the message box, to send them to the conversation you're in; with Claude Code, one click sends it to a new one. |
+| **Console** | Your system's terminal at the bottom, in the project's folder: PowerShell, cmd or Git Bash on Windows; bash or zsh on macOS and Linux. On a phone, the CLI has Enter and 1, 2, 3 for menus, and the console has extra navigation and editing keys. |
+| **Continue with…** | With more than one CLI, continue a conversation with another one in the same folder. The new agent starts from a transcript of the last turns, with instructions to preserve completed work, referenced plans and pending approvals. The continuation stays editable in the message box so you can add instructions and choose the model before sending. Conversations kept only in the backup, or belonging to a relocated project, can also continue with the same CLI in a new session. |
 | **Notifications** | A sound, and optional system notifications, when an agent finishes or is waiting for you. |
 | **Settings** | ⚙ in the header: the language, the terminal's theme, which panels show, which console opens, which CLIs the app uses and whether you can schedule messages. |
 | **Nine languages** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français and Deutsch. It follows your browser's language. |
 | **Theme** | Light, dark or the system's. The terminal stays dark by default, so the CLIs' colors stay readable. |
 
-With Codex, the conversation also offers model and permission controls, plans, and recognized questions and approvals. Available controls depend on your Codex version. Claude Code suggestions can be accepted in the message box.
+With Codex, the conversation also offers model and permission controls, plans, and cards for recognized command approvals, file edits, terminal input, MCP tools, plan choices and questions, including in narrow terminals. Available controls depend on your Codex version; unrecognized menus stay in the CLI. Antigravity CLI supports images, question cards, plans and Markdown artifacts, and shows running subagents. Claude Code suggestions can be accepted in the message box.
+
+Voice uses the CLI's own audio support on the computer running it. Hold the dictation button, or Space for a second in the message box, to start dictating; live conversation has its own control. Agent Workbench does not record audio or transcribe it itself.
 
 Optional, and off by default: [shared memory](#shared-memory-between-clis)
 between CLIs, a [backup](#backup-of-your-history) of your history, Claude
@@ -83,11 +87,11 @@ CLI:
 | | Claude Code | Codex | OpenCode | Antigravity CLI | Pi |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Tab dot: working, idle, waiting for you | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
-| Answer the agent's questions from the conversation | ✓ | — | ✓ ¹ | — | — |
+| Answer the agent's questions from the conversation | ✓ | ✓ ⁴ | ✓ ¹ | ✓ | — |
 | Context meter | ✓ | ✓ | ✓ | ✓ ² | ✓ |
-| Mode and model pickers | ✓ | — | — | ✓ | ✓ ³ |
-| Paste images | ✓ | ✓ | ✓ | — | ✓ ³ |
-| Plans tab | ✓ | — | — | — | — |
+| Mode and model pickers | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Paste images | ✓ | ✓ | ✓ | ✓ | ✓ ³ |
+| Plans tab | ✓ | ✓ | — | ✓ | — |
 | Send a note to a new conversation | ✓ | — | — | — | — |
 
 The CLI's own terminal is always there for the rest: where there's a "—",
@@ -100,6 +104,9 @@ questions, for example, are answered in it.
 ³ Pi has no permission modes: its pickers are the model and the thinking level.
 And it doesn't attach what you paste: an image travels as a file path that the
 model opens itself.
+
+⁴ Codex controls depend on the installed version. Question and approval cards
+cover recognized menus; the CLI's terminal remains available for the rest.
 
 ---
 
@@ -184,9 +191,10 @@ as in Windows Terminal.
 
 Each CLI keeps what it learns about a project in its own place, and the others
 can't see it. The **Memory** tab sets up one memory for all of them: notes in the
-project's `.agents/memory/` folder, which every CLI reads and writes —from here
-or from its own terminal— through `AGENTS.md` and `CLAUDE.md`. The tab is hidden
-at first: show it from ⚙ Settings.
+project's `.agents/memory/` folder, which every CLI reads and writes from here
+or from its own terminal through `AGENTS.md` and `CLAUDE.md`. With no saved
+preference, the tab is visible when more than one CLI is available; otherwise,
+show it from ⚙ Settings. Setting up shared memory remains optional.
 
 **Preview changes** shows, file by file, what would be written, and nothing is
 touched until you confirm. Setting it up imports the memory Claude Code already
@@ -445,10 +453,12 @@ picture of that QR code**. The phone remembers your computer's SSH fingerprint
 on the first connection, and if it ever changes, it refuses to connect and tells
 you.
 
-**Share a screenshot with your agent.** In any app, **Share → Agent Workbench**
-saves images (PNG, JPEG, GIF or WebP) and text to a note on your computer, a
-new one or one you pick, with a comment if you like. Then **To message box** on
-the note puts it in the conversation you choose. The phone keeps no copy.
+**Share files with your agent.** In any app, **Share → Agent Workbench** saves
+files, images (PNG, JPEG, GIF or WebP) and text to a note on your computer, a new
+one or one you pick, with a comment if you like. Then **To message box** on the
+note puts it and its attachments in the conversation you choose. The phone keeps
+no copy. With Android app 1.0.0, you can also download a note's file attachments
+and choose where to save them on the phone.
 
 **If your computer's IP address changes**, **Settings → Change address** takes
 the new one, without pairing again. The app saves it only if your computer

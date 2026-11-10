@@ -18,8 +18,8 @@ android {
         // Play exige la API 36 para apps nuevas y actualizaciones desde el 31-08-2026.
         targetSdk = 36
         // La version del paquete de npm con el que sale; versionCode sube en cada subida a Play (§15.11).
-        versionCode = 2
-        versionName = "0.9.0"
+        versionCode = 3
+        versionName = "1.0.0"
     }
 
     /*
