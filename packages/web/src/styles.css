@@ -5521,6 +5521,8 @@ kbd {
 .question-text {
   font-size: calc(13px * var(--thread-scale, 1));
   color: var(--text);
+  /* Una aprobacion trae el motivo, el comando o el destino de cada archivo en su renglon (§10.23). */
+  white-space: pre-line;
 }
 
 .question-hint {

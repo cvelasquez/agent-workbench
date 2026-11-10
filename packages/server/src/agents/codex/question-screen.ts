@@ -1,58 +1,115 @@
 import type { AnswerSelection, ConversationQuestionItem } from '@agent-workbench/shared';
 import type { ScreenQuestion, ScreenQuestionReader } from '../adapter.js';
 import { sanitizeForPaste } from '../../pty-input.js';
+import { parseCodexMenu, type CodexMenu, type CodexMenuOption } from './menu-screen.js';
 
-/** Lee la pregunta visible si el menu esta completo, medido con Codex 0.166. */
+/**
+ * Lee el menu visible si es una pregunta o una aprobacion que se contesta desde
+ * el hilo, medido con Codex 0.167 (§10.23). Del menu se ocupa `menu-screen.ts`,
+ * que deshace el ajuste de linea de la terminal; aca se decide que menus tienen
+ * tarjeta y con que opciones.
+ *
+ * Lo que no tiene la forma medida no es una pregunta: devuelve null y la CLI
+ * sigue siendo el lugar donde se contesta.
+ */
 export function readCodexQuestion(lines: readonly string[]): ScreenQuestion | null {
-  const rows = lines.map((line) => line.trim());
-  const approval = readCommandApproval(rows);
-  if (approval !== null) return approval;
-  const start = rows.findIndex((line) => /^Question [1-3]\/[1-3] \([1-3] unanswered\)$/.test(line));
-  const end = rows.findIndex((line, index) => index > start && /^tab to add notes \| enter to submit (?:answer|all) \| (?:←\/→ to navigate questions \| )?esc to interrupt$/.test(line));
-  if (start < 0 || end < 0) return null;
-  const body = rows.slice(start + 1, end).filter(Boolean);
-  const question = body.shift();
-  if (!question) return null;
-  const options: { label: string; description: string }[] = [];
-  let selected = 0;
-  for (const row of body) {
-    const match = /^(›\s*)?(\d+)\.\s+(.+)$/.exec(row);
-    if (match === null || Number(match[2]) !== options.length + 1) return null;
-    const parts = (match[3] ?? '').split(/\s{2,}/);
-    if (match[1]) selected = Number(match[2]);
-    options.push({ label: parts[0] ?? '', description: parts.slice(1).join(' ') });
+  const menu = parseCodexMenu(lines);
+  // Sin la opcion 1 a la vista alguien ya movio la lista en la solapa CLI.
+  if (menu === null || menu.moreAbove || menu.options.length === 0) return null;
+  switch (menu.kind) {
+    case 'question':
+      return readQuestion(menu);
+    case 'command':
+    case 'edits':
+    case 'terminal-input':
+      return readApproval(menu);
+    case 'mcp':
+      return readToolApproval(menu);
+    case 'plan':
+      return readPlan(menu);
+    default:
+      return null;
   }
-  const other = options.pop();
-  if (other?.label !== 'None of the above' || options.length < 1 || options.length > 8 || options.some((item) => !item.label)) return null;
-  const item = { question, header: rows[start]?.split(' (')[0] ?? '', multiSelect: false, options };
-  return { item, key: JSON.stringify(item), untouched: selected === 1 };
 }
 
-/** Una aprobacion de comando solo se acepta cuando se ve el menu entero. */
-function readCommandApproval(rows: readonly string[]): ScreenQuestion | null {
-  const start = rows.indexOf('Would you like to run the following command?');
-  const end = rows.indexOf('Press enter to confirm or esc to cancel');
-  if (start < 0 || end <= start) return null;
-  const body = rows.slice(start + 1, end).filter(Boolean);
-  const first = body.findIndex((row) => /^(?:›\s*)?1\. /.test(row));
-  if (first < 1 || !body.slice(0, first).some((row) => row.startsWith('$ '))) return null;
-  const options: { label: string; description: string }[] = [];
-  let selected = 0;
-  for (const row of body.slice(first)) {
-    const match = /^(›\s*)?(\d+)\.\s+(.+)$/.exec(row);
-    if (match === null || Number(match[2]) !== options.length + 1) return null;
-    if (match[1]) selected = Number(match[2]);
-    options.push({ label: match[3] ?? '', description: '' });
+function cardOf(item: ConversationQuestionItem, menu: CodexMenu): ScreenQuestion {
+  return { item, key: JSON.stringify(item), untouched: menu.selected === 1 };
+}
+
+const plainOptions = (options: readonly CodexMenuOption[]): { label: string; description: string }[] =>
+  options.map(({ label, description }) => ({ label, description }));
+
+/** La pregunta del modelo (modo Plan): sus opciones y "None of the above", con notas aparte. */
+function readQuestion(menu: CodexMenu): ScreenQuestion | null {
+  const question = menu.body[0];
+  if (!question) return null;
+  const options = menu.options.slice(0, -1);
+  const other = menu.options.at(-1);
+  if (other?.label !== 'None of the above' || options.length < 1 || options.length > 8 || options.some((item) => !item.label)) return null;
+  const item = { question, header: menu.title.split(' (')[0] ?? '', multiSelect: false, options: plainOptions(options) };
+  return cardOf(item, menu);
+}
+
+/** El atajo con que Codex cierra la etiqueta de una opcion de aprobacion: `(y)`, `(a)`, `(p)`, `(esc)`. */
+const SHORTCUT = /\((?:y|a|p|r|d|n|esc)\)$/;
+/** La ultima opcion de una aprobacion, que es la misma en todas las familias medidas. */
+export const CODEX_DENY_LABEL = 'No, and tell Codex what to do differently (esc)';
+
+/**
+ * Comando, edicion de archivos y entrada a una terminal: una aprobacion con
+ * `Yes, proceed` primero y la negativa al final. Solo se ofrecen las opciones
+ * completas. Con la terminal baja Codex corta la ultima opcion que cabe, o
+ * deja de dibujar las que siguen, a veces sin ninguna marca: la etiqueta cortada
+ * mentiria sobre el alcance de lo que se aprueba ("commands that start with
+ * ..."), asi que no se ofrece, y la negativa que no se ve se agrega, porque
+ * `Esc` la contesta sin verla (`codexAnswerKeys`).
+ */
+function readApproval(menu: CodexMenu): ScreenQuestion | null {
+  if (!menu.options[0]?.label.startsWith('Yes, proceed')) return null;
+  const complete: CodexMenuOption[] = [];
+  for (const option of menu.options) {
+    if (!SHORTCUT.test(option.label)) break;
+    complete.push(option);
   }
-  if (options.length !== 3 || !options[0]?.label.startsWith('Yes, proceed') || !options[2]?.label.startsWith('No,')) return null;
+  if (complete.length === 0) return null;
+  const closed = /^No\b/.test(complete.at(-1)?.label ?? '');
+  const shown = closed ? complete : [...complete, { number: complete.length + 1, label: CODEX_DENY_LABEL, description: '' }];
   const item: ConversationQuestionItem = {
     header: 'Approval',
-    question: `${rows[start]}\n\n${body.slice(0, first).join('\n')}`,
-    options,
+    question: [menu.title, '', ...menu.body].join('\n'),
+    options: shown.map(({ label }) => ({ label, description: '' })),
     multiSelect: false,
     allowWriteIn: false,
   };
-  return { item, key: JSON.stringify(item), untouched: selected === 1 };
+  return cardOf(item, menu);
+}
+
+/** La herramienta de un servidor MCP: Allow, Allow for this session, Always allow y Cancel. */
+function readToolApproval(menu: CodexMenu): ScreenQuestion | null {
+  const question = menu.body[0];
+  if (!question || menu.options.length < 2) return null;
+  if (!menu.options[0]?.label.startsWith('Allow') || !/^Cancel\b/.test(menu.options.at(-1)?.label ?? '')) return null;
+  const item: ConversationQuestionItem = {
+    header: 'Approval',
+    question: [question, '', ...menu.body.slice(1)].join('\n').trim(),
+    options: plainOptions(menu.options),
+    multiSelect: false,
+    allowWriteIn: false,
+  };
+  return cardOf(item, menu);
+}
+
+/** "Implement this plan?", al terminar el modo Plan. */
+function readPlan(menu: CodexMenu): ScreenQuestion | null {
+  if (!menu.options[0]?.label.startsWith('Yes, implement') || !/^No, stay/.test(menu.options.at(-1)?.label ?? '')) return null;
+  const item: ConversationQuestionItem = {
+    header: 'Plan',
+    question: menu.title,
+    options: plainOptions(menu.options),
+    multiSelect: false,
+    allowWriteIn: false,
+  };
+  return cardOf(item, menu);
 }
 
 /** Los numeros de una opcion envian la respuesta inmediatamente. */
@@ -63,6 +120,8 @@ export function codexAnswerKeys(_shape: readonly { readonly multiSelect: boolean
     if (!Array.isArray(selected) || selected.length !== 1 || _shape[0]?.optionCount !== questions[0].options.length) return null;
     const index = selected[0];
     if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= _shape[0].optionCount) return null;
+    // El atajo de la etiqueta cierra el menu aunque la terminal no dibuje esa opcion.
+    if (/\(esc\)$/.test(questions[0].options[index]?.label ?? '')) return ['\x1b'];
     return [...Array(index).fill('\x1b[B'), '\r'];
   }
   if (selected && !Array.isArray(selected)) {

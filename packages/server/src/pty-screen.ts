@@ -104,7 +104,10 @@ export function createPtyScreen(cols: number, rows: number, replay: string): Pty
       if (!disposed) term.write(chunk);
     },
     lines() {
-      return read((line) => line.translateToString(true), '');
+      // Solo las columnas de ahora: al achicar el ancho, xterm conserva el resto de la linea (texto de una
+      // pantalla anterior) pegado al final de la actual, y un pie como "Press enter to confirm or esc to
+      // cancel     something went wrong" ya no se reconoce (§10.23).
+      return read((line) => line.translateToString(true, 0, term.cols), '');
     },
     async linesWithoutFaint() {
       return (await read<SplitLine>((line, cell) => splitLine(line, term.cols, cell), ['', ''])).map(([clean]) => clean);

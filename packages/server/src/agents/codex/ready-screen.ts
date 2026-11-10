@@ -29,6 +29,7 @@
  * "Resuming session…", turnos anteriores).
  */
 
+import { codexMenuOpen } from './menu-screen.js';
 import { codexScreenStatus } from './screen-status.js';
 
 /** Lo que dice que Codex esta ocupado, en las ultimas lineas. */
@@ -41,6 +42,8 @@ const COMPOSER = /^\s*›\s/;
 const EMPTY_COMPOSER = /^\s*›\s+Ask Codex to do anything\s*$/;
 
 export function codexReadyScreen(lines: readonly string[]): boolean {
+  // Un dialogo abierto (acceso completo, un plan) no tapa la caja de abajo: lo que se escriba cae adentro.
+  if (codexMenuOpen(lines)) return false;
   const tail = lines.filter((line) => line.trim() !== '').slice(-8);
   if (tail.some((line) => BUSY.test(line))) return false;
   const footer = tail.findIndex((line) => FOOTER.test(line));
@@ -56,6 +59,7 @@ export function codexEmptyComposerScreen(lines: readonly string[]): boolean {
 
 /** The permissions command is also accepted while Codex is working. */
 export function codexPermissionComposerScreen(lines: readonly string[], requireEmpty = true): boolean {
+  if (codexMenuOpen(lines)) return false;
   const tail = lines.filter((line) => line.trim() !== '').slice(-8);
   if (tail.some((line) => /Waiting for startup|esc cancel/.test(line))) return false;
   // Al pegar el comando, Codex reemplaza los atajos por modelo y carpeta.

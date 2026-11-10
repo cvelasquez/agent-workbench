@@ -932,10 +932,197 @@ const { CodexRolloutSink } = await import('../src/agents/codex/rollout-sink.ts')
     same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[0]], permission ? [permission.item] : []), ['\r']));
   check('Codex elegir una opcion persistente exige seleccion explicita y Enter',
     same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[1]], permission ? [permission.item] : []), ['\x1b[B', '\r']));
-  check('Codex permite rechazar la aprobacion con la opcion visible',
-    same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[2]], permission ? [permission.item] : []), ['\x1b[B', '\x1b[B', '\r']));
+  check('Codex rechaza la aprobacion con el atajo Esc de la etiqueta, que no depende de que se vea la opcion',
+    same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[2]], permission ? [permission.item] : []), ['\x1b']));
   check('Codex rechaza texto libre para una aprobacion', codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [{ text: 'no' }], permission ? [permission.item] : []) === null);
-  check('Codex omite aprobacion incompleta', readCodexQuestion(approval.slice(0, -2).concat(approval.at(-1))) === null);
+  check('Codex omite una aprobacion sin su pie', readCodexQuestion(approval.slice(0, -1)) === null);
+  check('Codex omite una aprobacion sin titulo', readCodexQuestion(approval.slice(1)) === null);
+  // Con la terminal baja Codex deja caer la ultima opcion a veces sin marca (§10.23): se completa con la
+  // negativa, que Esc contesta sin verla. Los mismos textos que la opcion de verdad, para que la tarjeta no cambie.
+  const dropped = readCodexQuestion(approval.slice(0, -2).concat(approval.at(-1)));
+  check('Codex completa con la negativa la aprobacion a la que la terminal baja le quito la ultima opcion',
+    dropped?.item.options.length === 3 && dropped.item.options[2]?.label === permission?.item.options[2]?.label && dropped.key === permission?.key);
+}
+// Los menus de la 0.167 medidos (§10.23): las pantallas reales a 120, 74 y 45 columnas, y recortadas. 74 es la CLI de
+// la web de escritorio con la consola del pie abierta y 45 la del telefono: a esos anchos el lector de antes no
+// reconocia ni `mkdir probe-a`.
+{
+  const { CODEX_MENU_SCREENS: S } = await import('./fixtures/codex-menu-screens.mjs');
+  const { codexScreenStatus } = await import('../src/agents/codex/screen-status.ts');
+  const { readCodexQuestion, codexAnswerKeys, CODEX_DENY_LABEL } = await import('../src/agents/codex/question-screen.ts');
+  const { parseCodexMenu, codexMenuOpen } = await import('../src/agents/codex/menu-screen.ts');
+  const { codexReadyScreen, codexEmptyComposerScreen, codexPermissionComposerScreen } = await import('../src/agents/codex/ready-screen.ts');
+  const labels = (card) => card?.item.options.map((option) => option.label) ?? [];
+  const YES = 'Yes, proceed (y)';
+  const NO = CODEX_DENY_LABEL;
+  const PERSIST = /^Yes, and don't ask again for commands that start with `/;
+  const full = (name) => {
+    const card = readCodexQuestion(S[name].lines);
+    return card !== null && card.untouched && card.item.header === 'Approval' && card.item.allowWriteIn === false &&
+      card.item.options.length === 3 && labels(card)[0] === YES && PERSIST.test(labels(card)[1] ?? '') && labels(card)[2] === NO &&
+      codexScreenStatus(S[name].lines).waitingFor === 'permission prompt';
+  };
+
+  // ---- Comando, entero: la opcion 2 se parte con el ancho y la tarjeta sale igual ----
+  for (const name of ['cmd-120x32-1', 'cmd-74x22-1', 'cmd-45x30-1', 'cmd-noreason-120x32-1', 'cmd-typ-74x22-1', 'cmd-typ-74x35-1', 'stdin-45x30-1', 'cmd-long-120x32-1', 'cmd-long-120x20-1']) {
+    check(`menu ${name}: tarjeta de aprobacion con las tres opciones y espera de permiso`, full(name));
+  }
+  const widths = ['cmd-120x32-1', 'cmd-74x22-1', 'cmd-45x30-1'].map((name) => readCodexQuestion(S[name].lines));
+  check('el mismo comando da la misma tarjeta a 120, 74 y 45 columnas',
+    widths.every((card) => card !== null && card.key === widths[0]?.key && card.item.question === widths[0]?.item.question));
+  check('el comando partido por el ancho vuelve entero en la tarjeta',
+    readCodexQuestion(S['cmd-typ-74x22-1'].lines)?.item.question.includes('$ rg -n "readCodexQuestion|codexScreenStatus" packages/server/src packages/server/scripts -g "*.ts" -g "*.mjs" --max-columns 160') === true &&
+    readCodexQuestion(S['cmd-long-120x32-1'].lines)?.item.question.endsWith('Out-String -Width 200') === true &&
+    readCodexQuestion(S['cmd-45x30-1'].lines)?.item.question === 'Would you like to run the following command?\n\nEnvironment: local\nReason: Prueba de menu\n$ mkdir probe-a');
+  check('sin motivo no se inventa uno',
+    readCodexQuestion(S['cmd-noreason-120x32-1'].lines)?.item.question.includes('Reason:') === false);
+  // Codex corta tambien despues de un guion o una barra dentro de una palabra: ahi no habia espacio, y ponerlo
+  // cambiaria el nombre que se aprueba (medido con la app: `mkdir probe- s1`).
+  const cutAfterHyphen = [
+    '  Would you like to run the following command?', '',
+    '  $ mkdir probe-', '  s1', '',
+    '› 1. Yes, proceed (y)',
+    "  2. Yes, and don't ask again for commands that start with `mkdir probe-",
+    '     s1` (p)',
+    '  3. No, and tell Codex what to do differently (esc)', '',
+    '  Press enter to confirm or esc to cancel',
+  ];
+  const hyphenCard = readCodexQuestion(cutAfterHyphen);
+  check('un comando cortado despues de un guion vuelve sin un espacio de mas',
+    hyphenCard?.item.question.endsWith('$ mkdir probe-s1') === true && hyphenCard.item.options[1]?.label.endsWith('`mkdir probe-s1` (p)') === true);
+  check('una ruta cortada despues de una barra tambien',
+    labels(readCodexQuestion(S['cmd-typ-120x16-1'].lines))[1]?.includes('packages/server/src packages/server/scripts') === true);
+  check('pero un corte entre palabras conserva su espacio',
+    readCodexQuestion(cutAfterHyphen.map((row) => row.replace('$ mkdir probe-', '$ git log --oneline').replace(/^ {2}s1$/, '  main')))?.item.question.endsWith('$ git log --oneline main') === true);
+
+  // ---- Comando recortado por la terminal baja: solo lo completo, mas la negativa que Esc contesta ----
+  const clipped = {
+    'cmd-long-45x30-1': 'el menu sigue abajo (↓) y la opcion 2 llega cortada',
+    'cmd-long-50x17-1': 'la opcion 2 llega cortada',
+    'cmd-long-120x14-1': 'la opcion 2 llega cortada, sin marca',
+    'cmd-typ-74x14-1': 'la opcion 2 llega cortada',
+  };
+  for (const [name, why] of Object.entries(clipped)) {
+    const card = readCodexQuestion(S[name].lines);
+    check(`menu recortado ${name} (${why}): Yes y la negativa, sin la etiqueta cortada`,
+      same(labels(card), [YES, NO]) && card?.untouched === true && codexScreenStatus(S[name].lines).activity === 'waiting');
+  }
+  for (const name of ['cmd-typ-120x16-1', 'cmd-typ-120x12-1']) {
+    const card = readCodexQuestion(S[name].lines);
+    check(`menu recortado ${name}: la opcion 2 completa se ofrece y la 3 se agrega`,
+      card?.item.options.length === 3 && PERSIST.test(labels(card)[1] ?? '') && labels(card)[2] === NO);
+  }
+  check('el menu recortado se ve como recortado', parseCodexMenu(S['cmd-long-45x30-1'].lines)?.moreBelow === true && parseCodexMenu(S['cmd-typ-120x16-1'].lines)?.moreBelow === true);
+  check('contestar la negativa que la pantalla no muestra es Esc; las demas, flechas y Enter',
+    same(codexAnswerKeys([{ multiSelect: false, optionCount: 2 }], [[1]], readCodexQuestion(S['cmd-long-45x30-1'].lines)?.item ? [readCodexQuestion(S['cmd-long-45x30-1'].lines).item] : []), ['\x1b']) &&
+    same(codexAnswerKeys([{ multiSelect: false, optionCount: 2 }], [[0]], [readCodexQuestion(S['cmd-long-45x30-1'].lines).item]), ['\r']) &&
+    same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[1]], [readCodexQuestion(S['cmd-typ-120x16-1'].lines).item]), ['\x1b[B', '\r']));
+
+  // ---- Editar archivos ----
+  for (const name of ['patch-120x32-1', 'patch-74x22-1', 'patch-45x30-1', 'patch-big-120x32-1', 'patch-update-120x32-1']) {
+    const card = readCodexQuestion(S[name].lines);
+    check(`menu ${name}: edicion con tres opciones`,
+      card !== null && card.untouched && card.item.question.startsWith('Would you like to make the following edits?') &&
+      same(labels(card), [YES, "Yes, and don't ask again for these files (a)", NO]) &&
+      codexScreenStatus(S[name].lines).waitingFor === 'permission prompt');
+  }
+  check('la edicion lista cada archivo en su renglon, tambien cuando la ruta cae en el renglon de abajo',
+    readCodexQuestion(S['patch-big-120x32-1'].lines)?.item.question.split('\n').filter((line) => line.startsWith('Destination:')).length === 3 &&
+    readCodexQuestion(S['patch-45x30-1'].lines)?.item.question.includes('Description: Apply proposed file edits\nDestination: C:\\work\\project\\notas.txt') === true);
+
+  // ---- Entrada a una terminal: dos opciones ----
+  for (const name of ['stdin-120x32-2', 'stdin-74x22-2', 'stdin-45x30-2']) {
+    const card = readCodexQuestion(S[name].lines);
+    check(`menu ${name}: entrada a una terminal con dos opciones`,
+      card !== null && card.untouched && same(labels(card), [YES, NO]) &&
+      /^Would you like to send input to terminal \d+\?/.test(card.item.question) && card.item.question.includes('Input: "Get-Date\\n"') &&
+      codexScreenStatus(S[name].lines).waitingFor === 'permission prompt');
+  }
+
+  // ---- Herramienta MCP: cuatro opciones con descripcion, tambien partidas en dos columnas ----
+  const MCP = ['Allow', 'Allow for this session', 'Always allow', 'Cancel'];
+  for (const name of ['mcp-120x32-1', 'mcp-74x22-1', 'mcp-45x30-1']) {
+    const card = readCodexQuestion(S[name].lines);
+    check(`menu ${name}: herramienta MCP con sus cuatro opciones`,
+      card !== null && card.untouched && same(labels(card), MCP) && card.item.question === 'Allow the probe MCP server to run tool "hello"?\n\nwho: mundo' &&
+      card.item.options[1]?.description === 'Run the tool and remember this choice for this session' &&
+      codexScreenStatus(S[name].lines).waitingFor === 'permission prompt');
+  }
+  const mcpBase = S['mcp-120x32-1'].lines;
+  const mcpTouched = mcpBase.map((line) => line.replace('Field 1/1', 'Field 1/1 (1 required unanswered)').replace(/^(\s*)› 1\./, '$1  1.').replace(/^(\s*)  2\./, '$1› 2.'));
+  const mcpFirst = readCodexQuestion(mcpBase);
+  const mcpMoved = readCodexQuestion(mcpTouched);
+  check('MCP: tocar la lista en la solapa CLI no cambia la pregunta pero la deja tocada',
+    mcpFirst !== null && mcpMoved !== null && mcpFirst.key === mcpMoved.key && mcpFirst.untouched && !mcpMoved.untouched);
+
+  // ---- Plan ----
+  for (const name of ['plan-120x32-1', 'plan-74x22-1', 'plan-45x30-1']) {
+    const card = readCodexQuestion(S[name].lines);
+    check(`menu ${name}: implementar el plan`,
+      card !== null && card.untouched && card.item.header === 'Plan' && card.item.question === 'Implement this plan?' &&
+      same(labels(card), ['Yes, implement this plan', 'Yes, clear context and implement', 'No, stay in Plan mode']) &&
+      codexScreenStatus(S[name].lines).waitingFor === 'input needed');
+  }
+  check('contestar el plan: la tercera opcion es dos flechas y Enter, no Esc',
+    same(codexAnswerKeys([{ multiSelect: false, optionCount: 3 }], [[2]], [readCodexQuestion(S['plan-45x30-1'].lines).item]), ['\x1b[B', '\x1b[B', '\r']));
+
+  // ---- La pregunta del modelo, que ya se leia a 120 columnas ----
+  for (const name of ['question-120x32-1', 'question-74x22-1', 'question-45x30-1']) {
+    const card = readCodexQuestion(S[name].lines);
+    check(`menu ${name}: pregunta del modelo, con el pie partido a 45 columnas`,
+      card !== null && card.untouched && card.item.header === 'Question 1/1' && card.item.question === 'Que base usaremos?' &&
+      same(labels(card), ['PostgreSQL', 'SQLite']) && codexScreenStatus(S[name].lines).waitingFor === 'input needed');
+  }
+
+  // ---- Los dialogos sin tarjeta: esperan, y nada que se escriba debe caer adentro ----
+  for (const name of ['fullaccess-120x32-1', 'fullaccess-45x30-1', 'workspace-120x32-1']) {
+    const status = codexScreenStatus(S[name].lines);
+    check(`dialogo ${name}: espera una respuesta, sin tarjeta, y no deja la caja lista`,
+      status.activity === 'waiting' && status.waitingFor === 'dialog open' && readCodexQuestion(S[name].lines) === null &&
+      codexMenuOpen(S[name].lines) && !codexReadyScreen(S[name].lines) && !codexEmptyComposerScreen(S[name].lines) &&
+      !codexPermissionComposerScreen(S[name].lines) && !codexPermissionComposerScreen(S[name].lines, false));
+  }
+  check('el dialogo de acceso completo ya no se ve como libre aunque la caja se vea debajo',
+    S['fullaccess-120x32-1'].lines.some((line) => /Ask Codex to do anything/.test(line)) && codexScreenStatus(S['fullaccess-120x32-1'].lines).activity === 'waiting');
+  check('la aprobacion de permisos (flag apagado) espera como permiso pero no tiene tarjeta',
+    codexScreenStatus(S['perms-120x32-1'].lines).waitingFor === 'permission prompt' && readCodexQuestion(S['perms-120x32-1'].lines) === null);
+
+  // ---- La pantalla emulada despues de achicar el ancho (§10.23): xterm conserva lo que caia mas alla ----
+  {
+    const { createPtyScreen } = await import('../src/pty-screen.ts');
+    // Una pantalla de 74 columnas con el pie del menu y, mas a la derecha, texto de una pantalla anterior.
+    const screen = createPtyScreen(74, 4, '\x1b[3;3HPress enter to confirm or esc to cancel\x1b[3;50Hsomething went wrong');
+    // Leer primero: la escritura del replay es asincrona, y sin esperarla el cambio de ancho llegaria antes que el texto.
+    const wide = await screen.lines();
+    screen.resize(45, 4);
+    const lines = await screen.lines();
+    screen.dispose();
+    check('la linea ancha de partida si trae el texto de mas (si no, el caso no prueba nada)', wide[2]?.includes('something went wrong') === true);
+    check('al achicar el ancho la pantalla emulada no conserva el texto que cae mas alla de la ultima columna',
+      lines.every((line) => line.length <= 45) && lines[2] === '  Press enter to confirm or esc to cancel');
+    check('y el pie del menu se sigue reconociendo despues de achicar el ancho', codexMenuOpen(lines) && codexScreenStatus(lines).activity === 'waiting');
+  }
+
+  // ---- Lo que no es un menu sigue sin serlo ----
+  const answer = ['• Opciones:', '  1. PostgreSQL', '  2. SQLite', '', '› Ask Codex to do anything', '', '  ? for shortcuts'];
+  check('una lista numerada en la respuesta del asistente no es un menu', parseCodexMenu(answer) === null && codexScreenStatus(answer).activity === 'idle' && readCodexQuestion(answer) === null);
+  check('la marca de una opcion no se toma por la caja', codexScreenStatus(['› 1. Algo', '  ? for shortcuts']).activity === 'unknown');
+  check('la caja lista de siempre sigue lista', codexReadyScreen(['', '› Ask Codex to do anything', '', '  ? for shortcuts']) === true);
+
+  // ---- Lo que se parece a un menu pero no tiene su forma medida no se lee (cada familia pide la suya) ----
+  const rename = (lines, from, to) => lines.map((line) => line.replace(from, to));
+  check('un plan con otras opciones no se toma por el plan', readCodexQuestion(rename(S['plan-120x32-1'].lines, 'Yes, implement this plan', 'Do something else')) === null);
+  check('una aprobacion cuya primera opcion no es "Yes, proceed" no se lee', readCodexQuestion(rename(S['cmd-120x32-1'].lines, 'Yes, proceed (y)', 'Run it (y)')) === null);
+  check('una herramienta MCP sin "Cancel" al final no se lee', readCodexQuestion(rename(S['mcp-120x32-1'].lines, 'Cancel', 'Ignore')) === null);
+  check('una pregunta a la que le falta la opcion 1 no se lee: el numero elegiria otra opcion',
+    readCodexQuestion(S['question-120x32-1'].lines.filter((line) => !/1\. PostgreSQL/.test(line))) === null);
+  check('una pregunta sin "None of the above" al final no se lee', readCodexQuestion(rename(S['question-120x32-1'].lines, 'None of the above', 'Something else')) === null);
+
+  // ---- Tocado, cambiado o movido: nada se contesta ----
+  const move = (lines) => lines.map((line) => line.replace(/^(\s*)› 1\./, '$1  1.').replace(/^(\s*)  2\./, '$1› 2.'));
+  check('una aprobacion con la marca movida a otra opcion queda tocada', readCodexQuestion(move(S['cmd-74x22-1'].lines))?.untouched === false && readCodexQuestion(move(S['patch-45x30-1'].lines))?.untouched === false);
+  const scrolled = S['cmd-74x22-1'].lines.filter((line) => !/^\s*›? ?1\. Yes, proceed/.test(line));
+  check('si la opcion 1 ya no se ve (alguien bajo la lista) no hay tarjeta', readCodexQuestion(scrolled) === null);
 }
 // La tarjeta de la pregunta de Codex debe caducar al cerrarse la TUI o cambiar
 // la sesion; una tarjeta anterior nunca puede contestar la sesion siguiente.
