@@ -89,7 +89,9 @@ dependen de la CLI:
 | Punto de la pestaña: trabajando, libre, esperándote | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
 | Contestar las preguntas del agente desde la conversación | ✓ | ✓ ⁴ | ✓ ¹ | ✓ | — |
 | Medidor de contexto | ✓ | ✓ | ✓ | ✓ ² | ✓ |
-| Selectores de modo y de modelo | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Selectores de modo, modelo y esfuerzo de razonamiento | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Dictado por voz | ✓ ⁵ | - | - | ✓ ⁵ | - |
+| Conversación de voz en vivo | - | ✓ ⁴ ⁵ | - | ✓ ⁵ | - |
 | Pegar imágenes | ✓ | ✓ | ✓ | ✓ | ✓ ³ |
 | Solapa Planes | ✓ | ✓ | — | ✓ | — |
 | Mandar una nota a una conversación nueva | ✓ | — | — | — | — |
@@ -107,7 +109,12 @@ archivo que el modelo abre por su cuenta.
 
 ⁴ Los controles de Codex dependen de la versión instalada. Las tarjetas de
 preguntas y aprobaciones cubren los menús reconocidos; para el resto sigue
-disponible la terminal de la CLI.
+disponible la terminal de la CLI. La conversación de voz en vivo requiere
+Codex 0.166 o posterior.
+
+⁵ Los controles de voz están disponibles localmente en el equipo donde se
+ejecuta la CLI, con su micrófono y altavoces. Su disponibilidad depende de
+la versión y configuración de la CLI.
 
 ---
 

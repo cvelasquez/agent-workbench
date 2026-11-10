@@ -89,7 +89,9 @@ quelques fonctions dépendent de la CLI :
 | Point de l'onglet : travaille, au repos, vous attend | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
 | Répondre aux questions de l'agent depuis la conversation | ✓ | ✓ ⁴ | ✓ ¹ | ✓ | — |
 | Jauge de contexte | ✓ | ✓ | ✓ | ✓ ² | ✓ |
-| Sélecteurs de mode et de modèle | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Sélecteurs de mode, de modèle et d'effort de raisonnement | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Dictée vocale | ✓ ⁵ | - | - | ✓ ⁵ | - |
+| Conversation vocale en direct | - | ✓ ⁴ ⁵ | - | ✓ ⁵ | - |
 | Coller des images | ✓ | ✓ | ✓ | ✓ | ✓ ³ |
 | Onglet Plans | ✓ | ✓ | — | ✓ | — |
 | Envoyer une note dans une nouvelle conversation | ✓ | — | — | — | — |
@@ -107,7 +109,12 @@ sous la forme d'un chemin de fichier que le modèle ouvre lui-même.
 
 ⁴ Les commandes de Codex dépendent de la version installée. Les cartes de
 questions et d'approbations couvrent les menus reconnus ; le terminal de la CLI
-reste disponible pour le reste.
+reste disponible pour le reste. La conversation vocale en direct nécessite
+Codex 0.166 ou une version plus récente.
+
+⁵ Les commandes vocales sont disponibles localement sur l'ordinateur qui
+exécute la CLI, avec son microphone et ses haut-parleurs. Leur disponibilité
+dépend de la version et de la configuration de la CLI.
 
 ---
 

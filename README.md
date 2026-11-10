@@ -89,7 +89,9 @@ CLI:
 | Tab dot: working, idle, waiting for you | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
 | Answer the agent's questions from the conversation | ✓ | ✓ ⁴ | ✓ ¹ | ✓ | — |
 | Context meter | ✓ | ✓ | ✓ | ✓ ² | ✓ |
-| Mode and model pickers | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Mode, model and reasoning effort pickers | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Voice dictation | ✓ ⁵ | - | - | ✓ ⁵ | - |
+| Live voice conversation | - | ✓ ⁴ ⁵ | - | ✓ ⁵ | - |
 | Paste images | ✓ | ✓ | ✓ | ✓ | ✓ ³ |
 | Plans tab | ✓ | ✓ | — | ✓ | — |
 | Send a note to a new conversation | ✓ | — | — | — | — |
@@ -107,6 +109,10 @@ model opens itself.
 
 ⁴ Codex controls depend on the installed version. Question and approval cards
 cover recognized menus; the CLI's terminal remains available for the rest.
+Live voice conversation requires Codex 0.166 or newer.
+
+⁵ Voice controls are available locally on the computer running the CLI, using
+its microphone and speakers. Availability depends on the CLI's version and setup.
 
 ---
 

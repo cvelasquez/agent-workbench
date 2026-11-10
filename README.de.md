@@ -90,7 +90,9 @@ Funktionen von der CLI ab:
 | Punkt auf dem Tab: arbeitet, bereit, wartet auf Sie | ✓ | — | ✓ ¹ | ✓ ² | ✓ |
 | Fragen des Agenten in der Unterhaltung beantworten | ✓ | ✓ ⁴ | ✓ ¹ | ✓ | — |
 | Kontextanzeige | ✓ | ✓ | ✓ | ✓ ² | ✓ |
-| Auswahl von Modus und Modell | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Auswahl von Modus, Modell und Denkaufwand | ✓ | ✓ ⁴ | — | ✓ | ✓ ³ |
+| Sprachdiktat | ✓ ⁵ | - | - | ✓ ⁵ | - |
+| Sprachgespräch in Echtzeit | - | ✓ ⁴ ⁵ | - | ✓ ⁵ | - |
 | Bilder einfügen | ✓ | ✓ | ✓ | ✓ | ✓ ³ |
 | Tab „Pläne“ | ✓ | ✓ | — | ✓ | — |
 | Notiz an eine neue Unterhaltung senden | ✓ | — | — | — | — |
@@ -108,7 +110,12 @@ Dateipfad übergeben, den das Modell selbst öffnet.
 
 ⁴ Die Steuerelemente von Codex hängen von der installierten Version ab. Frage-
 und Freigabekarten decken erkannte Menüs ab; für alles andere bleibt das
-Terminal der CLI verfügbar.
+Terminal der CLI verfügbar. Sprachgespräche in Echtzeit erfordern Codex 0.166
+oder neuer.
+
+⁵ Die Sprachsteuerung ist lokal auf dem Computer verfügbar, auf dem die CLI
+läuft, und nutzt dessen Mikrofon und Lautsprecher. Die Verfügbarkeit hängt
+von der Version und Konfiguration der CLI ab.
 
 ---
 
