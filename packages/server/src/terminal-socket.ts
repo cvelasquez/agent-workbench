@@ -2447,17 +2447,18 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
             try {
               const descriptor = await registry.wake(message.terminalId);
               if (descriptor === null && !existed) {
-                sendError(socket, 'unknown-terminal', serverText('terminalGone'));
+                sendError(socket, 'unknown-terminal', serverText('terminalGone'), undefined, message.requestId);
               }
             } catch (error) {
               if (error instanceof TerminalOpenError) {
-                sendError(socket, error.code, error.text, error.detail);
+                sendError(socket, error.code, error.text, error.detail, message.requestId);
               } else {
                 sendError(
                   socket,
                   'internal',
                   serverText('cliOpenFailed'),
                   error instanceof Error ? error.message : String(error),
+                  message.requestId,
                 );
               }
             }

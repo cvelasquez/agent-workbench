@@ -7,13 +7,14 @@
  *  - **El historial es una base SQLite compartida**, no un archivo por sesion.
  *    Se abre en solo lectura con `node:sqlite` (`agents/sqlite.ts`), nunca se
  *    escribe, y de ella se leen solo `session`, `message` y `part`
- *    (`sql.ts`). Para **leer** el historial no se corre ningun subcomando de
+ *    (`sql.ts`, y `sql-v2.ts` para OpenCode 2). Para **leer** el historial no se corre ningun subcomando de
  *    `opencode`: con la base real, uno cualquiera la modifica (hace un
  *    checkpoint al abrirla).
  *  - **Las pestanas se enganchan a un `opencode serve` propio** (hito 29, D1):
  *    uno solo por arranque, perezoso, en `127.0.0.1` y con una contrasena por
  *    arranque (`serve-process.ts`). Cada pestana es un `opencode attach` a ese
- *    servidor (`serve-launch.ts`).
+ *    servidor (`serve-launch.ts`); OpenCode 2 usa `--server` y autenticacion
+ *    en la URL con esa misma contrasena transitoria.
  *  - **La sesion se crea por API antes de lanzar** (D6): la pestana nace con su
  *    id y no hay nada que descubrir. `discovery.ts`, que casaba la pestana con
  *    la fila que nacia en la base, se borro con esto (D7).
@@ -43,6 +44,9 @@ import { loadSqlite, ReadOnlyDatabase, sqliteUnavailableText, type SqliteLoad } 
 import { ModelCatalog } from './catalog.js';
 import { DbChangeSignal } from './db-signal.js';
 import { createOpenCodeHistory } from './history.js';
+import { createOpenCodeV2History, readV2PartCall, readV2PromptChoice } from './history-v2.js';
+import { openCodeProtocol, type OpenCodeProtocol } from './compatibility.js';
+import { versionedHistory } from './versioned-history.js';
 import { OPENCODE_SESSION_ID_PATTERN } from './ids.js';
 import { resolveOpenCodePaths, type OpenCodePaths } from './paths.js';
 import { OpenCodeServeClient, type ServeClientOptions } from './serve-client.js';
@@ -52,7 +56,8 @@ import { OpenCodeServeProcess, type ServeEndpoint, type ServeProcessOptions } fr
 import { OpenCodeQuestions, readPartCall } from './serve-questions.js';
 import { OpenCodeServeStatus, readSessionParent, type ServeStatusOptions } from './serve-status.js';
 import { OPENCODE_SCHEDULED_CONFIRM_MS, readLastUserPrompt } from './scheduled.js';
-import { OPENCODE_REQUIRED_COLUMNS } from './sql.js';
+import { OPENCODE_REQUIRED_COLUMNS, OPENCODE_SCHEMA_VERSION_SQL } from './sql.js';
+import { OPENCODE_V2_REQUIRED_COLUMNS, OPENCODE_V2_SQL } from './sql-v2.js';
 
 /** Nombre del comando en el PATH. Dato de compatibilidad, no marca (regla 2.3). */
 export const OPENCODE_COMMAND = 'opencode';
@@ -210,6 +215,31 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
   );
   const catalog = new ModelCatalog(paths.modelsFile);
   const serveEnv = options.serveEnv ?? (() => copyEnvironment(process.env));
+  const schemaDb = new ReadOnlyDatabase(paths.dbFile ?? '', {
+    idleCloseMs: OPENCODE_DB_IDLE_CLOSE_MS, required: [], label: OPENCODE_LABEL, sqlite,
+  });
+  const v2Db = new ReadOnlyDatabase(paths.dbFile ?? '', {
+    idleCloseMs: OPENCODE_DB_IDLE_CLOSE_MS, required: OPENCODE_V2_REQUIRED_COLUMNS, label: OPENCODE_LABEL, sqlite,
+  });
+  let locatedProtocol: OpenCodeProtocol | null = null;
+  let lastV2History = false;
+  const v2Tables = JSON.stringify(OPENCODE_V2_REQUIRED_COLUMNS.map(({ table }) => table));
+  const isV2History = (): boolean => {
+    if (locatedProtocol === 1 || paths.dbFile === null) return false;
+    try {
+      const columns = schemaDb.all<{ table_name: string; column_name: string }>(OPENCODE_SCHEMA_VERSION_SQL, v2Tables);
+      if (schemaDb.status() !== 'ok') return lastV2History;
+      const present = new Set(columns.map((row) => `${row.table_name}.${row.column_name}`));
+      lastV2History = OPENCODE_V2_REQUIRED_COLUMNS.every(({ table, columns: required }) =>
+        required.every((column) => present.has(`${table}.${column}`)));
+    } catch {
+      // Una base ocupada no cambia el contrato ni vacía el historial conocido.
+    }
+    return lastV2History;
+  };
+  const historyDeps = { dbFile: paths.dbFile, db, signal, catalog, platform, sqlite };
+  const v1History = createOpenCodeHistory(historyDeps);
+  const v2History = createOpenCodeV2History({ ...historyDeps, db: v2Db });
 
   /*
     El `serve` nace con el primer lanzamiento, con la ubicacion de la CLI que
@@ -218,7 +248,13 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
   */
   let serve: OpenCodeServeProcess | null = null;
   // El padre de un sub-agente sale de la base, de a una fila (R29-1).
-  const status = new OpenCodeServeStatus({ ...options.serveStatus, parentOf: (id) => readSessionParent(db, id) });
+  const status = new OpenCodeServeStatus({ ...options.serveStatus, parentOf: (id) => {
+    if (!isV2History()) return readSessionParent(db, id);
+    try {
+      const row = v2Db.get<{ parent_id: string | null }>(OPENCODE_V2_SQL.sessionParentById, id);
+      return row === undefined ? null : { parentId: row.parent_id };
+    } catch { return null; }
+  } });
   /**
    * El cliente del `serve` que escucha ahora, casado por identidad con el
    * endpoint que devolvio `ensure()`: `status.detach` compara asi, y un aviso
@@ -267,7 +303,8 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
   };
 
   const questions = new OpenCodeQuestions({
-    lookupCall: (partId, sessionId) => readPartCall(db, partId, sessionId),
+    lookupCall: (partId, sessionId) => isV2History()
+      ? readV2PartCall(v2Db, partId, sessionId) : readPartCall(db, partId, sessionId),
     client: () => current?.client ?? null,
   });
 
@@ -280,9 +317,23 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
     input: OPENCODE_INPUT,
 
     // `--version` es seguro: medido, no toca la base ni escribe log.
-    locate: () => locateCommand(OPENCODE_COMMAND),
+    async locate() {
+      const location = await locateCommand(OPENCODE_COMMAND);
+      locatedProtocol = location === null ? null : openCodeProtocol(location.version);
+      return location;
+    },
 
     missingMessage: () => commandNotFoundMessage(OPENCODE_COMMAND, OPENCODE_INSTALL_URL),
+
+    async beforeLaunch(input, terminalEnv) {
+      if (openCodeProtocol(input.location.version) !== 2) return;
+      // La contraseña transitoria viaja en --server. Las variables de un
+      // servidor ajeno prevalecen sobre esa URL en 2.2.7: quitarlas solo de
+      // esta copia evita conectar el TUI con la contraseña equivocada.
+      for (const key of Object.keys(terminalEnv)) {
+        if (key.toUpperCase() === 'OPENCODE_PASSWORD' || key.toUpperCase() === 'OPENCODE_SERVER_PASSWORD') delete terminalEnv[key];
+      }
+    },
 
     /**
      * `attach <url> --dir . --session <id> --password <hex>` (D5), con la
@@ -294,6 +345,7 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
      * pone OpenCode.
      */
     launch(input: LaunchInput): Promise<LaunchPlan> {
+      locatedProtocol = openCodeProtocol(input.location.version);
       return launchWithServe(
         {
           ensure: () => serveFor(input.location).ensure(),
@@ -328,14 +380,7 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
       });
     },
 
-    history: createOpenCodeHistory({
-      dbFile: paths.dbFile,
-      db,
-      signal,
-      catalog,
-      platform,
-      sqlite,
-    }),
+    history: versionedHistory(() => isV2History() ? v2History : v1History, v1History),
     status,
     questions,
 
@@ -356,7 +401,8 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
         if (client === null) return 'not-sent';
         let choice;
         try {
-          choice = readLastUserPrompt(db, target.sessionId);
+          choice = current?.endpoint.protocol === 2
+            ? readV2PromptChoice(v2Db, target.sessionId) : readLastUserPrompt(db, target.sessionId);
         } catch {
           return 'not-sent';
         }
@@ -417,6 +463,8 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Age
       current = null;
       signal.dispose();
       db.close();
+      v2Db.close();
+      schemaDb.close();
       return serve?.dispose() ?? Promise.resolve();
     },
   };

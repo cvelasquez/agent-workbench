@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StartupErrorBanner } from './StartupErrorBanner.js';
 import {
   compactCommandFor,
   handoffSendingText,
@@ -1967,12 +1968,13 @@ export function App(): JSX.Element {
       )}
 
       {error !== null && (
-        <div className="banner banner-error">
-          <span>{error.message}</span>
-          <button className="banner-close" onClick={dismissError} title={t('common.close')}>
-            ×
-          </button>
-        </div>
+        error.startup ? <StartupErrorBanner key={error.at} error={error}
+          agent={sessionAgentLabel(error.startup.agent ?? defaultAgent ?? 'claude-code', agents)}
+          onClose={dismissError} /> :
+          <div className="banner banner-error">
+            <span>{error.message}</span>
+            <button className="banner-close" onClick={dismissError} title={t('common.close')}>×</button>
+          </div>
       )}
 
       {/*

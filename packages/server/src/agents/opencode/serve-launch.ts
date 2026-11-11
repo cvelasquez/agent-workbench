@@ -36,6 +36,14 @@ export interface ServeLaunchDeps {
 
 /** Los argumentos de `attach`, con el prefijo del shim delante. */
 export function attachArgs(location: CliLocation, endpoint: ServeEndpoint, sessionId: string): string[] {
+  if (endpoint.protocol === 2) {
+    // 2.2.7 acepta basic auth en la URL. Como --password en V1, solo es
+    // la contraseña transitoria del servidor propio; el entorno no cambia.
+    const url = new URL(endpoint.url);
+    url.username = endpoint.username;
+    url.password = endpoint.password;
+    return [...location.prefixArgs, '--server', url.toString(), '--session', sessionId];
+  }
   return [...location.prefixArgs, 'attach', endpoint.url, '--dir', '.', '--session', sessionId, '--password', endpoint.password];
 }
 

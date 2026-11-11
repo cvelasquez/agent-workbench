@@ -611,6 +611,7 @@ export interface ClientOpenTerminalMessage {
 export interface ClientWakeTerminalMessage {
   type: 'terminal.wake';
   terminalId: TerminalId;
+  requestId?: string;
 }
 
 export interface ClientCloseTerminalMessage {
@@ -3042,7 +3043,11 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     }
     case 'terminal.wake': {
       const terminalId = asNonEmptyString(record['terminalId']);
-      return terminalId === null ? null : { type: 'terminal.wake', terminalId };
+      const requestId = asNonEmptyString(record['requestId']);
+      return terminalId === null ? null : {
+        type: 'terminal.wake', terminalId,
+        ...(requestId === null ? {} : { requestId }),
+      };
     }
     case 'terminal.attach': {
       const terminalId = asNonEmptyString(record['terminalId']);

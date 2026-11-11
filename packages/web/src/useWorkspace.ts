@@ -56,6 +56,8 @@ function readActiveTab(): TerminalId | null {
 export interface WorkspaceError {
   message: string;
   at: number;
+  detail?: string;
+  startup?: { agent: AgentId | null; retry: () => void };
 }
 
 export interface OpenTerminalRequest {
@@ -345,6 +347,7 @@ export function useWorkspace(): Workspace {
     la respuesta; esto es la red por si no llega ninguna (`PENDING_OPEN_TIMEOUT_MS`).
   */
   const pendingTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const startupRequests = useRef(new Map<string, { agent: AgentId | null; retry: () => void }>());
 
   /**
    * Suelta la provisional de un pedido, y su plazo.
@@ -368,6 +371,7 @@ export function useWorkspace(): Workspace {
   const dropAllPending = useCallback(() => {
     for (const timer of pendingTimers.current.values()) clearTimeout(timer);
     pendingTimers.current.clear();
+    startupRequests.current.clear();
     setPendingOpens((current) => (current.length === 0 ? current : []));
   }, []);
 
@@ -553,6 +557,7 @@ export function useWorkspace(): Workspace {
           break;
 
         case 'terminal.opened': {
+          startupRequests.current.delete(message.requestId);
           // La de verdad ya esta en la lista: la provisional sobra, y sale
           // antes de activar nada para que no se dibujen las dos.
           dropPending(message.requestId);
@@ -627,7 +632,14 @@ export function useWorkspace(): Workspace {
           if (message.code === 'settings-failed') break;
           // Y volver a antes de un mensaje (hito 44): lo dice su dialogo. Ver `useRewind`.
           if (message.code === 'rewind-failed') break;
-          setError({ message: serverTextMessage(message.text), at: Date.now() });
+          setError({
+            message: serverTextMessage(message.text), at: Date.now(),
+            ...(message.detail === undefined ? {} : { detail: message.detail }),
+            ...((message.code === 'spawn-failed' || message.code === 'internal') && message.requestId !== undefined
+              && startupRequests.current.has(message.requestId)
+              ? { startup: startupRequests.current.get(message.requestId)! } : {}),
+          });
+          if (message.requestId !== undefined) startupRequests.current.delete(message.requestId);
           // Un fallo al abrir la CLI no puede dejar el boton diciendo
           // "Abriendo…" para siempre. Ni "Relanzando…".
           setWaking((current) => (current.size === 0 ? current : new Set()));
@@ -727,8 +739,10 @@ export function useWorkspace(): Workspace {
   useEffect(() => dropAllPending, [dropAllPending]);
 
   const openTerminal = useCallback(
-    (options: OpenTerminalRequest) => {
+    function open(options: OpenTerminalRequest) {
       const requestId = crypto.randomUUID();
+      startupRequests.current.set(requestId, { agent: options.agent ?? defaultAgent, retry: () => open(options) });
+      if (startupRequests.current.size > 64) startupRequests.current.delete(startupRequests.current.keys().next().value!);
       ownRequests.current.add(requestId);
       if (options.onOpened !== undefined) {
         pendingOpen.current.set(requestId, options.onOpened);
@@ -761,7 +775,7 @@ export function useWorkspace(): Workspace {
         ...(options.agent !== undefined ? { agent: options.agent } : {}),
       });
     },
-    [connection, dropPending],
+    [connection, dropPending, defaultAgent],
   );
 
   const openShell = useCallback(
@@ -780,16 +794,22 @@ export function useWorkspace(): Workspace {
   );
 
   const wakeTerminal = useCallback(
-    (terminalId: TerminalId) => {
+    function wake(terminalId: TerminalId) {
+      const requestId = crypto.randomUUID();
+      startupRequests.current.set(requestId, {
+        agent: allTerminals.find((terminal) => terminal.terminalId === terminalId)?.agent ?? null,
+        retry: () => wake(terminalId),
+      });
+      if (startupRequests.current.size > 64) startupRequests.current.delete(startupRequests.current.keys().next().value!);
       setWaking((current) => new Set(current).add(terminalId));
       // Con el servidor cerrado, despertar es relanzar: el TUI viejo sale antes (M2).
       if (offlineReasonsRef.current.get(terminalId) === 'server-closed') {
         relaunchPhases.current = new Map(relaunchPhases.current).set(terminalId, 'waiting-exit');
         setRelaunching(new Set(relaunchPhases.current.keys()));
       }
-      connection.send({ type: 'terminal.wake', terminalId });
+      connection.send({ type: 'terminal.wake', terminalId, requestId });
     },
-    [connection],
+    [connection, allTerminals],
   );
 
   const renameTerminal = useCallback(

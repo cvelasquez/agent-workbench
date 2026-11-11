@@ -46,6 +46,9 @@
 import { sqlCutLength, type EventLimits } from '../transport-limits.js';
 import { toolInputParseMaxChars } from './events.js';
 
+/** Solo metadatos: elegir el lector sin abrir tablas de cuentas ni credenciales. */
+export const OPENCODE_SCHEMA_VERSION_SQL = "SELECT m.name AS table_name, p.name AS column_name FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type = 'table' AND m.name IN (SELECT value FROM json_each(?))";
+
 /**
  * Los tres cortes de `PART_COLUMNS` para unos topes, con la clave tal como la
  * nombra la sentencia.

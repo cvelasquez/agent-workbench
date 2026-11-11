@@ -393,11 +393,11 @@ const fakeCatalog = { contextWindow: async (provider, model) => (provider === 'o
 
   const opencodeDir = path.join(serverDir, 'src', 'agents', 'opencode');
   const withSql = [];
-  for (const file of (await readdir(opencodeDir)).filter((name) => name.endsWith('.ts') && name !== 'sql.ts')) {
+  for (const file of (await readdir(opencodeDir)).filter((name) => name.endsWith('.ts') && name !== 'sql.ts' && name !== 'sql-v2.ts')) {
     const text = await readFile(path.join(opencodeDir, file), 'utf8');
     if (/\b(SELECT|INSERT|UPDATE|DELETE|PRAGMA)\s/.test(text) || /\.(prepare|exec|iterate)\(/.test(text)) withSql.push(file);
   }
-  check('2 fuera de sql.ts no hay SQL ni sentencias preparadas a mano', same(withSql, []), show(withSql));
+  check('2 fuera de sql.ts y sql-v2.ts no hay SQL ni sentencias preparadas a mano', same(withSql, []), show(withSql));
   const sqliteSource = await readFile(path.join(serverDir, 'src', 'agents', 'sqlite.ts'), 'utf8');
   check('2 la base nunca se recorre con iterate(): un iterador vivo retiene el WAL', !sqliteSource.includes('.iterate('));
 }

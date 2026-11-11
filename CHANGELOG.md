@@ -3,6 +3,15 @@
 All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org).
 
+## 1.0.1 - 2026-11-11
+
+### Fixed
+
+- OpenCode 2.2.7 sessions can start and resume, with history, questions, images,
+  queued messages and activity updates. OpenCode 1 remains supported.
+- CLI startup failures now suggest checking CLI and Agent Workbench updates,
+  with the original error, copying, retrying and update instructions.
+
 ## 1.0.0 - 2026-11-09
 
 ### Added

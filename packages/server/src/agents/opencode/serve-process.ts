@@ -9,7 +9,7 @@
  * Cuatro cosas que no son evidentes:
  *
  *  - **Las banderas de red van explicitas** (`--hostname 127.0.0.1 --port 0
- *    --mdns=false`). Segun el binario de la 1.18.30, `server.hostname`,
+ *    --mdns=false` en OpenCode 1; OpenCode 2 no acepta `--mdns`). Segun el binario de la 1.18.30, `server.hostname`,
  *    `server.port` y `server.mdns` de la configuracion **global** del usuario
  *    pisan los valores por defecto, y `mdns` sin hostname escucha en
  *    `0.0.0.0`; solo una bandera presente gana. La configuracion no se abre
@@ -39,6 +39,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { debugLog } from '../../debug.js';
 import type { CliLocation } from '../locate.js';
+import { openCodeProtocol, type OpenCodeProtocol } from './compatibility.js';
 
 /** El unico host aceptado, en las banderas y en la linea de escucha. */
 export const OPENCODE_SERVE_HOST = '127.0.0.1';
@@ -69,6 +70,8 @@ export interface ServeExit {
 }
 
 export interface ServeEndpoint {
+  /** Ausente en el contrato original de OpenCode 1. */
+  protocol?: OpenCodeProtocol;
   /** `http://127.0.0.1:<puerto>`, verificado. */
   url: string;
   username: string;
@@ -110,15 +113,16 @@ export interface ServeProcessOptions {
  * contrasena: esa va por el entorno.
  */
 export function serveArgs(location: CliLocation): string[] {
-  return [...location.prefixArgs, 'serve', '--hostname', OPENCODE_SERVE_HOST, '--port', '0', '--mdns=false'];
+  return [...location.prefixArgs, 'serve', '--hostname', OPENCODE_SERVE_HOST, '--port', '0',
+    ...(openCodeProtocol(location.version) === 1 ? ['--mdns=false'] : [])];
 }
 
 const LISTENING_LINE = /opencode server listening on (https?):\/\/([^\s/:]+|\[[^\]\s]+\]):(\d{1,5})\b/;
 
 /** Esquema, host y puerto de la linea de escucha, sea el host que sea; null si la linea no es esa. */
-function matchListeningLine(line: string): { scheme: string; host: string; port: number } | null {
+function matchListeningLine(line: string, protocol: OpenCodeProtocol = 1): { scheme: string; host: string; port: number } | null {
   // `match` y no el metodo `exec` de la expresion: el caso 2 de check-opencode-db lo toma por SQL fuera de `sql.ts`.
-  const match = line.match(LISTENING_LINE);
+  const match = line.match(protocol === 2 ? /(?:^|\n)server listening on (https?):\/\/([^\s/:]+|\[[^\]\s]+\]):(\d{1,5})\b/ : LISTENING_LINE);
   if (match === null) return null;
   const port = Number(match[3]);
   if (!Number.isInteger(port) || port <= 0 || port > 65_535) return null;
@@ -129,8 +133,8 @@ function matchListeningLine(line: string): { scheme: string; host: string; port:
  * La URL de la linea `opencode server listening on http://127.0.0.1:<puerto>`.
  * null si el host es otro (`0.0.0.0`, `localhost`), o si la linea no es esa.
  */
-export function parseListeningLine(line: string): string | null {
-  const found = matchListeningLine(line);
+export function parseListeningLine(line: string, protocol: OpenCodeProtocol = 1): string | null {
+  const found = matchListeningLine(line, protocol);
   if (found === null || found.scheme !== 'http' || found.host !== OPENCODE_SERVE_HOST) return null;
   return `http://${OPENCODE_SERVE_HOST}:${found.port}`;
 }
@@ -250,7 +254,8 @@ export class OpenCodeServeProcess {
     if (this.disposed) throw new ServeStartError('the app is shutting down');
 
     const env = this.environment();
-    const username = env['OPENCODE_SERVER_USERNAME'] || OPENCODE_SERVE_DEFAULT_USERNAME;
+    const protocol = openCodeProtocol(this.options.location.version);
+    const username = protocol === 2 ? OPENCODE_SERVE_DEFAULT_USERNAME : env['OPENCODE_SERVER_USERNAME'] || OPENCODE_SERVE_DEFAULT_USERNAME;
     const args = serveArgs(this.options.location);
     // Sin argumentos en el log (A4): la regla es la misma para todo log nuevo, aunque estos no traigan la contrasena.
     debugLog('opencode-serve', 'launching serve');
@@ -317,17 +322,17 @@ export class OpenCodeServeProcess {
 
       const onLine = (line: string): void => {
         if (settled) return;
-        const url = parseListeningLine(line);
+        const url = parseListeningLine(line, protocol);
         if (url !== null) {
           settled = true;
           this.timers.clearTimeout(timer);
-          running.endpoint = { url, username, password: this.password };
+          running.endpoint = { url, username, password: this.password, ...(protocol === 2 ? { protocol } : {}) };
           debugLog('opencode-serve', `listening on ${url}`);
           this.scheduleIdleStop();
           resolve(running.endpoint);
           return;
         }
-        const other = matchListeningLine(line);
+        const other = matchListeningLine(line, protocol);
         if (other !== null) fail(`listens on ${other.scheme}://${other.host} and not on http://${OPENCODE_SERVE_HOST}`);
       };
 
@@ -374,12 +379,15 @@ export class OpenCodeServeProcess {
   /** El entorno del hijo: el del registro, y la contrasena. En Windows las claves no distinguen mayusculas. */
   private environment(): Record<string, string> {
     const env = { ...this.options.baseEnv() };
+    const protocol = openCodeProtocol(this.options.location.version);
     if (this.platform === 'win32') {
       for (const key of Object.keys(env)) {
         if (key !== 'OPENCODE_SERVER_PASSWORD' && key.toUpperCase() === 'OPENCODE_SERVER_PASSWORD') delete env[key];
+        if (protocol === 2 && key.toUpperCase() === 'OPENCODE_PASSWORD') delete env[key];
       }
     }
     env['OPENCODE_SERVER_PASSWORD'] = this.password;
+    if (protocol === 2) env['OPENCODE_PASSWORD'] = this.password;
     return env;
   }
 

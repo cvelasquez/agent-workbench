@@ -7496,3 +7496,10 @@ kbd {
     min-height: 40px;
   }
 }
+
+.startup-error { align-items: flex-start; }
+.startup-error-content { flex: 1; min-width: 0; }
+.startup-error p { margin: 6px 0; }
+.startup-error details { margin-top: 8px; }
+.startup-error summary { cursor: pointer; }
+.startup-error pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; user-select: text; }
