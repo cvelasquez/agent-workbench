@@ -1,18 +1,17 @@
 /**
- * Notas sueltas, al pie de la columna derecha.
+ * Notas sueltas: la ultima solapa del panel derecho.
  *
  * Ideas que se anotan mientras se trabaja: no son de ningun proyecto ni de
- * ninguna pestana. Hasta el hito 36 vivian al pie de la barra de proyectos,
- * justamente por eso; se mudaron porque esa barra es la que mas se esconde y
- * una nota tiene que estar a mano cuando la idea aparece. Se pliegan a una
- * fila cuando no se usan, y abiertas se llevan un alto que se arrastra desde
- * su borde. Sin ninguna pestana abierta son lo unico de la columna, y la
- * llenan (`fill`).
+ * ninguna pestana. Hasta el hito 36 vivian al pie de la barra de proyectos; del
+ * 36 al 12-11-2026, al pie de la columna derecha, plegables y con un alto que se
+ * arrastraba. Abiertas junto a la consola le dejaban a la CLI pocas filas (8 en
+ * una ventana de 900 px), y Codex recorta sus menus con una terminal baja. Ahora
+ * son una solapa del panel (`SidePanel`) y se turnan con la CLI, sin alto propio
+ * ni plegado. Llenan el hueco que les toca: la solapa, la columna entera cuando
+ * no hay ninguna pestana abierta (no hay panel) o la vista de notas del telefono.
  *
- * Sus solapas son las mismas que las de la consola del panel derecho —la
- * familia `.strip-tab*`— y se pliega igual que ella: el `+` al lado de la
- * ultima solapa, un `▾` a la derecha, y plegada una fila que dice cuantas hay.
- * Eran dos cosas identicas en intencion y distintas en todo lo demas.
+ * Sus solapas son las mismas que las de la consola del panel derecho (la
+ * familia `.strip-tab*`), con el `+` al lado de la ultima solapa.
  *
  * Cada nota es una solapa. **Cerrar borra** —es lo que pidio el usuario: duran
  * hasta que el las cierra— y como es la unica accion destructiva de la app, una
@@ -38,12 +37,7 @@ import type { NotesApi } from './useNotes.js';
 import { useNotesFont } from './useThreadFont.js';
 import { readStored, writeStored } from './window-prefs.js';
 
-const OPEN_KEY = 'agent-workbench.notes-open';
 const ACTIVE_KEY = 'agent-workbench.notes-active';
-const HEIGHT_KEY = 'agent-workbench.notes-height';
-
-const MIN_HEIGHT = 160;
-const DEFAULT_HEIGHT = 300;
 
 /**
  * El titulo de la solapa. Los respaldos de `noteTitle` ("Nota", "Imagen")
@@ -79,12 +73,11 @@ interface NotesPanelProps {
   /** El nombre de esa pestana, para el titulo del boton. */
   composerTarget: string | null;
   /**
-   * Las notas son lo unico de la columna —no hay ninguna pestana—: se llevan
-   * todo el alto y no se pliegan, porque plegadas dejarian una columna vacia
-   * con una fila arriba. La preferencia guardada no se toca.
+   * Esconde las notas (Hito 41) hasta mostrarlas desde Ajustes. No borra ninguna.
+   * Solo cuando son lo unico de la columna, sin ninguna pestana abierta: como
+   * solapa se esconden desde Ajustes, igual que las demas. Ausente en la solapa
+   * y en la vista angosta.
    */
-  fill: boolean;
-  /** Esconde las notas del pie (Hito 41) hasta mostrarlas desde Ajustes. No borra ninguna. Ausente en la vista angosta. */
   onHide?: () => void;
 }
 
@@ -94,17 +87,8 @@ export function NotesPanel({
   sendTargetCwd,
   onNoteToComposer,
   composerTarget,
-  fill,
   onHide,
 }: NotesPanelProps): JSX.Element {
-  const [storedOpen, setOpen] = useState(() => readStored(OPEN_KEY, false, (raw) => raw === 'true'));
-  const open = storedOpen || fill;
-  const [height, setHeight] = useState(() =>
-    readStored(HEIGHT_KEY, DEFAULT_HEIGHT, (raw) => {
-      const parsed = Number.parseInt(raw, 10);
-      return Number.isFinite(parsed) ? Math.max(parsed, MIN_HEIGHT) : null;
-    }),
-  );
   const [storedActive, setStoredActive] = useState<string | null>(() =>
     readStored<string | null>(ACTIVE_KEY, null, (raw) => raw),
   );
@@ -133,23 +117,11 @@ export function NotesPanel({
     setClosing(null);
   }, []);
 
-  const toggleOpen = useCallback(() => {
-    setOpen((current) => {
-      const next = !current;
-      writeStored(OPEN_KEY, String(next));
-      return next;
-    });
-  }, []);
-
   const createNote = useCallback(() => {
     const noteId = notes.create();
     selectNote(noteId);
-    if (!open) {
-      setOpen(true);
-      writeStored(OPEN_KEY, 'true');
-    }
     setFocusRequest((value) => value + 1);
-  }, [notes, open, selectNote]);
+  }, [notes, selectNote]);
 
   /** Una nota vacia se cierra sin preguntar: no hay nada que perder. */
   const requestClose = useCallback(
@@ -169,38 +141,6 @@ export function NotesPanel({
     setClosing(null);
   }, [closing, notes]);
 
-  // ---- alto arrastrable, desde el borde superior ----
-  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
-
-  const onResizePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      // Del alto que se ve: con la columna apretada puede ser menor que el guardado.
-      const section = event.currentTarget.parentElement;
-      const shown = section === null ? height : Math.round(section.getBoundingClientRect().height);
-      dragRef.current = { startY: event.clientY, startHeight: shown };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    },
-    [height],
-  );
-
-  const onResizePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (drag === null) return;
-    const max = Math.max(MIN_HEIGHT, Math.floor(window.innerHeight * 0.8));
-    setHeight(Math.min(max, Math.max(MIN_HEIGHT, drag.startHeight + drag.startY - event.clientY)));
-  }, []);
-
-  const onResizePointerUp = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (dragRef.current === null) return;
-      dragRef.current = null;
-      event.currentTarget.releasePointerCapture(event.pointerId);
-      writeStored(HEIGHT_KEY, String(height));
-    },
-    [height],
-  );
-
   // El visor grande se cierra con Esc, ademas del clic.
   useEffect(() => {
     if (lightbox === null) return;
@@ -218,127 +158,81 @@ export function NotesPanel({
   const count = notes.notes.length;
 
   return (
-    <section
-      className={`notes${open ? ' notes-open' : ''}${fill ? ' notes-fill' : ''}`}
-      style={open && !fill ? { height: `${height}px` } : undefined}
-    >
-      {open && !fill && (
-        <div
-          className="notes-resize"
-          onPointerDown={onResizePointerDown}
-          onPointerMove={onResizePointerMove}
-          onPointerUp={onResizePointerUp}
-          onPointerCancel={onResizePointerUp}
-          title={t('notes.resize')}
-        />
-      )}
-
-      {/*
-        Plegada es una fila entera que dice que hay algo aca, igual que la
-        consola del pie de la columna derecha: `.strip-collapsed`. Antes era la
-        misma cabecera de siempre con un chevron, y el `+` vivia ahi arriba en
-        vez de al lado de la ultima solapa.
-      */}
-      {!open ? (
-        <div className="strip-collapsed-row">
-          <button
-            className="strip-collapsed"
-            onClick={toggleOpen}
-            title={t('notes.expand')}
-          >
-            <span className="strip-collapsed-arrow">▸</span>
-            <span>{t('notes.name')}</span>
-            {count > 0 && <span className="strip-collapsed-count">{count}</span>}
-          </button>
-          {onHide !== undefined && <SectionHideButton title={t('settings.hide.notes')} onHide={onHide} confirmText={null} />}
-        </div>
-      ) : (
-        <>
-          <div className="notes-header">
-            <div className="strip-tabs" role="tablist">
-              {notes.notes.map((note) => {
-                const isActive = note.noteId === active?.noteId;
-                const title = tabTitle(note);
-                return (
-                  <div
-                    key={note.noteId}
-                    className={`strip-tab${isActive ? ' is-active' : ''}`}
-                    role="tab"
-                    aria-selected={isActive}
-                  >
-                    <button
-                      className="strip-tab-label"
-                      onClick={() => selectNote(note.noteId)}
-                      title={title}
-                    >
-                      {title}
-                    </button>
-                    <button
-                      className="strip-tab-close"
-                      onClick={() => requestClose(note)}
-                      title={t('notes.closeNote')}
-                    >
-                      ×
-                    </button>
-                  </div>
-                );
-              })}
-
-              <button className="strip-tab-new" onClick={createNote} title={t('notes.new')}>
-                +
-              </button>
-            </div>
-
-            <span className="strip-spacer" />
-            {/*
-              El mismo boton y los mismos tres tamanos que el hilo (§6.22), con
-              su propia preferencia. Pedido para el telefono, donde 12,5 px se
-              leen mal; vale igual en la PC.
-            */}
-            <button
-              className="icon-button thread-font-button"
-              onClick={notesFont.cycle}
-              title={threadFontTitle(notesFont.size)}
-              aria-label={threadFontTitle(notesFont.size)}
-            >
-              <span aria-hidden="true">
-                a<span className="thread-font-big">A</span>
-              </span>
-            </button>
-            {!fill && (
-              <button
-                className="icon-button"
-                onClick={toggleOpen}
-                title={t('notes.collapse')}
+    <section className="notes">
+      <div className="notes-header">
+        <div className="strip-tabs" role="tablist">
+          {notes.notes.map((note) => {
+            const isActive = note.noteId === active?.noteId;
+            const title = tabTitle(note);
+            return (
+              <div
+                key={note.noteId}
+                className={`strip-tab${isActive ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={isActive}
               >
-                ▾
-              </button>
-            )}
-            {onHide !== undefined && <SectionHideButton title={t('settings.hide.notes')} onHide={onHide} confirmText={null} />}
-          </div>
+                <button
+                  className="strip-tab-label"
+                  onClick={() => selectNote(note.noteId)}
+                  title={title}
+                >
+                  {title}
+                </button>
+                <button
+                  className="strip-tab-close"
+                  onClick={() => requestClose(note)}
+                  title={t('notes.closeNote')}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
 
-          <div className="notes-body">
-            {count === 0 || active === null ? (
-              <p className="notes-empty">{tRich('notes.empty')}</p>
-            ) : (
-              <NoteEditor
-                key={active.noteId}
-                note={active}
-                notes={notes}
-                closing={closing === active.noteId}
-                focusRequest={focusRequest}
-                onConfirmClose={confirmClose}
-                onCancelClose={() => setClosing(null)}
-                onOpenImage={setLightbox}
-                onSend={onSendNote === null ? null : () => onSendNote(active.noteId)}
-                sendTargetCwd={sendTargetCwd}
-                onToComposer={onNoteToComposer === null ? null : () => onNoteToComposer(active.noteId)}
-                composerTarget={composerTarget}
-              />
-            )}
-          </div>
-        </>
-      )}
+          <button className="strip-tab-new" onClick={createNote} title={t('notes.new')}>
+            +
+          </button>
+        </div>
+
+        <span className="strip-spacer" />
+        {/*
+          El mismo boton y los mismos tres tamanos que el hilo (§6.22), con
+          su propia preferencia. Pedido para el telefono, donde 12,5 px se
+          leen mal; vale igual en la PC.
+        */}
+        <button
+          className="icon-button thread-font-button"
+          onClick={notesFont.cycle}
+          title={threadFontTitle(notesFont.size)}
+          aria-label={threadFontTitle(notesFont.size)}
+        >
+          <span aria-hidden="true">
+            a<span className="thread-font-big">A</span>
+          </span>
+        </button>
+        {onHide !== undefined && <SectionHideButton title={t('settings.hide.notes')} onHide={onHide} confirmText={null} />}
+      </div>
+
+      <div className="notes-body">
+        {count === 0 || active === null ? (
+          <p className="notes-empty">{tRich('notes.empty')}</p>
+        ) : (
+          <NoteEditor
+            key={active.noteId}
+            note={active}
+            notes={notes}
+            closing={closing === active.noteId}
+            focusRequest={focusRequest}
+            onConfirmClose={confirmClose}
+            onCancelClose={() => setClosing(null)}
+            onOpenImage={setLightbox}
+            onSend={onSendNote === null ? null : () => onSendNote(active.noteId)}
+            sendTargetCwd={sendTargetCwd}
+            onToComposer={onNoteToComposer === null ? null : () => onNoteToComposer(active.noteId)}
+            composerTarget={composerTarget}
+          />
+        )}
+      </div>
 
       {lightbox !== null && (
         <div className="notes-lightbox" onClick={() => setLightbox(null)} title={t('notes.lightboxClose')}>

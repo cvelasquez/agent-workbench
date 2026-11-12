@@ -88,7 +88,7 @@ const json = (value) => JSON.stringify(value);
   check('la guardada se lee, y otra cosa no',
     parseStoredNarrowView('git') === 'git' && parseStoredNarrowView('panel') === null && parseStoredNarrowView('') === null &&
     isNarrowView('console') && !isNarrowView('Chat'));
-  check('las solapas del panel de la PC son cinco vistas; chat, notas y consola no',
+  check('cinco vistas dibujan una solapa del panel; chat, notas (solapa en la PC, vista propia aquí) y consola no',
     ['cli', 'git', 'files', 'plans', 'memory'].every((view) => panelTabOf(view) === view) &&
     ['chat', 'notes', 'console'].every((view) => panelTabOf(view) === null));
   check('cada vista tiene su texto',

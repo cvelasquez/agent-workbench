@@ -15,6 +15,9 @@
  *    defecto y su historial no se lee.
  *  - **Lo que se esconde**: la solapa CLI no se esconde nunca, ni el chat del
  *    telefono; una escondida que estaba elegida muestra la CLI.
+ *  - **Las notas, ultima solapa del panel** (12-11-2026): el orden de las solapas
+ *    es el de la tira del telefono y el de Ajustes, la guardada como notas se
+ *    lee al recargar, y el telefono no las monta dentro del panel.
  *  - **Una ventana remota** no cambia los ajustes del servidor.
  *  - **La consola y la barra de proyectos** (22-10-2026): una terminal solo si
  *    se pide, y la barra se esconde al abrir una sesion nueva desde ella.
@@ -40,7 +43,7 @@ import { HIDEABLE_PANELS, parseHiddenPanels, resolveHiddenPanels, serializeHidde
 import { effectivePanelTab, scheduledNeedsStatusLine, statusLineAgentPrompt, visiblePanelTabs } from '../../web/src/agent-ui.ts';
 import { statusLineFragment } from '../src/agents/antigravity/statusline-script.ts';
 import { claudeStatusLineFragment } from '../src/agents/claude-code/statusline-script.ts';
-import { narrowViews } from '../../web/src/narrow-layout.ts';
+import { NARROW_VIEWS, narrowViews, panelTabOf } from '../../web/src/narrow-layout.ts';
 import { shellToOpenOnUnfold } from '../../web/src/console-shells.ts';
 
 let failures = 0;
@@ -246,7 +249,7 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
   const hidden = parseHiddenPanels('notes, console,cli,chat,raro');
   check('6.1 se leen las que se conocen; la CLI y el chat no se pueden esconder',
     json([...hidden].sort()) === json(['console', 'notes']), json([...hidden]));
-  check('6.2 ida y vuelta, en el orden de la lista', serializeHiddenPanels(hidden) === 'console,notes' && parseHiddenPanels('').size === 0);
+  check('6.2 ida y vuelta, en el orden de la lista', serializeHiddenPanels(hidden) === 'notes,console' && parseHiddenPanels('').size === 0);
   for (const count of [0, 1, 2, 5]) {
     const agents = Array.from({ length: count }, () => ({ available: true }));
     agents.push({ available: false });
@@ -273,6 +276,31 @@ const workDir = await mkdtemp(path.join(os.tmpdir(), 'aw-check-settings-'));
   check('6.7 el telefono: las vistas escondidas no se ofrecen; el chat y la CLI siempre',
     json(narrowViews({ hasTab: true, plansAvailable: true, hidden: new Set(['console', 'notes', 'chat', 'cli']) })) === json(['chat', 'cli', 'git', 'files', 'plans', 'memory']) &&
       json(narrowViews({ hasTab: false, plansAvailable: true, hidden: new Set(['notes']) })) === json(['chat']));
+
+  // Las notas, ultima solapa del panel (12-11-2026). Vivian al pie de la columna y,
+  // abiertas junto a la consola, le dejaban a la CLI unas pocas filas (8 en una
+  // ventana de 900 px): Codex recorta sus menus con una terminal baja. Van despues
+  // de Memoria porque es el orden de la tira del telefono, un solo orden en las dos
+  // vistas. La lista de solapas se lee del fuente: el componente trae React y no se
+  // importa desde aqui.
+  const sidePanel = await readFile(new URL('../../web/src/SidePanel.tsx', import.meta.url), 'utf8');
+  const appSource = await readFile(new URL('../../web/src/App.tsx', import.meta.url), 'utf8');
+  const tabsAt = sidePanel.indexOf('export const PANEL_TABS');
+  const panelTabIds = tabsAt === -1 ? [] : [...sidePanel.slice(tabsAt, sidePanel.indexOf('];', tabsAt)).matchAll(/id: '(\w+)'/g)].map((match) => match[1]);
+  check('6.8 las solapas del panel, con las notas al final', json(panelTabIds) === json(['cli', 'git', 'files', 'plans', 'memory', 'notes']), json(panelTabIds));
+  check('6.9 el orden de las solapas es el de la tira del telefono',
+    panelTabIds.length > 0 && json(NARROW_VIEWS.filter((view) => panelTabIds.includes(view))) === json(panelTabIds));
+  check('6.10 Ajustes lista toda solapa menos la CLI, en su orden, y la consola al final',
+    json(HIDEABLE_PANELS) === json([...panelTabIds.filter((id) => id !== 'cli'), 'console']), json(HIDEABLE_PANELS));
+  check('6.11 la solapa guardada se lee al recargar: el lector de App.tsx conoce cada solapa',
+    panelTabIds.length > 0 && panelTabIds.every((id) => new RegExp(`raw === '${id}'`).test(appSource)));
+  check('6.12 las notas escondidas en Ajustes muestran la CLI; a la vista, se quedan',
+    effectivePanelTab('notes', true) === 'notes' && effectivePanelTab('notes', false) === 'notes' &&
+      effectivePanelTab('notes', true, new Set(['notes'])) === 'cli');
+  check('6.13 el telefono tiene su vista de notas y el panel no las monta en la vista angosta',
+    panelTabOf('notes') === null && /notes=\{narrow \? null : notesElement\}/.test(appSource));
+  check('6.14 el pie de la columna trae las notas solo sin ninguna pestana; con una, son la solapa',
+    /\{activeTerminal === null && notesElement\}/.test(appSource));
 }
 
 // --- 7. La consola: una terminal solo si se pide (22-10-2026) ---------------------------

@@ -6225,53 +6225,27 @@ kbd {
   font-size: 12px;
 }
 
-/* ---------- notas sueltas, al pie de la columna derecha ---------- */
+/* ---------- notas sueltas, una solapa del panel derecho ---------- */
 
+/*
+  Llenan el hueco que les toca: la solapa del panel, la columna entera sin
+  ninguna pestana abierta, o su vista en el telefono. Hasta el 12-11-2026 eran un
+  bloque al pie de la columna, plegable y con un alto que se arrastraba; junto a
+  la consola le dejaban a la CLI casi nada de alto.
+*/
 .notes {
   position: relative;
-  /* Se encoge antes de empujar al panel y a la consola fuera de la pantalla:
-     su alto guardado puede venir de una ventana mas alta. */
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-top: 1px solid var(--border);
   border-left: 1px solid var(--border);
   background: var(--chrome);
 }
 
-/*
-  Plegada es una barra, y una barra no se encoge: con la columna apretada quedaba
-  de unos pixeles y no se veia. Abierta se encoge, pero nunca por debajo de su
-  cabecera.
-*/
-.notes:not(.notes-open) {
-  flex-shrink: 0;
-}
-
-.notes-open {
-  min-height: 32px;
-}
-
-/* Sin ninguna pestana son lo unico de la columna, y la llenan. */
-.notes-fill {
-  flex: 1 1 auto;
-  border-top: none;
-}
-
-/* El borde superior se arrastra. Es fino, pero se agarra unos px arriba y abajo. */
-.notes-resize {
-  position: absolute;
-  top: -3px;
-  left: 0;
-  right: 0;
-  height: 7px;
-  cursor: row-resize;
-  z-index: 1;
-}
-
-.notes-resize:hover {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+/* Como solapa, el borde de la izquierda ya lo pone el panel. */
+.side-panel-body .notes {
+  border-left: none;
 }
 
 .notes-header {
@@ -7027,8 +7001,6 @@ kbd {
     display: none;
   }
 
-  .app-narrow .notes,
-  .app-narrow .notes-fill,
   .app-narrow .console-pane {
     flex: 1 1 auto;
     height: auto;

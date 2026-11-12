@@ -19,8 +19,12 @@ import { readStored, writeStored } from './window-prefs.js';
 
 export type HideablePanel = 'git' | 'files' | 'plans' | 'memory' | 'console' | 'notes';
 
-/** En el orden en que los lista Ajustes: las solapas, y despues lo del pie. */
-export const HIDEABLE_PANELS: readonly HideablePanel[] = ['git', 'files', 'plans', 'memory', 'console', 'notes'];
+/**
+ * En el orden en que los lista Ajustes: las solapas del panel (menos la CLI), en
+ * el orden de sus solapas, y despues lo del pie, que es la consola. Las notas
+ * son la ultima solapa desde el 12-11-2026.
+ */
+export const HIDEABLE_PANELS: readonly HideablePanel[] = ['git', 'files', 'plans', 'memory', 'notes', 'console'];
 
 const STORAGE_KEY = 'agent-workbench.hiddenPanels';
 

@@ -1,5 +1,6 @@
 /**
- * Columna derecha: la CLI, los cambios, los archivos, los planes y la memoria.
+ * Columna derecha: la CLI, los cambios, los archivos, los planes, la memoria y
+ * las notas.
  *
  * Desde el hito 7 la terminal vive **aca**, no en el centro: el centro es la
  * conversacion. La solapa se llama `CLI` porque es lo que es — el sitio donde
@@ -14,6 +15,12 @@
  * enganche y la repintaria entera con el replay cada vez que alguien mira
  * `Cambios`. Lo que si pasa —y esta previsto— es que mientras esta escondida el
  * contenedor mide 0x0; `TerminalView` no le avisa ese tamano al pty.
+ *
+ * **Las notas son la ultima solapa** (12-11-2026). Vivian al pie de la columna,
+ * y abiertas junto a la consola le dejaban a la CLI unas pocas filas: Codex
+ * recorta sus menus cuando la terminal es baja. Como solapa se turnan con la
+ * CLI en vez de repartirse el alto. Van despues de Memoria porque es el orden
+ * de la tira del telefono (`NARROW_VIEWS`): un solo orden en las dos vistas.
  */
 
 import type { GitStatus } from '@agent-workbench/shared';
@@ -30,7 +37,7 @@ import type { MemoryView } from './useMemory.js';
 import type { PlansView } from './usePlans.js';
 import type { DocumentsView } from './useDocuments.js';
 
-export type PanelTab = 'cli' | 'git' | 'files' | 'plans' | 'memory';
+export type PanelTab = 'cli' | 'git' | 'files' | 'plans' | 'memory' | 'notes';
 
 export const PANEL_TABS: readonly { id: PanelTab; labelKey: MessageKey }[] = [
   { id: 'cli', labelKey: 'panel.tab.cli' },
@@ -38,6 +45,7 @@ export const PANEL_TABS: readonly { id: PanelTab; labelKey: MessageKey }[] = [
   { id: 'files', labelKey: 'panel.tab.files' },
   { id: 'plans', labelKey: 'panel.tab.plans' },
   { id: 'memory', labelKey: 'panel.tab.memory' },
+  { id: 'notes', labelKey: 'notes.name' },
 ];
 
 /** Cuantos archivos tocados mostrar en la pastilla de la pestana "Cambios". */
@@ -94,6 +102,14 @@ interface SidePanelProps {
   documents: DocumentsView;
   memory: MemoryView;
   /**
+   * Las notas, ya armadas desde arriba como la CLI: no son de este panel. null
+   * en la vista angosta, que las dibuja en su propia vista, y con las notas
+   * escondidas en Ajustes. Solo se montan con su solapa delante.
+   */
+  notes: JSX.Element | null;
+  /** Cuantas notas hay, para la pastilla de la solapa. */
+  noteCount: number;
+  /**
    * Escribe texto en la terminal sin enviarlo. Sin el, el arbol no ofrece
    * "Insertar como @ruta": la CLI de la pestana no menciona archivos asi.
    */
@@ -124,6 +140,8 @@ export function SidePanel({
   plans,
   documents,
   memory,
+  notes,
+  noteCount,
   onInsert,
   onInsertPath,
   onReveal,
@@ -132,7 +150,7 @@ export function SidePanel({
   const changes = changeCount(git.status);
   // Solo con el puente instalado: sin el, el panel no lista notas, y una
   // pastilla con un numero que no lleva a ninguna lista confunde.
-  const notes = memory.status?.installed === true ? memory.status.notes.length : 0;
+  const memoryNotes = memory.status?.installed === true ? memory.status.notes.length : 0;
 
   return (
     <section className={`side-panel${hidden ? ' side-panel-hidden' : ''}`} aria-hidden={hidden}>
@@ -178,8 +196,11 @@ export function SidePanel({
             {entry.id === 'plans' && plans.plans.length > 0 && (
               <span className="side-panel-badge">{plans.plans.length}</span>
             )}
-            {entry.id === 'memory' && notes > 0 && (
-              <span className="side-panel-badge">{notes}</span>
+            {entry.id === 'memory' && memoryNotes > 0 && (
+              <span className="side-panel-badge">{memoryNotes}</span>
+            )}
+            {entry.id === 'notes' && noteCount > 0 && (
+              <span className="side-panel-badge">{noteCount}</span>
             )}
             {/*
               La CLI escribio algo y nadie lo vio. Es el unico aviso de que hay
@@ -201,6 +222,7 @@ export function SidePanel({
         {tab === 'git' && <GitPanel view={git} worktrees={worktrees} />}
         {tab === 'plans' && <PlansPanel view={plans} docs={documents.plans} onInsertPath={onInsertPath} />}
         {tab === 'memory' && <MemoryPanel view={memory} />}
+        {tab === 'notes' && notes}
         {tab === 'files' && (
           <FilesPanel
             view={files}

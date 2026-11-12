@@ -497,7 +497,8 @@ export function App(): JSX.Element {
       raw === 'files' ||
       raw === 'cli' ||
       raw === 'plans' ||
-      raw === 'memory'
+      raw === 'memory' ||
+      raw === 'notes'
         ? raw
         : raw === 'conversation'
           ? 'cli'
@@ -616,11 +617,11 @@ export function App(): JSX.Element {
     esta escondido es un caso de uso, no un estado invalido.
   */
   /*
-    Desde el hito 36 las notas viven al pie de esta columna, y por ellas la
-    columna existe tambien sin ninguna pestana: ahi son lo unico que trae, y la
-    esconde y la devuelve lo mismo de siempre, `Alt+P` y la pestanita. Con una
-    pestana abierta las notas no la sostienen solas: escondidos el panel y la
-    consola se va la columna entera, notas incluidas, que es lo que se pidio.
+    Por las notas (hito 36) la columna existe tambien sin ninguna pestana: ahi
+    son lo unico que trae, y la esconde y la devuelve lo mismo de siempre,
+    `Alt+P` y la pestanita. Con una pestana abierta las notas son una solapa del
+    panel (12-11-2026) y no la sostienen solas: escondidos el panel y la consola
+    se va la columna entera, notas incluidas, que es lo que se pidio.
   */
   const rightColumnOpen =
     activeTerminal !== null ? panelVisible || consoleShown : panelVisible;
@@ -1241,11 +1242,11 @@ export function App(): JSX.Element {
 
   /*
     La consola mide contra el borde de abajo de su hueco, no contra el pie de la
-    ventana: debajo viven las notas (hito 36), y medir desde el pie les sumaba
-    su alto. El divisor quedaba por encima del puntero, 33 px con las notas
-    plegadas y todo su alto con las notas abiertas. Y arranca del alto que se
-    ve, que en una ventana baja puede ser menor que el guardado: si no, el
-    primer tramo del arrastre no movia nada.
+    ventana. Debajo vivian las notas (hito 36, hasta el 12-11-2026) y medir
+    desde el pie les sumaba su alto: el divisor quedaba por encima del puntero.
+    Hoy el hueco llega al pie, pero medir desde el hueco no depende de lo que
+    haya debajo. Y arranca del alto que se ve, que en una ventana baja puede ser
+    menor que el guardado: si no, el primer tramo del arrastre no movia nada.
   */
   const consoleAnchor = useRef(0);
 
@@ -1736,87 +1737,16 @@ export function App(): JSX.Element {
     </>
   );
 
-  const sidePanelElement =
-    activeTerminal === null ? null : (
-      <SidePanel
-        tab={narrow ? (panelTabOf(narrowView) ?? shownPanelTab) : shownPanelTab}
-        plansAvailable={activeControls.plansAvailable}
-        hiddenTabs={panels.hidden}
-        hidden={narrow ? panelTabOf(narrowView) === null : !panelVisible}
-        onTabChange={narrow ? changeNarrowView : changePanelTab}
-        title={panelTitle}
-        cwd={activeTerminal.cwd}
-        colorCwd={tabColorCwd(activeTerminal)}
-        platform={platform}
-        cli={
-          <div className="terminal-stack">
-            {terminals.map((terminal) => (
-              <TerminalView
-                key={terminal.terminalId}
-                terminalId={terminal.terminalId}
-                connection={connection}
-                active={terminal.terminalId === activeTerminalId}
-                theme={terminalTheme.resolved}
-                /*
-                  La terminal no se lleva el foco sola.
-
-                  Lo hacia al activarse una pestana, desde un
-                  `setTimeout(0)` que corre **despues** del foco que pide
-                  el cuadro de escritura: ganaba siempre la terminal. El
-                  resultado era que abrir una pestana y empezar a
-                  escribir mandaba el texto a la CLI —interpretado como
-                  teclas, no como mensaje— en vez de al cuadro.
-
-                  Desde el hito 7 el centro es la conversacion y el foco
-                  arranca en el cuadro (CLAUDE.md 7). Quien quiera
-                  teclear en la CLI hace clic en ella, que es lo que uno
-                  hace con una terminal.
-                */
-                autoFocus={false}
-              />
-            ))}
-          </div>
-        }
-        cliUnseen={cliUnseen}
-        expanded={panelExpanded}
-        onToggleExpanded={toggleExpanded}
-        git={git}
-        worktrees={gitWorktrees}
-        files={files}
-        plans={plans}
-        documents={documents}
-        memory={memory}
-        onInsert={activeControls.fileMentions && activeTerminal.alive ? insertIntoTerminal : undefined}
-        onInsertPath={insertIntoComposer}
-        onReveal={remoteClient ? null : revealPath}
-        onHide={togglePanel}
-      />
-    );
-
-  const consoleElement =
-    activeTerminal === null ? null : (
-      <ConsolePane
-        connection={connection}
-        shells={consoleShells}
-        activeShellId={activeShell?.terminalId ?? null}
-        cwd={activeTerminal.cwd}
-        shellName={consoleShellName}
-        theme={terminalTheme.resolved}
-        onSelect={setActiveShellId}
-        onOpen={openConsoleHere}
-        // Cerrar la ultima de un proyecto la deja cerrada: nada abre otra sola (§6.0.1).
-        onCloseShell={closeTerminal}
-        onCollapse={narrow ? () => changeNarrowView('chat') : toggleConsole}
-        onHide={narrow ? undefined : () => hidePanelFromBar('console')}
-        hideCount={shells.length}
-      />
-    );
-
+  /*
+    Las notas llenan el hueco que les toca: la solapa del panel, la columna
+    entera sin ninguna pestana (no hay panel) o su vista en el telefono. El
+    icono de esconder solo esta en el segundo caso: como solapa se esconden
+    desde Ajustes, igual que las demas.
+  */
   const notesElement = !panels.isVisible('notes') ? null : (
     <NotesPanel
       notes={notes}
-      fill={narrow || activeTerminal === null}
-      onHide={narrow ? undefined : () => hidePanelFromBar('notes')}
+      onHide={narrow || activeTerminal !== null ? undefined : () => hidePanelFromBar('notes')}
       onSendNote={
         activeTerminal === null || !activeControls.noteSendable
           ? null
@@ -1867,6 +1797,89 @@ export function App(): JSX.Element {
       composerTarget={activeTerminal === null ? null : tabNameFor(activeTerminal)}
     />
   );
+
+  const sidePanelElement =
+    activeTerminal === null ? null : (
+      <SidePanel
+        tab={narrow ? (panelTabOf(narrowView) ?? shownPanelTab) : shownPanelTab}
+        plansAvailable={activeControls.plansAvailable}
+        hiddenTabs={panels.hidden}
+        hidden={narrow ? panelTabOf(narrowView) === null : !panelVisible}
+        onTabChange={narrow ? changeNarrowView : changePanelTab}
+        title={panelTitle}
+        cwd={activeTerminal.cwd}
+        colorCwd={tabColorCwd(activeTerminal)}
+        platform={platform}
+        cli={
+          <div className="terminal-stack">
+            {terminals.map((terminal) => (
+              <TerminalView
+                key={terminal.terminalId}
+                terminalId={terminal.terminalId}
+                connection={connection}
+                active={terminal.terminalId === activeTerminalId}
+                theme={terminalTheme.resolved}
+                /*
+                  La terminal no se lleva el foco sola.
+
+                  Lo hacia al activarse una pestana, desde un
+                  `setTimeout(0)` que corre **despues** del foco que pide
+                  el cuadro de escritura: ganaba siempre la terminal. El
+                  resultado era que abrir una pestana y empezar a
+                  escribir mandaba el texto a la CLI —interpretado como
+                  teclas, no como mensaje— en vez de al cuadro.
+
+                  Desde el hito 7 el centro es la conversacion y el foco
+                  arranca en el cuadro (CLAUDE.md 7). Quien quiera
+                  teclear en la CLI hace clic en ella, que es lo que uno
+                  hace con una terminal.
+                */
+                autoFocus={false}
+              />
+            ))}
+          </div>
+        }
+        cliUnseen={cliUnseen}
+        expanded={panelExpanded}
+        onToggleExpanded={toggleExpanded}
+        git={git}
+        worktrees={gitWorktrees}
+        files={files}
+        plans={plans}
+        documents={documents}
+        memory={memory}
+        /*
+          Las notas son la ultima solapa del panel (12-11-2026). En la vista
+          angosta las dibuja `NarrowShell` en su propia vista: pasarlas tambien
+          aca las montaria dos veces cuando la solapa guardada es la de notas.
+        */
+        notes={narrow ? null : notesElement}
+        noteCount={notes.notes.length}
+        onInsert={activeControls.fileMentions && activeTerminal.alive ? insertIntoTerminal : undefined}
+        onInsertPath={insertIntoComposer}
+        onReveal={remoteClient ? null : revealPath}
+        onHide={togglePanel}
+      />
+    );
+
+  const consoleElement =
+    activeTerminal === null ? null : (
+      <ConsolePane
+        connection={connection}
+        shells={consoleShells}
+        activeShellId={activeShell?.terminalId ?? null}
+        cwd={activeTerminal.cwd}
+        shellName={consoleShellName}
+        theme={terminalTheme.resolved}
+        onSelect={setActiveShellId}
+        onOpen={openConsoleHere}
+        // Cerrar la ultima de un proyecto la deja cerrada: nada abre otra sola (§6.0.1).
+        onCloseShell={closeTerminal}
+        onCollapse={narrow ? () => changeNarrowView('chat') : toggleConsole}
+        onHide={narrow ? undefined : () => hidePanelFromBar('console')}
+        hideCount={shells.length}
+      />
+    );
 
   /* La consola en la columna de la PC: el divisor, el hueco con su alto y la barra plegada. */
   const consoleColumn =
@@ -2506,12 +2519,12 @@ export function App(): JSX.Element {
               )}
 
               {/*
-                Las notas, al pie de la columna (hito 36). Estaban al pie de la
-                barra de proyectos, que es la columna que mas se esconde; esta
-                es la que casi siempre queda abierta, y una idea que se cruza
-                se anota sin traer nada de vuelta. Siguen sin ser de ninguna
-                pestana: que compartan columna con el panel es por donde se las
-                tiene a mano, no porque sean de el.
+                Las notas sin ninguna pestana abierta (hito 36): no hay panel
+                donde ponerlas y son lo unico de la columna. Con una pestana
+                abierta son la ultima solapa del panel (12-11-2026): se turnan
+                con la CLI en vez de quitarle alto junto a la consola. No son de
+                ninguna pestana: que compartan columna con el panel es por donde
+                se las tiene a mano, no porque sean de el.
 
                 Mandar una nota abre una conversacion **nueva** en el proyecto
                 que se esta mirando, y le pasa la nota entera. El id de la
@@ -2523,7 +2536,7 @@ export function App(): JSX.Element {
                 antes de pegar, y sin ella rechaza la nota con la pestana nueva
                 ya abierta y sin que nadie la haya pedido.
               */}
-              {notesElement}
+              {activeTerminal === null && notesElement}
             </div>
         </>
       </div>

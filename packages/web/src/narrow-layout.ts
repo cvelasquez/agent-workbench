@@ -29,9 +29,17 @@ export const NARROW_VIEW_STORAGE_KEY = 'agent-workbench.narrow-view';
 /** Parámetro de la dirección que abre una pestaña concreta: lo que usa el aviso del teléfono. */
 export const TAB_QUERY_PARAM = 'tab';
 
-export type NarrowView = 'chat' | PanelTab | 'notes' | 'console';
+/**
+ * `notes` viene dentro de `PanelTab`: en la PC es la ultima solapa del panel
+ * (12-11-2026). El teléfono la dibuja igual en su propia vista, no dentro del panel.
+ */
+export type NarrowView = 'chat' | PanelTab | 'console';
 
-/** Todas, en el orden de la tira. */
+/**
+ * Todas, en el orden de la tira. Las del panel siguen el orden de sus solapas en
+ * la PC (`PANEL_TABS`, en `SidePanel.tsx`): un solo orden en las dos vistas, y
+ * `check-settings` lo cuida.
+ */
 export const NARROW_VIEWS: readonly NarrowView[] = ['chat', 'cli', 'git', 'files', 'plans', 'memory', 'notes', 'console'];
 
 export function isNarrowView(value: unknown): value is NarrowView {
@@ -69,7 +77,11 @@ export function resolveNarrowView(wanted: NarrowView, available: readonly Narrow
   return available.includes(wanted) ? wanted : 'chat';
 }
 
-/** La solapa del panel de la PC que dibuja esa vista, o null para las que no son del panel. */
+/**
+ * La solapa del panel que dibuja esa vista, o null para las que no son del
+ * panel. Notas es solapa en la PC, pero en el teléfono tiene su propio lugar
+ * (`NarrowShell`): null, para que el panel no la monte una segunda vez.
+ */
 export function panelTabOf(view: NarrowView): PanelTab | null {
   switch (view) {
     case 'cli':
