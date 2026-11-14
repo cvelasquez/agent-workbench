@@ -7,12 +7,12 @@
  * de sacar.
  */
 
-import { existsSync } from 'node:fs';
 import { createServer, type Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { TOKEN_QUERY_PARAM, type AgentInfo, type TerminalId } from '@agent-workbench/shared';
+import { mountBuiltUi, NOT_FOUND_TEXT } from './built-ui.js';
 import { ArchivedSessions } from './archived-sessions.js';
 import type { CliLocation } from './agents/adapter.js';
 import { createAgentRegistry, type AgentRegistry } from './agents/registry.js';
@@ -130,7 +130,6 @@ const ORIGIN_REFUSED_TEXT = 'Origin not allowed.\nOrigen no permitido.';
 const TOKEN_MISSING_TEXT =
   'The session token is missing. Open the URL the server printed at startup.\n' +
   'Falta el token de sesión. Abre la URL que imprimió el servidor al arrancar.';
-const NOT_FOUND_TEXT = 'Not found.\nNo encontrado.';
 /** Solo con el acceso remoto andando: a quien llega de otro equipo, como se entra. */
 const PAIRING_HINT_TEXT =
   '\n\nFrom another computer: pair it first. On the computer that runs Agent Workbench, open ' +
@@ -223,47 +222,6 @@ async function mountDevUi(
   });
   app.use(vite.middlewares);
   return () => vite.close();
-}
-
-/**
- * Sirve la interfaz ya compilada.
- *
- * Vite no se importa siquiera en este camino: en produccion no tiene por que
- * estar instalado.
- *
- * El `sendFile` del final es el fallback de una SPA, y **solo** se aplica a
- * rutas que no piden un archivo. Un fallback que atrapa todo es el error
- * clasico de esta configuracion: un asset que falta devuelve el HTML con
- * estado 200, el navegador intenta interpretar `<!doctype html>` como
- * JavaScript y el error que se ve es un `Unexpected token '<'` que no tiene
- * nada que ver con la causa. Pasa de verdad — con un fragmento cargado a
- * demanda, como el resaltador de sintaxis, basta con recompilar mientras
- * alguien tiene la pagina abierta.
- *
- * Se detecta por la extension del ultimo segmento: si la ruta pide un archivo
- * y `express.static` no lo encontro, no existe, y eso es un 404.
- */
-const LOOKS_LIKE_FILE = /\.[a-zA-Z0-9]{1,8}$/;
-
-function mountBuiltUi(app: express.Express): () => Promise<void> {
-  const indexHtml = path.join(webDist, 'index.html');
-  if (!existsSync(indexHtml)) {
-    throw new Error(
-      `There's no compiled interface in ${webDist}.
-Run "pnpm build" before "pnpm start", or use "pnpm dev".`,
-    );
-  }
-
-  app.use(express.static(webDist, { index: false, maxAge: 0 }));
-  app.get(/.*/, (request: Request, response: Response) => {
-    if (LOOKS_LIKE_FILE.test(request.path)) {
-      response.status(404).type('text/plain').send(NOT_FOUND_TEXT);
-      return;
-    }
-    response.sendFile(indexHtml);
-  });
-
-  return () => Promise.resolve();
 }
 
 /**
@@ -541,7 +499,7 @@ async function main(): Promise<void> {
     response.attachment(safeFileName(file.name));
     response.type('application/octet-stream').send(Buffer.from(file.data, 'base64'));
   });
-  const closeUi = isProduction ? mountBuiltUi(app) : await mountDevUi(app, httpServer);
+  const closeUi = isProduction ? mountBuiltUi(app, webDist) : await mountDevUi(app, httpServer);
 
   const detachSocket = attachTerminalSocket({
     pasteStore,
