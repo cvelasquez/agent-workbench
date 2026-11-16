@@ -1517,6 +1517,29 @@ const event = (eventId, role, text, at, parts = [{ kind: 'text', text, truncated
   check('13.41 editable sin sent no se lee: solo lo enviado se edita asi', loose !== null && loose.editable === undefined && loose.sent === undefined, json(loose));
 }
 
+// --- 14. El esfuerzo, solo cuando cambia (16-11-2026) -------------------------------
+//
+// Lo dibujaba cada mensaje del agente, y en un hilo largo era la misma etiqueta
+// debajo de cada uno. Ahora: el primero que lo dice y el que lo cambia.
+{
+  const { readFileSync } = await import('node:fs');
+  const { effortShownIds } = await import('../../web/src/turn-effort.ts');
+  const ev = (eventId, effort) => ({ eventId, effort });
+  const shown = (events) => [...effortShownIds(events)].join(',');
+  check('14.1 el primero que lo dice, y despues solo el que lo cambia',
+    shown([ev('u1', null), ev('a1', 'xhigh'), ev('a2', 'xhigh'), ev('u2', null), ev('a3', 'xhigh'), ev('a4', 'high'), ev('a5', 'high')]) === 'a1,a4');
+  check('14.2 volver al de antes tambien es un cambio',
+    shown([ev('a1', 'high'), ev('a2', 'xhigh'), ev('a3', 'high')]) === 'a1,a2,a3');
+  check('14.3 un mensaje sin esfuerzo (el del usuario, una CLI que no lo dice) no lo reinicia',
+    shown([ev('a1', 'high'), ev('u1', null), ev('a2', 'high')]) === 'a1');
+  check('14.4 sin esfuerzo en ninguno, ninguno lo dibuja', shown([ev('u1', null), ev('a1', null)]) === '');
+  const view = readFileSync(new URL('../../web/src/ConversationView.tsx', import.meta.url), 'utf8');
+  check('14.5 la vista lo calcula sobre todo el hilo y el pie solo lo dibuja si toca',
+    /const effortShown = useMemo\(\(\) => effortShownIds\(cards\.map\(\(card\) => card\.event\)\), \[cards\]\);/.test(view) &&
+      /if \(showEffort && event\.effort !== null\) bits\.push\(t\('thread\.turn\.effort'/.test(view) &&
+      (view.match(/showEffort=\{effortShown\.has\((?:block\.)?card\.event\.eventId\)\}/g) ?? []).length === 2);
+}
+
 await rm(root, { recursive: true, force: true });
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLO(S)`);

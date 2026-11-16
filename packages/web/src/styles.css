@@ -2186,10 +2186,37 @@ kbd {
   }
 }
 
+/*
+  El cuadro de busqueda con la lupa adentro (16-11-2026): la lupa dice para que
+  es sin ocupar un boton al lado. El envoltorio toma el lugar que tenia el cuadro.
+*/
+.conversation-search-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  /* En una columna angosta se achica como antes, sin meterse debajo del boton de al lado. */
+  overflow: hidden;
+}
+
+.conversation-search-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+/* Con la × propia al lado, la del navegador sobra: serian dos para lo mismo. */
+.conversation-search-field-closable .conversation-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
 .conversation-search-input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 5px 8px 5px 27px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2214,12 +2241,17 @@ kbd {
 }
 
 /*
-  El boton que pliega la barra del hilo (29-10-2026): la lupa dice que ahi esta
-  la busqueda, y la flecha, hacia donde va. Desplegada apunta arriba.
+  El boton que pliega la barra del hilo (29-10-2026): la flecha dice hacia donde
+  va, y desplegada apunta arriba. Hasta el 16-11-2026 llevaba tambien la lupa, y
+  parecia el boton de buscar: la lupa es ahora su propio boton.
 */
 .thread-tools-toggle {
-  gap: 2px;
   flex: 0 0 auto;
+}
+
+/* "CLI", "Rama", la letra y el narrador: en el escritorio, en la fila como siempre. */
+.thread-tool-buttons {
+  display: contents;
 }
 
 .thread-tools-chevron {
@@ -2624,6 +2656,8 @@ kbd {
   border-radius: 0 6px 6px 0;
   background: color-mix(in srgb, var(--accent) 7%, transparent);
   padding: 8px 12px;
+  /* El relleno de abajo, para los botones del mensaje en una pantalla tactil (bloque `hover: none`). */
+  --turn-actions-bottom: 8px;
 }
 
 .turn-match {
@@ -3453,32 +3487,33 @@ kbd {
   5 horas queda, salvo que otra este al 90 %), y despues la palabra y la barra,
   hasta `11 % · 5d 10h`. El titulo dice siempre todas.
 
-  Con la barra plegada (29-10-2026) la fila es solo el boton y los medidores,
-  y los cortes bajan: los de la vista angosta (`thread-meters`), que se
-  midieron para los medidores solos, mas el boton.
+  Sin el cuadro de busqueda (la barra plegada, 29-10-2026) la fila es la
+  flecha, la lupa y los medidores, y los cortes bajan: lo que piden los
+  medidores solos (566 y 390 px, medidos en el idioma mas largo) mas los dos
+  botones. Con el cuadro abierto por la lupa valen los de la barra desplegada.
 */
 @container thread-toolbar (max-width: 760px) {
-  .conversation-search:not(.thread-tools-closed) .plan-meter .plan-window-extra {
+  .thread-search-open .plan-meter .plan-window-extra {
     display: none;
   }
 }
 
 @container thread-toolbar (max-width: 560px) {
-  .conversation-search:not(.thread-tools-closed) .plan-meter .plan-label,
-  .conversation-search:not(.thread-tools-closed) .plan-meter .plan-bar {
+  .thread-search-open .plan-meter .plan-label,
+  .thread-search-open .plan-meter .plan-bar {
     display: none;
   }
 }
 
-@container thread-toolbar (max-width: 630px) {
-  .thread-tools-closed .plan-meter .plan-window-extra {
+@container thread-toolbar (max-width: 640px) {
+  .conversation-search:not(.thread-search-open) .plan-meter .plan-window-extra {
     display: none;
   }
 }
 
-@container thread-toolbar (max-width: 450px) {
-  .thread-tools-closed .plan-meter .plan-label,
-  .thread-tools-closed .plan-meter .plan-bar {
+@container thread-toolbar (max-width: 470px) {
+  .conversation-search:not(.thread-search-open) .plan-meter .plan-label,
+  .conversation-search:not(.thread-search-open) .plan-meter .plan-bar {
     display: none;
   }
 }
@@ -7117,59 +7152,106 @@ kbd {
     height: 36px;
   }
 
+  /*
+    El cuadro de escritura (16-11-2026, pedido del usuario): Enviar, Detener y la
+    voz salen del cuadro a la barra de abajo, a la derecha. Adentro le quitaban
+    al texto hasta un tercio del ancho (42 px por boton).
+  */
   .app-narrow .composer-field .composer-input {
-    min-height: 46px;
-    /* Cada boton de 36 px mas 6 de separacion, con el margen: 50 px con uno, 92 con dos. */
-    padding-right: calc(8px + 42px * var(--composer-slots, 1));
+    min-height: 40px;
+    padding-right: 10px;
   }
 
-  /* La barra de "esperando" y el medidor, en una linea. */
+  /*
+    Las dos lineas de abajo, siempre las mismas y no segun el ancho: arriba lo
+    que se agrega al mensaje y el modo; abajo el modelo, el esfuerzo y los
+    botones. Hasta el 16-11-2026 el esfuerzo caia solo a la segunda.
+  */
+  .app-narrow .composer-bar-break {
+    flex-basis: 100%;
+    height: 0;
+  }
+
+  /* El lugar de los botones que pueden aparecer, reservado: Enviar no corre a los demas al aparecer. */
+  .app-narrow .composer-bar-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: calc(42px * var(--composer-slots, 1) - 6px);
+  }
+
+  /*
+    La barra del hilo en lineas (16-11-2026, `threadBarLayout`): arriba la
+    flecha, la lupa (o el cuadro que abrio) y el medidor de contexto;
+    desplegada, los botones en la segunda y el medidor de la semana en la
+    tercera.
+  */
   .app-narrow .conversation-search {
     flex-wrap: wrap;
-    row-gap: 4px;
+    row-gap: 6px;
     /* El medidor del plan no se mide contra la fila entera: abajo, contra su linea. */
     container-type: normal;
   }
 
+  .app-narrow .conversation-spacer {
+    display: none;
+  }
+
   /*
-    Los medidores, en una linea propia: en un telefono ya bajaban solos, y la
-    fila entera (menos de 560 px) dejaba el del plan en `11 % · 5d 10h` con la
-    linea casi vacia. Los cortes salen de medir los nueve idiomas (19-10-2026):
-    las dos ventanas y el de contexto piden hasta 566 px de linea; la
-    prioritaria con palabra y barra y el de contexto, de 334 (ingles) a 390
-    (frances, con la semana), y 341 en espanol. Si un idioma largo no cabe, el
-    de contexto baja otra linea en vez de salirse de la pantalla.
+    El de contexto, a la derecha de la primera linea. No baja: si no cabe, se
+    va la palabra antes que el numero.
   */
   .app-narrow .thread-meters {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+    container-type: inline-size;
+    container-name: thread-context;
+  }
+
+  @container thread-context (max-width: 230px) {
+    .app-narrow .thread-meters .meter-label {
+      display: none;
+    }
+  }
+
+  .app-narrow .thread-tool-buttons {
     display: flex;
     flex: 0 0 100%;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-start;
     gap: 4px;
-    container-type: inline-size;
-    container-name: thread-meters;
   }
 
   /*
-    Plegada (29-10-2026), una sola linea: el boton y los medidores, que se
-    quedan con todo lo demas. Los cortes de abajo miden esa linea.
+    El de la semana, en su linea, con la barra desplegada. Los cortes salen de
+    medir los nueve idiomas (19-10-2026): las dos ventanas piden hasta 566 px,
+    y la prioritaria con palabra y barra, 342 en espanol. Sin datos ni nada que
+    configurar, `PlanMeter` no dibuja nada y la linea no ocupa lugar.
   */
-  .app-narrow .thread-tools-closed .thread-meters {
-    flex: 1 1 0;
-    min-width: 0;
+  .app-narrow .thread-plan-line {
+    display: flex;
+    flex: 0 0 100%;
+    align-items: center;
+    container-type: inline-size;
+    container-name: thread-plan-line;
   }
 
-  .app-narrow .thread-tools-closed .conversation-spacer {
+  .app-narrow .thread-plan-line:empty {
     display: none;
   }
 
-  @container thread-meters (max-width: 570px) {
+  @container thread-plan-line (max-width: 570px) {
     .app-narrow .plan-meter .plan-window-extra {
       display: none;
     }
   }
 
-  @container thread-meters (max-width: 345px) {
+  @container thread-plan-line (max-width: 345px) {
     .app-narrow .plan-meter .plan-label,
     .app-narrow .plan-meter .plan-bar {
       display: none;
@@ -7514,6 +7596,26 @@ kbd {
 
   .session-action:disabled {
     opacity: 0.35;
+  }
+
+  /*
+    Los botones de cada mensaje, siempre a la vista, tapaban arriba a la derecha
+    el final de la primera linea (16-11-2026, captura del usuario). Van abajo, en
+    la linea de la hora, que a la derecha suele estar vacia; esa linea crece a su
+    alto para que no pisen la ultima linea del texto.
+  */
+  .turn-actions {
+    top: auto;
+    bottom: var(--turn-actions-bottom, 2px);
+  }
+
+  .turn-actions ~ .turn-meta {
+    min-height: 26px;
+  }
+
+  /* Arriba ya no esta el copiar del mensaje: el del bloque de codigo vuelve a su lugar. */
+  .turn-actions + .part-text > .md > .md-code-wrap:first-child > .md-code-tools {
+    right: 6px;
   }
 
   /* Sin el solape sobre el contador: los botones ocupan su lugar. */

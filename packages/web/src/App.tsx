@@ -1554,6 +1554,7 @@ export function App(): JSX.Element {
             )
           }
           threadTools={threadTools}
+          narrow={narrow}
           fileLinks={fileLinks}
           /*
             Volver aqui e "Insertar como @ruta" le escriben a la terminal: sin
@@ -1673,6 +1674,7 @@ export function App(): JSX.Element {
           */
           // La sugerencia de la CLI, en gris en el cuadro vacio (hito 53, §5.3.2).
           suggestion={activeTerminalId === null ? null : (suggestions.get(activeTerminalId) ?? null)}
+          narrow={narrow}
           onSubmitted={(terminalId, requestId, queued) => {
             dismissComposerNotice(terminalId);
             dismissSuggestion(terminalId);

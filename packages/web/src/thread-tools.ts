@@ -32,3 +32,49 @@ export function parseStoredThreadTools(raw: string): boolean | null {
   if (raw === 'closed') return false;
   return null;
 }
+
+/**
+ * Qué dibuja la barra del hilo (16-11-2026, pedido del usuario para el
+ * teléfono). La lupa ya no va con la flecha: la flecha muestra los botones
+ * ("CLI", "Rama", la letra, el narrador) y la lupa abre el cuadro de búsqueda.
+ *
+ * - **PC**: desplegada, como siempre, con el cuadro a la vista (la lupa va
+ *   adentro) y los dos medidores juntos. Plegada queda la lupa sola; tocarla
+ *   abre el cuadro, con una × que lo cierra.
+ * - **Teléfono**: una línea con la flecha, la lupa y el medidor de contexto.
+ *   Buscando, el cuadro ocupa esa línea y el medidor se esconde. Desplegada,
+ *   los botones van en la línea de abajo y el medidor de la semana en otra: el
+ *   de contexto cambia en cada turno, el de la semana despacio.
+ */
+export interface ThreadBarLayout {
+  /** El cuadro de búsqueda se ve; si no, sólo la lupa. */
+  searchField: boolean;
+  /** El cuadro lleva una × que lo cierra y borra lo buscado. */
+  searchClosable: boolean;
+  /** "CLI", "Rama", la letra y el narrador. */
+  toolButtons: boolean;
+  /** El medidor de contexto. */
+  context: boolean;
+  /** El medidor del plan: junto al de contexto, en su propia línea o escondido. */
+  plan: 'beside-context' | 'own-line' | 'hidden';
+}
+
+export function threadBarLayout(input: { narrow: boolean; toolsOpen: boolean; searchOpen: boolean }): ThreadBarLayout {
+  const { narrow, toolsOpen, searchOpen } = input;
+  if (!narrow) {
+    return {
+      searchField: toolsOpen || searchOpen,
+      searchClosable: !toolsOpen && searchOpen,
+      toolButtons: toolsOpen,
+      context: true,
+      plan: 'beside-context',
+    };
+  }
+  return {
+    searchField: searchOpen,
+    searchClosable: true,
+    toolButtons: toolsOpen,
+    context: !searchOpen,
+    plan: toolsOpen ? 'own-line' : 'hidden',
+  };
+}

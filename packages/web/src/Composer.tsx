@@ -207,6 +207,11 @@ interface ComposerProps {
    * la flechita en una pantalla tactil, la escribe. Ver `composer-suggestion.ts`.
    */
   suggestion?: string | null;
+  /**
+   * La vista angosta (§6.25, 16-11-2026): Enviar, Detener y la voz van en la
+   * barra de abajo y no dentro del cuadro, y sin CLI la barra no se dibuja.
+   */
+  narrow?: boolean;
 }
 
 /** Donde esta el cursor del cuadro y hasta donde se desplazo, para volver ahi (`DraftView`). */
@@ -246,6 +251,7 @@ export function Composer({
   codexQueueAvailable = false,
   codexQueueSessionId = null,
   suggestion = null,
+  narrow = false,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -992,6 +998,111 @@ export function Composer({
           ? t('composer.codexQueue.unavailable')
           : t('composer.codexQueue.failed');
 
+  /*
+    Sugerencia, Detener, la voz y Enviar: dentro del cuadro en la PC, y en la
+    barra de abajo, a la derecha, en la vista angosta (16-11-2026).
+  */
+  const fieldActions = (
+    <>
+      {/*
+        Como se usa la sugerencia (hito 53): con un teclado, Tab, y se dice
+        con la tecla dibujada; en una pantalla tactil no hay Tab, y va la
+        flechita, que no le quita el foco al cuadro.
+      */}
+      {shownSuggestion !== null &&
+        (touch ? (
+          <button
+            className="composer-icon composer-suggestion-use"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={takeSuggestion}
+            title={t('composer.suggestion.use')}
+            aria-label={t('composer.suggestion.use')}
+          >
+            <span aria-hidden="true">↗</span>
+          </button>
+        ) : (
+          <kbd className="composer-suggestion-key" title={t('composer.suggestion.keyTitle')}>
+            {t('composer.suggestion.key')}
+          </kbd>
+        ))}
+      {showStop && (
+        <button
+          className="composer-icon composer-stop"
+          onClick={interrupt}
+          disabled={disabled}
+          title={t('composer.stopTitle')}
+          aria-label={t('composer.stop')}
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+          </svg>
+        </button>
+      )}
+      {voice.available &&
+        voice.controls.map((control) => (
+          <button
+            key={control.mode}
+            className={`composer-icon composer-voice-button${control.active ? ' is-active' : ''}${control.busy ? ' is-busy' : ''}`}
+            disabled={control.disabled}
+            aria-label={
+              control.active
+                ? t('composer.voice.stop')
+                : control.busy
+                  ? t('composer.voice.transcribing')
+                  : control.mode === 'dictation'
+                    ? t('composer.voice.dictate')
+                    : t('composer.voice.live')
+            }
+            aria-pressed={control.active}
+            aria-busy={control.busy}
+            title={
+              control.busy
+                ? t('composer.voice.transcribing')
+                : control.active
+                  ? t('composer.voice.stop')
+                  : voiceBlocked && control.mode === 'dictation'
+                    ? t('composer.voice.blocked')
+                    : control.hold
+                      ? t('composer.voice.hold')
+                      : t('composer.voice.live')
+            }
+            {...control.props}
+          >
+            {control.mode === 'live' ? (
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path d="M5 10v4M9.5 4v16M14 7v10M18.5 10v4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <rect x="9" y="3" width="6" height="12" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
+                <path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V22m-4 0h8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
+          </button>
+        ))}
+      {showSend && (
+        <button
+          className="composer-icon composer-send"
+          onClick={submit}
+          disabled={disabled || !hasSomething || blockedReason !== null || dictating}
+          title={blockedReason ?? t('composer.sendTitle')}
+          aria-label={t('composer.send')}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path
+              d="M12 19V5M5.5 11.5 12 5l6.5 6.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div
       className={`composer${dragging ? ' composer-dragging' : ''}`}
@@ -1081,7 +1192,8 @@ export function Composer({
         mientras trabaja sigue valiendo. Con el cuadro vacío no hay Enviar (antes
         se veía apagado), pero su lugar sigue reservado: el texto no salta al
         escribir la primera letra (`actionSlots`). A su lado, la voz de la CLI
-        (§5.3.3).
+        (§5.3.3). En la vista angosta van en la barra de abajo (16-11-2026),
+        y el texto se queda con todo el ancho del cuadro.
       */}
       <div className="composer-field" style={{ '--composer-slots': fieldSlots } as React.CSSProperties}>
       <textarea
@@ -1114,104 +1226,7 @@ export function Composer({
         onPaste={onPaste}
         spellCheck={false}
       />
-        <div className="composer-field-actions">
-          {/*
-            Como se usa la sugerencia (hito 53): con un teclado, Tab, y se dice
-            con la tecla dibujada; en una pantalla tactil no hay Tab, y va la
-            flechita, que no le quita el foco al cuadro.
-          */}
-          {shownSuggestion !== null &&
-            (touch ? (
-              <button
-                className="composer-icon composer-suggestion-use"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={takeSuggestion}
-                title={t('composer.suggestion.use')}
-                aria-label={t('composer.suggestion.use')}
-              >
-                <span aria-hidden="true">↗</span>
-              </button>
-            ) : (
-              <kbd className="composer-suggestion-key" title={t('composer.suggestion.keyTitle')}>
-                {t('composer.suggestion.key')}
-              </kbd>
-            ))}
-          {showStop && (
-            <button
-              className="composer-icon composer-stop"
-              onClick={interrupt}
-              disabled={disabled}
-              title={t('composer.stopTitle')}
-              aria-label={t('composer.stop')}
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
-              </svg>
-            </button>
-          )}
-          {voice.available &&
-            voice.controls.map((control) => (
-              <button
-                key={control.mode}
-                className={`composer-icon composer-voice-button${control.active ? ' is-active' : ''}${control.busy ? ' is-busy' : ''}`}
-                disabled={control.disabled}
-                aria-label={
-                  control.active
-                    ? t('composer.voice.stop')
-                    : control.busy
-                      ? t('composer.voice.transcribing')
-                      : control.mode === 'dictation'
-                        ? t('composer.voice.dictate')
-                        : t('composer.voice.live')
-                }
-                aria-pressed={control.active}
-                aria-busy={control.busy}
-                title={
-                  control.busy
-                    ? t('composer.voice.transcribing')
-                    : control.active
-                      ? t('composer.voice.stop')
-                      : voiceBlocked && control.mode === 'dictation'
-                        ? t('composer.voice.blocked')
-                        : control.hold
-                          ? t('composer.voice.hold')
-                          : t('composer.voice.live')
-                }
-                {...control.props}
-              >
-                {control.mode === 'live' ? (
-                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                    <path d="M5 10v4M9.5 4v16M14 7v10M18.5 10v4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                    <rect x="9" y="3" width="6" height="12" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
-                    <path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V22m-4 0h8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                )}
-              </button>
-            ))}
-          {showSend && (
-            <button
-              className="composer-icon composer-send"
-              onClick={submit}
-              disabled={disabled || !hasSomething || blockedReason !== null || dictating}
-              title={blockedReason ?? t('composer.sendTitle')}
-              aria-label={t('composer.send')}
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path
-                  d="M12 19V5M5.5 11.5 12 5l6.5 6.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          )}
-        </div>
+        {!narrow && <div className="composer-field-actions">{fieldActions}</div>}
       </div>
 
       {/*
@@ -1222,81 +1237,101 @@ export function Composer({
         ruido. Los tres siguen documentados en el dialogo del boton `?`, que es
         donde se busca un atajo cuando de verdad hace falta.
       */}
-      <div className="composer-bar">
-        {/*
-          Adjuntar (hito 33, §6.21). El gesto ya existia —soltar o pegar— pero
-          sin un boton no se encuentra. El `<input>` va escondido y se vacia
-          despues de cada eleccion: si no, elegir dos veces el mismo archivo no
-          dispara `change` la segunda.
-        */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          hidden
-          onChange={(event) => {
-            if (event.target.files !== null) attachments.acceptFiles(event.target.files);
-            event.target.value = '';
-          }}
-        />
-        <button
-          className="icon-button composer-attach"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
-          title={t('composer.attachTitle')}
-          aria-label={t('composer.attach')}
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path
-              d="M21.4 11.1 12.3 20.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        {/*
-          Programar el envio (hito 51, §6.39), al lado del clip: es otra forma de
-          mandar lo escrito. Solo si se ofrece (Ajustes y la CLI de la pestana).
-        */}
-        {onSchedule !== undefined && (
-          <button
-            className={`icon-button composer-schedule${scheduleAnchor !== null ? ' composer-schedule-open' : ''}`}
-            onClick={(event) => {
-              const button = event.currentTarget;
-              setScheduleAnchor((current) => (current === null ? button : null));
+      {/*
+        En la vista angosta, sin CLI la barra no se dibuja: todo estaria apagado,
+        y la barra de "Abrir CLI" de arriba ya dice que hacer (16-11-2026). Y
+        sus dos lineas no dependen del ancho: un corte antes del modelo.
+      */}
+      {!(narrow && disabled) && (
+        <div className="composer-bar">
+          {/*
+            Adjuntar (hito 33, §6.21). El gesto ya existia —soltar o pegar— pero
+            sin un boton no se encuentra. El `<input>` va escondido y se vacia
+            despues de cada eleccion: si no, elegir dos veces el mismo archivo no
+            dispara `change` la segunda.
+          */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              if (event.target.files !== null) attachments.acceptFiles(event.target.files);
+              event.target.value = '';
             }}
-            disabled={disabled || scheduleBlocked !== null}
-            title={scheduleBlocked ?? t('scheduled.composer.title')}
-            aria-label={t('scheduled.composer.label')}
-            aria-haspopup="dialog"
-            aria-expanded={scheduleAnchor !== null}
+          />
+          <button
+            className="icon-button composer-attach"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            title={t('composer.attachTitle')}
+            aria-label={t('composer.attach')}
           >
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
-              <path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M21.4 11.1 12.3 20.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
-        )}
-        {codexQueueAvailable && (
-          <button
-            className={`icon-button composer-codex-queue${queuePendingForTab ? ' composer-codex-queue-pending' : ''}`}
-            onClick={queueCodex}
-            disabled={disabled || !hasSomething || queueBlocked !== null || queuePendingForTab}
-            title={queuePendingForTab ? t('composer.codexQueue.pending') : queueBlocked ?? t('composer.codexQueue.label')}
-            aria-label={queuePendingForTab ? t('composer.codexQueue.pending') : t('composer.codexQueue.label')}
-          >
-            {queuePendingForTab ? '…' : '↳'}
-          </button>
-        )}
-        {queueNoticeText !== null && <span className="composer-codex-queue-status" aria-live="polite">{queueNoticeText}</span>}
-        {scheduleAnchor !== null && <ScheduleMenu anchor={scheduleAnchor} onPick={schedule} onClose={closeSchedule} />}
-        {leading}
-        <span className="composer-spacer" />
-        {controls}
-      </div>
+          {/*
+            Programar el envio (hito 51, §6.39), al lado del clip: es otra forma de
+            mandar lo escrito. Solo si se ofrece (Ajustes y la CLI de la pestana).
+          */}
+          {onSchedule !== undefined && (
+            <button
+              className={`icon-button composer-schedule${scheduleAnchor !== null ? ' composer-schedule-open' : ''}`}
+              onClick={(event) => {
+                const button = event.currentTarget;
+                setScheduleAnchor((current) => (current === null ? button : null));
+              }}
+              disabled={disabled || scheduleBlocked !== null}
+              title={scheduleBlocked ?? t('scheduled.composer.title')}
+              aria-label={t('scheduled.composer.label')}
+              aria-haspopup="dialog"
+              aria-expanded={scheduleAnchor !== null}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
+                <path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
+          {codexQueueAvailable && (
+            <button
+              className={`icon-button composer-codex-queue${queuePendingForTab ? ' composer-codex-queue-pending' : ''}`}
+              onClick={queueCodex}
+              disabled={disabled || !hasSomething || queueBlocked !== null || queuePendingForTab}
+              title={queuePendingForTab ? t('composer.codexQueue.pending') : queueBlocked ?? t('composer.codexQueue.label')}
+              aria-label={queuePendingForTab ? t('composer.codexQueue.pending') : t('composer.codexQueue.label')}
+            >
+              {queuePendingForTab ? '…' : '↳'}
+            </button>
+          )}
+          {queueNoticeText !== null && <span className="composer-codex-queue-status" aria-live="polite">{queueNoticeText}</span>}
+          {scheduleAnchor !== null && <ScheduleMenu anchor={scheduleAnchor} onPick={schedule} onClose={closeSchedule} />}
+          {leading}
+          {narrow ? (
+            <>
+              {controls !== undefined && <span className="composer-bar-break" aria-hidden="true" />}
+              {controls}
+              <span className="composer-spacer" />
+              <div className="composer-bar-actions" style={{ '--composer-slots': fieldSlots } as React.CSSProperties}>
+                {fieldActions}
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="composer-spacer" />
+              {controls}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

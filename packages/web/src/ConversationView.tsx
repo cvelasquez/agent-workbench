@@ -92,6 +92,8 @@ import {
 } from './thread-status.js';
 import type { ThreadFontState } from './useThreadFont.js';
 import type { ThreadToolsState } from './useThreadTools.js';
+import { threadBarLayout } from './thread-tools.js';
+import { effortShownIds } from './turn-effort.js';
 import { ContinueButton, ContinueIcon } from './ContinueButton.js';
 import { MoveBranchIcon } from './BranchIcon.js';
 import { pastedLineCount, splitPastedBlocks } from './composer-paste.js';
@@ -108,8 +110,8 @@ import type { FileLinks } from './useFileLinks.js';
 import { isPromptEvent } from './rewind-ui.js';
 
 /**
- * La lupa del boton que pliega la barra (29-10-2026): dice que ahi esta la
- * busqueda. Dibujada a mano, como el icono de rama (`BranchIcon.tsx`).
+ * La lupa de la busqueda del hilo: el boton que abre el cuadro, y adentro del
+ * cuadro (16-11-2026). Dibujada a mano, como el icono de rama (`BranchIcon.tsx`).
  */
 function SearchIcon(): JSX.Element {
   return (
@@ -395,10 +397,12 @@ interface ConversationViewProps {
   /** El boton del narrador (hito 57, §6.40), ya armado; null sin narrador. */
   narratorControl?: JSX.Element | null;
   /**
-   * La barra plegable (29-10-2026, `thread-tools.ts`): si se ve la busqueda con
-   * sus botones. Ausente: siempre a la vista, sin el boton de plegar.
+   * La barra plegable (29-10-2026, `thread-tools.ts`): si se ven sus botones.
+   * Ausente: siempre a la vista, sin el boton de plegar.
    */
   threadTools?: ThreadToolsState;
+  /** La vista angosta (§6.25): la barra del hilo se arma en lineas (`threadBarLayout`). */
+  narrow?: boolean;
   /**
    * Con que CLIs se puede continuar esta conversacion (hito 29,
    * `continueTargets`). Vacia: no hay `↪` al lado del medidor.
@@ -492,6 +496,7 @@ export function ConversationView({
   onConfigureStatusLine,
   threadFont,
   threadTools,
+  narrow = false,
   narratorControl = null,
   continueTargets = [],
   continueBlockedReason = null,
@@ -546,27 +551,51 @@ export function ConversationView({
 
   const toolsOpen = threadTools?.open ?? true;
   const setToolsOpen = threadTools?.setOpen;
+  // La lupa tocada (16-11-2026): el cuadro de busqueda abierto aunque la barra este plegada.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const bar = threadBarLayout({ narrow, toolsOpen, searchOpen });
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const focusSearch = useRef(false);
   /*
-    Plegar con algo escrito borra la busqueda, como cerrar la del navegador:
-    los aciertos marcados sin el cuadro que los nombra no se entienden.
+    Si el cuadro se va, lo buscado se borra, como al cerrar la busqueda del
+    navegador: los aciertos marcados sin el cuadro que los nombra no se entienden.
   */
   const toggleTools = (): void => {
     if (setToolsOpen === undefined) return;
-    if (toolsOpen) setQuery('');
-    setToolsOpen(!toolsOpen);
+    const next = !toolsOpen;
+    if (!threadBarLayout({ narrow, toolsOpen: next, searchOpen }).searchField) setQuery('');
+    setToolsOpen(next);
   };
+  const openSearch = (): void => {
+    focusSearch.current = true;
+    setSearchOpen(true);
+  };
+  const closeSearch = (): void => {
+    setSearchOpen(false);
+    setQuery('');
+  };
+  /*
+    El cuadro que se abre con la lupa recibe el foco a mano: Android ignora
+    `autoFocus` (§6.25). Solo al abrirlo, no cada vez que se dibuja.
+  */
+  const searchFieldShown = bar.searchField;
+  useEffect(() => {
+    if (!searchFieldShown || !focusSearch.current) return;
+    focusSearch.current = false;
+    searchInputRef.current?.focus();
+  }, [searchFieldShown]);
 
   /*
     Tambien al montar: si no habia ninguna pestana, la vista nace con la que
-    abrio el acierto, y el pedido la estaba esperando. Con la barra plegada, la
-    despliega: el texto buscado tiene que verse.
+    abrio el acierto, y el pedido la estaba esperando. Abre el cuadro: el texto
+    buscado tiene que verse.
   */
   useEffect(() => {
     if (searchRequest === null) return;
     setQuery(searchRequest.query);
-    setToolsOpen?.(true);
+    setSearchOpen(true);
     onSearchRequestApplied?.(searchRequest.seq);
-  }, [searchRequest, onSearchRequestApplied, setToolsOpen]);
+  }, [searchRequest, onSearchRequestApplied]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef(new Map<string, HTMLElement>());
@@ -685,8 +714,11 @@ export function ConversationView({
     fila de la lista, no un adorno de las tarjetas que la componen.
   */
   const blocks = useMemo(() => groupCards(cards), [cards, locale]);
+  // El esfuerzo al pie, solo en el primero que lo dice y en el que lo cambia (16-11-2026).
+  const effortShown = useMemo(() => effortShownIds(cards.map((card) => card.event)), [cards]);
 
-  const needle = query.trim();
+  // Sin el cuadro a la vista no se marca nada, aunque quede algo escrito.
+  const needle = bar.searchField ? query.trim() : '';
   const matches = useMemo(() => {
     if (needle.length === 0) return [];
     const lower = needle.toLowerCase();
@@ -1100,14 +1132,86 @@ export function ConversationView({
     setMatchIndex((current) => (current + offset + matches.length) % matches.length);
   };
 
+  /*
+    "CLI", "Rama", la letra y el narrador: lo que se pliega. En el escritorio el
+    envoltorio no es una caja y quedan en la fila como siempre; en la vista
+    angosta son la segunda linea, alineados a la izquierda (16-11-2026).
+  */
+  const toolButtons = !bar.toolButtons ? null : (
+    <div className="thread-tool-buttons">
+      {/*
+        Continuar con otra CLI (hito 29), con la CLI y la sesion de esta
+        pestana. Solo con otra instalada; apagado mientras la sesion todavia
+        no esta en el historial. El icono de intercambio y "CLI"; lo que hace
+        lo dice el titulo, y el lector de pantalla lo lee entero.
+      */}
+      {onContinue !== undefined && (
+        <ContinueButton
+          targets={continueTargets}
+          className="icon-button conversation-continue"
+          text={
+            <>
+              <ContinueIcon />
+              <span>{t('thread.continueCli')}</span>
+            </>
+          }
+          label={continueButtonTitle()}
+          blockedReason={continueBlockedReason}
+          onPick={onContinue}
+        />
+      )}
+      {/*
+        Pasar esta conversacion a una rama aparte (hito 54), al lado de
+        "CLI": las dos llevan la conversacion a otro lado. El icono de rama
+        con flecha y "Rama"; lo que hace lo dice el titulo.
+      */}
+      {onMoveToBranch !== undefined && (
+        <button
+          className="icon-button conversation-continue"
+          onClick={onMoveToBranch}
+          title={t('worktree.move.title')}
+          aria-label={t('worktree.move.title')}
+        >
+          <MoveBranchIcon />
+          <span>{t('thread.moveBranch')}</span>
+        </button>
+      )}
+      {/*
+        Tres tamanos de letra, y un boton que los rota (hito 33). Va aca y no
+        en la cabecera de la app porque solo cambia el hilo.
+      */}
+      {threadFont !== undefined && (
+        <button
+          className="icon-button thread-font-button"
+          onClick={threadFont.cycle}
+          title={threadFontTitle(threadFont.size)}
+          aria-label={threadFontTitle(threadFont.size)}
+        >
+          <span aria-hidden="true">
+            a<span className="thread-font-big">A</span>
+          </span>
+        </button>
+      )}
+      {/*
+        El narrador (hito 57, §6.40): lee en voz alta los mensajes del agente
+        de esta pestana. Con los demas botones de la barra; callarlo desde
+        otra pestana es el parlante de la barra de pestanas.
+      */}
+      {narratorControl}
+    </div>
+  );
+
   return (
     <FileLinksContext.Provider value={fileLinks}>
     <div className="conversation-pane">
-      <div className={`conversation-search${toolsOpen ? '' : ' thread-tools-closed'}`}>
+      <div
+        className={`conversation-search${toolsOpen ? '' : ' thread-tools-closed'}${bar.searchField ? ' thread-search-open' : ''}`}
+      >
         {/*
           Plegar la barra (29-10-2026), como la cinta de opciones de un
-          procesador de texto: se van la busqueda y los botones, y los
-          medidores quedan. En el telefono el hilo gana una linea entera.
+          procesador de texto. Desde el 16-11-2026 la flecha y la lupa son dos
+          botones: la flecha muestra los botones de la barra, y la lupa abre el
+          cuadro de busqueda (`threadBarLayout`, `thread-tools.ts`).
         */}
         {threadTools !== undefined && (
           <button
@@ -1117,129 +1221,112 @@ export function ConversationView({
             title={toolsOpen ? t('thread.tools.hide') : t('thread.tools.show')}
             aria-label={toolsOpen ? t('thread.tools.hide') : t('thread.tools.show')}
           >
-            <SearchIcon />
             <span className="thread-tools-chevron" aria-hidden="true">
               ▾
             </span>
           </button>
         )}
-        {toolsOpen && (
-          <input
-            className="conversation-search-input"
-            type="search"
-            placeholder={t('thread.search.placeholder')}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') stepMatch(event.shiftKey ? -1 : 1);
-              event.stopPropagation();
-            }}
-            spellCheck={false}
-          />
-        )}
-        {toolsOpen && needle.length > 0 && (
+        {bar.searchField ? (
           <>
-            <span className="conversation-matches">
-              {matches.length === 0 ? t('thread.search.none') : `${matchIndex + 1}/${matches.length}`}
-            </span>
-            <button
-              className="icon-button"
-              onClick={() => stepMatch(-1)}
-              disabled={matches.length === 0}
-              title={t('thread.search.previous')}
-            >
-              ↑
-            </button>
-            <button
-              className="icon-button"
-              onClick={() => stepMatch(1)}
-              disabled={matches.length === 0}
-              title={t('thread.search.next')}
-            >
-              ↓
-            </button>
+            <div className={`conversation-search-field${bar.searchClosable ? ' conversation-search-field-closable' : ''}`}>
+              {/* La lupa va adentro del cuadro: dice para que es sin ocupar un boton. */}
+              <span className="conversation-search-icon" aria-hidden="true">
+                <SearchIcon />
+              </span>
+              <input
+                ref={searchInputRef}
+                className="conversation-search-input"
+                type="search"
+                placeholder={t('thread.search.placeholder')}
+                aria-label={t('thread.search.placeholder')}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') stepMatch(event.shiftKey ? -1 : 1);
+                  // Esc cierra el cuadro que abrio la lupa, como el buscador del navegador.
+                  if (event.key === 'Escape' && bar.searchClosable) closeSearch();
+                  event.stopPropagation();
+                }}
+                spellCheck={false}
+              />
+            </div>
+            {needle.length > 0 && (
+              <>
+                <span className="conversation-matches">
+                  {matches.length === 0 ? t('thread.search.none') : `${matchIndex + 1}/${matches.length}`}
+                </span>
+                <button
+                  className="icon-button"
+                  onClick={() => stepMatch(-1)}
+                  disabled={matches.length === 0}
+                  title={t('thread.search.previous')}
+                >
+                  ↑
+                </button>
+                <button
+                  className="icon-button"
+                  onClick={() => stepMatch(1)}
+                  disabled={matches.length === 0}
+                  title={t('thread.search.next')}
+                >
+                  ↓
+                </button>
+              </>
+            )}
+            {bar.searchClosable && (
+              <button
+                className="icon-button thread-search-close"
+                onClick={closeSearch}
+                title={t('thread.search.close')}
+                aria-label={t('thread.search.close')}
+              >
+                ×
+              </button>
+            )}
           </>
+        ) : (
+          <button
+            className="icon-button thread-search-button"
+            onClick={openSearch}
+            title={t('thread.search.placeholder')}
+            aria-label={t('thread.search.placeholder')}
+          >
+            <SearchIcon />
+          </button>
         )}
         <span className="conversation-spacer" />
-        {/*
-          Continuar con otra CLI (hito 29), con la CLI y la sesion de esta
-          pestana. Solo con otra instalada; apagado mientras la sesion todavia
-          no esta en el historial. El icono de intercambio y "CLI"; lo que hace
-          lo dice el titulo, y el lector de pantalla lo lee entero.
-        */}
-        {toolsOpen && onContinue !== undefined && (
-          <ContinueButton
-            targets={continueTargets}
-            className="icon-button conversation-continue"
-            text={
-              <>
-                <ContinueIcon />
-                <span>{t('thread.continueCli')}</span>
-              </>
-            }
-            label={continueButtonTitle()}
-            blockedReason={continueBlockedReason}
-            onPick={onContinue}
-          />
-        )}
-        {/*
-          Pasar esta conversacion a una rama aparte (hito 54), al lado de
-          "CLI": las dos llevan la conversacion a otro lado. El icono de rama
-          con flecha y "Rama"; lo que hace lo dice el titulo.
-        */}
-        {toolsOpen && onMoveToBranch !== undefined && (
-          <button
-            className="icon-button conversation-continue"
-            onClick={onMoveToBranch}
-            title={t('worktree.move.title')}
-            aria-label={t('worktree.move.title')}
-          >
-            <MoveBranchIcon />
-            <span>{t('thread.moveBranch')}</span>
-          </button>
-        )}
-        {/*
-          Tres tamanos de letra, y un boton que los rota (hito 33). Va aca y no
-          en la cabecera de la app porque solo cambia el hilo.
-        */}
-        {toolsOpen && threadFont !== undefined && (
-          <button
-            className="icon-button thread-font-button"
-            onClick={threadFont.cycle}
-            title={threadFontTitle(threadFont.size)}
-            aria-label={threadFontTitle(threadFont.size)}
-          >
-            <span aria-hidden="true">
-              a<span className="thread-font-big">A</span>
-            </span>
-          </button>
-        )}
-        {/*
-          El narrador (hito 57, §6.40): lee en voz alta los mensajes del agente
-          de esta pestana. Con los demas botones de la barra; callarlo desde
-          otra pestana es el parlante de la barra de pestanas.
-        */}
-        {toolsOpen && narratorControl}
+        {!narrow && toolButtons}
         {/*
           Los limites del plan de la cuenta (hito 47), antes del de contexto:
           el de contexto queda en su lugar de siempre, al borde, con "Compactar"
           despues del numero. En el escritorio el envoltorio no existe para el
-          layout; en la vista angosta es la linea propia de los medidores, y el
-          del plan se achica segun lo que mide ella (§6.37).
+          layout. En la vista angosta (16-11-2026) lleva solo el de contexto, en
+          la primera linea; el del plan baja a su linea con la barra desplegada,
+          y se achica segun lo que mide ella (§6.37).
         */}
-        <div className="thread-meters">
-          <PlanMeter windows={planWindows} setupState={planSetupState} onConfigure={onConfigurePlanLimits} />
-          <ContextMeter
-            usage={usage}
-            source={contextWindowSource}
-            instructionsFile={instructionsFile}
-            fallbackWindow={defaults.contextWindow}
-            compact
-            statusLineState={statusLineState}
-            onConfigure={onConfigureStatusLine}
-            compactAction={compactAction}
-          />
-        </div>
+        {(bar.context || bar.plan === 'beside-context') && (
+          <div className="thread-meters">
+            {bar.plan === 'beside-context' && <PlanMeter windows={planWindows} setupState={planSetupState} onConfigure={onConfigurePlanLimits} />}
+            {bar.context && (
+              <ContextMeter
+                usage={usage}
+                source={contextWindowSource}
+                instructionsFile={instructionsFile}
+                fallbackWindow={defaults.contextWindow}
+                compact
+                statusLineState={statusLineState}
+                onConfigure={onConfigureStatusLine}
+                compactAction={compactAction}
+              />
+            )}
+          </div>
+        )}
+        {narrow && toolButtons}
+        {bar.plan === 'own-line' && (
+          <div className="thread-plan-line">
+            <PlanMeter windows={planWindows} setupState={planSetupState} onConfigure={onConfigurePlanLimits} />
+          </div>
+        )}
       </div>
 
       <div className="conversation-scroll-frame">
@@ -1295,6 +1382,7 @@ export function ConversationView({
                   needle={needle}
                   isMatch={block.card.event.eventId === activeMatchId}
                   copied={copiedId === block.card.event.eventId}
+                  showEffort={effortShown.has(block.card.event.eventId)}
                   images={images}
                   onRequestImage={requestImage}
                   onCopy={() => copyCard(block.card)}
@@ -1323,6 +1411,7 @@ export function ConversationView({
                     needle={needle}
                     isMatch={card.event.eventId === activeMatchId}
                     copied={copiedId === card.event.eventId}
+                    showEffort={effortShown.has(card.event.eventId)}
                     images={images}
                     onRequestImage={requestImage}
                     onCopy={() => copyCard(card)}
@@ -1681,6 +1770,8 @@ function ToolCallBar({
 
 interface MessageBlockProps {
   card: Card;
+  /** Si el pie dice el esfuerzo: solo cuando cambia (`effortShownIds`). */
+  showEffort: boolean;
   results: Map<string, ConversationToolResultPart>;
   needle: string;
   isMatch: boolean;
@@ -1703,6 +1794,7 @@ interface MessageBlockProps {
 
 function MessageBlock({
   card,
+  showEffort,
   results,
   needle,
   isMatch,
@@ -1781,7 +1873,7 @@ function MessageBlock({
         />
       ))}
 
-      <TurnFooter event={event} mine={mine} />
+      <TurnFooter event={event} mine={mine} showEffort={showEffort} />
     </article>
   );
 }
@@ -2004,14 +2096,14 @@ function ToolGroup({
 }
 
 /** Hora, duracion y esfuerzo. Todo sale del archivo; nada se deduce. */
-function TurnFooter({ event, mine }: { event: ConversationEvent; mine: boolean }): JSX.Element {
+function TurnFooter({ event, mine, showEffort }: { event: ConversationEvent; mine: boolean; showEffort: boolean }): JSX.Element {
   const time = event.at > 0 ? formatTime(event.at) : '';
   const bits: string[] = [];
   // La duracion sale de la propia CLI (`system/turn_duration`), no de restar
   // marcas de tiempo: esa resta incluye lo que el usuario tardo en escribir lo
   // siguiente.
   if (event.durationMs !== null) bits.push(formatDuration(event.durationMs));
-  if (event.effort !== null) bits.push(t('thread.turn.effort', { effort: event.effort }));
+  if (showEffort && event.effort !== null) bits.push(t('thread.turn.effort', { effort: event.effort }));
 
   return (
     <div className="turn-meta">

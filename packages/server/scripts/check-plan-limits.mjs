@@ -595,30 +595,33 @@ const limits = (fiveHour, sevenDay) => ({
     /\.conversation-search \{[^}]*container-type: inline-size;[^}]*container-name: thread-toolbar;/.test(css));
   const toolbarCut = (selector, what) =>
     Number(css.match(new RegExp(`@container thread-toolbar \\(max-width: (\\d+)px\\) \\{\\s*${selector} \\.plan-meter \\.${what}[ ,]`))?.[1] ?? NaN);
-  const OPEN = '\\.conversation-search:not\\(\\.thread-tools-closed\\)';
-  const CLOSED = '\\.thread-tools-closed';
+  // Desde el 16-11-2026 lo que cuenta es si se ve el cuadro de busqueda (la lupa lo abre con la barra plegada).
+  const OPEN = '\\.thread-search-open';
+  const CLOSED = '\\.conversation-search:not\\(\\.thread-search-open\\)';
   const cuts = {
     openExtra: toolbarCut(OPEN, 'plan-window-extra'), openLabel: toolbarCut(OPEN, 'plan-label'),
     closedExtra: toolbarCut(CLOSED, 'plan-window-extra'), closedLabel: toolbarCut(CLOSED, 'plan-label'),
   };
   check('6.13 sin sitio se va primero la ventana que no es la prioritaria, y despues la palabra y la barra',
     cuts.openExtra === 760 && cuts.openLabel === 560 && cuts.closedExtra > cuts.closedLabel, JSON.stringify(cuts));
-  // Plegada (29-10-2026, §6.22.1) la fila es el boton y los medidores: los cortes
-  // bajan, pero no por debajo de lo que piden los medidores solos (566 y 390, en
-  // el idioma mas largo) mas el boton.
+  // Plegada (29-10-2026, §6.22.1) la fila es la flecha, la lupa (16-11-2026) y
+  // los medidores: los cortes bajan, pero no por debajo de lo que piden los
+  // medidores solos (566 y 390, en el idioma mas largo) mas los dos botones.
   check('6.13 con la barra plegada los cortes bajan, sin llegar a lo que piden los medidores solos',
-    cuts.closedExtra < cuts.openExtra && cuts.closedLabel < cuts.openLabel && cuts.closedExtra >= 566 + 40 && cuts.closedLabel >= 390 + 40,
+    cuts.closedExtra < cuts.openExtra && cuts.closedLabel < cuts.openLabel && cuts.closedExtra >= 566 + 60 && cuts.closedLabel >= 390 + 60,
     JSON.stringify(cuts));
-  // En el telefono los medidores bajan a su linea: contra la fila entera, el del
-  // plan quedaba en su forma corta con la linea casi vacia (19-10-2026).
+  // En el telefono el del plan baja a su linea: contra la fila entera quedaba en
+  // su forma corta con la linea casi vacia (19-10-2026). Desde el 16-11-2026 esa
+  // linea es solo suya, y aparece con la barra desplegada.
   const conversationSource = await readFile(path.join(WEB_SRC, 'ConversationView.tsx'), 'utf8');
-  check('6.14 los dos medidores van juntos en un envoltorio que en el escritorio no es una caja',
-    /<div className="thread-meters">\s*<PlanMeter[\s\S]*?<ContextMeter[\s\S]*?\/>\s*<\/div>/.test(conversationSource) &&
+  check('6.14 en el escritorio los dos medidores van juntos en un envoltorio que no es una caja',
+    /<div className="thread-meters">\s*\{bar\.plan === 'beside-context' && <PlanMeter[\s\S]*?<ContextMeter[\s\S]*?\/>\s*\)\}\s*<\/div>/.test(conversationSource) &&
     /\.thread-meters \{\s*display: contents;\s*\}/.test(css));
-  check('6.14 en la vista angosta la fila deja de ser el contenedor y lo es la linea de los medidores, entera',
+  check('6.14 en la vista angosta la fila deja de ser el contenedor y lo es la linea del medidor del plan, entera',
     /\.app-narrow \.conversation-search \{[^}]*container-type: normal;/.test(css) &&
-    /\.app-narrow \.thread-meters \{[^}]*flex: 0 0 100%;[^}]*flex-wrap: wrap;[^}]*container-type: inline-size;[^}]*container-name: thread-meters;/.test(css));
-  const narrowCut = (what) => Number(css.match(new RegExp(`@container thread-meters \\(max-width: (\\d+)px\\) \\{\\s*${what}`))?.[1] ?? NaN);
+    /<div className="thread-plan-line">\s*<PlanMeter/.test(conversationSource) &&
+    /\.app-narrow \.thread-plan-line \{[^}]*flex: 0 0 100%;[^}]*container-type: inline-size;[^}]*container-name: thread-plan-line;/.test(css));
+  const narrowCut = (what) => Number(css.match(new RegExp(`@container thread-plan-line \\(max-width: (\\d+)px\\) \\{\\s*${what}`))?.[1] ?? NaN);
   const extraCut = narrowCut('\\.app-narrow \\.plan-meter \\.plan-window-extra \\{\\s*display: none;');
   const labelCut = narrowCut('\\.app-narrow \\.plan-meter \\.plan-label,\\s*\\.app-narrow \\.plan-meter \\.plan-bar \\{\\s*display: none;');
   // La linea mide la pantalla menos 20 px. 393 es el telefono de la captura; 342,

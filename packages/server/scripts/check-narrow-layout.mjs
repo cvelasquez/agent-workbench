@@ -53,6 +53,7 @@ import {
   THREAD_TOOLS_STORAGE_KEY,
   defaultThreadToolsOpen,
   parseStoredThreadTools,
+  threadBarLayout,
   threadToolsStorageKey,
   threadToolsValue,
 } from '../../web/src/thread-tools.ts';
@@ -389,19 +390,88 @@ const json = (value) => JSON.stringify(value);
     parseStoredThreadTools(threadToolsValue(true)) === true && parseStoredThreadTools(threadToolsValue(false)) === false &&
       parseStoredThreadTools('true') === null && parseStoredThreadTools('') === null);
 
+  // 16-11-2026: la lupa se separa de la flecha. La flecha muestra los botones; la
+  // lupa abre el cuadro de búsqueda, que en el teléfono crece sobre la línea.
+  const bar = (narrow, toolsOpen, searchOpen) => threadBarLayout({ narrow, toolsOpen, searchOpen });
+  check('PC desplegada: el cuadro siempre a la vista y sin ×, los botones, y los dos medidores juntos',
+    json(bar(false, true, false)) ===
+      json({ searchField: true, searchClosable: false, toolButtons: true, context: true, plan: 'beside-context' }) &&
+      json(bar(false, true, true)) === json(bar(false, true, false)));
+  check('PC plegada: sólo la lupa y los medidores; con la lupa tocada, el cuadro con su ×',
+    json(bar(false, false, false)) ===
+      json({ searchField: false, searchClosable: false, toolButtons: false, context: true, plan: 'beside-context' }) &&
+      json(bar(false, false, true)) ===
+      json({ searchField: true, searchClosable: true, toolButtons: false, context: true, plan: 'beside-context' }));
+  check('teléfono plegado: la lupa y el contexto en una línea; el de la semana se va con los botones',
+    json(bar(true, false, false)) ===
+      json({ searchField: false, searchClosable: true, toolButtons: false, context: true, plan: 'hidden' }));
+  check('teléfono desplegado: los botones y el medidor de la semana, cada uno en su línea',
+    json(bar(true, true, false)) ===
+      json({ searchField: false, searchClosable: true, toolButtons: true, context: true, plan: 'own-line' }));
+  check('teléfono buscando: el cuadro ocupa la línea y el contexto se esconde, plegada o no',
+    bar(true, false, true).searchField && !bar(true, false, true).context && bar(true, false, true).plan === 'hidden' &&
+      bar(true, true, true).searchField && !bar(true, true, true).context && bar(true, true, true).toolButtons);
+
   const view = readFileSync(join(WEB, 'src', 'ConversationView.tsx'), 'utf8');
-  check('plegada se van la búsqueda, CLI, Rama y la letra',
-    /\{toolsOpen && \(\s*<input\s+className="conversation-search-input"/.test(view) &&
-      /\{toolsOpen && onContinue !== undefined && \(/.test(view) && /\{toolsOpen && onMoveToBranch !== undefined && \(/.test(view) &&
-      /\{toolsOpen && threadFont !== undefined && \(/.test(view));
-  check('los medidores no dependen de que esté desplegada',
-    /\n {8}<div className="thread-meters">/.test(view) && !/toolsOpen && \(\s*<div className="thread-meters">/.test(view));
-  check('plegarla borra la búsqueda, y un acierto del buscador general la despliega',
-    /if \(toolsOpen\) setQuery\(''\);/.test(view) && /setQuery\(searchRequest\.query\);\s*setToolsOpen\?\.\(true\);/.test(view));
+  check('la vista dibuja lo que dice threadBarLayout: el cuadro, los botones y cada medidor',
+    /threadBarLayout\(\{ narrow, toolsOpen, searchOpen \}\)/.test(view) &&
+      /\{bar\.searchField \? \(/.test(view) && /\{bar\.searchClosable && \(/.test(view) &&
+      /\{bar\.plan === 'beside-context' && <PlanMeter/.test(view) && /\{bar\.context && \(\s*<ContextMeter/.test(view) &&
+      /\{bar\.plan === 'own-line' && \(/.test(view));
+  const toggleMarkup = view.match(/className="icon-button thread-tools-toggle"[\s\S]*?<\/button>/)?.[0] ?? '';
+  check('la flecha ya no lleva la lupa: son dos botones',
+    toggleMarkup.length > 0 && !toggleMarkup.includes('<SearchIcon') &&
+      /className="icon-button thread-search-button"[\s\S]*?<SearchIcon \/>/.test(view));
+  check('lo buscado se borra cuando el cuadro se va, y un acierto del buscador general lo abre',
+    /if \(!threadBarLayout\(\{ narrow, toolsOpen: next, searchOpen \}\)\.searchField\) setQuery\(''\);/.test(view) &&
+      /const closeSearch = \(\): void => \{\s*setSearchOpen\(false\);\s*setQuery\(''\);/.test(view) &&
+      /setQuery\(searchRequest\.query\);\s*setSearchOpen\(true\);/.test(view) &&
+      /const needle = bar\.searchField \? query\.trim\(\) : '';/.test(view));
 
   const css = readFileSync(join(WEB, 'src', 'styles.css'), 'utf8');
-  check('en el teléfono, plegada, el botón y los medidores van en una sola línea',
-    /\n {2}\.app-narrow \.thread-tools-closed \.thread-meters \{\s*flex: 1 1 0;/.test(css));
+  // `flex: 1 1 0` y no `auto`: con `container-type: inline-size` su ancho propio es 0.
+  check('en el teléfono, la primera línea no se parte: el contexto se achica a la derecha en vez de bajar',
+    /\n {2}\.app-narrow \.thread-meters \{[^}]*flex: 1 1 0;[^}]*min-width: 0;[^}]*justify-content: flex-end;[^}]*container-type: inline-size;/.test(css) &&
+      /@container thread-context \(max-width: \d+px\) \{\s*\.app-narrow \.thread-meters \.meter-label \{\s*display: none;/.test(css));
+  check('en el teléfono, los botones y el medidor de la semana ocupan cada uno su línea, alineados a la izquierda',
+    /\n {2}\.app-narrow \.thread-tool-buttons \{[^}]*flex: 0 0 100%;[^}]*justify-content: flex-start;/.test(css) &&
+      /\n {2}\.app-narrow \.thread-plan-line \{[^}]*flex: 0 0 100%;/.test(css) &&
+      /\n {2}\.app-narrow \.thread-plan-line:empty \{\s*display: none;/.test(css));
+  check('en el escritorio el envoltorio de los botones no es una caja: quedan como estaban',
+    /\n\.thread-tool-buttons \{\s*display: contents;\s*\}/.test(css));
+}
+
+// --- 8. El cuadro de escritura en el teléfono (16-11-2026) ----------------------------
+// Enviar, Detener y la voz salen del cuadro a la línea de abajo, a la derecha; el
+// modelo y el esfuerzo van en esa línea, y sin CLI la barra no se dibuja.
+{
+  const composer = readFileSync(join(WEB, 'src', 'Composer.tsx'), 'utf8');
+  const app = readFileSync(join(WEB, 'src', 'App.tsx'), 'utf8');
+  check('en la vista angosta los botones van en la barra; en la PC, dentro del cuadro',
+    /\{!narrow && <div className="composer-field-actions">\{fieldActions\}<\/div>\}/.test(composer) &&
+      /<div className="composer-bar-actions"[^>]*>\s*\{fieldActions\}\s*<\/div>/.test(composer) &&
+      (app.match(/\bnarrow=\{narrow\}/g) ?? []).length >= 2);
+  check('las dos líneas de abajo no dependen del ancho: un corte antes del modelo y el esfuerzo',
+    /\{controls !== undefined && <span className="composer-bar-break" aria-hidden="true" \/>\}\s*\{controls\}\s*<span className="composer-spacer" \/>/.test(composer));
+  check('sin CLI, en el teléfono la barra de abajo no se dibuja (todo estaría apagado)',
+    /\{!\(narrow && disabled\) && \(\s*<div className="composer-bar">/.test(composer));
+  const css = readFileSync(join(WEB, 'src', 'styles.css'), 'utf8');
+  check('el texto usa todo el ancho, el corte es una línea entera y los botones reservan su lugar',
+    /\n {2}\.app-narrow \.composer-field \.composer-input \{[^}]*padding-right: 10px;/.test(css) &&
+      /\n {2}\.app-narrow \.composer-bar-break \{[^}]*flex-basis: 100%;/.test(css) &&
+      /\n {2}\.app-narrow \.composer-bar-actions \{[^}]*min-width: calc\(42px \* var\(--composer-slots, 1\) - 6px\);/.test(css));
+}
+
+// --- 9. Copiar en táctil, en la línea de la hora (16-11-2026) -------------------------
+// Siempre a la vista, arriba a la derecha tapaban el final de la primera línea.
+{
+  const css = readFileSync(join(WEB, 'src', 'styles.css'), 'utf8');
+  const touch = css.slice(css.indexOf('@media (hover: none) {'));
+  check('en táctil, copiar y volver van abajo, a la altura del relleno de su mensaje',
+    /\n {2}\.turn-actions \{\s*top: auto;\s*bottom: var\(--turn-actions-bottom, 2px\);\s*\}/.test(touch) &&
+      /\n\.turn-user \{[^}]*padding: 8px 12px;[^}]*--turn-actions-bottom: 8px;/.test(css));
+  check('y la línea de la hora crece a su alto: no pisan la última línea del texto',
+    /\n {2}\.turn-actions ~ \.turn-meta \{\s*min-height: 26px;\s*\}/.test(touch));
 }
 
 console.log(failures === 0 ? '\nTodo bien.' : `\n${failures} fallo(s).`);
