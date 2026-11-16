@@ -7,7 +7,8 @@
  *
  * La suscripcion se rehace al reconectar. Sin eso, un `F5` o una caida del
  * socket dejarian el panel congelado mostrando una conversacion que sigue
- * avanzando en el disco.
+ * avanzando en el disco. Desde el hito 57 la lleva `conversation-subscriptions.ts`,
+ * que comparte con el narrador: la pestana narrada se sigue aunque no se mire.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,6 +31,7 @@ import {
   type TerminalId,
 } from '@agent-workbench/shared';
 import type { AgentConnection } from './connection.js';
+import { conversationSubscriptions } from './conversation-subscriptions.js';
 import { t } from './i18n/index.js';
 import { serverTextMessage } from './i18n/server-text.js';
 import { liveCarryOvers, type LiveAnswerRecord } from './live-question-ui.js';
@@ -746,17 +748,17 @@ export function useConversation(
       }
     });
 
-    connection.send({ type: 'conversation.subscribe', terminalId });
-    // Tras una reconexion hay que volver a pedirla: el servidor solo mantiene
-    // el seguimiento mientras haya alguien enganchado.
-    const offReopen = connection.onReopen(() => {
-      connection.send({ type: 'conversation.subscribe', terminalId });
-    });
+    /*
+      Por el registro compartido con el narrador (hito 57): la pestana narrada
+      puede ser esta, y el servidor lleva una sola suscripcion por socket. El
+      hilo pide siempre el tramo final, que es lo que dibuja; el registro la
+      vuelve a pedir tras una reconexion.
+    */
+    const release = conversationSubscriptions(connection).acquire(terminalId, { needsSnapshot: true });
 
     return () => {
       offMessage();
-      offReopen();
-      connection.send({ type: 'conversation.unsubscribe', terminalId });
+      release();
       if (codexPermissionTimer.current !== null) window.clearTimeout(codexPermissionTimer.current);
       codexPermissionTimer.current = null;
     };

@@ -2518,6 +2518,91 @@ kbd {
   font-size: 14px;
 }
 
+/*
+  El narrador (hito 57, §6.40). Encendido en esta ventana, como el sonido
+  (`icon-button-on`); narrado en otra ventana, el mismo color a media luz: se
+  ve que esta pestana habla, pero no aca.
+*/
+.narrator-button,
+.narrator-skip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.narrator-elsewhere {
+  color: var(--accent);
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+/* El parlante de la pestana narrada; con algo sonando en esta ventana, el clic calla. */
+.tab-narrator {
+  display: inline-flex;
+  margin-right: 5px;
+  vertical-align: -1px;
+  color: var(--accent);
+}
+
+.tab-narrator-elsewhere {
+  opacity: 0.55;
+}
+
+.tab-narrator-live {
+  cursor: pointer;
+  animation: narrator-live 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes narrator-live {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-narrator-live {
+    animation: none;
+  }
+}
+
+/* Tras un F5 el navegador pide un clic antes de hablar: el cartel lo dice, y cualquier clic sirve. */
+.narrator-gesture {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.narrator-voice-select {
+  max-width: 260px;
+}
+
+.narrator-rate {
+  width: 140px;
+}
+
+.narrator-rate-value {
+  min-width: 34px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.narrator-recheck {
+  color: var(--warning);
+}
+
 
 /* ---------- turnos de la conversacion ---------- */
 

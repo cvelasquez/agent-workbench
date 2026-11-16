@@ -392,6 +392,8 @@ interface ConversationViewProps {
   onConfigureStatusLine?: () => void;
   /** El tamano de letra del hilo y como pasar al siguiente (hito 33, §6.22). */
   threadFont?: ThreadFontState;
+  /** El boton del narrador (hito 57, §6.40), ya armado; null sin narrador. */
+  narratorControl?: JSX.Element | null;
   /**
    * La barra plegable (29-10-2026, `thread-tools.ts`): si se ve la busqueda con
    * sus botones. Ausente: siempre a la vista, sin el boton de plegar.
@@ -490,6 +492,7 @@ export function ConversationView({
   onConfigureStatusLine,
   threadFont,
   threadTools,
+  narratorControl = null,
   continueTargets = [],
   continueBlockedReason = null,
   onContinue,
@@ -1211,6 +1214,12 @@ export function ConversationView({
             </span>
           </button>
         )}
+        {/*
+          El narrador (hito 57, §6.40): lee en voz alta los mensajes del agente
+          de esta pestana. Con los demas botones de la barra; callarlo desde
+          otra pestana es el parlante de la barra de pestanas.
+        */}
+        {toolsOpen && narratorControl}
         {/*
           Los limites del plan de la cuenta (hito 47), antes del de contexto:
           el de contexto queda en su lugar de siempre, al borde, con "Compactar"

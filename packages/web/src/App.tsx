@@ -64,6 +64,8 @@ import { usePlanLimits } from './usePlanLimits.js';
 import { THEME_ICON, themeTitle, useTheme } from './useTheme.js';
 import { useTerminalTheme } from './useTerminalTheme.js';
 import { useNotificationSound } from './useNotificationSound.js';
+import { useNarrator } from './useNarrator.js';
+import { NarratorButton, NarratorGestureChip, NarratorVoiceDialog } from './NarratorControls.js';
 import { useThreadFont } from './useThreadFont.js';
 import { useThreadSignals } from './useThreadSignals.js';
 import { NotifyButton, SoundControl } from './SoundControl.js';
@@ -261,6 +263,8 @@ export function App(): JSX.Element {
     [terminals, setActiveTerminal],
   );
   const sound = useNotificationSound(activity, notifyTabs);
+  // Hito 57 (§6.40): lee en voz alta los mensajes del agente de una pestana.
+  const narrator = useNarrator(connection, activity, notifyTabs.nameOf);
   const threadFont = useThreadFont();
   const activeTerminal = terminals.find((t) => t.terminalId === activeTerminalId) ?? null;
 
@@ -1539,6 +1543,16 @@ export function App(): JSX.Element {
           view={conversation}
           terminalId={activeTerminalId}
           threadFont={threadFont}
+          narratorControl={
+            activeTerminalId === null ? null : (
+              <NarratorButton
+                narrator={narrator}
+                terminalId={activeTerminalId}
+                events={conversation.events}
+                nameOf={notifyTabs.nameOf}
+              />
+            )
+          }
           threadTools={threadTools}
           fileLinks={fileLinks}
           /*
@@ -2154,8 +2168,13 @@ export function App(): JSX.Element {
             setSettingsVisible(false);
             setStatusLineDialogAgent(agent);
           }}
+          narrator={narrator}
         />
       )}
+
+      {/* Hito 57: la voz que falta al encender el narrador, y el clic que pide el navegador tras un F5. */}
+      <NarratorVoiceDialog narrator={narrator} />
+      <NarratorGestureChip narrator={narrator} />
 
       {shortcutsVisible && (
         <ShortcutsDialog
@@ -2287,6 +2306,7 @@ export function App(): JSX.Element {
           onSelectTab={selectTab}
           onCloseTab={requestCloseTerminal}
           scheduled={scheduledByTerminal}
+          narrator={narrator}
           onRenameTab={renameTerminal}
           onNewTab={(agent) => openTerminal({ cwd: newTabCwd, ...(agent !== undefined ? { agent } : {}) })}
           drawer={sidebarElement}
@@ -2440,6 +2460,7 @@ export function App(): JSX.Element {
             activeTerminalId={activeTerminalId}
             activity={activity}
             attention={sound.attention}
+            narrator={narrator}
             canOpen={cliAvailable && defaultCwd.length > 0}
             onSelect={selectTab}
             onClose={requestCloseTerminal}

@@ -39,6 +39,8 @@ import type {
 } from '@agent-workbench/shared';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import { ScheduledClock } from './ScheduledClock.js';
+import { NarratorTabBadge } from './NarratorControls.js';
+import type { NarratorState } from './useNarrator.js';
 import { scheduledTabLine } from './scheduled-ui.js';
 import type { ConnectionStatus } from './connection.js';
 import { t } from './i18n/index.js';
@@ -101,6 +103,8 @@ interface NarrowShellProps {
   onCloseTab: (terminalId: TerminalId) => void;
   /** Lo programado de cada pestana (hito 51): el reloj chico en la lista. */
   scheduled?: ReadonlyMap<TerminalId, ScheduledMessage[]>;
+  /** El narrador (hito 57): el parlante de la pestana narrada en la lista. */
+  narrator?: NarratorState;
   onRenameTab: (terminalId: TerminalId, label: string) => void;
   onNewTab: (agent?: AgentId) => void;
   /** La barra de proyectos, ya armada. */
@@ -140,6 +144,7 @@ export function NarrowShell({
   onSelectTab,
   onCloseTab,
   scheduled,
+  narrator,
   onRenameTab,
   onNewTab,
   drawer,
@@ -325,6 +330,7 @@ export function NarrowShell({
               onClose={onCloseTab}
               onRename={onRenameTab}
               scheduled={scheduled}
+              narrator={narrator}
             />
             <AgentSplitButton
               className="narrow-sheet-new"
@@ -364,6 +370,7 @@ function TabSheet({
   onClose,
   onRename,
   scheduled,
+  narrator,
 }: {
   terminals: readonly TerminalDescriptor[];
   platform: string;
@@ -374,6 +381,7 @@ function TabSheet({
   onClose: (terminalId: TerminalId) => void;
   onRename: (terminalId: TerminalId, label: string) => void;
   scheduled?: ReadonlyMap<TerminalId, ScheduledMessage[]>;
+  narrator?: NarratorState;
 }): JSX.Element {
   const [editingId, setEditingId] = useState<TerminalId | null>(null);
   const [draft, setDraft] = useState('');
@@ -434,6 +442,8 @@ function TabSheet({
                     <ScheduledClock messages={scheduled?.get(terminal.terminalId) ?? []} />
                   </span>
                 )}
+                {/* Adentro del boton de la fila: aca solo se dibuja, no calla. */}
+                {narrator !== undefined && <NarratorTabBadge narrator={narrator} terminalId={terminal.terminalId} interactive={false} />}
                 <span className="narrow-tab-label">{defaultTabLabel(terminal)}</span>
               </button>
             )}

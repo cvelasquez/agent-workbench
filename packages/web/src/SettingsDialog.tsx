@@ -26,6 +26,8 @@ import type { AgentId, AgentInfo, ConsoleShellId } from '@agent-workbench/shared
 import { scheduledNeedsStatusLine } from './agent-ui.js';
 import { t, type MessageKey } from './i18n/index.js';
 import { LocaleMenu } from './LocaleMenu.js';
+import { NarratorSettings } from './NarratorControls.js';
+import type { NarratorState } from './useNarrator.js';
 import { HIDEABLE_PANELS, type HideablePanel, type PanelVisibility } from './panel-visibility.js';
 import type { AppSettingsApi } from './useAppSettings.js';
 import type { TerminalThemePreference, TerminalThemeState } from './useTerminalTheme.js';
@@ -74,6 +76,8 @@ interface SettingsDialogProps {
   onOpenRemote: (() => void) | null;
   /** Abre el dialogo de la status line de esa CLI (27-10-2026). */
   onConfigureStatusLine: (agent: AgentId) => void;
+  /** El narrador (hito 57, §6.40): su voz y su velocidad, de este navegador. */
+  narrator?: NarratorState;
 }
 
 export function SettingsDialog({
@@ -88,6 +92,7 @@ export function SettingsDialog({
   onOpenVault,
   onOpenRemote,
   onConfigureStatusLine,
+  narrator,
 }: SettingsDialogProps): JSX.Element {
   const [confirmingConsole, setConfirmingConsole] = useState(false);
   const status = appSettings.status;
@@ -326,6 +331,9 @@ export function SettingsDialog({
               )}
             </>
           )}
+
+          {/* Hito 57: la voz del narrador va con este navegador, como el tema; tambien en una ventana remota. */}
+          {narrator !== undefined && <NarratorSettings narrator={narrator} />}
 
           {(onOpenVault !== null || onOpenRemote !== null) && (
             <>

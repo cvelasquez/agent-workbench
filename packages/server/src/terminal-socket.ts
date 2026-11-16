@@ -76,6 +76,7 @@ import { prepareSubmit, runSubmit, type SubmitMessageDeps } from './submit-messa
 import { codexPermissionComposerScreen } from './agents/codex/ready-screen.js';
 import { CliSuggestions } from './cli-suggestions.js';
 import { TabFocus } from './tab-focus.js';
+import { NarratorState } from './narrator-state.js';
 import { HANDOFF_DELIVERY_TIMEOUT_MS, continueSession, type ContinueDeps } from './handoff/handoff.js';
 import { InvalidPathError, resolveInside } from './path-guard.js';
 import { attachmentLine, attachmentReference, textWithAttachments } from './attachments.js';
@@ -365,6 +366,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     appliesTo: (terminalId) => adapterOf(terminalId)?.focusByTab === true,
     write: (terminalId, data) => registry.write(terminalId, data),
   });
+
+  // Hito 57 (§6.40): la pestana narrada, una sola en toda la app.
+  const narrator = new NarratorState();
 
   /**
    * Como nombra imagenes la CLI de una pestana, o null despues de avisar por
@@ -802,6 +806,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     // continuacion, tampoco (hito 29, D17).
     void pasteStore.clearTerminal(terminalId);
     broadcast({ type: 'terminal.closed', terminalId });
+    // Hito 57: si era la narrada, el narrador se apaga en todas las ventanas.
+    if (narrator.dropTerminal(terminalId)) broadcast({ type: 'narrator.state', narrator: null });
     return true;
   };
 
@@ -1425,6 +1431,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
     send(socket, { type: 'composer.drafts', drafts: draftEntriesOf(registry.list(), drafts) });
     // La sugerencia de la CLI de cada pestana que tiene una (hito 53, §5.3.2): un F5 no la pierde.
     for (const entry of suggestions.snapshot()) send(socket, { type: 'composer.suggestion', ...entry });
+    // El narrador (hito 57), aunque este apagado: tambien le dice que este servidor lo tiene.
+    send(socket, { type: 'narrator.state', narrator: narrator.current() });
     // Los mensajes programados (hito 51), aunque no haya: tambien le dice que este servidor los tiene.
     send(socket, { type: 'schedule.list', messages: scheduler.snapshot() });
     send(socket, { type: 'vault.status', status: vault.status() });
@@ -2500,6 +2508,20 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
         // Hito 53: la pestana que mira esta ventana, o ninguna. Es el foco que se le reporta a su CLI.
         case 'terminal.attention':
           tabFocus.attend(socket, message.terminalId);
+          break;
+
+        /*
+          Hito 57 (§6.40): una sola pestana narrada en toda la app. Lo puede
+          cambiar cualquier ventana, tambien la de un equipo remoto: es solo
+          quien habla. Una pestana que ya no existe no cambia nada, y esta
+          ventana recibe el estado de verdad para no quedarse con el suyo.
+        */
+        case 'narrator.set':
+          if (narrator.set(message.narrator, (terminalId) => registry.get(terminalId) !== undefined)) {
+            broadcast({ type: 'narrator.state', narrator: narrator.current() });
+          } else {
+            send(socket, { type: 'narrator.state', narrator: narrator.current() });
+          }
           break;
 
         case 'terminal.rename':

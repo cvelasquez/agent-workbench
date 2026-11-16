@@ -560,6 +560,35 @@ export interface ClientTerminalAttentionMessage {
 }
 
 /**
+ * El narrador (hito 57, §6.40): la unica pestana de toda la app cuyos mensajes
+ * se leen en voz alta, y la ventana que los lee. Una sola, para que no se
+ * crucen dos voces entre ventanas o equipos.
+ */
+export interface NarratorHolder {
+  terminalId: TerminalId;
+  /**
+   * La ventana que lo encendio: un id al azar que la web guarda en
+   * `sessionStorage` (sobrevive a un F5, es otro en cada ventana). Solo ella
+   * habla; las demas muestran que se narra en otra.
+   */
+  windowId: string;
+}
+
+/** Forma de `NarratorHolder.windowId`: lo genera la web, y nada mas viaja. */
+export const NARRATOR_WINDOW_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+
+/**
+ * Encender el narrador en una pestana, para esta ventana, o apagarlo (null).
+ * Encenderlo en otra pestana, o desde otra ventana, reemplaza al anterior. El
+ * servidor contesta a todas con `narrator.state`. Un servidor anterior lo
+ * ignora, y la web no ofrece el narrador sin un `narrator.state` del arranque.
+ */
+export interface ClientNarratorSetMessage {
+  type: 'narrator.set';
+  narrator: NarratorHolder | null;
+}
+
+/**
  * Abrir una pestana.
  *
  * Si `resumeSessionId` viene, se lanza con `--resume` sobre esa conversacion.
@@ -1508,6 +1537,7 @@ export type ClientMessage =
   | ClientInputMessage
   | ClientAgentVoiceMessage
   | ClientTerminalAttentionMessage
+  | ClientNarratorSetMessage
   | ClientSubmitMessage
   | ClientCodexQueueMessage
   | ClientAnswerMessage
@@ -2503,6 +2533,18 @@ export interface ServerComposerSuggestionMessage {
 }
 
 /**
+ * Que pestana narra, y que ventana (hito 57, §6.40), o null si ninguna. Al
+ * conectar, y a todas las ventanas cada vez que cambia: alguien lo encendio,
+ * lo apago, se lo llevo a otra ventana, o se cerro la pestana narrada. Que
+ * llegue al conectar es tambien lo que le dice a la web que este servidor
+ * tiene narrador.
+ */
+export interface ServerNarratorStateMessage {
+  type: 'narrator.state';
+  narrator: NarratorHolder | null;
+}
+
+/**
  * Lo que va encontrando un `search.global` mientras recorre, solo al socket que
  * lo pidio: los aciertos nuevos y cuantas sesiones lleva. Como mucho uno cada
  * `GLOBAL_SEARCH_PROGRESS_MS`. Termina con `search.results`.
@@ -2808,6 +2850,7 @@ export type ServerMessage =
   | ServerComposerPrefillMessage
   | ServerComposerDraftsMessage
   | ServerComposerSuggestionMessage
+  | ServerNarratorStateMessage
   | ServerGlobalSearchProgressMessage
   | ServerGlobalSearchMessage
   | ServerRemoteStatusMessage
@@ -3066,6 +3109,12 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       if (record['terminalId'] === null) return { type: 'terminal.attention', terminalId: null };
       const terminalId = asNonEmptyString(record['terminalId']);
       return terminalId === null ? null : { type: 'terminal.attention', terminalId };
+    }
+    case 'narrator.set': {
+      // Hito 57: null es apagarlo; un dueno mal formado descarta el mensaje entero.
+      if (record['narrator'] === null) return { type: 'narrator.set', narrator: null };
+      const narrator = parseNarratorHolder(record['narrator']);
+      return narrator === null ? null : { type: 'narrator.set', narrator };
     }
     case 'terminal.rename': {
       const terminalId = asNonEmptyString(record['terminalId']);
@@ -3614,6 +3663,16 @@ function worktreeIdMessage<T extends WorktreeIdMessageType>(
   const requestId = asNonEmptyString(record['requestId']);
   const worktreeId = asNonEmptyString(record['worktreeId']);
   return requestId === null || worktreeId === null ? null : { type, requestId, worktreeId };
+}
+
+/** El dueno del narrador (hito 57), o null si no tiene la forma. */
+function parseNarratorHolder(value: unknown): NarratorHolder | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const terminalId = asNonEmptyString(record['terminalId']);
+  const windowId = asNonEmptyString(record['windowId']);
+  if (terminalId === null || windowId === null || !NARRATOR_WINDOW_ID_PATTERN.test(windowId)) return null;
+  return { terminalId, windowId };
 }
 
 /** Un borrador de `composer.drafts`, o null si no tiene la forma. */
@@ -4240,6 +4299,11 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       if (record['text'] === null) return { type: 'composer.suggestion', terminalId, text: null };
       const text = asNonEmptyString(record['text']);
       return text === null ? null : { type: 'composer.suggestion', terminalId, text };
+    }
+    case 'narrator.state': {
+      if (record['narrator'] === null) return { type: 'narrator.state', narrator: null };
+      const narrator = parseNarratorHolder(record['narrator']);
+      return narrator === null ? null : { type: 'narrator.state', narrator };
     }
     case 'search.progress': {
       const searchId = asNonEmptyString(record['searchId']);

@@ -31,6 +31,8 @@ import type {
 } from '@agent-workbench/shared';
 import { AgentBadge } from './AgentBadge.js';
 import { ScheduledClock } from './ScheduledClock.js';
+import { NarratorTabBadge } from './NarratorControls.js';
+import type { NarratorState } from './useNarrator.js';
 import { scheduledTabLine } from './scheduled-ui.js';
 import { AgentSplitButton } from './AgentSplitButton.js';
 import {
@@ -54,6 +56,8 @@ interface TabBarProps {
    * (§6.20). Se pintan como la activa, en dos destellos, para ver cual fue.
    */
   attention?: ReadonlySet<TerminalId>;
+  /** El narrador (hito 57, §6.40): el parlante de la pestana narrada, que calla. */
+  narrator?: NarratorState;
   canOpen: boolean;
   onSelect: (terminalId: TerminalId) => void;
   onClose: (terminalId: TerminalId) => void;
@@ -220,6 +224,7 @@ export function TabBar({
   activeTerminalId,
   activity,
   attention,
+  narrator,
   canOpen,
   onSelect,
   onClose,
@@ -343,6 +348,7 @@ export function TabBar({
                   {branch !== null && <span className="tab-branch">{branch}</span>}
                   {/* Hito 51: lo programado, con su linea en el titulo de la pestana. */}
                   {ownScheduled.length > 0 && <ScheduledClock messages={ownScheduled} />}
+                  {narrator !== undefined && <NarratorTabBadge narrator={narrator} terminalId={terminal.terminalId} interactive />}
                   {defaultTabLabel(terminal)}
                 </span>
                 <button
