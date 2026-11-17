@@ -124,8 +124,8 @@ const text = (value) => ({ kind: 'text', text: value, truncated: false });
     say('Descarga: https://expo.dev/artifacts/eas/NHhhLOStFmoaIwcUDLkl.aab (vence)') === 'Descarga: un enlace (vence)',
     say('Descarga: https://expo.dev/artifacts/eas/NHhhLOStFmoaIwcUDLkl.aab (vence)'));
   check('1.10 una ruta de Windows, por su nombre de archivo',
-    say('Copia en `C:\\Users\\alguien\\AppData\\Local\\Temp\\aab-1.6.0\\dictamd-1.6.0-9.aab`') === 'Copia en dictamd-1.6.0-9.aab.',
-    say('Copia en `C:\\Users\\alguien\\AppData\\Local\\Temp\\aab-1.6.0\\dictamd-1.6.0-9.aab`'));
+    say('Copia en `C:\\Users\\alguien\\AppData\\Local\\Temp\\aab-1.6.0\\myapp-1.6.0-9.aab`') === 'Copia en myapp-1.6.0-9.aab.',
+    say('Copia en `C:\\Users\\alguien\\AppData\\Local\\Temp\\aab-1.6.0\\myapp-1.6.0-9.aab`'));
   check('1.11 una ruta con barras, por su nombre; código en línea corto, tal cual',
     say('Cambié `packages/web/src/App.tsx` del commit `36f7512`.') === 'Cambié App.tsx del commit 36f7512.',
     say('Cambié `packages/web/src/App.tsx` del commit `36f7512`.'));
