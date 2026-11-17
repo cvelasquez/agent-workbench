@@ -51,11 +51,12 @@ CLI.
 | **Alterações** | O branch, os arquivos alterados e o diff deles. **Orquestra agentes em paralelo**: abra o projeto em um branch novo, na sua própria pasta, e vários agentes trabalham ao mesmo tempo sem pisar nas alterações uns dos outros. Uma conversa já começada também passa para um branch novo, com todo o contexto (com o Claude Code, o Codex e o OpenCode). Alterações mostra cada branch: o que falta fazer commit, quantos commits ele tem e se já está integrado. Outra CLI revisa um branch sem mexer nele, e você o integra no main com um clique. |
 | **Arquivos** | A árvore de arquivos do projeto, com busca e pré-visualização com realce de sintaxe. Abra vários arquivos ao mesmo tempo, cada um na sua aba; os arquivos Markdown abrem formatados. Um clique coloca o caminho de um arquivo na sua mensagem. Edite um arquivo de texto, um `.env` por exemplo, e salve ali mesmo: se o agente o alterou enquanto você editava, nada é sobrescrito, e você passa suas alterações para a versão nova. |
 | **Planos** | Os planos e os documentos `.md` que a conversa escreveu, renderizados. Um clique coloca o caminho de um documento na sua mensagem. |
-| **Notas** | Um bloco de anotações ao lado da conversa, com imagens e arquivos anexados que você pode baixar. Shift+Enter continua uma lista numerada ou com marcadores. **Para a caixa** coloca a nota e os anexos na caixa de mensagem, para enviá-los à conversa em que você está; com o Claude Code, um clique a envia para uma nova. |
+| **Notas** | Um bloco de anotações na última aba do painel lateral, com imagens e arquivos anexados que você pode baixar. Shift+Enter continua uma lista numerada ou com marcadores. **Para a caixa** coloca a nota e os anexos na caixa de mensagem, para enviá-los à conversa em que você está; com o Claude Code, um clique a envia para uma nova. |
 | **Console** | O terminal do seu sistema embaixo, na pasta do projeto: PowerShell, cmd ou Git Bash no Windows; bash ou zsh no macOS e no Linux. No celular, a CLI tem Enter e 1, 2, 3 para os menus, e o console tem mais teclas de navegação e edição. |
 | **Continuar com…** | Com mais de uma CLI, continue uma conversa com outra na mesma pasta. O novo agente parte de uma transcrição dos últimos turnos, com instruções para preservar o trabalho concluído, os planos mencionados e as aprovações pendentes. A continuação fica editável na caixa de mensagem para você acrescentar instruções e escolher o modelo antes de enviar. Conversas mantidas só no backup ou de um projeto realocado também podem continuar com a mesma CLI em uma sessão nova. |
 | **Notificações** | Um som, e notificações do sistema opcionais, quando um agente termina ou está esperando por você. |
-| **Configurações** | ⚙ no cabeçalho: o idioma, o tema do terminal, quais painéis aparecem, qual console abre, quais CLIs o app usa e se dá para agendar mensagens. |
+| **Narrador** | O alto-falante da barra da conversa lê em voz alta o que o agente daquela aba escreve e pergunta e, dependendo da CLI, avisa quando ele está esperando por você, para você acompanhar enquanto olha outra coisa. Uma aba por vez; ferramentas e código são pulados. Escolha a voz e a velocidade em Configurações. Só usa vozes instaladas no seu computador, então o texto não sai dele. Não está disponível dentro do app Android. |
+| **Configurações** | ⚙ no cabeçalho: o idioma, o tema do terminal, quais painéis aparecem, qual console abre, quais CLIs o app usa, se dá para agendar mensagens e a voz do narrador. |
 | **Nove idiomas** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français e Deutsch. Segue o idioma do seu navegador. |
 | **Tema** | Claro, escuro ou o do sistema. O terminal fica escuro por padrão, para que as cores das CLIs continuem legíveis. |
 
@@ -405,7 +406,9 @@ dispositivos que são seus.**
 um layout de uma coluna: a barra lateral de projetos entra deslizando de lado, as
 abas ficam no cabeçalho, e uma faixa alterna entre a conversa, a CLI, as
 alterações, os arquivos e o resto. Esse layout aparece em qualquer janela com
-menos de 768 px de largura. Em uma tela sensível ao toque, Enter na caixa de
+menos de 768 px de largura. A barra da conversa cabe em uma linha: a lupa
+abre a busca, e a seta mostra o resto dos botões e os limites de uso do seu
+plano. Em uma tela sensível ao toque, Enter na caixa de
 mensagem começa uma nova linha (quem envia é o botão de enviar), e arrastar o
 dedo sobre um terminal faz a rolagem dele.
 

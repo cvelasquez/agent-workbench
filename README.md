@@ -50,11 +50,12 @@ CLI.
 | **Changes** | The branch, the changed files and their diff. **Orchestrates agents in parallel**: open the project on a new branch, in its own folder, and several agents work at once without stepping on each other's changes. A conversation already under way moves to a new branch too, with all its context (with Claude Code, Codex and OpenCode). Changes shows every branch: what isn't committed yet, how many commits it has and whether it's merged. Another CLI reviews a branch without touching it, and you merge it into main with one click. |
 | **Files** | The project's file tree, with search and a preview with syntax highlighting. Open several files at once, each in its own tab; Markdown files open formatted. One click puts a file's path in your message. Edit a text file, a `.env` for instance, and save it right there: if the agent changed it while you were editing, nothing is overwritten, and you move your changes to the new version. |
 | **Plans** | The plans and `.md` documents the conversation wrote, rendered. One click puts a document's path in your message. |
-| **Notes** | A scratchpad next to the conversation, with images and file attachments you can download. Shift+Enter continues a numbered or bulleted list. **To message box** puts the note and its attachments in the message box, to send them to the conversation you're in; with Claude Code, one click sends it to a new one. |
+| **Notes** | A scratchpad in the last tab of the side panel, with images and file attachments you can download. Shift+Enter continues a numbered or bulleted list. **To message box** puts the note and its attachments in the message box, to send them to the conversation you're in; with Claude Code, one click sends it to a new one. |
 | **Console** | Your system's terminal at the bottom, in the project's folder: PowerShell, cmd or Git Bash on Windows; bash or zsh on macOS and Linux. On a phone, the CLI has Enter and 1, 2, 3 for menus, and the console has extra navigation and editing keys. |
 | **Continue with…** | With more than one CLI, continue a conversation with another one in the same folder. The new agent starts from a transcript of the last turns, with instructions to preserve completed work, referenced plans and pending approvals. The continuation stays editable in the message box so you can add instructions and choose the model before sending. Conversations kept only in the backup, or belonging to a relocated project, can also continue with the same CLI in a new session. |
 | **Notifications** | A sound, and optional system notifications, when an agent finishes or is waiting for you. |
-| **Settings** | ⚙ in the header: the language, the terminal's theme, which panels show, which console opens, which CLIs the app uses and whether you can schedule messages. |
+| **Narrator** | The speaker in the conversation bar reads aloud what the agent of that tab writes and asks, and, depending on the CLI, tells you when it's waiting for you, so you can follow it while you look at something else. One tab at a time; tools and code are skipped. Choose the voice and speed in Settings. Only voices installed on your computer are used, so the text never leaves it. Not available inside the Android app. |
+| **Settings** | ⚙ in the header: the language, the terminal's theme, which panels show, which console opens, which CLIs the app uses, whether you can schedule messages and the narrator's voice. |
 | **Nine languages** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français and Deutsch. It follows your browser's language. |
 | **Theme** | Light, dark or the system's. The terminal stays dark by default, so the CLIs' colors stay readable. |
 
@@ -400,7 +401,9 @@ on your computer, just as you can. **Pair only devices that are yours.**
 **On a phone or tablet.** Through the same tunnel, a phone's browser gets a
 one-column layout: the projects sidebar slides in from the side, the tabs sit
 in the header, and a strip switches between the conversation, the CLI, changes,
-files and the rest. It appears on any window narrower than 768 px. On a touch
+files and the rest. It appears on any window narrower than 768 px. The
+conversation bar fits in one line: the magnifier opens the search, and the arrow
+shows the rest of its buttons and your plan's usage limits. On a touch
 screen, Enter in the message box starts a new line (the send button sends), and
 dragging a finger over a terminal scrolls it.
 

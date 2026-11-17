@@ -50,11 +50,12 @@ Le terminal reste le terminal : tout ce que vous tapez va directement à la CLI.
 | **Modifications** | La branche, les fichiers modifiés et leur diff. **Orchestre des agents en parallèle** : ouvrez le projet sur une nouvelle branche, dans son propre dossier, et plusieurs agents travaillent en même temps sans se marcher sur leurs modifications. Une conversation déjà commencée passe aussi sur une nouvelle branche, avec tout son contexte (avec Claude Code, Codex et OpenCode). Modifications montre chaque branche : ce qui n'est pas encore commité, combien de commits elle a et si elle est déjà intégrée. Une autre CLI relit une branche sans la toucher, et vous l'intégrez dans main en un clic. |
 | **Fichiers** | L'arborescence du projet, avec une recherche et un aperçu avec coloration syntaxique. Ouvrez plusieurs fichiers à la fois, chacun dans son onglet ; les fichiers Markdown s'ouvrent mis en forme. Un clic place le chemin d'un fichier dans votre message. Modifiez un fichier texte, un `.env` par exemple, et enregistrez-le sur place : si l'agent l'a changé pendant que vous le modifiiez, rien n'est écrasé, et vous reportez vos modifications dans la nouvelle version. |
 | **Plans** | Les plans et les documents `.md` que la conversation a écrits, mis en forme. Un clic place le chemin d'un document dans votre message. |
-| **Notes** | Un bloc-notes à côté de la conversation, avec des images et des fichiers joints que vous pouvez télécharger. Maj+Entrée continue une liste numérotée ou à puces. **Vers la saisie** place la note et ses pièces jointes dans la zone de saisie, pour les envoyer à la conversation où vous êtes ; avec Claude Code, un clic l'envoie dans une nouvelle. |
+| **Notes** | Un bloc-notes dans le dernier onglet du panneau latéral, avec des images et des fichiers joints que vous pouvez télécharger. Maj+Entrée continue une liste numérotée ou à puces. **Vers la saisie** place la note et ses pièces jointes dans la zone de saisie, pour les envoyer à la conversation où vous êtes ; avec Claude Code, un clic l'envoie dans une nouvelle. |
 | **Console** | Le terminal de votre système, en bas, dans le dossier du projet : PowerShell, cmd ou Git Bash sous Windows ; bash ou zsh sous macOS et Linux. Sur téléphone, la CLI propose Entrée et 1, 2, 3 pour les menus, et la console dispose de touches supplémentaires de navigation et d'édition. |
 | **Continuer avec…** | Avec plus d'une CLI, poursuivez une conversation avec une autre CLI, dans le même dossier. Le nouvel agent repart d'une transcription des derniers tours, avec des instructions pour préserver le travail terminé, les plans référencés et les approbations en attente. La continuation reste modifiable dans la zone de saisie pour ajouter des instructions et choisir le modèle avant l'envoi. Les conversations conservées uniquement dans la sauvegarde, ou appartenant à un projet déplacé, peuvent aussi continuer avec la même CLI dans une nouvelle session. |
 | **Notifications** | Un son, et en option des notifications système, quand un agent a terminé ou vous attend. |
-| **Réglages** | ⚙ dans l'en-tête : la langue, le thème du terminal, les panneaux affichés, la console qui s'ouvre, les CLI qu'utilise l'application et la programmation des messages. |
+| **Narrateur** | Le haut-parleur de la barre de la conversation lit à voix haute ce que l'agent de cet onglet écrit et demande et, selon la CLI, vous prévient quand il vous attend, pour le suivre pendant que vous regardez autre chose. Un onglet à la fois ; les outils et le code sont sautés. Choisissez la voix et la vitesse dans Réglages. Seules les voix installées sur votre ordinateur sont utilisées : le texte n'en sort pas. Non disponible dans l'application Android. |
+| **Réglages** | ⚙ dans l'en-tête : la langue, le thème du terminal, les panneaux affichés, la console qui s'ouvre, les CLI qu'utilise l'application, la programmation des messages et la voix du narrateur. |
 | **Neuf langues** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français et Deutsch. L'interface suit la langue de votre navigateur. |
 | **Thème** | Clair, sombre ou celui du système. Le terminal reste sombre par défaut, pour que les couleurs des CLI restent lisibles. |
 
@@ -430,7 +431,10 @@ téléphone reçoit une mise en page sur une seule colonne : la barre latérale 
 projets glisse depuis le bord, les onglets se trouvent dans l'en-tête, et une
 bande permet de passer de la conversation à la CLI, aux modifications, aux
 fichiers et au reste. Elle apparaît sur toute fenêtre de moins de 768 px de
-large. Sur un écran tactile, Enter dans la zone de saisie insère un saut de
+large. La barre de la conversation tient sur une ligne : la loupe ouvre la
+recherche, et la flèche affiche ses autres boutons et les limites
+d'utilisation de votre forfait. Sur un écran tactile, Enter dans la zone de
+saisie insère un saut de
 ligne (c'est le bouton d'envoi qui envoie), et faire glisser un doigt sur un
 terminal le fait défiler.
 

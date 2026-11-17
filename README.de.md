@@ -50,11 +50,12 @@ Das Terminal bleibt das Terminal: Alles, was Sie tippen, geht direkt an die CLI.
 | **Änderungen** | Der Branch, die geänderten Dateien und ihr Diff. **Orchestriert Agenten parallel**: Öffnen Sie das Projekt in einem neuen Branch, in einem eigenen Ordner, und mehrere Agenten arbeiten gleichzeitig, ohne sich gegenseitig die Änderungen zu überschreiben. Auch eine laufende Unterhaltung lässt sich mit ihrem ganzen Kontext in einen neuen Branch verschieben (mit Claude Code, Codex und OpenCode). „Änderungen“ zeigt jeden Branch: was noch nicht committet ist, wie viele Commits er hat und ob er schon integriert ist. Eine andere CLI prüft einen Branch, ohne ihn zu ändern, und Sie integrieren ihn mit einem Klick in main. |
 | **Dateien** | Der Dateibaum des Projekts, mit Suche und einer Vorschau mit Syntaxhervorhebung. Öffnen Sie mehrere Dateien gleichzeitig, jede in ihrem eigenen Tab; Markdown-Dateien öffnen sich formatiert. Ein Klick fügt den Pfad einer Datei in Ihre Nachricht ein. Bearbeiten Sie eine Textdatei, etwa eine `.env`, und speichern Sie sie direkt dort: Hat der Agent sie inzwischen geändert, wird nichts überschrieben, und Sie übernehmen Ihre Änderungen in die neue Version. |
 | **Pläne** | Die Pläne und `.md`-Dokumente, die die Unterhaltung geschrieben hat, formatiert dargestellt. Ein Klick fügt den Pfad eines Dokuments in Ihre Nachricht ein. |
-| **Notizen** | Ein Notizblock neben der Unterhaltung, mit Bildern und Dateianhängen, die Sie herunterladen können. Umschalt+Eingabe setzt eine nummerierte Liste oder eine Aufzählung fort. **Ins Eingabefeld** übernimmt die Notiz samt Anhängen in das Eingabefeld, um sie an die aktuelle Unterhaltung zu senden; mit Claude Code schickt ein Klick sie an eine neue. |
+| **Notizen** | Ein Notizblock im letzten Tab des Seitenbereichs, mit Bildern und Dateianhängen, die Sie herunterladen können. Umschalt+Eingabe setzt eine nummerierte Liste oder eine Aufzählung fort. **Ins Eingabefeld** übernimmt die Notiz samt Anhängen in das Eingabefeld, um sie an die aktuelle Unterhaltung zu senden; mit Claude Code schickt ein Klick sie an eine neue. |
 | **Konsole** | Das Terminal Ihres Systems am unteren Rand, im Ordner des Projekts: PowerShell, cmd oder Git Bash unter Windows; bash oder zsh unter macOS und Linux. Auf dem Telefon bietet die CLI Eingabe und 1, 2, 3 für Menüs; die Konsole hat zusätzliche Tasten zur Navigation und Bearbeitung. |
 | **Fortsetzen mit…** | Mit mehr als einer CLI setzen Sie eine Unterhaltung mit einer anderen CLI im selben Ordner fort. Der neue Agent startet mit einem Transkript der letzten Runden und Anweisungen, um abgeschlossene Arbeit, referenzierte Pläne und ausstehende Freigaben zu bewahren. Die Fortsetzung bleibt im Eingabefeld bearbeitbar, damit Sie vor dem Senden Anweisungen ergänzen und das Modell wählen können. Unterhaltungen, die nur noch in der Sicherung liegen oder zu einem verschobenen Projekt gehören, lassen sich auch mit derselben CLI in einer neuen Sitzung fortsetzen. |
 | **Benachrichtigungen** | Ein Ton und auf Wunsch Systembenachrichtigungen, wenn ein Agent fertig ist oder auf Sie wartet. |
-| **Einstellungen** | ⚙ in der Kopfzeile: die Sprache, das Design des Terminals, welche Bereiche angezeigt werden, welche Konsole sich öffnet, welche CLIs die App verwendet und ob sich Nachrichten planen lassen. |
+| **Vorleser** | Der Lautsprecher in der Leiste der Unterhaltung liest vor, was der Agent dieses Tabs schreibt und fragt, und meldet je nach CLI, wenn er auf Sie wartet, damit Sie ihm folgen können, während Sie etwas anderes ansehen. Immer nur ein Tab; Werkzeuge und Code werden übersprungen. Stimme und Tempo wählen Sie in den Einstellungen. Es werden nur Stimmen verwendet, die auf Ihrem Computer installiert sind, der Text verlässt ihn also nicht. In der Android-App nicht verfügbar. |
+| **Einstellungen** | ⚙ in der Kopfzeile: die Sprache, das Design des Terminals, welche Bereiche angezeigt werden, welche Konsole sich öffnet, welche CLIs die App verwendet, ob sich Nachrichten planen lassen, und die Stimme des Vorlesers. |
 | **Neun Sprachen** | English, Español, 简体中文, 日本語, Português (Brasil), Русский, 한국어, Français und Deutsch. Die App folgt der Sprache Ihres Browsers. |
 | **Design** | Hell, dunkel oder wie das System. Das Terminal bleibt standardmäßig dunkel, damit die Farben der CLIs lesbar bleiben. |
 
@@ -431,7 +432,10 @@ ausführen, genau wie Sie. **Koppeln Sie nur Geräte, die Ihnen gehören.**
 eines Telefons ein einspaltiges Layout: Die Projektliste gleitet von der Seite
 herein, die Tabs sitzen in der Kopfzeile, und eine Leiste wechselt zwischen der
 Unterhaltung, der CLI, den Änderungen, den Dateien und dem Rest. Dieses Layout
-erscheint in jedem Fenster, das schmaler als 768 px ist. Auf einem Touchscreen
+erscheint in jedem Fenster, das schmaler als 768 px ist. Die Leiste der
+Unterhaltung passt in eine Zeile: Die Lupe öffnet die Suche, und der Pfeil
+zeigt die übrigen Schaltflächen und die Nutzungslimits Ihres Plans. Auf einem
+Touchscreen
 beginnt Enter im Eingabefeld eine neue Zeile (gesendet wird über die
 Schaltfläche „Senden“), und wenn Sie mit dem Finger über ein Terminal wischen,
 scrollt es.

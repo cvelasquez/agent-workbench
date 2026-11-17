@@ -3,6 +3,35 @@
 All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org).
 
+## 1.1.0 - 2026-11-16
+
+### Added
+
+- **Narrator.** The speaker in the conversation bar reads aloud what the agent
+  of that tab writes and asks, and, depending on the CLI, says when it's
+  waiting for you, so you can follow it while looking at another tab. One tab
+  at a time across all windows; tools, code and your own messages are skipped.
+  Choose the voice and speed in Settings. Only voices installed on your
+  computer are used, so the text never leaves it. Not available inside the
+  Android app.
+
+### Changed
+
+- **Notes are the last tab of the side panel**, after Memory, in the same
+  order as on a phone. With the console open, the CLI terminal keeps more rows.
+- **A tidier conversation bar on phones.** It fits in one line: the
+  magnifier opens the search, and the arrow shows the CLI, Branch, text size
+  and narrator buttons with both plan usage windows.
+- **Send, stop and voice sit below the message box**, so the text gets its
+  full width. On a phone the bar has two fixed rows with the send button
+  spanning both; on a narrow desktop column the model and effort move to a
+  second row.
+- The conversation search has the magnifier inside the box; with the bar
+  folded on desktop, a separate magnifier opens it.
+- The reasoning effort under the agent's messages shows only when it changes.
+- On touch screens, a message's copy and rewind buttons sit on its time line
+  instead of over the text.
+
 ## 1.0.1 - 2026-11-11
 
 ### Fixed
