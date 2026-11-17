@@ -26,8 +26,9 @@ All notable changes to Agent Workbench. Versions follow
   full width. On a phone the bar has two fixed rows with the send button
   spanning both; on a narrow desktop column the model and effort move to a
   second row.
-- The conversation search has the magnifier inside the box; with the bar
-  folded on desktop, a separate magnifier opens it.
+- The conversation search has the magnifier inside the box. With the bar
+  folded on desktop, or when a narrow column leaves no room for the box, a
+  separate magnifier opens it.
 - The reasoning effort under the agent's messages shows only when it changes.
 - On touch screens, a message's copy and rewind buttons sit on its time line
   instead of over the text.
