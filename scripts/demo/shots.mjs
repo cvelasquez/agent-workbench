@@ -161,13 +161,20 @@ try {
     await treeRow('CartProvider.tsx').waitFor();
   };
 
-  // 1. Vista completa: conversacion, barra lateral y arbol con src/cart abierto.
+  /*
+    1. Vista completa: conversacion, barra lateral y arbol con src/cart abierto.
+    Mas ancha que las demas (16-11-2026): la barra del hilo suma la flecha,
+    "Rama" y el narrador, y a 1600 px el buscador quedaba en "Search t". El
+    panel tiene ancho fijo, asi que los 200 px van a la conversacion.
+  */
+  await page.setViewportSize({ width: 1800, height: 900 });
   await panelTab('panel.tab.files').click();
   await openCartDir();
   // Que el medidor y los combos hayan leido el archivo antes de capturar.
   await page.waitForFunction(() => document.body.innerText.includes('1M'), null, { timeout: 15_000 });
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(outDir, 'captura-conversacion.png') });
+  await page.setViewportSize({ width: 1600, height: 900 });
 
   // 2. Cambios: la lista recortada a lo que ocupa, y el diff de un archivo.
   await panelTab('panel.tab.git').click();
