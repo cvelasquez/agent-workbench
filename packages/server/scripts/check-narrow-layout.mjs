@@ -53,6 +53,9 @@ import {
   THREAD_TOOLS_STORAGE_KEY,
   defaultThreadToolsOpen,
   parseStoredThreadTools,
+  SEARCH_FIELD_HYSTERESIS_PX,
+  SEARCH_FIELD_MIN_PX,
+  nextCompactSearch,
   threadBarLayout,
   threadToolsStorageKey,
   threadToolsValue,
@@ -392,7 +395,25 @@ const json = (value) => JSON.stringify(value);
 
   // 16-11-2026: la lupa se separa de la flecha. La flecha muestra los botones; la
   // lupa abre el cuadro de búsqueda, que en el teléfono crece sobre la línea.
-  const bar = (narrow, toolsOpen, searchOpen) => threadBarLayout({ narrow, toolsOpen, searchOpen });
+  const bar = (narrow, toolsOpen, searchOpen, compact = false) => threadBarLayout({ narrow, compact, toolsOpen, searchOpen });
+  // 16-11-2026, antes de la 1.1.0: en una columna angosta de la PC el cuadro se
+  // achicaba hasta quedar en la lupa. Sin lugar, la PC se comporta como el teléfono.
+  check('PC sin lugar para el cuadro: la lupa, los botones y los dos medidores',
+    json(bar(false, true, false, true)) ===
+      json({ searchField: false, searchClosable: true, toolButtons: true, context: true, plan: 'beside-context' }));
+  check('PC sin lugar, buscando: el cuadro con su × toma el lugar de los medidores, y los botones quedan',
+    json(bar(false, true, true, true)) ===
+      json({ searchField: true, searchClosable: true, toolButtons: true, context: false, plan: 'hidden' }));
+  check('sin lugar no cambia nada plegada ni en el teléfono: ahí ya hay lugar, o ya es una lupa',
+    json(bar(false, false, true, true)) === json(bar(false, false, true)) && json(bar(false, false, false, true)) === json(bar(false, false, false)) &&
+      json(bar(true, true, false, true)) === json(bar(true, true, false)) && json(bar(true, true, true, true)) === json(bar(true, true, true)));
+  check(`la lupa sola cuando el cuadro mide menos de ${SEARCH_FIELD_MIN_PX} px, y el cuadro vuelve con un margen: no parpadea`,
+    SEARCH_FIELD_MIN_PX >= 120 && SEARCH_FIELD_HYSTERESIS_PX >= 20 &&
+      nextCompactSearch(false, { fieldWidth: SEARCH_FIELD_MIN_PX - 1, freeWidth: 0 }) === true &&
+      nextCompactSearch(false, { fieldWidth: SEARCH_FIELD_MIN_PX, freeWidth: 0 }) === false &&
+      nextCompactSearch(false, { fieldWidth: null, freeWidth: 0 }) === false &&
+      nextCompactSearch(true, { fieldWidth: null, freeWidth: SEARCH_FIELD_MIN_PX + 1 }) === true &&
+      nextCompactSearch(true, { fieldWidth: null, freeWidth: SEARCH_FIELD_MIN_PX + SEARCH_FIELD_HYSTERESIS_PX }) === false);
   check('PC desplegada: el cuadro siempre a la vista y sin ×, los botones, y los dos medidores juntos',
     json(bar(false, true, false)) ===
       json({ searchField: true, searchClosable: false, toolButtons: true, context: true, plan: 'beside-context' }) &&
@@ -414,7 +435,7 @@ const json = (value) => JSON.stringify(value);
 
   const view = readFileSync(join(WEB, 'src', 'ConversationView.tsx'), 'utf8');
   check('la vista dibuja lo que dice threadBarLayout: el cuadro, los botones y cada medidor',
-    /threadBarLayout\(\{ narrow, toolsOpen, searchOpen \}\)/.test(view) &&
+    /threadBarLayout\(\{ narrow, compact, toolsOpen, searchOpen \}\)/.test(view) &&
       /\{bar\.searchField \? \(/.test(view) && /\{bar\.searchClosable && \(/.test(view) &&
       /\{bar\.plan === 'beside-context' && <PlanMeter/.test(view) && /\{bar\.context && \(\s*<ContextMeter/.test(view) &&
       /\{bar\.plan === 'own-line' && \(/.test(view));
@@ -423,10 +444,18 @@ const json = (value) => JSON.stringify(value);
     toggleMarkup.length > 0 && !toggleMarkup.includes('<SearchIcon') &&
       /className="icon-button thread-search-button"[\s\S]*?<SearchIcon \/>/.test(view));
   check('lo buscado se borra cuando el cuadro se va, y un acierto del buscador general lo abre',
-    /if \(!threadBarLayout\(\{ narrow, toolsOpen: next, searchOpen \}\)\.searchField\) setQuery\(''\);/.test(view) &&
+    /if \(!threadBarLayout\(\{ narrow, compact, toolsOpen: next, searchOpen \}\)\.searchField\) setQuery\(''\);/.test(view) &&
       /const closeSearch = \(\): void => \{\s*setSearchOpen\(false\);\s*setQuery\(''\);/.test(view) &&
       /setQuery\(searchRequest\.query\);\s*setSearchOpen\(true\);/.test(view) &&
       /const needle = bar\.searchField \? query\.trim\(\) : '';/.test(view));
+  check('la PC mide si hay lugar después de dibujar y al cambiar de ancho, pero no buscando ni en el teléfono',
+    /const measuring = !narrow && toolsOpen && !searchOpen;/.test(view) &&
+      /nextCompactSearch\(current, \{/.test(view) && /new ResizeObserver\(\(\) => measureCompact\(\)\)/.test(view) &&
+      /useLayoutEffect\(\(\) => \{\s*if \(measuring\) measureCompact\(\);\s*\}\);/.test(view));
+  check('al quedarse sin lugar con algo buscado, el cuadro sigue abierto con su texto',
+    /if \(compact && query\.trim\(\)\.length > 0\) setSearchOpen\(true\);/.test(view));
+  check('los cortes del medidor del plan miran si la fila lleva el cuadro o los botones (`thread-bar-busy`)',
+    /\$\{bar\.searchField \|\| bar\.toolButtons \? ' thread-bar-busy' : ''\}/.test(view));
 
   const css = readFileSync(join(WEB, 'src', 'styles.css'), 'utf8');
   // `flex: 1 1 0` y no `auto`: con `container-type: inline-size` su ancho propio es 0.

@@ -92,7 +92,7 @@ import {
 } from './thread-status.js';
 import type { ThreadFontState } from './useThreadFont.js';
 import type { ThreadToolsState } from './useThreadTools.js';
-import { threadBarLayout } from './thread-tools.js';
+import { nextCompactSearch, threadBarLayout } from './thread-tools.js';
 import { effortShownIds } from './turn-effort.js';
 import { ContinueButton, ContinueIcon } from './ContinueButton.js';
 import { MoveBranchIcon } from './BranchIcon.js';
@@ -553,7 +553,10 @@ export function ConversationView({
   const setToolsOpen = threadTools?.setOpen;
   // La lupa tocada (16-11-2026): el cuadro de busqueda abierto aunque la barra este plegada.
   const [searchOpen, setSearchOpen] = useState(false);
-  const bar = threadBarLayout({ narrow, toolsOpen, searchOpen });
+  // En la PC, sin lugar para el cuadro con los botones a la vista: la lupa sola (`nextCompactSearch`).
+  const [compact, setCompact] = useState(false);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const bar = threadBarLayout({ narrow, compact, toolsOpen, searchOpen });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const focusSearch = useRef(false);
   /*
@@ -563,7 +566,7 @@ export function ConversationView({
   const toggleTools = (): void => {
     if (setToolsOpen === undefined) return;
     const next = !toolsOpen;
-    if (!threadBarLayout({ narrow, toolsOpen: next, searchOpen }).searchField) setQuery('');
+    if (!threadBarLayout({ narrow, compact, toolsOpen: next, searchOpen }).searchField) setQuery('');
     setToolsOpen(next);
   };
   const openSearch = (): void => {
@@ -584,6 +587,42 @@ export function ConversationView({
     focusSearch.current = false;
     searchInputRef.current?.focus();
   }, [searchFieldShown]);
+
+  /*
+    Sin lugar para el cuadro (16-11-2026): en una columna angosta de la PC, con
+    los botones a la vista, se achicaba hasta quedar en la lupa. Se mide despues
+    de dibujar y al cambiar el ancho de la fila: el cuadro, o lo que sobra al
+    lado de la lupa. Buscando no se mide: el cuadro toma el lugar de los
+    medidores, y medir ahi lo haria ir y volver.
+  */
+  const measuring = !narrow && toolsOpen && !searchOpen;
+  const measureCompact = useCallback(() => {
+    const element = barRef.current;
+    if (element === null) return;
+    const widthOf = (selector: string): number =>
+      element.querySelector<HTMLElement>(selector)?.getBoundingClientRect().width ?? 0;
+    const field = element.querySelector<HTMLElement>('.conversation-search-field');
+    setCompact((current) =>
+      nextCompactSearch(current, {
+        fieldWidth: field === null ? null : field.getBoundingClientRect().width,
+        freeWidth: widthOf('.conversation-spacer') + widthOf('.thread-search-button'),
+      }),
+    );
+  }, []);
+  useLayoutEffect(() => {
+    if (measuring) measureCompact();
+  });
+  useEffect(() => {
+    const element = barRef.current;
+    if (!measuring || element === null || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => measureCompact());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measuring, measureCompact]);
+  // Si se queda sin lugar con algo buscado, el cuadro sigue abierto: si no, se iria con su texto.
+  useEffect(() => {
+    if (compact && query.trim().length > 0) setSearchOpen(true);
+  }, [compact, query]);
 
   /*
     Tambien al montar: si no habia ninguna pestana, la vista nace con la que
@@ -1205,7 +1244,8 @@ export function ConversationView({
     <FileLinksContext.Provider value={fileLinks}>
     <div className="conversation-pane">
       <div
-        className={`conversation-search${toolsOpen ? '' : ' thread-tools-closed'}${bar.searchField ? ' thread-search-open' : ''}`}
+        ref={barRef}
+        className={`conversation-search${toolsOpen ? '' : ' thread-tools-closed'}${bar.searchField || bar.toolButtons ? ' thread-bar-busy' : ''}`}
       >
         {/*
           Plegar la barra (29-10-2026), como la cinta de opciones de un

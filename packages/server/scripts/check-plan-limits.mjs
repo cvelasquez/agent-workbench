@@ -595,9 +595,9 @@ const limits = (fiveHour, sevenDay) => ({
     /\.conversation-search \{[^}]*container-type: inline-size;[^}]*container-name: thread-toolbar;/.test(css));
   const toolbarCut = (selector, what) =>
     Number(css.match(new RegExp(`@container thread-toolbar \\(max-width: (\\d+)px\\) \\{\\s*${selector} \\.plan-meter \\.${what}[ ,]`))?.[1] ?? NaN);
-  // Desde el 16-11-2026 lo que cuenta es si se ve el cuadro de busqueda (la lupa lo abre con la barra plegada).
-  const OPEN = '\\.thread-search-open';
-  const CLOSED = '\\.conversation-search:not\\(\\.thread-search-open\\)';
+  // Desde el 16-11-2026 lo que cuenta es si la fila lleva el cuadro de busqueda o los botones (`thread-bar-busy`).
+  const OPEN = '\\.thread-bar-busy';
+  const CLOSED = '\\.conversation-search:not\\(\\.thread-bar-busy\\)';
   const cuts = {
     openExtra: toolbarCut(OPEN, 'plan-window-extra'), openLabel: toolbarCut(OPEN, 'plan-label'),
     closedExtra: toolbarCut(CLOSED, 'plan-window-extra'), closedLabel: toolbarCut(CLOSED, 'plan-label'),

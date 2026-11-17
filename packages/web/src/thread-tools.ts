@@ -59,8 +59,29 @@ export interface ThreadBarLayout {
   plan: 'beside-context' | 'own-line' | 'hidden';
 }
 
-export function threadBarLayout(input: { narrow: boolean; toolsOpen: boolean; searchOpen: boolean }): ThreadBarLayout {
-  const { narrow, toolsOpen, searchOpen } = input;
+export function threadBarLayout(input: {
+  narrow: boolean;
+  /** En la PC, sin lugar para el cuadro con los botones a la vista (`nextCompactSearch`). */
+  compact: boolean;
+  toolsOpen: boolean;
+  searchOpen: boolean;
+}): ThreadBarLayout {
+  const { narrow, compact, toolsOpen, searchOpen } = input;
+  /*
+    Una columna angosta de la PC (16-11-2026, antes de la 1.1.0): con los
+    botones a la vista el cuadro se achicaba hasta quedar en la lupa. Ahi la PC
+    hace lo del telefono: la lupa abre el cuadro, que toma el lugar de los
+    medidores mientras se busca.
+  */
+  if (!narrow && compact && toolsOpen) {
+    return {
+      searchField: searchOpen,
+      searchClosable: true,
+      toolButtons: true,
+      context: !searchOpen,
+      plan: searchOpen ? 'hidden' : 'beside-context',
+    };
+  }
   if (!narrow) {
     return {
       searchField: toolsOpen || searchOpen,
@@ -77,4 +98,20 @@ export function threadBarLayout(input: { narrow: boolean; toolsOpen: boolean; se
     context: !searchOpen,
     plan: toolsOpen ? 'own-line' : 'hidden',
   };
+}
+
+/** Por debajo de este ancho el cuadro de búsqueda no sirve: se ve sólo la lupa. */
+export const SEARCH_FIELD_MIN_PX = 140;
+/** Lo que tiene que sobrar de más para que el cuadro vuelva: sin esto, va y viene en el borde. */
+export const SEARCH_FIELD_HYSTERESIS_PX = 24;
+
+/**
+ * Si la fila de la PC se queda sin lugar para el cuadro, medido después de
+ * dibujarla. Con el cuadro a la vista, mide el cuadro (`fieldWidth`); con la
+ * lupa sola, lo que queda libre al lado de la lupa contándola a ella
+ * (`freeWidth`), que es lo que el cuadro tendría.
+ */
+export function nextCompactSearch(current: boolean, measured: { fieldWidth: number | null; freeWidth: number }): boolean {
+  if (!current) return measured.fieldWidth !== null && measured.fieldWidth < SEARCH_FIELD_MIN_PX;
+  return measured.freeWidth < SEARCH_FIELD_MIN_PX + SEARCH_FIELD_HYSTERESIS_PX;
 }

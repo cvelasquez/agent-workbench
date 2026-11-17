@@ -3513,33 +3513,34 @@ kbd {
   5 horas queda, salvo que otra este al 90 %), y despues la palabra y la barra,
   hasta `11 % · 5d 10h`. El titulo dice siempre todas.
 
-  Sin el cuadro de busqueda (la barra plegada, 29-10-2026) la fila es la
-  flecha, la lupa y los medidores, y los cortes bajan: lo que piden los
-  medidores solos (566 y 390 px, medidos en el idioma mas largo) mas los dos
-  botones. Con el cuadro abierto por la lupa valen los de la barra desplegada.
+  Sin el cuadro de busqueda ni los botones (la barra plegada, 29-10-2026) la
+  fila es la flecha, la lupa y los medidores, y los cortes bajan: lo que piden
+  los medidores solos (566 y 390 px, medidos en el idioma mas largo) mas los
+  dos botones. Con el cuadro o los botones a la vista (`thread-bar-busy`)
+  valen los de la barra desplegada.
 */
 @container thread-toolbar (max-width: 760px) {
-  .thread-search-open .plan-meter .plan-window-extra {
+  .thread-bar-busy .plan-meter .plan-window-extra {
     display: none;
   }
 }
 
 @container thread-toolbar (max-width: 560px) {
-  .thread-search-open .plan-meter .plan-label,
-  .thread-search-open .plan-meter .plan-bar {
+  .thread-bar-busy .plan-meter .plan-label,
+  .thread-bar-busy .plan-meter .plan-bar {
     display: none;
   }
 }
 
 @container thread-toolbar (max-width: 640px) {
-  .conversation-search:not(.thread-search-open) .plan-meter .plan-window-extra {
+  .conversation-search:not(.thread-bar-busy) .plan-meter .plan-window-extra {
     display: none;
   }
 }
 
 @container thread-toolbar (max-width: 470px) {
-  .conversation-search:not(.thread-search-open) .plan-meter .plan-label,
-  .conversation-search:not(.thread-search-open) .plan-meter .plan-bar {
+  .conversation-search:not(.thread-bar-busy) .plan-meter .plan-label,
+  .conversation-search:not(.thread-bar-busy) .plan-meter .plan-bar {
     display: none;
   }
 }
