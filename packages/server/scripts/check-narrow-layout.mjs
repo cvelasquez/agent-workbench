@@ -441,25 +441,36 @@ const json = (value) => JSON.stringify(value);
     /\n\.thread-tool-buttons \{\s*display: contents;\s*\}/.test(css));
 }
 
-// --- 8. El cuadro de escritura en el teléfono (16-11-2026) ----------------------------
-// Enviar, Detener y la voz salen del cuadro a la línea de abajo, a la derecha; el
-// modelo y el esfuerzo van en esa línea, y sin CLI la barra no se dibuja.
+// --- 8. Los botones fuera del cuadro de escritura (16-11-2026) ------------------------
+// Enviar, Detener y la voz salen del cuadro a la barra de abajo, a la derecha, en
+// la PC y en el teléfono. En el teléfono la barra son dos filas fijas (lo que se
+// agrega y el modo; el modelo y el esfuerzo) y los botones, a su derecha, ocupan
+// el alto de las dos. Sin CLI, en el teléfono la barra no se dibuja.
 {
   const composer = readFileSync(join(WEB, 'src', 'Composer.tsx'), 'utf8');
   const app = readFileSync(join(WEB, 'src', 'App.tsx'), 'utf8');
-  check('en la vista angosta los botones van en la barra; en la PC, dentro del cuadro',
-    /\{!narrow && <div className="composer-field-actions">\{fieldActions\}<\/div>\}/.test(composer) &&
-      /<div className="composer-bar-actions"[^>]*>\s*\{fieldActions\}\s*<\/div>/.test(composer) &&
-      (app.match(/\bnarrow=\{narrow\}/g) ?? []).length >= 2);
-  check('las dos líneas de abajo no dependen del ancho: un corte antes del modelo y el esfuerzo',
-    /\{controls !== undefined && <span className="composer-bar-break" aria-hidden="true" \/>\}\s*\{controls\}\s*<span className="composer-spacer" \/>/.test(composer));
+  check('los botones van en la barra, en las dos vistas: dentro del cuadro no queda ninguno',
+    !composer.includes('composer-field-actions') &&
+      /const barActions = \(\s*<div className="composer-bar-actions"[^>]*>\s*\{fieldActions\}\s*<\/div>\s*\);/.test(composer) &&
+      (composer.match(/\{barActions\}/g) ?? []).length === 1 && (app.match(/\bnarrow=\{narrow\}/g) ?? []).length >= 2);
+  check('una sola estructura: los dos grupos a la izquierda (el segundo, solo con modelo o esfuerzo) y los botones a la derecha',
+    /<div className="composer-bar-rows">\s*<div className="composer-bar-row">\s*\{barTools\}\s*\{leading\}\s*<\/div>\s*\{controls !== undefined && <div className="composer-bar-row composer-bar-controls">\{controls\}<\/div>\}\s*<\/div>\s*\{barActions\}/.test(composer));
   check('sin CLI, en el teléfono la barra de abajo no se dibuja (todo estaría apagado)',
     /\{!\(narrow && disabled\) && \(\s*<div className="composer-bar">/.test(composer));
   const css = readFileSync(join(WEB, 'src', 'styles.css'), 'utf8');
-  check('el texto usa todo el ancho, el corte es una línea entera y los botones reservan su lugar',
-    /\n {2}\.app-narrow \.composer-field \.composer-input \{[^}]*padding-right: 10px;/.test(css) &&
-      /\n {2}\.app-narrow \.composer-bar-break \{[^}]*flex-basis: 100%;/.test(css) &&
+  check('el texto usa todo el ancho del cuadro, en las dos vistas',
+    /\n\.composer-field \.composer-input \{[^}]*padding-right: 10px;/.test(css) && !/\.composer-field-actions/.test(css) &&
+      !/\.app-narrow \.composer-field \.composer-input/.test(css));
+  check('los botones reservan su lugar: Enviar no corre a los demás al aparecer',
+    /\n\.composer-bar-actions \{[^}]*min-width: calc\(34px \* var\(--composer-slots, 1\) - 6px\);/.test(css) &&
       /\n {2}\.app-narrow \.composer-bar-actions \{[^}]*min-width: calc\(42px \* var\(--composer-slots, 1\) - 6px\);/.test(css));
+  check('en la PC los grupos van en una fila, el segundo contra los botones, y si no caben el segundo baja',
+    /\n\.composer-bar-rows \{[^}]*flex: 1 1 auto;[^}]*min-width: 0;[^}]*flex-wrap: wrap;/.test(css) &&
+      /\n\.composer-bar-controls \{\s*margin-left: auto;\s*\}/.test(css) && /\n\.composer-bar \{[^}]*align-items: center;/.test(css));
+  check('en el teléfono, siempre dos filas, una sobre otra y a la izquierda, y los botones centrados en su alto',
+    /\n {2}\.app-narrow \.composer-bar-rows \{[^}]*flex-direction: column;[^}]*flex-wrap: nowrap;/.test(css) &&
+      /\n {2}\.app-narrow \.composer-bar-controls \{\s*margin-left: 0;\s*\}/.test(css) &&
+      /\n {2}\.app-narrow \.composer-bar \{[^}]*flex-wrap: nowrap;[^}]*align-items: center;/.test(css));
 }
 
 // --- 9. Copiar en táctil, en la línea de la hora (16-11-2026) -------------------------

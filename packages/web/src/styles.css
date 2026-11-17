@@ -1308,31 +1308,57 @@ kbd {
 }
 
 /*
-  Enviar y Detener, como íconos redondos dentro del cuadro, abajo a la derecha.
-  El cuadro deja a la derecha el lugar de uno o de dos, para que el texto no
-  pase por debajo.
+  El cuadro es todo del texto (16-11-2026). Enviar, Detener y la voz, iconos
+  redondos, iban adentro, abajo a la derecha, y el cuadro les reservaba 34 px
+  de ancho por boton: van en la barra de abajo, al final.
 */
 .composer-field {
   position: relative;
   display: flex;
 }
 
-/*
-  El lugar de la derecha lo dice `--composer-slots` (Composer.tsx, `actionSlots`):
-  cuantos botones pueden aparecer, con el de Enviar siempre contado aunque no se
-  vea. Un boton mide 28 px mas 6 de separacion; con el margen, 10 px.
-*/
 .composer-field .composer-input {
-  min-height: 38px;
-  padding-right: calc(10px + 34px * var(--composer-slots, 1));
+  padding-right: 10px;
 }
 
-.composer-field-actions {
-  position: absolute;
-  right: 6px;
-  bottom: 5px;
+/*
+  El lugar de los botones lo dice `--composer-slots` (Composer.tsx, `actionSlots`):
+  cuantos pueden aparecer, con el de Enviar siempre contado aunque no se vea. Asi
+  Enviar no corre a los demas al aparecer. Un boton mide 28 px mas 6 de separacion.
+*/
+.composer-bar-actions {
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+  min-width: calc(34px * var(--composer-slots, 1) - 6px);
+}
+
+/*
+  Los dos grupos de la izquierda de la barra: lo que se agrega al mensaje con el
+  modo, y el modelo con el esfuerzo. En una fila, el segundo contra los botones;
+  si no caben (una columna angosta en la PC), el segundo baja y los botones se
+  centran en el alto de las dos.
+*/
+.composer-bar-rows {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.composer-bar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.composer-bar-controls {
+  margin-left: auto;
 }
 
 .composer-icon {
@@ -7137,9 +7163,26 @@ kbd {
     padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
   }
 
+  /*
+    La barra, en dos filas fijas que no dependen del ancho (16-11-2026): arriba
+    lo que se agrega al mensaje y el modo; abajo el modelo y el esfuerzo. Los
+    botones van a su derecha y ocupan el alto de las dos, asi las filas quedan
+    pegadas (Enviar, de 36 px, separaba la segunda de la primera).
+  */
   .app-narrow .composer-bar {
-    flex-wrap: wrap;
-    row-gap: 6px;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .app-narrow .composer-bar-rows {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .app-narrow .composer-bar-controls {
+    margin-left: 0;
   }
 
   .app-narrow .composer-divider {
@@ -7152,31 +7195,8 @@ kbd {
     height: 36px;
   }
 
-  /*
-    El cuadro de escritura (16-11-2026, pedido del usuario): Enviar, Detener y la
-    voz salen del cuadro a la barra de abajo, a la derecha. Adentro le quitaban
-    al texto hasta un tercio del ancho (42 px por boton).
-  */
-  .app-narrow .composer-field .composer-input {
-    min-height: 40px;
-    padding-right: 10px;
-  }
-
-  /*
-    Las dos lineas de abajo, siempre las mismas y no segun el ancho: arriba lo
-    que se agrega al mensaje y el modo; abajo el modelo, el esfuerzo y los
-    botones. Hasta el 16-11-2026 el esfuerzo caia solo a la segunda.
-  */
-  .app-narrow .composer-bar-break {
-    flex-basis: 100%;
-    height: 0;
-  }
-
-  /* El lugar de los botones que pueden aparecer, reservado: Enviar no corre a los demas al aparecer. */
+  /* El lugar reservado de los botones, con el tamano del dedo. */
   .app-narrow .composer-bar-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
     min-width: calc(42px * var(--composer-slots, 1) - 6px);
   }
 
@@ -7228,34 +7248,24 @@ kbd {
   }
 
   /*
-    El de la semana, en su linea, con la barra desplegada. Los cortes salen de
-    medir los nueve idiomas (19-10-2026): las dos ventanas piden hasta 566 px,
-    y la prioritaria con palabra y barra, 342 en espanol. Sin datos ni nada que
-    configurar, `PlanMeter` no dibuja nada y la linea no ocupa lugar.
+    El de la semana, en su linea, con la barra desplegada. Es solo suya, asi que
+    van las dos ventanas, como en la PC (16-11-2026, al probarlo en su
+    telefono): si no caben, la segunda baja en vez de esconderse. Sin datos ni
+    nada que configurar, `PlanMeter` no dibuja nada y la linea no ocupa lugar.
   */
   .app-narrow .thread-plan-line {
     display: flex;
     flex: 0 0 100%;
     align-items: center;
-    container-type: inline-size;
-    container-name: thread-plan-line;
+  }
+
+  .app-narrow .thread-plan-line .plan-meter {
+    flex-wrap: wrap;
+    row-gap: 4px;
   }
 
   .app-narrow .thread-plan-line:empty {
     display: none;
-  }
-
-  @container thread-plan-line (max-width: 570px) {
-    .app-narrow .plan-meter .plan-window-extra {
-      display: none;
-    }
-  }
-
-  @container thread-plan-line (max-width: 345px) {
-    .app-narrow .plan-meter .plan-label,
-    .app-narrow .plan-meter .plan-bar {
-      display: none;
-    }
   }
 
   .app-narrow .conversation-waiting {

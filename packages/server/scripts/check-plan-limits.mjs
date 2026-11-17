@@ -617,17 +617,15 @@ const limits = (fiveHour, sevenDay) => ({
   check('6.14 en el escritorio los dos medidores van juntos en un envoltorio que no es una caja',
     /<div className="thread-meters">\s*\{bar\.plan === 'beside-context' && <PlanMeter[\s\S]*?<ContextMeter[\s\S]*?\/>\s*\)\}\s*<\/div>/.test(conversationSource) &&
     /\.thread-meters \{\s*display: contents;\s*\}/.test(css));
-  check('6.14 en la vista angosta la fila deja de ser el contenedor y lo es la linea del medidor del plan, entera',
+  check('6.14 en la vista angosta el del plan va en su propia linea, entera, y la fila deja de ser contenedor',
     /\.app-narrow \.conversation-search \{[^}]*container-type: normal;/.test(css) &&
     /<div className="thread-plan-line">\s*<PlanMeter/.test(conversationSource) &&
-    /\.app-narrow \.thread-plan-line \{[^}]*flex: 0 0 100%;[^}]*container-type: inline-size;[^}]*container-name: thread-plan-line;/.test(css));
-  const narrowCut = (what) => Number(css.match(new RegExp(`@container thread-plan-line \\(max-width: (\\d+)px\\) \\{\\s*${what}`))?.[1] ?? NaN);
-  const extraCut = narrowCut('\\.app-narrow \\.plan-meter \\.plan-window-extra \\{\\s*display: none;');
-  const labelCut = narrowCut('\\.app-narrow \\.plan-meter \\.plan-label,\\s*\\.app-narrow \\.plan-meter \\.plan-bar \\{\\s*display: none;');
-  // La linea mide la pantalla menos 20 px. 393 es el telefono de la captura; 342,
-  // lo que pide en espanol la prioritaria entera, y 566, las dos en el idioma mas largo.
-  check('6.14 los cortes de la linea: a 393 px la prioritaria con palabra y barra, a 360 la forma corta, a 600 las dos',
-    labelCut >= 342 && labelCut < 393 - 20 && extraCut >= 566 && extraCut < 600 - 20, JSON.stringify({ extraCut, labelCut }));
+    /\.app-narrow \.thread-plan-line \{[^}]*flex: 0 0 100%;/.test(css));
+  // 16-11-2026, al probarlo en su telefono: la linea es solo del plan, y la semana
+  // tiene que verse como en la PC. Nada la esconde; si las dos no caben, la segunda baja.
+  check('6.14 en el telefono se ven las dos ventanas: ninguna regla esconde la segunda, y si no caben, baja de linea',
+    /\.app-narrow \.thread-plan-line \.plan-meter \{[^}]*flex-wrap: wrap;/.test(css) &&
+      !/\.app-narrow[^{}]*\.plan-window-extra/.test(css) && !/@container thread-plan-line/.test(css));
   check('6.13 el numero en rojo', /\.plan-danger \{[^}]*color: var\(--danger\);/.test(css));
   // Hasta el 22-10-2026 "Compactar" colgaba debajo del medidor, sobre el hilo, y se
   // veia fuera de sitio: ahora es un boton mas de la fila, despues del numero.

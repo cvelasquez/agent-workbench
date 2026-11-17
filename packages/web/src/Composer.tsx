@@ -999,8 +999,8 @@ export function Composer({
           : t('composer.codexQueue.failed');
 
   /*
-    Sugerencia, Detener, la voz y Enviar: dentro del cuadro en la PC, y en la
-    barra de abajo, a la derecha, en la vista angosta (16-11-2026).
+    Sugerencia, Detener, la voz y Enviar (16-11-2026: fuera del cuadro, en las
+    dos vistas).
   */
   const fieldActions = (
     <>
@@ -1103,6 +1103,76 @@ export function Composer({
     </>
   );
 
+  /*
+    Los botones, en la barra de abajo y a la derecha. Reservan el lugar de los
+    que pueden aparecer (`actionSlots`): Enviar no corre a los demas al aparecer.
+  */
+  const barActions = (
+    <div className="composer-bar-actions" style={{ '--composer-slots': fieldSlots } as React.CSSProperties}>
+      {fieldActions}
+    </div>
+  );
+
+  // Lo que se agrega al mensaje o cambia como sale: adjuntar, programar y la cola de Codex.
+  const barTools = (
+    <>
+      <button
+        className="icon-button composer-attach"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={disabled}
+        title={t('composer.attachTitle')}
+        aria-label={t('composer.attach')}
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path
+            d="M21.4 11.1 12.3 20.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      {/*
+        Programar el envio (hito 51, §6.39), al lado del clip: es otra forma de
+        mandar lo escrito. Solo si se ofrece (Ajustes y la CLI de la pestana).
+      */}
+      {onSchedule !== undefined && (
+        <button
+          className={`icon-button composer-schedule${scheduleAnchor !== null ? ' composer-schedule-open' : ''}`}
+          onClick={(event) => {
+            const button = event.currentTarget;
+            setScheduleAnchor((current) => (current === null ? button : null));
+          }}
+          disabled={disabled || scheduleBlocked !== null}
+          title={scheduleBlocked ?? t('scheduled.composer.title')}
+          aria-label={t('scheduled.composer.label')}
+          aria-haspopup="dialog"
+          aria-expanded={scheduleAnchor !== null}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+      {codexQueueAvailable && (
+        <button
+          className={`icon-button composer-codex-queue${queuePendingForTab ? ' composer-codex-queue-pending' : ''}`}
+          onClick={queueCodex}
+          disabled={disabled || !hasSomething || queueBlocked !== null || queuePendingForTab}
+          title={queuePendingForTab ? t('composer.codexQueue.pending') : queueBlocked ?? t('composer.codexQueue.label')}
+          aria-label={queuePendingForTab ? t('composer.codexQueue.pending') : t('composer.codexQueue.label')}
+        >
+          {queuePendingForTab ? '…' : '↳'}
+        </button>
+      )}
+      {queueNoticeText !== null && <span className="composer-codex-queue-status" aria-live="polite">{queueNoticeText}</span>}
+      {scheduleAnchor !== null && <ScheduleMenu anchor={scheduleAnchor} onPick={schedule} onClose={closeSchedule} />}
+    </>
+  );
+
   return (
     <div
       className={`composer${dragging ? ' composer-dragging' : ''}`}
@@ -1185,17 +1255,11 @@ export function Composer({
       )}
 
       {/*
-        Enviar y Detener son íconos dentro del cuadro, abajo a la derecha: como
-        botones de texto ocupaban una fila entera en el teléfono. Detener
-        aparece mientras el agente trabaja y Enviar cuando hay algo escrito;
-        con el agente trabajando y un texto listo, los dos, porque mandar
-        mientras trabaja sigue valiendo. Con el cuadro vacío no hay Enviar (antes
-        se veía apagado), pero su lugar sigue reservado: el texto no salta al
-        escribir la primera letra (`actionSlots`). A su lado, la voz de la CLI
-        (§5.3.3). En la vista angosta van en la barra de abajo (16-11-2026),
-        y el texto se queda con todo el ancho del cuadro.
+        El cuadro es todo del texto: Enviar, Detener y la voz van en la barra de
+        abajo, a la derecha (16-11-2026; hasta ahi eran iconos dentro del
+        cuadro y le quitaban 34 px de ancho por boton).
       */}
-      <div className="composer-field" style={{ '--composer-slots': fieldSlots } as React.CSSProperties}>
+      <div className="composer-field">
       <textarea
         ref={textareaRef}
         className="composer-input"
@@ -1226,7 +1290,6 @@ export function Composer({
         onPaste={onPaste}
         spellCheck={false}
       />
-        {!narrow && <div className="composer-field-actions">{fieldActions}</div>}
       </div>
 
       {/*
@@ -1238,9 +1301,12 @@ export function Composer({
         donde se busca un atajo cuando de verdad hace falta.
       */}
       {/*
-        En la vista angosta, sin CLI la barra no se dibuja: todo estaria apagado,
-        y la barra de "Abrir CLI" de arriba ya dice que hacer (16-11-2026). Y
-        sus dos lineas no dependen del ancho: un corte antes del modelo.
+        La barra (16-11-2026): a la izquierda, lo que se agrega al mensaje con el
+        modo, y el modelo con el esfuerzo; a la derecha, los botones. En la PC
+        los dos grupos van en una fila, y si no caben el segundo baja; en la
+        vista angosta van siempre en dos filas. Los botones se centran en el
+        alto de las filas. En la vista angosta, sin CLI la barra no se dibuja:
+        todo estaria apagado, y la de "Abrir CLI" de arriba ya dice que hacer.
       */}
       {!(narrow && disabled) && (
         <div className="composer-bar">
@@ -1260,76 +1326,14 @@ export function Composer({
               event.target.value = '';
             }}
           />
-          <button
-            className="icon-button composer-attach"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled}
-            title={t('composer.attachTitle')}
-            aria-label={t('composer.attach')}
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path
-                d="M21.4 11.1 12.3 20.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          {/*
-            Programar el envio (hito 51, §6.39), al lado del clip: es otra forma de
-            mandar lo escrito. Solo si se ofrece (Ajustes y la CLI de la pestana).
-          */}
-          {onSchedule !== undefined && (
-            <button
-              className={`icon-button composer-schedule${scheduleAnchor !== null ? ' composer-schedule-open' : ''}`}
-              onClick={(event) => {
-                const button = event.currentTarget;
-                setScheduleAnchor((current) => (current === null ? button : null));
-              }}
-              disabled={disabled || scheduleBlocked !== null}
-              title={scheduleBlocked ?? t('scheduled.composer.title')}
-              aria-label={t('scheduled.composer.label')}
-              aria-haspopup="dialog"
-              aria-expanded={scheduleAnchor !== null}
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
-                <path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          )}
-          {codexQueueAvailable && (
-            <button
-              className={`icon-button composer-codex-queue${queuePendingForTab ? ' composer-codex-queue-pending' : ''}`}
-              onClick={queueCodex}
-              disabled={disabled || !hasSomething || queueBlocked !== null || queuePendingForTab}
-              title={queuePendingForTab ? t('composer.codexQueue.pending') : queueBlocked ?? t('composer.codexQueue.label')}
-              aria-label={queuePendingForTab ? t('composer.codexQueue.pending') : t('composer.codexQueue.label')}
-            >
-              {queuePendingForTab ? '…' : '↳'}
-            </button>
-          )}
-          {queueNoticeText !== null && <span className="composer-codex-queue-status" aria-live="polite">{queueNoticeText}</span>}
-          {scheduleAnchor !== null && <ScheduleMenu anchor={scheduleAnchor} onPick={schedule} onClose={closeSchedule} />}
-          {leading}
-          {narrow ? (
-            <>
-              {controls !== undefined && <span className="composer-bar-break" aria-hidden="true" />}
-              {controls}
-              <span className="composer-spacer" />
-              <div className="composer-bar-actions" style={{ '--composer-slots': fieldSlots } as React.CSSProperties}>
-                {fieldActions}
-              </div>
-            </>
-          ) : (
-            <>
-              <span className="composer-spacer" />
-              {controls}
-            </>
-          )}
+          <div className="composer-bar-rows">
+            <div className="composer-bar-row">
+              {barTools}
+              {leading}
+            </div>
+            {controls !== undefined && <div className="composer-bar-row composer-bar-controls">{controls}</div>}
+          </div>
+          {barActions}
         </div>
       )}
     </div>
