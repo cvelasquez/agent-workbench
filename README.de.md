@@ -7,6 +7,8 @@
 
 [English](README.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Português (Brasil)](README.pt-BR.md) · [Русский](README.ru.md) · [한국어](README.ko.md) · [Français](README.fr.md) · **Deutsch**
 
+[Website (auf Englisch)](https://agent-workbench.dev)
+
 **Eine visuelle Werkbank für die Coding-Agenten, die Sie bereits nutzen: die
 CLIs von Claude Code, Codex, OpenCode, Antigravity und Pi.** Agent Workbench
 läuft auf Ihrem Computer und öffnet sich in Ihrem Browser. Es verwendet die

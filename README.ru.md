@@ -7,6 +7,8 @@
 
 [English](README.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Português (Brasil)](README.pt-BR.md) · **Русский** · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
+[Сайт (на английском)](https://agent-workbench.dev)
+
 **Визуальная рабочая среда для агентов программирования, которыми вы уже
 пользуетесь: CLI Claude Code, Codex, OpenCode, Antigravity и Pi.** Работает на вашем
 компьютере и открывается в браузере. Использует уже установленные у вас CLI, в

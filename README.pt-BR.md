@@ -7,6 +7,8 @@
 
 [English](README.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · **Português (Brasil)** · [Русский](README.ru.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
+[Site (em inglês)](https://agent-workbench.dev)
+
 **Uma bancada de trabalho visual para os agentes de código que você já usa: as
 CLIs do Claude Code, Codex, OpenCode, Antigravity e Pi.** Roda no seu computador
 e abre no seu navegador. Usa as CLIs que você já tem instaladas e com login feito,

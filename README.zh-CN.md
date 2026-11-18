@@ -7,6 +7,8 @@
 
 [English](README.md) · [Español](README.es.md) · **简体中文** · [日本語](README.ja.md) · [Português (Brasil)](README.pt-BR.md) · [Русский](README.ru.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
+[官方网站（英文）](https://agent-workbench.dev)
+
 **为你已经在用的编程代理 CLI 打造的可视化工作台：Claude Code、Codex、OpenCode、Antigravity 和 Pi CLI**。它运行在你的电脑上，在浏览器中打开。它使用你已经安装并登录好的 CLI，从不碰你的凭据，自己也不发起任何网络请求。
 
 ```bash

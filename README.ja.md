@@ -7,6 +7,8 @@
 
 [English](README.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · **日本語** · [Português (Brasil)](README.pt-BR.md) · [Русский](README.ru.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
+[公式サイト（英語）](https://agent-workbench.dev)
+
 **すでにお使いのコーディングエージェント（Claude Code、Codex、OpenCode、Antigravity、Pi の各 CLI）のための、ビジュアルなワークベンチです**。あなたのコンピューターで動き、ブラウザーで開きます。インストールしてログイン済みの CLI をそのまま使い、認証情報には一切触れず、アプリ自身がネットワーク通信を行うこともありません。
 
 ```bash
