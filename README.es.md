@@ -234,6 +234,9 @@ Con el respaldo encendido:
 
 - Las conversaciones que una CLI ya no tiene siguen en la barra, marcadas como
   respaldo, y se abren en Markdown.
+- Si dos PCs comparten la carpeta del respaldo con un servicio de
+  sincronización, las conversaciones de cada una aparecen solas en la barra de
+  la otra, y el botón **↪** las continúa ahí, también con la misma CLI.
 - Cualquier proyecto se puede exportar a Markdown.
 - Con más de una CLI, el filtro de la barra puede buscar **En conversaciones**:
   el texto de todo lo copiado, de todas las CLIs.

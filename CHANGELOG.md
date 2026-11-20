@@ -3,6 +3,26 @@
 All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org).
 
+## 1.1.1 - 2026-11-20
+
+### Changed
+
+- **Conversations from your other PC appear on their own.** With the backup on
+  and its folder synced between two PCs, what one copies shows up in the
+  other's sidebar a few seconds after the sync program brings it, without
+  reindexing, ready to continue with **↪**, also with the same CLI.
+- The npm page links to the project's website, agent-workbench.dev, and the
+  READMEs link to it too.
+
+### Fixed
+
+- Every image of a message shows in the conversation. Claude Code sometimes
+  attaches only one of the images in a message; the others showed up as a long
+  path instead of a thumbnail, and now they show like the rest.
+- A scheduled message no longer fails with "the CLI couldn't be opened" when a
+  file of its own is briefly busy on Windows: it is tried again a few seconds
+  later.
+
 ## 1.1.0 - 2026-11-16
 
 ### Added

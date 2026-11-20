@@ -95,7 +95,8 @@ writeFileSync(
       license: rootPkg.license,
       author: 'Christian Velasquez',
       repository: { type: 'git', url: `git+${REPO_URL}.git` },
-      homepage: `${REPO_URL}#readme`,
+      // La web del proyecto: es el sitio que muestra la pagina del paquete en npm.
+      homepage: 'https://agent-workbench.dev',
       bugs: { url: `${REPO_URL}/issues` },
       // Como apoyar el proyecto (§6.28): npm lo dice al instalar y en `npm fund`.
       funding: rootPkg.funding,

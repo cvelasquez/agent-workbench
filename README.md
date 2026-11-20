@@ -230,6 +230,9 @@ With the backup on:
 
 - Conversations a CLI no longer has stay in the sidebar, marked as backup, and
   open as Markdown.
+- If two PCs share the backup folder through a sync service, the conversations
+  of each one show up in the other's sidebar on their own, and the **↪** button
+  continues them there, also with the same CLI.
 - Any project can be exported to Markdown.
 - With more than one CLI, the sidebar filter can search **In conversations**:
   the text of everything copied, from every CLI.

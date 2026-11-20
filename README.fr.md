@@ -240,6 +240,10 @@ Avec la sauvegarde activée :
 
 - Les conversations qu'une CLI n'a plus restent dans la barre latérale,
   marquées « sauvegarde », et s'ouvrent en Markdown.
+- Si deux PC partagent le dossier de sauvegarde via un service de
+  synchronisation, les conversations de chacun apparaissent d'elles-mêmes dans
+  la barre latérale de l'autre, et le bouton **↪** les poursuit là-bas, aussi
+  avec la même CLI.
 - N'importe quel projet peut être exporté en Markdown.
 - Avec plus d'une CLI, le filtre de la barre latérale peut chercher
   **Dans les conversations** : le texte de tout ce qui a été copié, de toutes

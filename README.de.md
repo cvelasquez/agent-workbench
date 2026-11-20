@@ -240,6 +240,10 @@ Bei eingeschalteter Sicherung:
 
 - Unterhaltungen, die eine CLI nicht mehr hat, bleiben in der Seitenleiste, als
   „Sicherung“ markiert, und öffnen sich als Markdown.
+- Teilen zwei PCs den Sicherungsordner über einen Synchronisierungsdienst,
+  erscheinen die Unterhaltungen des einen von selbst in der Seitenleiste des
+  anderen, und die Schaltfläche **↪** setzt sie dort fort, auch mit derselben
+  CLI.
 - Jedes Projekt lässt sich als Markdown exportieren.
 - Mit mehr als einer CLI kann der Filter der Seitenleiste **In Unterhaltungen**
   suchen: im Text von allem, was kopiert wurde, aus allen CLIs.

@@ -232,6 +232,9 @@ Com o backup ativado:
 
 - As conversas que uma CLI não tem mais continuam na barra lateral, marcadas
   como backup, e abrem em Markdown.
+- Se dois PCs compartilham a pasta do backup por um serviço de sincronização,
+  as conversas de cada um aparecem sozinhas na barra lateral do outro, e o botão
+  **↪** as continua ali, também com a mesma CLI.
 - Qualquer projeto pode ser exportado para Markdown.
 - Com mais de uma CLI, o filtro da barra lateral pode buscar **Nas conversas**:
   o texto de tudo o que foi copiado, de todas as CLIs.
