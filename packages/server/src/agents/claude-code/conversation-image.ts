@@ -24,7 +24,7 @@ import { parseJsonlLine } from '../../jsonl-reader.js';
 import { pasteRoot } from '../../paste-paths.js';
 import { resolveInside } from '../../path-guard.js';
 import type { LoadedImage } from '../adapter.js';
-import { queuedPastedImages, recordOf, sameFilePath } from './jsonl-events.js';
+import { pastedImagePaths, recordOf, sameFilePath } from './jsonl-events.js';
 
 const CHUNK_SIZE = 256 * 1024;
 const NEWLINE = 0x0a;
@@ -160,8 +160,9 @@ async function* linesOf(handle: FileHandle): AsyncGenerator<string> {
 
 /**
  * Una imagen del cuadro en un mensaje que se mando con el agente trabajando
- * (§4.4.1). La CLI no la adjunta —no hay linea `attachment`—, y los bytes salen
- * de uno de dos sitios:
+ * (§4.4.1), o en uno normal cuya imagen la CLI no adjunto (§4.9.2, desde la
+ * 2.1.312). No hay linea `attachment` con sus bytes, y salen de uno de dos
+ * sitios:
  *
  *  1. **El archivo que dejo `PasteStore`**, mientras exista: hasta que se cierra
  *     la pestana. Es lo unico que hay antes de que el agente la lea.
@@ -186,7 +187,7 @@ async function findPastedImage(
       if (!line.includes(eventId)) continue;
       const record = parseJsonlLine(line);
       if (record === null || record['uuid'] !== eventId) continue;
-      target = queuedPastedImages(record)[index] ?? null;
+      target = pastedImagePaths(record)[index] ?? null;
       if (target === null) return null;
       const fromDisk = await readPastedFile(target, pastedDir);
       if (fromDisk !== null) return fromDisk;

@@ -28,6 +28,8 @@ import {
 } from '@agent-workbench/shared';
 import {
   isCompactBoundary,
+  pastedImagePaths,
+  sameFilePath,
   stripFileReference,
   toPlanRefs,
   toConversationEvent,
@@ -337,6 +339,7 @@ export class ConversationFollower implements JsonlLineSink {
     this.usage = { ...EMPTY_CONTEXT_USAGE };
     this.permissionMode = null;
     this.attachmentRoots.clear();
+    this.pastedPaths.clear();
     this.planFiles = [];
     this.subagents.reset();
     this.promptQueue.reset();
@@ -514,6 +517,11 @@ export class ConversationFollower implements JsonlLineSink {
     const event = toConversationEvent(record, lineNumber, this.limits);
     if (event === null) return null;
 
+    // Las rutas de sus imagenes del cuadro, para que el adjunto que llegue reemplace la suya (§4.9.2).
+    if (record['type'] === 'user' && event.parts.some((part) => part.kind === 'image' && part.source === 'pasted')) {
+      this.rememberPasted(event.eventId, pastedImagePaths(record));
+    }
+
     // Antes de que `JsonlFollower` lo guarde, en el mismo orden que siempre.
     this.accumulate(event);
     return event;
@@ -532,6 +540,14 @@ export class ConversationFollower implements JsonlLineSink {
    * cualquier largo, y cada eslabon ya paso por aca.
    */
   private readonly attachmentRoots = new Map<string, string>();
+
+  /**
+   * Las rutas de las imagenes del cuadro de cada mensaje reciente, en el orden
+   * de sus partes `pasted` (§4.9.2). Con eso el adjunto que la CLI escribe
+   * despues reemplaza la parte de su imagen, en vez de sumar otra miniatura de
+   * la misma. Con tope, como `attachmentRoots`: el adjunto llega enseguida.
+   */
+  private readonly pastedPaths = new Map<string, string[]>();
 
   /**
    * Documentos de esta sesion, en el orden en que la conversacion los nombro.
@@ -587,6 +603,23 @@ export class ConversationFollower implements JsonlLineSink {
       source: 'attachment',
     };
 
+    /*
+      Una imagen del cuadro ya es una parte `pasted` y su ruta ya salio del
+      texto (§4.9.2): el adjunto toma su lugar, con los bytes que la CLI dejo
+      en el archivo, que no caducan como el temporal.
+    */
+    const pastedIndex = (this.pastedPaths.get(target.eventId) ?? []).findIndex((pastedPath) =>
+      sameFilePath(pastedPath, attachment.filename),
+    );
+    const replaced = target.parts.findIndex(
+      (part) => part.kind === 'image' && part.source === 'pasted' && part.index === pastedIndex,
+    );
+    if (pastedIndex !== -1 && replaced !== -1) {
+      target.parts = target.parts.map((part, index) => (index === replaced ? image : part));
+      this.partUpdates.push({ eventId: target.eventId, parts: target.parts });
+      return;
+    }
+
     const cleaned = target.parts
       .map((part) =>
         part.kind === 'text'
@@ -595,10 +628,10 @@ export class ConversationFollower implements JsonlLineSink {
       )
       .filter((part) => part.kind !== 'text' || part.text.length > 0);
 
-    // Detras de la ultima imagen adjunta, o al principio si es la primera.
+    // Detras de la ultima imagen adjunta o del cuadro, o al principio si es la primera.
     let at = 0;
     cleaned.forEach((part, index) => {
-      if (isAttached(part)) at = index + 1;
+      if (isAttached(part) || (part.kind === 'image' && part.source === 'pasted')) at = index + 1;
     });
 
     target.parts = [...cleaned.slice(0, at), image, ...cleaned.slice(at)];
@@ -618,6 +651,14 @@ export class ConversationFollower implements JsonlLineSink {
     if (this.attachmentRoots.size <= MAX_ATTACHMENT_LINKS) return;
     const oldest = this.attachmentRoots.keys().next();
     if (!oldest.done) this.attachmentRoots.delete(oldest.value);
+  }
+
+  /** Anota las rutas de las imagenes del cuadro de un mensaje, con el mismo tope. */
+  private rememberPasted(eventId: string, paths: string[]): void {
+    this.pastedPaths.set(eventId, paths);
+    if (this.pastedPaths.size <= MAX_ATTACHMENT_LINKS) return;
+    const oldest = this.pastedPaths.keys().next();
+    if (!oldest.done) this.pastedPaths.delete(oldest.value);
   }
 
   /**

@@ -292,6 +292,7 @@ function toPart(
   role: ConversationRole,
   index: number,
   limits: EventLimits,
+  pasted?: PastedImage[],
 ): ConversationPart | null {
   if (typeof block !== 'object' || block === null) return null;
   const record = block as Record<string, unknown>;
@@ -300,7 +301,13 @@ function toPart(
     case 'text': {
       const raw = record['text'];
       if (typeof raw !== 'string') return null;
-      const cleaned = role === 'user' ? cleanUserText(raw) : raw;
+      let cleaned = role === 'user' ? cleanUserText(raw) : raw;
+      // Las imagenes del cuadro que nombra el texto salen de el: las junta quien arma el evento (§4.9.2).
+      if (pasted !== undefined) {
+        const taken = takePastedImages(cleaned);
+        pasted.push(...taken.images);
+        cleaned = taken.text;
+      }
       if (cleaned.length === 0) return null;
       const { text, truncated } = cut(cleaned, limits.textMaxChars);
       return { kind: 'text', text, truncated };
@@ -433,10 +440,11 @@ export function readTimestamp(value: unknown): number {
  *
  * **Sus imagenes no llegan adjuntas.** Un mensaje del cuadro nombra cada
  * imagen pegada por ruta, y en una linea `user` la CLI la adjunta ella
- * (`toUserImageAttachment`). Encolado, no: el agente recibe el texto con la
- * ruta y la abre con `Read`, si quiere. Por eso cada `@"ruta"` de una imagen
- * pegada se vuelve una parte `pasted` y sale del texto, como sale el de un
- * adjunto; los bytes los busca `loadConversationImage`.
+ * (`toUserImageAttachment`; desde la 2.1.312, no siempre todas: §4.9.2).
+ * Encolado, no: el agente recibe el texto con la ruta y la abre con `Read`, si
+ * quiere. Por eso cada `@"ruta"` de una imagen pegada se vuelve una parte
+ * `pasted` y sale del texto, como sale el de un adjunto; los bytes los busca
+ * `loadConversationImage`.
  */
 function toQueuedUserEvent(
   record: Record<string, unknown>,
@@ -647,6 +655,12 @@ export function sameFilePath(a: string, b: string): boolean {
   return normalizePath(a) === normalizePath(b);
 }
 
+/** Una imagen del cuadro que un texto nombra por `@"ruta"`. */
+export interface PastedImage {
+  path: string;
+  mediaType: string;
+}
+
 /**
  * Las imagenes pegadas en el cuadro que nombra un texto, en orden, y el texto
  * sin sus `@"ruta"`.
@@ -657,9 +671,9 @@ export function sameFilePath(a: string, b: string): boolean {
  */
 export function takePastedImages(text: string): {
   text: string;
-  images: { path: string; mediaType: string }[];
+  images: PastedImage[];
 } {
-  const images: { path: string; mediaType: string }[] = [];
+  const images: PastedImage[] = [];
   const tokens = /(^|\s)@(?:"([^"]*)"|(\S+))/g;
   let match = tokens.exec(text);
   while (match !== null) {
@@ -684,6 +698,25 @@ export function queuedPastedImages(record: Record<string, unknown>): string[] {
   const prompt = attachment['prompt'];
   if (typeof prompt !== 'string') return [];
   return takePastedImages(cleanUserText(prompt)).images.map((image) => image.path);
+}
+
+/**
+ * Las rutas de las imagenes del cuadro de una linea, en el orden de sus partes
+ * `pasted`: las de un `queued_command` (§4.4.1) o las de un mensaje del
+ * usuario (§4.9.2), con el mismo recorrido con que `toConversationEvent` arma
+ * esas partes. [] si la linea no trae ninguna.
+ */
+export function pastedImagePaths(record: Record<string, unknown>): string[] {
+  if (record['type'] === 'attachment') return queuedPastedImages(record);
+  if (record['type'] !== 'user') return [];
+  const content = recordOf(record['message'])?.['content'];
+  if (typeof content === 'string') return takePastedImages(cleanUserText(content)).images.map((image) => image.path);
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((block) => {
+    const text = recordOf(block);
+    const raw = text?.['type'] === 'text' ? text['text'] : null;
+    return typeof raw === 'string' ? takePastedImages(cleanUserText(raw)).images.map((image) => image.path) : [];
+  });
 }
 
 /**
@@ -733,18 +766,38 @@ export function toConversationEvent(
   if (role === 'user' && isCompactCommand(content)) return null;
 
   const parts: ConversationPart[] = [];
+  // §4.9.2: las imagenes del cuadro que nombra un mensaje del usuario.
+  const pasted: PastedImage[] = [];
   if (typeof content === 'string') {
-    const cleaned = role === 'user' ? cleanUserText(content) : content;
+    let cleaned = content;
+    if (role === 'user') {
+      const taken = takePastedImages(cleanUserText(content));
+      pasted.push(...taken.images);
+      cleaned = taken.text;
+    }
     if (cleaned.length > 0) {
       const { text, truncated } = cut(cleaned, limits.textMaxChars);
       parts.push({ kind: 'text', text, truncated });
     }
   } else if (Array.isArray(content)) {
     content.forEach((block, index) => {
-      const part = toPart(block, role, index, limits);
+      const part = toPart(block, role, index, limits, role === 'user' ? pasted : undefined);
       if (part !== null) parts.push(part);
     });
   }
+
+  /*
+    Cada imagen del cuadro es una parte `pasted` desde el principio, antes del
+    texto, y su `@"ruta"` sale de el. Hasta la 2.1.311 la CLI las adjuntaba
+    todas; desde la 2.1.312 a veces adjunta una sola (§4.9.2), y la que no
+    quedaba como sesenta caracteres de ruta sin miniatura. La que si adjunta la
+    reemplaza el seguidor cuando llega su linea (`applyImageAttachment`); la
+    que no, se ve igual que una encolada (§4.4.1): del archivo de lo pegado o del
+    `Read` del agente.
+  */
+  parts.unshift(
+    ...pasted.map((image, index): ConversationPart => ({ kind: 'image', index, mediaType: image.mediaType, source: 'pasted' })),
+  );
 
   // Un mensaje que quedo sin nada visible no genera tarjeta.
   if (parts.length === 0) return null;

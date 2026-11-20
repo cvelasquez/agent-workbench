@@ -1021,6 +1021,89 @@ check('7.15 el parser del protocolo conserva `pasted`',
   parsedPasted?.parts[0]?.kind === 'image' && parsedPasted.parts[0].source === 'pasted',
   JSON.stringify(parsedPasted?.parts[0]));
 
+// 7b. Las imagenes del cuadro en un mensaje normal que la CLI no adjunto todas
+// (§4.9.2). Medido el 20-11-2026 en esta instalacion: desde la 2.1.312 la CLI a
+// veces escribe un solo adjunto aunque el mensaje nombre dos o tres imagenes
+// (con la 2.1.326, dentro de `<pasted_content>`, solo la ultima; con la 2.1.327
+// sin envoltorio, a veces solo la primera y a veces las dos). La que no adjunta
+// quedaba como sesenta caracteres de ruta sin miniatura, y el agente la abria
+// con `Read`. Estas son esas formas, con lineas copiadas de los archivos reales.
+{
+const { pastedImagePaths } = await import('../src/agents/claude-code/jsonl-events.ts');
+const shapesFile = path.join(dir, 'imagenes-del-cuadro.jsonl');
+const onDisk = pastedOf('pegada-9-09090909.png');
+const readByAgent = pastedOf('pegada-8-08080808.png');
+await writeFile(onDisk, Buffer.from(PNG_1PX, 'base64'));
+const ref = (file) => '@"' + file + '"';
+const wrapped = (text) => `\n\n<pasted_content id="d6c7">\n${text}\n</pasted_content id="d6c7">\n`;
+await writeFile(shapesFile,
+  // La 2.1.326: dos imagenes dentro del envoltorio y un solo adjunto, el de la ultima.
+  userStr('uA', wrapped(`${ref(readByAgent)} ${ref(pastedOf('pegada-10-0a0a0a0a.png'))} 1. Una pregunta\n2. Otra`)) +
+  imageAttach('aA', 'uA', pastedOf('pegada-10-0a0a0a0a.png')) +
+  readCall('rA', 'toolu_a', readByAgent) +
+  readResult('sA', 'toolu_a', [imageBlock(FROM_READ)]) +
+  // La 2.1.327 sin envoltorio: solo la primera.
+  userStr('uB', `${ref(pastedOf('pegada-11-0b0b0b0b.png'))} ${ref(onDisk)} mira las dos`) +
+  imageAttach('aB', 'uB', pastedOf('pegada-11-0b0b0b0b.png')) +
+  // Las dos, encadenadas: lo de siempre.
+  userStr('uC', `${ref(pastedOf('pegada-12-0c0c0c0c.png'))} ${ref(pastedOf('pegada-13-0d0d0d0d.png'))} las dos`) +
+  imageAttach('aC1', 'uC', pastedOf('pegada-12-0c0c0c0c.png')) +
+  imageAttach('aC2', 'aC1', pastedOf('pegada-13-0d0d0d0d.png'), FROM_READ) +
+  // Solo una imagen y ningun adjunto.
+  userStr('uD', ref(onDisk)) +
+  // El texto en un bloque, con una imagen pegada en la CLI al lado.
+  line({ type: 'user', uuid: 'uE', timestamp: new Date().toISOString(), cwd: 'D:/x', message: { role: 'user', content: [
+    { type: 'text', text: `${ref(onDisk)} y esta otra` }, imageBlock(PNG_1PX),
+  ] } }));
+const shapes = await new ConversationFollower(shapesFile).poll();
+const shapeOf = (id) => (shapes.added.find((event) => event.eventId === id)?.parts ?? [])
+  .map((p) => (p.kind === 'image' ? `${p.source}:${p.index}` : `${p.kind}:${JSON.stringify(p.text)}`)).join(' ');
+check('7.16 la 2.1.326 con dos imagenes y un adjunto: dos miniaturas, en su orden, y el texto sin rutas ni envoltorio',
+  shapeOf('uA') === 'pasted:0 attachment:0 text:"1. Una pregunta\\n2. Otra"', shapeOf('uA'));
+check('7.17 la 2.1.327 con la primera adjunta: la segunda queda del cuadro',
+  shapeOf('uB') === 'attachment:0 pasted:1 text:"mira las dos"', shapeOf('uB'));
+check('7.18 las dos adjuntas, encadenadas: dos adjuntos, ninguna del cuadro',
+  shapeOf('uC') === 'attachment:0 attachment:1 text:"las dos"', shapeOf('uC'));
+check('7.19 un mensaje que era solo una imagen sin adjunto: una miniatura y ningun texto',
+  shapeOf('uD') === 'pasted:0', shapeOf('uD'));
+check('7.20 el texto en un bloque: la ruta sale y la imagen pegada en la CLI sigue siendo del contenido',
+  shapeOf('uE') === 'pasted:0 text:"y esta otra" content:1', shapeOf('uE'));
+check('7.21 el mismo recorrido nombra las rutas de esas partes (`pastedImagePaths`)',
+  JSON.stringify(pastedImagePaths(JSON.parse(userStr('uA', wrapped(`${ref(readByAgent)} ${ref(onDisk)} x`))))) === JSON.stringify([readByAgent, onDisk]) &&
+  pastedImagePaths(JSON.parse(userStr('uF', 'sin imagenes @"C:\\fotos\\captura.png"'))).length === 0);
+
+// Los bytes de cada una: el agente la leyo, sigue en el disco, o la adjunto la CLI.
+check('7.22 la que la CLI no adjunto sale del `Read` del agente',
+  (await loadConversationImage(shapesFile, 'uA', 0, 'pasted', pastedDir))?.data === FROM_READ);
+check('7.23 o del archivo de lo pegado, mientras exista',
+  (await loadConversationImage(shapesFile, 'uB', 1, 'pasted', pastedDir))?.data === PNG_1PX &&
+  (await loadConversationImage(shapesFile, 'uE', 0, 'pasted', pastedDir))?.data === PNG_1PX);
+check('7.24 y la que si adjunto, del adjunto, tambien la segunda de la cadena',
+  (await loadConversationImage(shapesFile, 'uA', 0, 'attachment', pastedDir))?.data === PNG_1PX &&
+  (await loadConversationImage(shapesFile, 'uC', 1, 'attachment', pastedDir))?.data === FROM_READ);
+
+// El adjunto que llega en otra lectura reemplaza la miniatura de su imagen, no suma otra.
+const lateFile = path.join(dir, 'imagenes-del-cuadro-tarde.jsonl');
+await writeFile(lateFile, userStr('uG', `${ref(onDisk)} ${ref(pastedOf('pegada-14-0e0e0e0e.png'))} dos`));
+const lateFollower = new ConversationFollower(lateFile);
+const lateFirst = await lateFollower.poll();
+const lateShape = (parts) => (parts ?? []).map((p) => (p.kind === 'image' ? `${p.source}:${p.index}` : p.kind)).join(' ');
+check('7.25 el mensaje solo: ya sale con las dos miniaturas y el texto limpio',
+  lateShape(lateFirst.added[0]?.parts) === 'pasted:0 pasted:1 text' && lateFirst.added[0]?.parts[2]?.text === 'dos',
+  lateShape(lateFirst.added[0]?.parts));
+await appendFile(lateFile, imageAttach('aG', 'uG', pastedOf('pegada-14-0e0e0e0e.png')));
+const lateSecond = await lateFollower.poll();
+check('7.26 su adjunto despues: una actualizacion que cambia esa miniatura por el adjunto, en su lugar',
+  lateSecond.added.length === 0 && lateSecond.parts.length === 1 && lateShape(lateSecond.parts[0]?.parts) === 'pasted:0 attachment:0 text',
+  lateShape(lateSecond.parts[0]?.parts));
+
+// La burbuja "enviado" (§6.35.2) reconoce un mensaje que era solo imagenes: ya no le queda una ruta en el texto.
+const { matches: sentMatches, userTextOf } = await import('../src/app-prompt-queue.ts');
+const onlyImages = userTextOf(shapes.added.find((event) => event.eventId === 'uD'));
+check('7.27 un mensaje de solo imagenes se reconoce como el enviado',
+  onlyImages !== null && sentMatches({ text: '', images: 1 }, onlyImages), JSON.stringify(onlyImages));
+}
+
 // 8. La compactacion (§4.12, §6.37), con las lineas que escribe la 2.1.305 al
 // mandar `/compact`: el comando sin envoltorio, la marca, el resumen, el caveat,
 // el `command-name` y la salida.
