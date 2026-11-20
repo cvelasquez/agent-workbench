@@ -49,7 +49,8 @@ export function isSafeSessionId(sessionId: string): boolean {
   return isVaultSessionId(sessionId);
 }
 
-function isSessionAgentId(value: string): value is SessionAgentId {
+/** true si es la carpeta de una fuente conocida: una CLI con adaptador o una importada. */
+export function isSessionAgentId(value: string): value is SessionAgentId {
   return (SESSION_AGENT_IDS as readonly string[]).includes(value);
 }
 

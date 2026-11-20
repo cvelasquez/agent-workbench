@@ -4,8 +4,10 @@
  * Al cargar se lee **solo la primera linea** de cada `sessions/<agent>/<id>.jsonl`
  * —una sesion de la copia puede pesar decenas de MB y la barra solo necesita el
  * titulo y las fechas—, y despues de cada escritura propia se relee la de esa
- * sesion (`refresh`). El cuerpo se lee entero solo cuando alguien lo pide
- * (`readBody`): abrir una fila "copia" o exportar.
+ * sesion (`refresh`). Con la copia encendida, tambien las que avisa el
+ * vigilante de la carpeta, que trae lo que escribio otra PC (`refreshMany`,
+ * `folder-watch.ts`, §13.15). El cuerpo se lee entero solo cuando alguien lo
+ * pide (`readBody`): abrir una fila "copia" o exportar.
  *
  * Las reglas de lo que se lista, las mismas de `shared/src/vault.ts`:
  *
@@ -44,6 +46,12 @@ const HEADER_MAX_BYTES = 64 * 1024;
 /** Cabeceras que se leen a la vez al cargar. */
 const LOAD_CONCURRENCY = 16;
 
+/** Una sesion de la copia por su par: la ruta la arma `paths.ts`. */
+export interface VaultSessionKey {
+  agent: SessionAgentId;
+  sessionId: string;
+}
+
 /** Lo que el indice necesita de una sesion de la copia. */
 export interface VaultSummary {
   agent: SessionAgentId;
@@ -61,6 +69,8 @@ export interface VaultSummary {
 interface CatalogEntry {
   header: VaultHeader;
   sizeBytes: number;
+  /** La fecha del `.jsonl` al leerlo: dice si cambio sin releer la cabecera (`staleKeys`). */
+  mtimeMs: number;
   assetBytes: number;
 }
 
@@ -101,10 +111,12 @@ async function assetBytesOf(dir: string, agent: SessionAgentId, sessionId: strin
 async function readEntry(dir: string, agent: SessionAgentId, sessionId: string): Promise<EntryRead> {
   const file = sessionFile(dir, agent, sessionId);
   let sizeBytes: number;
+  let mtimeMs: number;
   try {
     const info = await stat(file);
     if (!info.isFile()) return { kind: 'absent' };
     sizeBytes = info.size;
+    mtimeMs = info.mtimeMs;
   } catch {
     return { kind: 'absent' };
   }
@@ -123,7 +135,33 @@ async function readEntry(dir: string, agent: SessionAgentId, sessionId: string):
   }
   if (header.agent !== agent || header.sessionId !== sessionId) return { kind: 'absent' };
 
-  return { kind: 'listed', entry: { header, sizeBytes, assetBytes: await assetBytesOf(dir, agent, sessionId) } };
+  return { kind: 'listed', entry: { header, sizeBytes, mtimeMs, assetBytes: await assetBytesOf(dir, agent, sessionId) } };
+}
+
+/** Los `<id>.jsonl` de la carpeta de cada fuente conocida, con un id que no puede ser ruta. */
+async function listSessionKeys(dir: string): Promise<VaultSessionKey[]> {
+  const keys: VaultSessionKey[] = [];
+  let agentFolders: string[] = [];
+  try {
+    agentFolders = await readdir(sessionsRoot(dir));
+  } catch {
+    agentFolders = [];
+  }
+  for (const folder of agentFolders) {
+    if (!isSessionAgentId(folder)) continue;
+    let names: string[];
+    try {
+      names = await readdir(agentSessionsDir(dir, folder));
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue;
+      const sessionId = name.slice(0, -'.jsonl'.length);
+      if (isSafeSessionId(sessionId)) keys.push({ agent: folder, sessionId });
+    }
+  }
+  return keys;
 }
 
 async function mapLimited<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
@@ -163,28 +201,7 @@ export class VaultCatalog {
     const generation = this.generation;
     this.dir = dir;
 
-    const keys: { agent: SessionAgentId; sessionId: string }[] = [];
-    let agentFolders: string[] = [];
-    try {
-      agentFolders = await readdir(sessionsRoot(dir));
-    } catch {
-      agentFolders = [];
-    }
-    for (const folder of agentFolders) {
-      if (!isSessionAgentId(folder)) continue;
-      let names: string[];
-      try {
-        names = await readdir(agentSessionsDir(dir, folder));
-      } catch {
-        continue;
-      }
-      for (const name of names) {
-        if (!name.endsWith('.jsonl')) continue;
-        const sessionId = name.slice(0, -'.jsonl'.length);
-        if (isSafeSessionId(sessionId)) keys.push({ agent: folder, sessionId });
-      }
-    }
-
+    const keys = await listSessionKeys(dir);
     const reads = await mapLimited(keys, LOAD_CONCURRENCY, (key) => readEntry(dir, key.agent, key.sessionId));
     if (generation !== this.generation) return;
 
@@ -203,24 +220,87 @@ export class VaultCatalog {
 
   /** Relee una sesion despues de escribirla. Avisa solo si cambio lo que se lista. */
   async refresh(agent: SessionAgentId, sessionId: string): Promise<void> {
+    await this.refreshMany([{ agent, sessionId }]);
+  }
+
+  /**
+   * Relee varias sesiones y avisa **una sola vez**, si cambio lo que se lista.
+   * Es lo que usa lo que llega de otra PC (§13.15): una tanda del
+   * sincronizador puede traer cientos, y un aviso por sesion seria la barra
+   * entera a cada ventana por cada una. Un par que no puede ser ruta se salta.
+   */
+  async refreshMany(keys: readonly VaultSessionKey[]): Promise<void> {
     const dir = this.dir;
-    if (dir === null || !isSafeSessionId(sessionId)) return;
+    if (dir === null) return;
+    const unique = new Map<string, VaultSessionKey>();
+    for (const key of keys) {
+      if (isSessionAgentId(key.agent) && isSafeSessionId(key.sessionId)) unique.set(keyOf(key.agent, key.sessionId), key);
+    }
+    if (unique.size === 0) return;
     const generation = this.generation;
-    const read = await readEntry(dir, agent, sessionId);
+    const list = [...unique.entries()];
+    const reads = await mapLimited(list, LOAD_CONCURRENCY, ([, key]) => readEntry(dir, key.agent, key.sessionId));
     if (generation !== this.generation) return;
 
-    const key = keyOf(agent, sessionId);
-    const before = JSON.stringify(this.entries.get(key) ?? null);
-    const wasForeign = this.foreign.has(key);
-    this.entries.delete(key);
-    this.foreign.delete(key);
-    if (read.kind === 'listed') this.entries.set(key, read.entry);
-    else if (read.kind === 'foreign') this.foreign.add(key);
-
-    if (before !== JSON.stringify(this.entries.get(key) ?? null) || wasForeign !== this.foreign.has(key)) {
+    let changed = false;
+    list.forEach(([key], position) => {
+      const read = reads[position];
+      const before = JSON.stringify(this.entries.get(key) ?? null);
+      const wasForeign = this.foreign.has(key);
+      this.entries.delete(key);
+      this.foreign.delete(key);
+      if (read?.kind === 'listed') this.entries.set(key, read.entry);
+      else if (read?.kind === 'foreign') this.foreign.add(key);
+      if (before !== JSON.stringify(this.entries.get(key) ?? null) || wasForeign !== this.foreign.has(key)) changed = true;
+    });
+    if (changed) {
       this.summaryCache = null;
       this.emit();
     }
+  }
+
+  /**
+   * Las sesiones cuyo archivo no es el que se leyo: nuevas, con otro tamano u
+   * otra fecha, o que ya no estan. Sin leer ninguna cabecera: un `stat` por
+   * archivo. Es lo que se mira al empezar a vigilar la carpeta (§13.15), por lo
+   * que pudo llegar entre la carga y el primer aviso. Una de formato ajeno solo
+   * cuenta si desaparecio: si cambia, la avisa el vigilante.
+   */
+  async staleKeys(): Promise<VaultSessionKey[]> {
+    const dir = this.dir;
+    if (dir === null) return [];
+    const generation = this.generation;
+    const onDisk = await listSessionKeys(dir);
+    const infos = await mapLimited(onDisk, LOAD_CONCURRENCY, (key) =>
+      stat(sessionFile(dir, key.agent, key.sessionId)).then(
+        (info) => info,
+        () => null,
+      ),
+    );
+    if (generation !== this.generation) return [];
+
+    const stale: VaultSessionKey[] = [];
+    const present = new Set<string>();
+    onDisk.forEach((key, position) => {
+      const id = keyOf(key.agent, key.sessionId);
+      present.add(id);
+      if (this.foreign.has(id)) return;
+      const entry = this.entries.get(id);
+      const info = infos[position];
+      if (entry === undefined || info == null || entry.sizeBytes !== info.size || entry.mtimeMs !== info.mtimeMs) stale.push(key);
+    });
+    for (const entry of this.entries.values()) {
+      if (!present.has(keyOf(entry.header.agent, entry.header.sessionId))) {
+        stale.push({ agent: entry.header.agent, sessionId: entry.header.sessionId });
+      }
+    }
+    for (const id of this.foreign) {
+      if (present.has(id)) continue;
+      const slash = id.indexOf('/');
+      const agent = id.slice(0, slash);
+      if (isSessionAgentId(agent)) stale.push({ agent, sessionId: id.slice(slash + 1) });
+    }
+    return stale;
   }
 
   /** Las sesiones listadas, en orden estable (fuente e id). */

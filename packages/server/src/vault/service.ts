@@ -8,10 +8,14 @@
  * le muestra.
  *
  * **Con la copia apagada no corre nada solo.** Ni pasadas, ni la huella de las
- * sesiones en cada emision del indice: lo unico que cuesta es cargar las
- * cabeceras de una carpeta que casi siempre esta vacia (regla de oro del hito).
- * Exportar a Markdown y abrir una fila "copia" funcionan igual, porque los pide
- * el usuario.
+ * sesiones en cada emision del indice, ni la vigilancia de la carpeta: lo unico
+ * que cuesta es cargar las cabeceras de una carpeta que casi siempre esta vacia
+ * (regla de oro del hito). Exportar a Markdown y abrir una fila "copia"
+ * funcionan igual, porque los pide el usuario.
+ *
+ * **Encendida, se vigila la carpeta que tiene cargada el catalogo** (§13.15,
+ * `folder-watch.ts`): lo que escribe ahi la app de otra PC, por un
+ * sincronizador, aparece en la barra sin ⟳.
  *
  * Tres reglas:
  *
@@ -57,6 +61,7 @@ import { revealPath } from '../reveal.js';
 import type { SessionIndex } from '../session-index.js';
 import type { SettingsStore } from '../settings-store.js';
 import type { VaultCatalog } from './catalog.js';
+import { watchVaultFolder, type VaultFolderWatchOptions } from './folder-watch.js';
 import { renderProjectIndex, renderSessionMarkdown, formatFileDay, type ProjectIndexEntry } from './markdown.js';
 import { canWriteInto, checkVaultTarget, moveVault } from './move.js';
 import {
@@ -118,6 +123,11 @@ export interface VaultServiceOptions {
   writeDeps?: VaultWriteDeps;
   writerRevision?: number;
   log?: Pick<Console, 'warn'>;
+  /**
+   * Como se vigila la carpeta (§13.15): el watcher, el `stat` y los
+   * temporizadores. Para el chequeo; sin esto, chokidar y relojes de verdad.
+   */
+  folderWatch?: Omit<VaultFolderWatchOptions, 'catalog' | 'paused' | 'log'>;
 }
 
 export interface VaultExportResult {
@@ -162,6 +172,8 @@ export class VaultService {
   private nativeSignature: string | null = null;
   /** true hasta la primera vez que el indice llega a `ready` con la copia encendida. */
   private passOnReady = true;
+  /** La carpeta que se vigila (§13.15) y como soltarla; null con la copia apagada. */
+  private folderWatch: { dir: string; stop: () => void } | null = null;
 
   private readonly statusListeners = new Set<(status: VaultStatus) => void>();
   private statusTimer: unknown = null;
@@ -211,6 +223,7 @@ export class VaultService {
     });
     this.stops.push(this.writer.onChange(() => this.scheduleStatus()));
     this.stops.push(catalog.onChange(() => this.scheduleStatus()));
+    this.syncFolderWatch();
 
     // Si el indice ya estaba listo (un servicio que arranca tarde), cuenta como la primera vez.
     if (index.getStatus().state === 'ready') this.onIndexStatus(index.getStatus());
@@ -219,6 +232,7 @@ export class VaultService {
   /** Cancela temporizadores y suelta oyentes. No espera la pasada en curso. */
   dispose(): void {
     this.disposed = true;
+    this.syncFolderWatch();
     for (const stop of this.stops.splice(0)) stop();
     if (this.statusTimer !== null) this.timers.clear(this.statusTimer);
     this.statusTimer = null;
@@ -289,6 +303,7 @@ export class VaultService {
     await this.options.settings.update({ vault: { enabled } });
     this.nativeSignature = null;
     this.scheduleStatus();
+    this.syncFolderWatch();
     if (!enabled) return;
 
     if (this.options.index.getStatus().state === 'ready') {
@@ -340,6 +355,8 @@ export class VaultService {
       throw new VaultError(serverText('vaultMoveFailed', { detail: messageOf(error) }));
     } finally {
       this.scheduleStatus();
+      // La carpeta nueva, si la mudanza salio; si fallo, se sigue vigilando la de antes.
+      this.syncFolderWatch();
     }
     // Lo que la carpeta nueva no tenga lo completa la pasada siguiente.
     this.writer.requestPass();
@@ -535,6 +552,29 @@ export class VaultService {
   }
 
   // ---- Internos ---------------------------------------------------------------
+
+  /**
+   * Vigila la carpeta que tiene cargada el catalogo mientras la copia esta
+   * encendida (§13.15), y la suelta al apagarla, al mudarla o al cerrar. Se
+   * llama despues de cada cosa que puede cambiar eso; si no cambio, no hace nada.
+   */
+  private syncFolderWatch(): void {
+    const on = this.started && !this.disposed && this.options.settings.get().vault.enabled;
+    const dir = on ? this.activeDir() : null;
+    if (dir !== null && this.folderWatch?.dir === dir) return;
+    this.folderWatch?.stop();
+    this.folderWatch = null;
+    if (dir === null) return;
+    this.folderWatch = {
+      dir,
+      stop: watchVaultFolder(dir, {
+        ...this.options.folderWatch,
+        catalog: this.options.catalog,
+        paused: () => this.writer.snapshot().activity === 'moving',
+        log: this.log,
+      }),
+    };
+  }
 
   private refuseWhileMoving(): void {
     if (this.writer.snapshot().activity === 'moving') {

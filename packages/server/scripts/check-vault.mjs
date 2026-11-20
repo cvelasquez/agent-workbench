@@ -56,6 +56,12 @@
  *    expresiones de C8, sobre el codigo sin comentarios), la copia no abre la
  *    red, el servidor no llega a los importadores, y ningun importador pide
  *    todas las columnas ni nombra credenciales.
+ *  - 16: lo que llega de otra PC por una carpeta sincronizada (§13.15): que se
+ *    vigila y que no, el catalogo que relee una tanda con un solo aviso y
+ *    compara la carpeta sin leer cabeceras, el vigilante con un watcher de
+ *    mentira (tandas, comparar al estar listo, la mudanza, la raiz que se va y
+ *    vuelve, nunca sobre el padre) y, con chokidar de verdad, el servicio de
+ *    punta a punta hasta la barra.
  *
  * Trabaja con `HOME`, `USERPROFILE`, `APPDATA` y las carpetas XDG apuntando a
  * una carpeta temporal propia, fijadas **antes** de importar nada: nunca lee
@@ -3410,6 +3416,371 @@ async function runImport(argv, extra = {}) {
   check('15 los importadores no nombran credenciales ni nada de ~/.gemini fuera de lo que leen',
     !CREDENTIALS.test(importerCode) && !CREDENTIALS.test(geminiCode) && CREDENTIALS.test("path.join(home, 'oauth_creds.json')"),
     show([importerCode.match(CREDENTIALS)?.[0], geminiCode.match(CREDENTIALS)?.[0]]));
+}
+
+// 16. Lo que llega de otra PC (§13.15)
+// ---------------------------------------------------------------------------
+
+const { watchVaultFolder, ignoredInVault, sessionKeyOf, FOLDER_BATCH_MS, FOLDER_STABLE_MS, FOLDER_PROBE_MS } = await import('../src/vault/folder-watch.ts');
+const chokidar = (await import('chokidar')).default;
+const keyTextOf = (keys) => keys.map((key) => `${key.agent}/${key.sessionId}`).sort();
+
+/** Un watcher de mentira: anota con que se creo y deja disparar sus avisos a mano. */
+function fakeWatchFactory() {
+  const created = [];
+  const factory = (target, options) => {
+    const emitter = new EventEmitter();
+    const watcher = {
+      target,
+      options,
+      closed: false,
+      on: (event, listener) => {
+        emitter.on(event, listener);
+        return watcher;
+      },
+      close: async () => {
+        watcher.closed = true;
+      },
+      emit: (event, ...args) => emitter.emit(event, ...args),
+    };
+    created.push(watcher);
+    return watcher;
+  };
+  return { created, factory };
+}
+/** El catalogo visto por el vigilante: anota lo que se le pide y puede quedarse releyendo. */
+function fakeFolderCatalog(stale = []) {
+  let release = null;
+  const catalog = {
+    hold: false,
+    calls: { refreshMany: [], staleKeys: 0 },
+    refreshMany: async (keys) => {
+      catalog.calls.refreshMany.push(keyTextOf(keys));
+      if (catalog.hold) await new Promise((resolve) => { release = resolve; });
+    },
+    staleKeys: async () => {
+      catalog.calls.staleKeys += 1;
+      return stale;
+    },
+    release: () => release?.(),
+  };
+  return catalog;
+}
+
+// --- 16a. Que se vigila: ignoredInVault y sessionKeyOf, puras ---
+{
+  const sroot = path.join(root, 'otra-pc-puras', 'sessions');
+  const at = (...parts) => path.join(sroot, ...parts);
+  const id = '16a00001-0000-4000-8000-000000001601';
+  check('16 se recorren la raiz, la carpeta de cada fuente conocida (tambien las importadas) y sus .jsonl',
+    !ignoredInVault(sroot, sroot) && !ignoredInVault(sroot, at('claude-code')) && !ignoredInVault(sroot, at('gemini-cli')) &&
+    !ignoredInVault(sroot, at('codex', `${id}.jsonl`)));
+  check('16 no se recorren una fuente desconocida, un temporal, los assets, un .txt, lo de mas abajo ni lo de afuera',
+    ignoredInVault(sroot, at('desconocida')) && ignoredInVault(sroot, at('codex', `${id}.jsonl.4242.abcdefabcdef.tmp`)) &&
+    ignoredInVault(sroot, at('codex', `${id}.assets`)) && ignoredInVault(sroot, at('codex', `${id}.assets`, `${'a'.repeat(32)}.png`)) &&
+    ignoredInVault(sroot, at('codex', 'notas.txt')) && ignoredInVault(sroot, at('codex', 'sub', `${id}.jsonl`)) &&
+    ignoredInVault(sroot, path.join(root, 'otra-pc-puras', 'memory')));
+  check('16 sessionKeyOf: el par de una sesion, tambien de una fuente importada',
+    same(sessionKeyOf(sroot, at('codex', `${id}.jsonl`)), { agent: 'codex', sessionId: id }) &&
+    same(sessionKeyOf(sroot, at('gemini-cli', 'session-1.jsonl')), { agent: 'gemini-cli', sessionId: 'session-1' }));
+  const notSessions = [at('codex', 'notas.txt'), at('desconocida', `${id}.jsonl`), at('codex', `${id}.jsonl.1.abc.tmp`), at('codex', 'con espacio.jsonl'),
+    at('codex', 'sub', `${id}.jsonl`), at(`${id}.jsonl`), path.join(root, 'afuera', 'codex', `${id}.jsonl`)];
+  check('16 sessionKeyOf: null para lo que no es una sesion de la copia', notSessions.every((file) => sessionKeyOf(sroot, file) === null),
+    show(notSessions.map((file) => sessionKeyOf(sroot, file))));
+}
+
+// --- 16b. El catalogo: refreshMany avisa una vez, staleKeys sin leer cabeceras ---
+{
+  const dir = path.join(root, 'otra-pc-catalogo');
+  const ids = {
+    kept: '16b00001-0000-4000-8000-000000001611',
+    changed: '16b00002-0000-4000-8000-000000001612',
+    gone: '16b00003-0000-4000-8000-000000001613',
+    arrived: '16b00004-0000-4000-8000-000000001614',
+    foreign: '16b00005-0000-4000-8000-000000001615',
+  };
+  await writeCopy(dir, 'claude-code', ids.kept, { title: 'Probemos la que no cambia' });
+  await writeCopy(dir, 'claude-code', ids.changed, { title: 'Probemos la de antes' });
+  await writeCopy(dir, 'codex', ids.gone, { title: 'Probemos la que se borra' });
+  const catalog = new VaultCatalog();
+  await catalog.load(dir);
+  let emits = 0;
+  catalog.onChange(() => {
+    emits += 1;
+  });
+  check('16 staleKeys recien cargado: nada', (await catalog.staleKeys()).length === 0);
+
+  // Lo que hace la otra PC, por el sincronizador.
+  await writeCopy(dir, 'claude-code', ids.changed, { title: 'Probemos la de despues, mas larga que la de antes' });
+  await rm(vaultPaths.sessionFile(dir, 'codex', ids.gone));
+  await writeCopy(dir, 'codex', ids.arrived, { title: 'Probemos la que llego de la otra PC' });
+  const conflict = path.join(vaultPaths.agentSessionsDir(dir, 'claude-code'), `${ids.kept}-ESCRITORIO.jsonl`);
+  await writeFile(conflict, await readFile(vaultPaths.sessionFile(dir, 'claude-code', ids.kept)));
+  const stale = await catalog.staleKeys();
+  check('16 staleKeys: la que cambio, la que se fue, la que llego y la copia de conflicto; no la que sigue igual',
+    same(keyTextOf(stale), [`claude-code/${ids.changed}`, `claude-code/${ids.kept}-ESCRITORIO`, `codex/${ids.arrived}`, `codex/${ids.gone}`].sort()),
+    show(keyTextOf(stale)));
+  check('16 staleKeys no avisa ni cambia lo que se lista', emits === 0 && catalog.header('codex', ids.gone) !== null);
+
+  await catalog.refreshMany(stale);
+  const listed = catalog.summaries().map((summary) => `${summary.agent}/${summary.sessionId}`).sort();
+  check('16 refreshMany: un solo aviso por la tanda entera', emits === 1, show(emits));
+  check('16 refreshMany: llega la nueva, se va la borrada, cambia la otra y la copia de conflicto no se lista',
+    same(listed, [`claude-code/${ids.changed}`, `claude-code/${ids.kept}`, `codex/${ids.arrived}`].sort()) &&
+    catalog.header('claude-code', ids.changed)?.title === 'Probemos la de despues, mas larga que la de antes', show(listed));
+
+  await catalog.refreshMany([{ agent: 'claude-code', sessionId: ids.kept }, { agent: 'codex', sessionId: ids.arrived }]);
+  const badPairs = await rejectsWith(catalog.refreshMany([{ agent: 'codex', sessionId: '../fuera' }, { agent: 'desconocida', sessionId: ids.kept }]));
+  check('16 refreshMany sin cambios, o con pares que no pueden ser ruta: ningun aviso y ningun error', emits === 1 && badPairs === null,
+    show({ emits, badPairs: badPairs?.message }));
+
+  // Una version mas nueva de la app en la otra PC: ni se lista ni se pisa, y que se vaya tambien se ve.
+  const foreignFile = vaultPaths.sessionFile(dir, 'codex', ids.foreign);
+  await writeFile(foreignFile, `${JSON.stringify({ kind: 'header', format: 99, agent: 'codex', sessionId: ids.foreign })}\n`);
+  await catalog.refreshMany(await catalog.staleKeys());
+  const foreignSeen = catalog.hasForeignFormat('codex', ids.foreign) && catalog.header('codex', ids.foreign) === null;
+  const whileThere = keyTextOf(await catalog.staleKeys());
+  await rm(foreignFile);
+  const afterGone = keyTextOf(await catalog.staleKeys());
+  await catalog.refreshMany(await catalog.staleKeys());
+  check('16 formato ajeno: se recuerda sin listarlo, staleKeys no lo repite mientras esta y si cuando se va',
+    foreignSeen && !whileThere.includes(`codex/${ids.foreign}`) && afterGone.includes(`codex/${ids.foreign}`) && !catalog.hasForeignFormat('codex', ids.foreign),
+    show({ foreignSeen, whileThere, afterGone }));
+}
+
+// --- 16c. El vigilante: tandas, comparar al empezar, la raiz que se va y vuelve, la mudanza ---
+{
+  const dir = path.join(root, 'otra-pc-vigilante');
+  const sroot = vaultPaths.sessionsRoot(dir);
+  const file = (agent, id) => path.join(sroot, agent, `${id}.jsonl`);
+  const existing = new Set([sroot]);
+  const watchers = fakeWatchFactory();
+  const timers = fakeTimers();
+  const catalog = fakeFolderCatalog([{ agent: 'codex', sessionId: 'llegada-en-el-arranque' }]);
+  const warnings = [];
+  let moving = false;
+  const stop = watchVaultFolder(dir, {
+    catalog, paused: () => moving, watch: watchers.factory, isDirectory: async (target) => existing.has(target), timers,
+    log: { warn: (...args) => warnings.push(args.map(String).join(' ')) },
+  });
+  /** Dispara el primer temporizador activo que cumpla `match`. Si no hay, el caso falla con su linea, sin tirar el chequeo. */
+  const fireFirst = (match = () => true) => {
+    const handle = timers.active().find(match);
+    if (handle !== undefined) timers.fire(handle);
+  };
+  await waitFor(() => watchers.created.length === 1);
+  const first = watchers.created[0];
+  check('16 con sessions/ en disco: un watcher sobre esa carpeta, con profundidad 1, sin lo inicial y esperando que el archivo quede quieto',
+    first?.target === sroot && first.options.depth === 1 && first.options.ignoreInitial === true &&
+    first.options.awaitWriteFinish?.stabilityThreshold === FOLDER_STABLE_MS && first.options.persistent !== false &&
+    first.options.ignored(path.join(sroot, 'codex', 'x.jsonl.1.abc.tmp')) === true && first.options.ignored(file('codex', 'x')) === false,
+    show(first && { target: path.relative(root, first.target), options: { ...first.options, ignored: typeof first.options.ignored } }));
+  check('16 antes de que el watcher este listo no se compara nada', timers.active().length === 0 && catalog.calls.staleKeys === 0);
+
+  first.emit('ready');
+  const readyBatch = timers.active();
+  check('16 listo: una tanda de FOLDER_BATCH_MS', readyBatch.length === 1 && readyBatch[0].ms === FOLDER_BATCH_MS, show(readyBatch.map((handle) => handle.ms)));
+  fireFirst();
+  await waitFor(() => catalog.calls.refreshMany.length === 1);
+  check('16 esa primera tanda compara la carpeta con el catalogo y relee lo distinto (lo que llego antes de vigilar)',
+    catalog.calls.staleKeys === 1 && same(catalog.calls.refreshMany[0], ['codex/llegada-en-el-arranque']), show(catalog.calls));
+
+  const burst = Array.from({ length: 300 }, (_, position) => `rafaga-${position}`);
+  for (const id of burst) first.emit('add', file('claude-code', id));
+  first.emit('change', file('claude-code', burst[0]));
+  first.emit('add', path.join(sroot, 'claude-code', 'x.jsonl.1.abc.tmp'));
+  first.emit('add', path.join(sroot, 'desconocida', 'y.jsonl'));
+  first.emit('unlink', file('codex', 'borrada'));
+  const burstTimers = timers.active();
+  check('16 una rafaga de 300 avisos, uno repetido y lo que no es sesion: un solo temporizador', burstTimers.length === 1, show(burstTimers.length));
+  fireFirst();
+  await waitFor(() => catalog.calls.refreshMany.length === 2);
+  const burstKeys = catalog.calls.refreshMany[1] ?? [];
+  check('16 la rafaga se relee de una vez: las 300 y la borrada, sin repetidas, sin lo que no es sesion y sin volver a comparar',
+    burstKeys.length === 301 && burstKeys.includes('codex/borrada') && !burstKeys.some((key) => key.includes('desconocida')) && catalog.calls.staleKeys === 1,
+    show(burstKeys.length));
+
+  catalog.hold = true;
+  first.emit('add', file('codex', 'durante-1'));
+  fireFirst();
+  await waitFor(() => catalog.calls.refreshMany.length === 3);
+  first.emit('add', file('codex', 'durante-2'));
+  check('16 mientras se relee una tanda no se arma otra', timers.active().length === 0);
+  catalog.hold = false;
+  catalog.release();
+  const resumed = await waitFor(() => timers.active().length === 1);
+  fireFirst();
+  await waitFor(() => catalog.calls.refreshMany.length === 4);
+  check('16 al terminar, lo que llego mientras tanto sale en la tanda siguiente',
+    resumed && same(catalog.calls.refreshMany[3], ['codex/durante-2']), show({ resumed, last: catalog.calls.refreshMany[3] }));
+
+  moving = true;
+  first.emit('add', file('codex', 'mudando'));
+  fireFirst();
+  await turn();
+  const whileMoving = timers.active();
+  check('16 con la copia mudandose, la tanda espera sin releer y se vuelve a intentar',
+    catalog.calls.refreshMany.length === 4 && whileMoving.length === 1 && whileMoving[0].ms === FOLDER_BATCH_MS,
+    show({ calls: catalog.calls.refreshMany.length, timers: whileMoving.map((handle) => handle.ms) }));
+  moving = false;
+  fireFirst();
+  await waitFor(() => catalog.calls.refreshMany.length === 5);
+  check('16 terminada la mudanza, sale', same(catalog.calls.refreshMany[4], ['codex/mudando']), show(catalog.calls.refreshMany[4]));
+
+  first.emit('error', new Error('aviso de error de prueba'));
+  check('16 un error del watcher se loguea y no tira nada', warnings.some((warning) => warning.includes('aviso de error de prueba')), show(warnings));
+
+  first.emit('unlinkDir', path.join(sroot, 'codex'));
+  check('16 se borra la carpeta de una fuente: el watcher sigue', first.closed === false && timers.active().length === 0);
+  existing.delete(sroot);
+  first.emit('unlinkDir', sroot);
+  const afterRootGone = timers.active().map((handle) => handle.ms).sort((a, b) => a - b);
+  check('16 se borra sessions/: se suelta el watcher, se pide comparar y se mira cada FOLDER_PROBE_MS si vuelve',
+    first.closed === true && same(afterRootGone, [FOLDER_BATCH_MS, FOLDER_PROBE_MS].sort((a, b) => a - b)), show({ closed: first.closed, afterRootGone }));
+  first.emit('add', file('codex', 'tarde'));
+  first.emit('ready');
+  check('16 un aviso tarde del watcher soltado no arma nada', timers.active().length === 2);
+  fireFirst((handle) => handle.ms === FOLDER_BATCH_MS);
+  await waitFor(() => catalog.calls.refreshMany.length === 6);
+  check('16 la comparacion corre con la raiz borrada (asi se van sus filas)',
+    catalog.calls.staleKeys === 2 && !(catalog.calls.refreshMany[5] ?? []).includes('codex/tarde'), show(catalog.calls));
+
+  fireFirst((handle) => handle.ms === FOLDER_PROBE_MS);
+  await waitFor(() => timers.active().some((handle) => handle.ms === FOLDER_PROBE_MS));
+  check('16 mientras no vuelve se sigue mirando, sin crear ningun watcher (nunca sobre el padre)', watchers.created.length === 1);
+  existing.add(sroot);
+  fireFirst((handle) => handle.ms === FOLDER_PROBE_MS);
+  await waitFor(() => watchers.created.length === 2);
+  const second = watchers.created[1];
+  second?.emit('ready');
+  fireFirst();
+  await waitFor(() => catalog.calls.staleKeys === 3);
+  check('16 vuelve: un watcher nuevo sobre sessions/ que, listo, compara otra vez',
+    second?.target === sroot && catalog.calls.staleKeys === 3, show({ created: watchers.created.length, staleKeys: catalog.calls.staleKeys }));
+
+  stop();
+  second?.emit('add', file('codex', 'despues'));
+  check('16 al soltar: se cierra el watcher, no quedan temporizadores y lo que llegue despues no arma nada',
+    second?.closed === true && timers.active().length === 0, show(timers.active().map((handle) => handle.ms)));
+}
+
+// --- 16d. Sin sessions/ al empezar, y un watcher que no se puede crear ---
+{
+  const watchers = fakeWatchFactory();
+  const timers = fakeTimers();
+  const stop = watchVaultFolder(path.join(root, 'otra-pc-sin-carpeta'), {
+    catalog: fakeFolderCatalog(), watch: watchers.factory, isDirectory: async () => false, timers, log: quiet,
+  });
+  await waitFor(() => timers.active().length === 1);
+  check('16 sin sessions/ al empezar: ningun watcher, solo un temporizador de FOLDER_PROBE_MS',
+    watchers.created.length === 0 && timers.active()[0]?.ms === FOLDER_PROBE_MS, show(timers.active().map((handle) => handle.ms)));
+  stop();
+  check('16 soltar mientras se mira: no queda nada', timers.active().length === 0);
+
+  const warnings = [];
+  const stopThrowing = watchVaultFolder(path.join(root, 'otra-pc-lanza'), {
+    catalog: fakeFolderCatalog(), isDirectory: async () => true, timers: fakeTimers(),
+    watch: () => {
+      throw new Error('sin manejadores de prueba');
+    },
+    log: { warn: (...args) => warnings.push(args.map(String).join(' ')) },
+  });
+  await waitFor(() => warnings.length === 1);
+  check('16 un watcher que no se puede crear se loguea y no tira el servidor',
+    warnings.length === 1 && warnings[0].includes('sin manejadores de prueba'), show(warnings));
+  stopThrowing();
+}
+
+// --- 16e. De punta a punta con chokidar de verdad: el servicio, el catalogo y la barra ---
+{
+  const dir = path.join(root, 'otra-pc-real');
+  const cwd = path.join(root, 'proyectos', 'demo-otra-pc');
+  await mkdir(cwd, { recursive: true });
+  const ids = {
+    mine: '16e00001-0000-4000-8000-000000001651',
+    arrived: '16e00002-0000-4000-8000-000000001652',
+    later: '16e00003-0000-4000-8000-000000001653',
+  };
+  await writeCopy(dir, 'claude-code', ids.mine, { cwd, title: 'Probemos la de esta PC' });
+  const catalog = new VaultCatalog();
+  await catalog.load(dir);
+  const index = new VaultIndex(fakeRegistry(fakeAdapter('claude-code'), fakeAdapter('codex')), undefined, catalog);
+  await index.scan();
+  const emitted = [];
+  index.on('projects', (projects, replace) => {
+    if (replace) emitted.push(idsOf(projects));
+  });
+  const watchers = [];
+  /** Lo que se muestra de los watchers: la carpeta relativa a la del chequeo, sin rutas del equipo. */
+  const watcherState = () => watchers.map((entry) => ({ target: path.relative(root, entry.target), ready: entry.ready, closed: entry.closed }));
+  const settings = memorySettings({ enabled: true, dir });
+  const service = new VaultService({
+    agents: serviceAgents(), index: fakeServiceIndex(), archived: noneArchived, settings, catalog, platform: process.platform,
+    homeDir: home, reveal: () => undefined, log: quiet, timers: fakeTimers(),
+    folderWatch: {
+      batchMs: 50,
+      stableMs: 300,
+      probeMs: 100,
+      watch: (target, options) => {
+        const watcher = chokidar.watch(target, options);
+        const entry = { target, ready: false, closed: false };
+        watchers.push(entry);
+        watcher.on('ready', () => {
+          entry.ready = true;
+        });
+        const close = watcher.close.bind(watcher);
+        watcher.close = async () => {
+          entry.closed = true;
+          await close();
+        };
+        return watcher;
+      },
+    },
+  });
+  check('16 sin arrancar el servicio no se vigila nada', watchers.length === 0);
+  service.start();
+  const watching = await waitFor(() => watchers[0]?.ready === true, 15000);
+  check('16 encendida y arrancada: un watcher de verdad sobre sessions/', watching && watchers[0].target === vaultPaths.sessionsRoot(dir),
+    show(watcherState()));
+
+  await writeCopy(dir, 'codex', ids.arrived, { cwd, title: 'Probemos la que llego de la otra PC' });
+  const arrived = await waitFor(() => catalog.header('codex', ids.arrived) !== null, 15000);
+  const row = sessionIn(index.getProjects(), ids.arrived);
+  check('16 lo que escribe la otra PC aparece solo: en el catalogo, y en la barra como fila "copia" con su emision',
+    arrived && row?.storage === 'vault' && emitted.some((rowIds) => rowIds.includes(ids.arrived)),
+    show({ arrived, row: row?.storage, emitted: emitted.length }));
+
+  await writeCopy(dir, 'codex', ids.arrived, { cwd, title: 'Probemos la que siguio en la otra PC', updatedAt: 1_700_000_900_000 });
+  check('16 la otra PC la sigue: la fila se actualiza sola',
+    await waitFor(() => sessionIn(index.getProjects(), ids.arrived)?.title === 'Probemos la que siguio en la otra PC', 15000));
+
+  await rm(vaultPaths.sessionFile(dir, 'codex', ids.arrived));
+  check('16 se borra en la otra PC: la fila se va sola', await waitFor(() => sessionIn(index.getProjects(), ids.arrived) === undefined, 15000));
+
+  await rm(vaultPaths.sessionsRoot(dir), { recursive: true, force: true });
+  const rootGone = await waitFor(() => catalog.header('claude-code', ids.mine) === null && watchers[0]?.closed === true, 15000);
+  await writeCopy(dir, 'claude-code', ids.later, { cwd, title: 'Probemos la que trae la carpeta que vuelve' });
+  const back = await waitFor(() => watchers.length === 2 && catalog.header('claude-code', ids.later) !== null, 15000);
+  check('16 sessions/ se borra y vuelve: sus filas se van, se vigila otra vez y lo que trae aparece', rootGone && back,
+    show({ rootGone, back, watchers: watcherState() }));
+
+  await waitFor(() => service.writer.snapshot().activity === 'idle');
+  await service.setEnabled(false);
+  check('16 apagar la copia suelta el watcher', watchers.every((entry) => entry.closed), show(watcherState()));
+  // Se enciende sin medir: la copia ya tiene una sesion de una pasada (la que trajo la carpeta que volvio).
+  const enableError = await rejectsWith(service.setEnabled(true));
+  const again = enableError === null && (await waitFor(() => watchers.length === 3 && watchers[2]?.ready === true, 15000));
+  await waitFor(() => service.writer.snapshot().activity === 'idle');
+  const newDir = path.join(root, 'otra-pc-real-nueva');
+  const moveError = await rejectsWith(service.setDir(newDir));
+  const moved = moveError === null && (await waitFor(() => watchers.length === 4, 15000));
+  check('16 encender otra vez vigila, y mudar la copia suelta la carpeta vieja y vigila la nueva',
+    again && moved && watchers[2]?.closed === true && watchers[3]?.target === vaultPaths.sessionsRoot(newDir) && watchers[3]?.closed === false,
+    show({ enableError: enableError?.message, moveError: moveError?.message, watchers: watcherState() }));
+
+  service.dispose();
+  index.dispose();
+  check('16 al cerrar no queda ningun watcher abierto', watchers.every((entry) => entry.closed), show(watcherState()));
 }
 
 await rm(root, { recursive: true, force: true });
