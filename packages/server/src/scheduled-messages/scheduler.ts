@@ -592,6 +592,27 @@ export class MessageScheduler {
     return activity === 'idle' || activity === 'busy' || activity === 'waiting' ? activity : 'unknown';
   }
 
+  /**
+   * Anota en el reclamo que se empieza a escribir. false si no se pudo, y
+   * entonces no se escribe: el mensaje se suelta sin falla y la vuelta
+   * siguiente lo intenta otra vez, despues de la espera de la pestana.
+   *
+   * Todavia no se le escribio nada a la CLI, asi que reintentar no puede
+   * mandarlo dos veces. Medido el 20-11-2026: en Windows el `rename` del
+   * reclamo da `EPERM` mientras otro lo tiene abierto para leerlo, y si los
+   * tres reintentos de `writeFileAtomic` chocan, antes el mensaje quedaba
+   * fallido con un motivo que no era ("no se pudo abrir la CLI").
+   */
+  private async markWriting(id: string): Promise<boolean> {
+    try {
+      await this.deps.store.setPhase(id, 'writing');
+      return true;
+    } catch (error) {
+      this.deps.log?.(`[scheduled] couldn't mark ${id.slice(0, 8)} as being sent, it will be tried again: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+
   private startDelivery(message: StoredScheduledMessage, tab: SchedulerTab, wake: boolean): void {
     const { store } = this.deps;
     const { id } = message;
@@ -610,9 +631,8 @@ export class MessageScheduler {
         await store.refresh();
         if (store.get(id) === null) {
           cancelled = true;
-        } else {
+        } else if (await this.markWriting(id)) {
           // Desde aca, si este proceso se muere, no se sabe si llego: no se reintenta.
-          await store.setPhase(id, 'writing');
           if (wake && !(await this.deps.wake(tab.terminalId))) failure = serverText('scheduledNoTab');
           if (failure === null) {
             const outcome = await this.deps.deliver(tab.terminalId, message.text);

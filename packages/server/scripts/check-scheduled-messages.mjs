@@ -49,7 +49,7 @@ const {
   scheduleTimeProblem,
 } = shared;
 const { ScheduledMessageStore, isScheduledMessageId, parseScheduledState } = await import('../src/scheduled-messages/store.ts');
-const { MessageScheduler, scheduleCreateRefusal, scheduledFailureFor } = await import('../src/scheduled-messages/scheduler.ts');
+const { MessageScheduler, SCHEDULED_COOLDOWN_MS, scheduleCreateRefusal, scheduledFailureFor } = await import('../src/scheduled-messages/scheduler.ts');
 const { MAX_SUBMIT_CHARS } = await import('../src/pty-input.ts');
 const { setLocale } = await import('../../web/src/i18n/index.ts');
 const ui = await import('../../web/src/scheduled-ui.ts');
@@ -62,13 +62,18 @@ const check = (label, ok, extra = '') => {
 };
 const json = (value) => JSON.stringify(value);
 
-/** Espera por condicion, con plazo: nunca un sleep fijo. */
+/**
+ * Espera por condicion, con plazo: nunca un sleep fijo. Entre dos miradas, 5 ms
+ * y no un `setImmediate`: una condicion que lee el reclamo lo tenia abierto casi
+ * sin pausa, y en Windows el `rename` del programador chocaba con esa lectura
+ * (`EPERM`). Asi fallaban 4.20 y 4.21, una de cada diez veces (20-11-2026).
+ */
 async function waitFor(condition, ms = 3000) {
   const deadline = Date.now() + ms;
   for (;;) {
     if (await condition()) return true;
     if (Date.now() > deadline) return false;
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
 
@@ -472,6 +477,41 @@ const stateOf = (scheduler, messageId) => scheduler.snapshot().find((entry) => e
   release({ kind: 'sent' });
   await a.scheduler.stop();
   await c.scheduler.stop();
+}
+
+{
+  // No se pudo anotar que se escribe (en Windows, un `EPERM` al reemplazar el
+  // reclamo mientras otro lo lee): a la CLI todavia no se le escribio nada, asi
+  // que no queda fallido y se vuelve a intentar.
+  const { state, make } = world('w7b');
+  const a = make(4101);
+  await a.store.load();
+  state.tabs = [{ terminalId: 't1', agent: 'claude-code', sessionId: CLAUDE.sessionId, alive: true }];
+  state.activity.set('t1', 'idle');
+  a.scheduler.start();
+  await a.store.add(message(71, CLAUDE, T0 + 60_000));
+  state.now = T0 + 61_000;
+  const setPhase = a.store.setPhase.bind(a.store);
+  let refused = 0;
+  a.store.setPhase = async (messageId, phase) => {
+    if (phase === 'writing' && refused === 0) {
+      refused += 1;
+      throw Object.assign(new Error("EPERM: operation not permitted, rename 'reclamo.tmp'"), { code: 'EPERM' });
+    }
+    return setPhase(messageId, phase);
+  };
+  await pass(a.scheduler);
+  check('4.21b no se pudo anotar que se escribe: no se manda, no queda fallido y suelta el reclamo',
+    refused === 1 && state.delivered.length === 0 && a.store.get(id(71)) !== null && a.store.get(id(71))?.failure === undefined &&
+      (await a.store.claimOf(id(71))) === null,
+    json({ refused, delivered: state.delivered, failure: a.store.get(id(71))?.failure }));
+  await pass(a.scheduler);
+  check('4.21c dentro de la espera de la pestana no se reintenta', state.delivered.length === 0, json(state.delivered));
+  state.now += SCHEDULED_COOLDOWN_MS;
+  await pass(a.scheduler);
+  check('4.21d pasada la espera, lo manda, una sola vez, y sale del archivo',
+    json(state.delivered.map((d) => d.text)) === json(['mensaje 71']) && a.store.get(id(71)) === null, json(state.delivered));
+  await a.scheduler.stop();
 }
 
 {
