@@ -1152,7 +1152,7 @@
   "startup.retry": "Tentar novamente",
   "startup.update": "Como atualizar",
   "statusLine.agentPrompt": "Configure a status line do {{agent}}. No arquivo {{path}}, adicione a chave statusLine deste JSON sem mexer nas outras chaves; se o arquivo não existir, crie-o com este conteúdo:\n\n{{fragment}}\n\nCopie o valor de command exatamente como está, sem adicionar nem remover aspas ou barras. Se o arquivo já tiver uma statusLine, não a substitua: me avise. Não mostre o resto do arquivo nem abra outros arquivos dessa pasta.",
-  "statusLine.askAgent": "Pedir ao {{agent}} que configure",
+  "statusLine.askAgent": "Pedir ao agente que configure",
   "statusLine.askAgentHint": "Abre uma nova aba do {{agent}} e envia o pedido para adicionar a linha. O app não mexe no arquivo: quem edita é o agente, e você vê o que ele faz.",
   "statusLine.benefit": "Com a status line configurada, as abas desta CLI mostram o status delas, a barra de “aguardando” quando ela pede permissão para usar uma ferramenta, o medidor de contexto com a janela exata e quanto resta da sua cota. Sem ela não há como saber: a CLI não deixa essa informação em nenhum outro arquivo.",
   "statusLine.check": "Verificar",

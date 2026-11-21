@@ -1152,7 +1152,7 @@
   "startup.retry": "Retry",
   "startup.update": "How to update",
   "statusLine.agentPrompt": "Set up the status line of {{agent}}. In the file {{path}}, add the statusLine key from this JSON without touching the other keys; if the file doesn't exist, create it with this content:\n\n{{fragment}}\n\nCopy the command value exactly as it is, without adding or removing quotes or slashes. If the file already has a statusLine, don't replace it: tell me. Don't show the rest of the file or open other files in that folder.",
-  "statusLine.askAgent": "Ask {{agent}} to set it up",
+  "statusLine.askAgent": "Ask the agent to set it up",
   "statusLine.askAgentHint": "Opens a new {{agent}} tab and sends it the request to add the line. The app doesn't touch the file: the agent edits it, and you see what it does.",
   "statusLine.benefit": "With the status line configured, this CLI's tabs show their status, the “waiting” bar when it asks for permission to use a tool, the context meter with the exact window, and how much of your quota is left. Without it there's no way to know: the CLI doesn't leave it in any other file.",
   "statusLine.check": "Check",

@@ -162,7 +162,7 @@ export function StatusLineDialog({
           {!active && agentPrompt !== null && onAskAgent !== undefined && (
             <div className="status-line-actions">
               <button className="primary-button" onClick={() => onAskAgent(agentPrompt)}>
-                {t('statusLine.askAgent', { agent: agentLabel })}
+                {t('statusLine.askAgent')}
               </button>
               <span className="modal-hint">{t('statusLine.askAgentHint', { agent: agentLabel })}</span>
             </div>
