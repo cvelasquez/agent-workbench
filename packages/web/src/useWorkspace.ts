@@ -66,6 +66,11 @@ export interface OpenTerminalRequest {
   label?: string;
   /** Que CLI lanzar. Sin el campo decide el servidor. */
   agent?: AgentId;
+  /**
+   * Un pedido para el agente de la pestana nueva: el servidor lo manda cuando
+   * la CLI esta lista, o lo deja en su cuadro (`terminal.open`, `prompt`).
+   */
+  prompt?: string;
   /** Se llama cuando el servidor confirma la pestana, con su descriptor. */
   onOpened?: (terminal: TerminalDescriptor) => void;
 }
@@ -773,6 +778,7 @@ export function useWorkspace(): Workspace {
           : {}),
         ...(options.label !== undefined ? { label: options.label } : {}),
         ...(options.agent !== undefined ? { agent: options.agent } : {}),
+        ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
       });
     },
     [connection, dropPending, defaultAgent],

@@ -1006,6 +1006,50 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
   });
 
   /*
+    El pedido de una pestana recien abierta: la revision de una rama (§6.38) y
+    "Pedirle al agente que lo configure" (`terminal.open` con `prompt`). Se
+    manda solo si la CLI avisa cuando esta lista; si no, o si no llega a
+    tiempo, queda en su cuadro y lo manda el usuario. Nunca las dos cosas.
+    No lanza: la pestana ya se abrio, y un error aca no es "no se pudo abrir".
+  */
+  const deliverOpenPrompt = async (
+    socket: WebSocket,
+    terminalId: TerminalId,
+    prompt: string,
+    requestId?: string,
+  ): Promise<void> => {
+    if (adapterOf(terminalId)?.capabilities.readySignal !== true) {
+      send(socket, {
+        type: 'composer.prefill',
+        terminalId,
+        text: prompt,
+        reason: 'requested',
+        ...(requestId !== undefined ? { requestId } : {}),
+      });
+      return;
+    }
+    let delivered;
+    try {
+      delivered = await deliverWhenReady(deliverDeps, {
+        terminalId,
+        text: prompt,
+        images: [],
+        timeoutMs: HANDOFF_DELIVERY_TIMEOUT_MS,
+        write: (piece) => registry.write(terminalId, piece),
+      });
+    } catch (error) {
+      debugLog('open-prompt', `delivery to ${terminalId.slice(0, 8)} failed: ${error instanceof Error ? error.message : String(error)}`);
+      send(socket, { type: 'composer.prefill', terminalId, text: prompt, reason: 'send-failed' });
+      return;
+    }
+    const reason = prefillReasonFor(delivered);
+    if (reason !== null) {
+      debugLog('open-prompt', `not sent on its own to ${terminalId.slice(0, 8)}: ${delivered.kind}`);
+      send(socket, { type: 'composer.prefill', terminalId, text: prompt, reason });
+    }
+  };
+
+  /*
     Los mensajes programados (hito 51, §6.39). El reloj manda por el camino de
     las notas (`deliverWhenReady`): espera a que la CLI diga que esta libre y
     escribe por la fila de la terminal. Arranca cuando terminan de restaurarse
@@ -2422,6 +2466,9 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
                 requestId: message.requestId,
                 terminal: descriptor,
               });
+              if (message.prompt !== undefined && descriptor.kind === 'agent') {
+                await deliverOpenPrompt(socket, descriptor.terminalId, message.prompt);
+              }
             } catch (error) {
               if (error instanceof TerminalOpenError) {
                 sendError(socket, error.code, error.text, error.detail, message.requestId);
@@ -3585,24 +3632,8 @@ export function attachTerminalSocket(options: TerminalSocketOptions): () => void
               return;
             }
             const { terminal, prompt } = opened;
-            const { terminalId } = terminal;
             send(socket, { type: 'terminal.opened', requestId, terminal });
-            if (adapterOf(terminalId)?.capabilities.readySignal !== true) {
-              send(socket, { type: 'composer.prefill', terminalId, text: prompt, reason: 'requested', requestId });
-              return;
-            }
-            const delivered = await deliverWhenReady(deliverDeps, {
-              terminalId,
-              text: prompt,
-              images: [],
-              timeoutMs: HANDOFF_DELIVERY_TIMEOUT_MS,
-              write: (piece) => registry.write(terminalId, piece),
-            });
-            const reason = prefillReasonFor(delivered);
-            if (reason !== null) {
-              debugLog('worktrees', `review not sent on its own to ${terminalId.slice(0, 8)}: ${delivered.kind}`);
-              send(socket, { type: 'composer.prefill', terminalId, text: prompt, reason });
-            }
+            await deliverOpenPrompt(socket, terminal.terminalId, prompt, requestId);
           })();
           break;
         }

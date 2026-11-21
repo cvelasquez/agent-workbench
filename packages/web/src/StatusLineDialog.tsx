@@ -27,7 +27,9 @@
  *
  * Desde el 27-10-2026 ofrece ademas copiar un pedido para que un agente de IA
  * pegue la linea por el usuario (`statusLineAgentPrompt`): la app sigue sin
- * escribir el archivo.
+ * escribir el archivo. Desde el 21-11-2026, ademas, "Pedirle a <CLI> que lo
+ * configure" abre una pestana de esa CLI con ese pedido ya mandado: lo edita
+ * el agente, no la app.
  *
  * "Comprobar" pide que el servidor relea la configuracion; igual se entera solo
  * en un par de segundos. `Escape` cierra sin llegar a la terminal, como el
@@ -55,6 +57,12 @@ interface StatusLineDialogProps {
    * limites del plan (hito 47). Ausente, `status`.
    */
   purpose?: 'status' | 'plan-limits';
+  /**
+   * Abre una pestana nueva de esa CLI con el pedido de pegar la linea
+   * (`statusLineAgentPrompt`), y el servidor se lo manda cuando esta lista.
+   * Ausente (sin carpeta donde abrirla), no se ofrece.
+   */
+  onAskAgent?: (prompt: string) => void;
   onRefresh: () => void;
   onClose: () => void;
 }
@@ -63,6 +71,7 @@ export function StatusLineDialog({
   info,
   agentLabel,
   purpose = 'status',
+  onAskAgent,
   onRefresh,
   onClose,
 }: StatusLineDialogProps): JSX.Element {
@@ -145,6 +154,19 @@ export function StatusLineDialog({
 
           <p className="modal-hint">{planLimits ? t('statusLine.planBenefit') : t('statusLine.benefit')}</p>
           {planLimits && <p className="modal-hint">{t('statusLine.planReplaces')}</p>}
+
+          {/*
+            El camino corto (21-11-2026): que lo haga el agente. La app sigue
+            sin escribir el archivo; lo edita la CLI, como cualquier pedido.
+          */}
+          {!active && agentPrompt !== null && onAskAgent !== undefined && (
+            <div className="status-line-actions">
+              <button className="primary-button" onClick={() => onAskAgent(agentPrompt)}>
+                {t('statusLine.askAgent', { agent: agentLabel })}
+              </button>
+              <span className="modal-hint">{t('statusLine.askAgentHint', { agent: agentLabel })}</span>
+            </div>
+          )}
 
           <h3 className="modal-section">{t('statusLine.lineSection')}</h3>
           {info.fragment === null ? (

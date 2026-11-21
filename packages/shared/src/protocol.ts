@@ -623,7 +623,20 @@ export interface ClientOpenTerminalMessage {
    * nada: el servidor responde `agent-unsupported` y no abre la pestana.
    */
   unsupportedAgent?: string;
+  /**
+   * Un pedido para el agente de la pestana nueva (21-11-2026: "Pedirle al
+   * agente que lo configure", en el dialogo de la status line). Se manda cuando
+   * la CLI avisa que esta lista, como la revision de una rama (§6.38); si no
+   * avisa o no llega a tiempo, queda en su cuadro y lo manda el usuario. Es lo
+   * que el usuario escribiria: la app no hace nada con el. Solo con `agent`.
+   * Recortado a `OPEN_PROMPT_MAX_CHARS` por el parser. Un servidor anterior lo
+   * ignora y abre la pestana sin pedido.
+   */
+  prompt?: string;
 }
+
+/** Tope del pedido de `terminal.open`: el de la status line mide menos de 2 000. */
+export const OPEN_PROMPT_MAX_CHARS = 8_000;
 
 /** Cierra la pestana y termina el proceso. */
 /**
@@ -3067,6 +3080,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       if (label !== null) message.label = label;
       const kind = asLiteral(record['kind'], TERMINAL_KINDS);
       if (kind !== null) message.kind = kind;
+      const prompt = asString(record['prompt']);
+      if (prompt !== null && prompt.trim().length > 0 && kind !== 'shell') {
+        message.prompt = prompt.slice(0, OPEN_PROMPT_MAX_CHARS);
+      }
       // Ausente o null es "que decida el servidor"; cualquier otra cosa que no
       // sea un id conocido se conserva para rechazarla, no para ignorarla.
       const rawAgent = record['agent'];

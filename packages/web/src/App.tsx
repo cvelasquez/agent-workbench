@@ -356,6 +356,20 @@ export function App(): JSX.Element {
   const newTabBlockedTitle = newTabBlocked ? openBlockedTitle() : null;
 
   /*
+    "Pedirle a <CLI> que lo configure" (21-11-2026): una pestana nueva de esa
+    CLI, en la carpeta donde se abriria con `+`, con el pedido de pegar la
+    status line. Lo manda el servidor cuando la CLI esta lista, o queda en su
+    cuadro. Sin carpeta, o con una pestana en camino ahi, no se ofrece.
+  */
+  const askAgentToConfigure =
+    newTabCwd.length === 0 || newTabBlocked
+      ? undefined
+      : (agent: AgentId, close: () => void) => (prompt: string) => {
+          close();
+          openTerminal({ cwd: newTabCwd, agent, prompt });
+        };
+
+  /*
     Las notas viven aca y no en la barra lateral: la barra se desmonta al
     esconderla, y el estado —lista, imagenes ya pedidas— tiene que sobrevivir a
     eso. Es la misma razon por la que el espacio de trabajo no vive en `TabBar`.
@@ -2056,6 +2070,7 @@ export function App(): JSX.Element {
         <StatusLineDialog
           info={statusLineDialogInfo.statusLine}
           agentLabel={statusLineDialogInfo.label}
+          onAskAgent={askAgentToConfigure?.(statusLineDialogInfo.id, () => setStatusLineDialogAgent(null))}
           onRefresh={refreshAgents}
           onClose={() => setStatusLineDialogAgent(null)}
         />
@@ -2065,6 +2080,7 @@ export function App(): JSX.Element {
           info={activePlanSetup}
           agentLabel={activeAgentInfo.label}
           purpose="plan-limits"
+          onAskAgent={askAgentToConfigure?.(activeAgentInfo.id, () => setPlanLimitsDialogVisible(false))}
           onRefresh={refreshAgents}
           onClose={() => setPlanLimitsDialogVisible(false)}
         />
@@ -2211,11 +2227,8 @@ export function App(): JSX.Element {
       {vaultDialogVisible && (
         <VaultDialog
           status={vault.status}
-          agents={agents}
-          indexReady={indexStatus.state === 'ready'}
           problem={vault.problem}
           covered={pickerFor === 'vault'}
-          onMeasure={vault.measure}
           onSetEnabled={vault.setEnabled}
           onChangeDir={() => setPickerFor('vault')}
           onReveal={remoteClient ? null : vault.reveal}

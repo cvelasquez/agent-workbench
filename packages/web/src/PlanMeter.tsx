@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react';
 import type { PlanLimitWindow, StatusLineState } from '@agent-workbench/shared';
 import { t } from './i18n/index.js';
+import { MeterSetupButton } from './MeterSetupButton.js';
 import {
   PLAN_DANGER_PERCENT,
   PLAN_METER_TICK_MS,
@@ -58,10 +59,8 @@ export function PlanMeter({ windows, setupState, onConfigure }: PlanMeterProps):
     return (
       <div className="meter meter-idle meter-compact plan-meter" title={planSetupTitle(setupState)}>
         <span className="meter-label">{t('plan.label')}</span>
-        {idle === 'configure' ? (
-          <button className="link-button" onClick={onConfigure}>
-            {t('meter.configure')}
-          </button>
+        {idle === 'configure' && onConfigure !== undefined ? (
+          <MeterSetupButton onClick={onConfigure} />
         ) : (
           <span className="meter-value">{t('plan.noData')}</span>
         )}

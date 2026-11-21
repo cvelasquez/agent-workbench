@@ -647,6 +647,13 @@ const limits = (fiveHour, sevenDay) => ({
       const markup = renderMeter(props);
       return hoverOnly(markup) && markup.includes('tabindex="0"');
     }));
+  // 21-11-2026: "Configurar" es un boton de la fila con los colores de siempre; solo el "!" va en el color de aviso.
+  const setupMarkup = renderMeter({ source: null, statusLineState: 'missing', onConfigure() {} });
+  check('6.17 "Configurar" sin status line: un boton de la fila con el "!" de aviso, no texto suelto',
+    /<button class="icon-button meter-setup-button"><span class="meter-setup-mark" aria-hidden="true">!<\/span>[^<]+<\/button>/.test(setupMarkup) &&
+    !setupMarkup.includes('link-button') &&
+    /\.meter-setup-mark \{[^}]*background: var\(--warning\);/.test(css) && !/\.meter-setup-button \{[^}]*(color|background|border)[^}]*var\(--warning\)/.test(css),
+    setupMarkup);
   const blocked = renderMeter({ compactAction: { ...action, blockedReason: 'Espera al agente.' } });
   check('6.16 si no se puede compactar, el boton se desactiva y explica el motivo',
     blocked.includes('disabled=""') && blocked.includes('title="Espera al agente."'));

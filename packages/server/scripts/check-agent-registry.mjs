@@ -439,6 +439,30 @@ check(
   check('un cliente que manda unsupportedAgent no lo cuela: lo pone solo el parser',
     open({ unsupportedAgent: 'x' })?.unsupportedAgent === undefined);
 
+  // 21-11-2026: "Pedirle a <CLI> que lo configure" abre la pestana con un pedido (`prompt`).
+  const { OPEN_PROMPT_MAX_CHARS } = shared;
+  const withPrompt = open({ agent: 'claude-code', prompt: 'Configura la status line' });
+  check('terminal.open con prompt lo conserva tal cual',
+    withPrompt?.prompt === 'Configura la status line' && withPrompt.agent === 'claude-code', JSON.stringify(withPrompt));
+  check('terminal.open: un prompt vacio, en blanco o que no es texto no viaja',
+    open({ prompt: '' })?.prompt === undefined && open({ prompt: '  \n ' })?.prompt === undefined && open({ prompt: 5 })?.prompt === undefined);
+  check('terminal.open: una consola no lleva prompt (no hay agente que lo lea)',
+    open({ kind: 'shell', prompt: 'dir' })?.prompt === undefined);
+  check('terminal.open: el prompt se recorta al tope',
+    open({ prompt: 'x'.repeat(OPEN_PROMPT_MAX_CHARS + 50) })?.prompt?.length === OPEN_PROMPT_MAX_CHARS);
+  {
+    const socketSource = await (await import('node:fs/promises')).readFile(new URL('../src/terminal-socket.ts', import.meta.url), 'utf8');
+    const openCase = socketSource.match(/case 'terminal\.open':[\s\S]*?\r?\n {8}\/\*/)?.[0] ?? '';
+    const helper = socketSource.match(/const deliverOpenPrompt = async[\s\S]*?\r?\n {2}\};/)?.[0] ?? '';
+    check('terminal.open manda el prompt despues de terminal.opened y solo a una pestana de agente',
+      /send\(socket, \{\s*type: 'terminal\.opened'[\s\S]*?\}\);\s*if \(message\.prompt !== undefined && descriptor\.kind === 'agent'\) \{\s*await deliverOpenPrompt\(/.test(openCase),
+      openCase.slice(0, 200));
+    check('el pedido de una pestana nueva: sin aviso de "lista" queda en el cuadro; si no, espera a la CLI y lo que no sale vuelve al cuadro',
+      /readySignal !== true\) \{\s*send\(socket, \{\s*type: 'composer\.prefill'/.test(helper) && helper.includes('deliverWhenReady(deliverDeps') &&
+      helper.includes('prefillReasonFor(delivered)') && /catch \(error\) \{[\s\S]*?composer\.prefill/.test(helper),
+      helper.slice(0, 200));
+  }
+
   // --- Hito 29: continuar en otra CLI (paso 1). Sin subir la version (D24). ---
   const { SERVER_ERROR_CODES } = shared;
   const cont = (extra) => parseClientMessage(JSON.stringify({

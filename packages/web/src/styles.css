@@ -3471,6 +3471,30 @@ kbd {
   display: none;
 }
 
+/*
+  "Configurar" de un medidor sin status line (§6.37): un boton mas de la fila,
+  con los colores de siempre; solo el "!" va en el color de aviso, para que
+  invite a configurarlo (pedido del usuario el 21-11-2026).
+*/
+.meter-setup-button {
+  gap: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.meter-setup-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--warning);
+  color: var(--surface);
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .meter-compact:hover > .meter-compact-button-on-hover,
 .meter-compact:focus-within > .meter-compact-button-on-hover {
   display: inline-flex;

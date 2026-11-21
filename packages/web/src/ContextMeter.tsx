@@ -36,6 +36,7 @@ import {
 } from './agent-ui.js';
 import { formatNumber } from './i18n/format.js';
 import { t } from './i18n/index.js';
+import { MeterSetupButton } from './MeterSetupButton.js';
 
 /** Umbrales de color. Son de presentacion: la CLI no publica ninguno. */
 const WARN_RATIO = 0.75;
@@ -151,9 +152,7 @@ export function ContextMeter({
         <span className="meter-label">{t('meter.label')}</span>
         <span className={`meter-bar${compact ? ' meter-bar-inline' : ''}`} />
         <span className="meter-value">{t('meter.unmeasured')}</span>
-        <button className="link-button" onClick={onConfigure}>
-          {t('meter.configure')}
-        </button>
+        <MeterSetupButton onClick={onConfigure} />
         {compactButton}
       </div>
     );
