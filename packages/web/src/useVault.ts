@@ -33,7 +33,6 @@ export interface VaultApi {
   /** Proyectos exportandose: el pedido salio y la respuesta no llego. */
   exporting: ReadonlySet<string>;
   lastExported: VaultExported | null;
-  measure: () => void;
   setEnabled: (enabled: boolean) => void;
   /**
    * Muda la copia a donde esta parado ese selector. Se llama **antes** de
@@ -92,11 +91,6 @@ export function useVault(connection: AgentConnection): VaultApi {
     };
   }, [connection]);
 
-  const measure = useCallback(() => {
-    setProblem(null);
-    connection.send({ type: 'vault.measure' });
-  }, [connection]);
-
   const setEnabled = useCallback(
     (enabled: boolean) => {
       setProblem(null);
@@ -142,7 +136,6 @@ export function useVault(connection: AgentConnection): VaultApi {
     problem,
     exporting,
     lastExported,
-    measure,
     setEnabled,
     chooseDir,
     exportProject,

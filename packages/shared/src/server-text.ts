@@ -243,7 +243,6 @@ export const SERVER_TEXTS = {
   vaultDiskFull: ['detail'],
   vaultFailed: [],
   vaultIndexNotReady: [],
-  vaultMeasureFirst: [],
   vaultMemoryFailed: ['cwd', 'detail'],
   vaultMoveFailed: ['detail'],
   vaultMoving: [],

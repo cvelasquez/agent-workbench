@@ -95,8 +95,6 @@ export const ORIGIN_NOT_FOUND: ServerText = serverText('vaultReasonOriginMissing
 export const FOREIGN_FORMAT: ServerText = serverText('vaultReasonNewerFormat');
 /** Motivo de un id que no puede ser un nombre de archivo. */
 export const UNSAFE_SESSION_ID: ServerText = serverText('vaultReasonUnsafeId');
-/** Lo que se contesta a quien quiere encender la copia sin haberla medido nunca (C18). */
-export const MEASURE_FIRST_TEXT: ServerText = serverText('vaultMeasureFirst');
 
 const PROGRESS_EVERY = 10;
 const MAX_FAILURE_REASONS = 5;
@@ -249,20 +247,6 @@ function emptyMeasure(agent: AgentId): VaultAgentMeasure {
   };
 }
 
-/**
- * null si se puede encender la copia; si no, el motivo para el usuario (C18).
- *
- * Encender pide una medicion en este proceso **salvo** que la carpeta ya tenga
- * sesiones que escribio una pasada (`passSessions`, del catalogo): una pasada
- * solo corre encendida, asi que quien las tiene ya vio cuanto ocupaba, y eso lo
- * dice el disco sin un ajuste mas. **No alcanza con `vault.json`**: un
- * importador con `--write` lo escribe, y quien importo antes de encender nunca
- * midio. La web decide "Activar" con la misma cuenta (`VaultStatus.passSessions`).
- * Apagarla no pasa por aca.
- */
-export function enableRefusal(hasMeasurement: boolean, passSessions: number): ServerText | null {
-  return hasMeasurement || passSessions > 0 ? null : MEASURE_FIRST_TEXT;
-}
 
 /** Los topes de la copia (D4): texto y entrada enteros, resultados hasta el ajuste. */
 export function vaultEventLimits(toolResultMaxChars: number): EventLimits {

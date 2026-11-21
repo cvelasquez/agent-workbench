@@ -201,9 +201,9 @@ export interface VaultStatus {
   sessions: number;
   /**
    * Las de `sessions` que escribio una pasada (fuente `native`). Una pasada
-   * solo corre encendida: con alguna, la copia ya se encendio en esta carpeta y
-   * "Activar" no pide medir (C18). Lo importado no cuenta: un importador escribe
-   * sin encender nada.
+   * solo corre encendida: con alguna, la copia ya se encendio en esta carpeta,
+   * y elegirla la enciende sola (`adopted`). Lo importado no cuenta: un
+   * importador escribe sin encender nada.
    */
   passSessions: number;
   bytes: number;
@@ -215,6 +215,12 @@ export interface VaultStatus {
   previousDir: string | null;
   /** Como clave (§6.23). */
   lastError: ServerText | null;
+  /**
+   * La ultima carpeta elegida ya tenia un respaldo y la copia se encendio sola
+   * al elegirla (21-11-2026). Solo viaja en true, hasta que se cambie de
+   * carpeta o se encienda o apague a mano; un cliente anterior lo ignora.
+   */
+  adopted?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,5 +520,6 @@ export function parseVaultStatus(value: unknown): VaultStatus | null {
     measurement,
     previousDir,
     lastError,
+    ...(record['adopted'] === true ? { adopted: true } : {}),
   };
 }

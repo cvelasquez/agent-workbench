@@ -345,8 +345,12 @@ const status = (overrides = {}) => ({
   check('1 vault.status con estado roto -> null', parseServerMessage(JSON.stringify({ type: 'vault.status', status: status({ state: 'x' }) })) === null);
   check('1 vault.exported ida y vuelta',
     same(parseServerMessage(JSON.stringify({ type: 'vault.exported', projectKey: 'k', sessions: 3 })), { type: 'vault.exported', projectKey: 'k', sessions: 3 }));
-  const error = parseServerMessage(JSON.stringify({ type: 'error', code: 'vault-failed', text: { key: 'vaultMeasureFirst' } }));
-  check('1 un error vault-failed conserva su codigo', error?.code === 'vault-failed' && es(error.text) === 'Mide primero cuánto ocuparía.', show(error));
+  const error = parseServerMessage(JSON.stringify({ type: 'error', code: 'vault-failed', text: { key: 'vaultCannotWrite' } }));
+  check('1 un error vault-failed conserva su codigo', error?.code === 'vault-failed' && es(error.text) === 'No se puede escribir en esa carpeta.', show(error));
+  const adoptedStatus = { type: 'vault.status', status: { ...status({ enabled: true, state: 'idle' }), adopted: true } };
+  check('1 vault.status con adopted: viaja en true, y sin el campo no aparece',
+    same(parseServerMessage(encodeServerMessage(adoptedStatus)), adoptedStatus) &&
+    !('adopted' in (parseServerMessage(encodeServerMessage(statusMessage))?.status ?? { adopted: 1 })));
 }
 
 // --- 1g. El indice completa storage y partial ---
@@ -493,38 +497,15 @@ const status = (overrides = {}) => ({
     vui.vaultStateText(status({ enabled: true, state: 'moving' })) === 'Mudando de carpeta…');
 
   const offer = (overrides) => vui.vaultActivateOffer(status(overrides));
-  check('1 textos: "Activar" solo con medicion, o con sesiones que ya copio una pasada en la carpeta (D6, C18)',
-    offer({}) === 'needs-measure' && offer({ measurement }) === 'measured' && offer({ sessions: 3, passSessions: 1 }) === 'existing' &&
+  // Desde el 21-11-2026 "Activar" no pide medir: apagada y sin nada en curso, se ofrece siempre.
+  check('1 textos: "Activar" apagada y sin nada en curso, sin medir; con algo en curso, nada',
+    offer({}) === 'off' && offer({ measurement }) === 'off' && offer({ sessions: 4, passSessions: 0 }) === 'off' &&
     offer({ enabled: true, state: 'idle', measurement }) === 'enabled' && offer({ state: 'measuring', measurement }) === 'busy' &&
     offer({ state: 'moving', sessions: 3, passSessions: 3 }) === 'busy',
-    show([offer({}), offer({ measurement }), offer({ sessions: 3, passSessions: 1 }), offer({ state: 'measuring', measurement })]));
-  check('1 textos: una carpeta con solo sesiones importadas pide medir antes de "Activar" (R28-2)',
-    offer({ sessions: 4, passSessions: 0 }) === 'needs-measure', show(offer({ sessions: 4, passSessions: 0 })));
-  check('1 textos: "Medir" se bloquea con algo en curso o con el indice leyendo',
-    vui.vaultMeasureBlockedReason(status(), true) === null &&
-    vui.vaultMeasureBlockedReason(status(), false) === 'Todavía se está leyendo el historial. Mide cuando termine.' &&
-    vui.vaultMeasureBlockedReason(status({ enabled: true, state: 'writing' }), true) !== null &&
+    show([offer({}), offer({ measurement }), offer({ sessions: 4, passSessions: 0 }), offer({ state: 'measuring', measurement })]));
+  check('1 textos: "Cambiar carpeta…" se bloquea con algo en curso',
     vui.vaultChangeDirBlockedReason(status({ enabled: true, state: 'idle' })) === null &&
     vui.vaultChangeDirBlockedReason(status({ state: 'moving' })) !== null);
-
-  const agents = [
-    { id: 'claude-code', label: 'Claude Code', command: 'claude', available: true, version: '1', installUrl: 'https://example.com',
-      missingMessage: null, capabilities: NO_CAPABILITIES, environmentNotice: null },
-    { id: 'antigravity', label: 'Antigravity CLI', command: 'agy', available: true, version: '1', installUrl: 'https://example.com',
-      missingMessage: null, capabilities: NO_CAPABILITIES, environmentNotice: null },
-  ];
-  const view = vui.vaultMeasureView(measurement, agents);
-  check('1 textos: tabla con los nombres del hello y de las importadas, en el orden del servidor',
-    same(view.rows.map((row) => row.label), ['Claude Code', 'Antigravity CLI', 'Gemini CLI']), show(view.rows.map((row) => row.label)));
-  check('1 textos: tamano por CLI = texto + imagenes; el total suma la memoria',
-    view.rows[0]?.bytes === 2 * MB + 512 * 1024 &&
-    same(view.total, { sessions: 6, bytes: 2 * MB + 512 * 1024 + 2048 + 100 + 3000, images: 2, skippedArchived: 4 }),
-    show(view.total));
-  check('1 textos: lo que no se copia dice por que',
-    view.rows[0]?.note === 'No se copian: 1 vacía · 2 fallidas (no se encontró el origen)' &&
-    view.rows[1]?.note === 'No se copian: 5 sin lectura completa' && view.rows[2]?.note === null,
-    show(view.rows.map((row) => row.note)));
-  check('1 textos: cuando y cuanto tardo la medicion', view.summary === 'Medido hace 2 min, en 12 s', show(view.summary));
   check('1 textos: tamanos y duraciones',
     fmt.formatBytes(0) === '0 B' && fmt.formatBytes(1023) === '1023 B' && fmt.formatBytes(1536) === '2 KB' &&
     fmt.formatBytes(5 * MB) === '5.0 MB' && fmt.formatBytes(3 * 1024 * MB) === '3.00 GB' &&
@@ -1351,7 +1332,7 @@ const vaultDir = path.join(root, 'copia');
 // 7 a 10. El escritor, y lo que de 4, 5 y 6 depende de la pasada
 // ---------------------------------------------------------------------------
 
-const { VaultWriter, VaultBusyError, VAULT_WRITER_REVISION, CALM_MS, PASS_DEBOUNCE_MS, ORIGIN_NOT_FOUND, MEASURE_FIRST_TEXT, enableRefusal } =
+const { VaultWriter, VaultBusyError, VAULT_WRITER_REVISION, CALM_MS, PASS_DEBOUNCE_MS, ORIGIN_NOT_FOUND } =
   await import('../src/vault/writer.ts');
 const settingsModule = await import('../src/settings-store.ts');
 const memoryCopy = await import('../src/vault/memory-copy.ts');
@@ -1726,9 +1707,6 @@ const agentsWith = (agent, history) => ({
   const codexRow = unsupported.byAgent.find((row) => row.agent === 'codex');
   check('10 una fuente sin wholeRead cuenta como unsupported y no se lee', codexRow?.unsupported === 1 && codexRow.sessions === 0, show(codexRow));
 
-  check('10 encender sin medicion y sin sesiones copiadas por una pasada: rechazado con su motivo',
-    catalog.stats().passSessions === 0 && enableRefusal(false, catalog.stats().passSessions) === MEASURE_FIRST_TEXT);
-  check('10 encender con medicion: se puede', enableRefusal(true, 0) === null);
   const store = new settingsModule.SettingsStore(path.join(root, 'ajustes-seco', 'settings.json'));
   await store.load();
   await store.update({ vault: { enabled: true } });
@@ -1739,8 +1717,7 @@ const agentsWith = (agent, history) => ({
     firstPass?.written === 2 && firstPass.failed === 1 && (await sizeOf('claude-code', imageId)) === rows['claude-code'].eventBytes &&
     (await sizeOf('codex', codexId)) === rows.codex.eventBytes,
     show({ firstPass, sizes: [await sizeOf('claude-code', imageId), rows['claude-code'].eventBytes, await sizeOf('codex', codexId), rows.codex.eventBytes] }));
-  check('10 con sesiones que copio una pasada, encender ya no pide medir (C18)',
-    catalog.stats().passSessions === 2 && enableRefusal(false, catalog.stats().passSessions) === null, show(catalog.stats()));
+  check('10 lo que escribio la pasada cuenta como de una pasada (passSessions)', catalog.stats().passSessions === 2, show(catalog.stats()));
   check('10 el origen no encontrado no es un error de la pasada', on.snapshot().lastError === null, show(on.snapshot().lastError));
 }
 
@@ -2753,9 +2730,6 @@ const serviceAgents = (protectedDirs = []) => ({ adapter: () => ({ history: {} }
   service.onStatus((status) => statuses.push(status));
   service.start();
 
-  const refused = await rejectsWith(service.setEnabled(true));
-  check('13 encender sin medir y sin sesiones de una pasada: VaultError con el motivo, sin tocar los ajustes',
-    refused instanceof VaultError && refused.text === MEASURE_FIRST_TEXT && settings.updates === 0 && !settings.get().vault.enabled, show(refused?.message));
   index.state = 'scanning';
   const early = await rejectsWith(service.measure());
   check('13 medir con el indice sin terminar: VaultError', early instanceof VaultError, show(early?.message));
@@ -2785,7 +2759,7 @@ const serviceAgents = (protectedDirs = []) => ({ adapter: () => ({ history: {} }
 
   const debounces = () => timers.handles.filter((handle) => handle.ms === PASS_DEBOUNCE_MS).length;
   await service.setEnabled(true);
-  check('13 encender con medicion: ajuste escrito y una pasada enseguida',
+  check('13 encender: ajuste escrito y una pasada enseguida',
     settings.get().vault.enabled === true && (await waitFor(() => service.writer.snapshot().lastPassAt !== null)), show(service.writer.snapshot()));
   await waitFor(() => service.writer.snapshot().activity === 'idle');
   const baseDebounces = debounces();
@@ -2852,38 +2826,52 @@ const serviceAgents = (protectedDirs = []) => ({ adapter: () => ({ history: {} }
   check('13 ... y con la copia al dia, la siguiente ya no escribe', settled?.written === 0 && settled.unchanged === 1, show(settled));
 }
 
-// --- 13g. Importar antes de encender no habilita "Activar" sin medir (R28-2) ---
+// --- 13g. Elegir una carpeta que ya tiene un respaldo lo enciende solo (21-11-2026); lo importado no ---
 {
   const vui = await import('../../web/src/vault-ui.ts');
-  const dir = path.join(root, 'copia-importada-antes');
-  const importedId = '13g00001-0000-4000-8000-000000001341';
+  const start = path.join(root, 'copia-13g-inicio');
+  const importedDir = path.join(root, 'copia-importada-antes');
+  const otherPcDir = path.join(root, 'copia-de-la-otra-pc');
+  await mkdir(start, { recursive: true });
   // Lo mismo que deja `pnpm vault:import … --write`: writeSessionFile con fuente importada, que escribe vault.json.
-  await writeCopy(dir, 'gemini-cli', importedId, {
+  await writeCopy(importedDir, 'gemini-cli', '13g00001-0000-4000-8000-000000001341', {
     cwd: '', group: 'Gemini CLI · carpeta desconocida', source: { kind: 'import', importer: 'gemini-cli-chats', importedAt: 1 },
   });
+  // Lo que deja la pasada de otra PC en una carpeta sincronizada.
+  await writeCopy(otherPcDir, 'claude-code', '13g00002-0000-4000-8000-000000001342', { title: 'Probemos una copiada por una pasada' });
+
   const catalog = new VaultCatalog();
-  await catalog.load(dir);
-  const settings = memorySettings({ dir });
+  await catalog.load(start);
+  const settings = memorySettings({ dir: start });
   const service = new VaultService({
     agents: serviceAgents(), index: fakeServiceIndex(), archived: noneArchived, settings, catalog, platform: process.platform,
     homeDir: home, reveal: () => undefined, log: quiet, timers: fakeTimers(),
   });
-  const importedStatus = service.status();
-  const refused = await rejectsWith(service.setEnabled(true));
-  check('13 carpeta con vault.json y solo sesiones importadas: encender sin medir se rechaza y la web no ofrece "Activar"',
-    (await fileExists(vaultPaths.vaultMarkerFile(dir))) && importedStatus.sessions === 1 && importedStatus.passSessions === 0 &&
-    vui.vaultActivateOffer(importedStatus) === 'needs-measure' &&
-    refused instanceof VaultError && refused.text === MEASURE_FIRST_TEXT && settings.updates === 0,
-    show({ importedStatus, refused: refused?.message }));
 
-  const nativeId = '13g00002-0000-4000-8000-000000001342';
-  await writeCopy(dir, 'claude-code', nativeId, { title: 'Probemos una copiada por una pasada' });
-  await catalog.refresh('claude-code', nativeId);
-  const copiedStatus = service.status();
-  const accepted = await rejectsWith(service.setEnabled(true));
-  check('13 con una sesion que escribio una pasada: "Activar" sin medir, en la web y en el servidor',
-    copiedStatus.passSessions === 1 && vui.vaultActivateOffer(copiedStatus) === 'existing' && accepted === null && settings.get().vault.enabled === true,
-    show({ copiedStatus, accepted: accepted?.message }));
+  const importedError = await rejectsWith(service.setDir(importedDir));
+  const importedStatus = service.status();
+  check('13g una carpeta con solo sesiones importadas: se muda y sigue apagada, con "Activar" a mano',
+    importedError === null && importedStatus.dir === importedDir && importedStatus.sessions === 1 && importedStatus.passSessions === 0 &&
+    !importedStatus.enabled && importedStatus.adopted === undefined && vui.vaultActivateOffer(importedStatus) === 'off',
+    show({ importedError: importedError?.message, importedStatus }));
+
+  const adoptError = await rejectsWith(service.setDir(otherPcDir));
+  const adoptedStatus = service.status();
+  check('13g una carpeta con sesiones de una pasada (otra PC): elegirla la enciende sola y lo dice (adopted)',
+    adoptError === null && adoptedStatus.dir === otherPcDir && adoptedStatus.passSessions >= 1 && adoptedStatus.enabled &&
+    settings.get().vault.enabled === true && adoptedStatus.adopted === true && vui.vaultActivateOffer(adoptedStatus) === 'enabled',
+    show({ adoptError: adoptError?.message, adoptedStatus }));
+  check('13g el estado con adopted lo lee el parser del cliente',
+    sameShape(shared.parseVaultStatus(plain(adoptedStatus)), plain(adoptedStatus)));
+
+  await waitFor(() => service.writer.snapshot().activity === 'idle');
+  await service.setEnabled(false);
+  const offStatus = service.status();
+  check('13g apagarla a mano borra el aviso; encender sin medir se puede',
+    !offStatus.enabled && offStatus.adopted === undefined && (await rejectsWith(service.setEnabled(true))) === null &&
+    settings.get().vault.enabled === true && service.status().adopted === undefined,
+    show(offStatus));
+  await waitFor(() => service.writer.snapshot().activity === 'idle');
   service.dispose();
 }
 
@@ -3767,7 +3755,7 @@ function fakeFolderCatalog(stale = []) {
   await waitFor(() => service.writer.snapshot().activity === 'idle');
   await service.setEnabled(false);
   check('16 apagar la copia suelta el watcher', watchers.every((entry) => entry.closed), show(watcherState()));
-  // Se enciende sin medir: la copia ya tiene una sesion de una pasada (la que trajo la carpeta que volvio).
+  // Encender no pide medir (desde el 21-11-2026).
   const enableError = await rejectsWith(service.setEnabled(true));
   const again = enableError === null && (await waitFor(() => watchers.length === 3 && watchers[2]?.ready === true, 15000));
   await waitFor(() => service.writer.snapshot().activity === 'idle');

@@ -78,7 +78,6 @@ import {
   VaultBusyError,
   VaultWriter,
   copyMatchesOrigin,
-  enableRefusal,
   vaultEventLimits,
   type VaultWriterTimers,
 } from './writer.js';
@@ -168,6 +167,8 @@ export class VaultService {
   private readonly log: Pick<Console, 'warn'>;
 
   private previousDir: string | null = null;
+  /** La ultima carpeta elegida ya tenia un respaldo y la copia se encendio sola (`VaultStatus.adopted`). */
+  private adopted = false;
   /** Huella de las sesiones nativas y lo archivado en la ultima emision mirada. null: sin mirar (apagada). */
   private nativeSignature: string | null = null;
   /** true hasta la primera vez que el indice llega a `ready` con la copia encendida. */
@@ -264,6 +265,7 @@ export class VaultService {
       measurement: snapshot.measurement,
       previousDir: this.previousDir,
       lastError: snapshot.lastError,
+      ...(this.adopted ? { adopted: true } : {}),
     };
   }
 
@@ -291,15 +293,12 @@ export class VaultService {
   }
 
   /**
-   * Enciende o apaga la copia. Encender sin medicion en este proceso se rechaza
-   * salvo que la carpeta ya tenga sesiones que escribio una pasada (C18,
-   * `enableRefusal`); apagar no se rechaza nunca y no borra nada.
+   * Enciende o apaga la copia. Ninguna de las dos se rechaza, y apagar no
+   * borra nada. Hasta el 21-11-2026 encender pedia medir antes (D6, C18); lo
+   * saco el usuario: "Medir" sobraba y "Activar" tiene que ser un clic.
    */
   async setEnabled(enabled: boolean): Promise<void> {
-    if (enabled) {
-      const refusal = enableRefusal(this.writer.snapshot().measurement !== null, this.options.catalog.stats().passSessions);
-      if (refusal !== null) throw new VaultError(refusal);
-    }
+    this.adopted = false;
     await this.options.settings.update({ vault: { enabled } });
     this.nativeSignature = null;
     this.scheduleStatus();
@@ -336,10 +335,16 @@ export class VaultService {
     if (check.kind === 'refused') throw new VaultError(check.text);
     if (check.kind === 'same') return;
 
+    // La carpeta elegida ya tenia un respaldo antes de mudar nada (el de otra PC, por ejemplo).
+    let targetHadCopy = false;
     try {
       await this.writer.exclusive('moving', async () => {
         if (!(await canWriteInto(target))) throw new VaultError(serverText('vaultCannotWrite'));
         const hadCopy = await stat(vaultMarkerFile(current)).then(
+          () => true,
+          () => false,
+        );
+        targetHadCopy = await stat(vaultMarkerFile(target)).then(
           () => true,
           () => false,
         );
@@ -358,6 +363,21 @@ export class VaultService {
       // La carpeta nueva, si la mudanza salio; si fallo, se sigue vigilando la de antes.
       this.syncFolderWatch();
     }
+    /*
+      Una carpeta que ya tiene un respaldo, escrito por una pasada (la de otra
+      PC, por una carpeta sincronizada, §13.15), se enciende sola al elegirla
+      (21-11-2026): elegirla ya es pedirlo, y "Activar" con un texto aparte
+      confundia. Lo importado no cuenta: un importador escribe sin encender.
+      Tiene que haberlo tenido **antes** de mudar: llevar a otra carpeta la
+      copia propia que el usuario apago no la vuelve a encender.
+    */
+    if (!settings.get().vault.enabled && targetHadCopy && catalog.stats().passSessions > 0) {
+      await this.setEnabled(true);
+      this.adopted = true;
+      this.scheduleStatus();
+      return;
+    }
+    this.adopted = false;
     // Lo que la carpeta nueva no tenga lo completa la pasada siguiente.
     this.writer.requestPass();
   }
