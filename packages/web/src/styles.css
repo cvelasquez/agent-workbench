@@ -3483,15 +3483,7 @@ kbd {
 }
 
 .meter-setup-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: var(--warning);
-  color: var(--surface);
-  font-size: 10px;
+  color: var(--warning);
   font-weight: 700;
 }
 
@@ -5265,6 +5257,24 @@ kbd {
 
 .status-line-actions .primary-button {
   margin-top: 0;
+}
+
+/*
+  "Pedirle al agente que lo configure" (21-11-2026): el boton en una sola
+  linea y su explicacion debajo. En la fila de "Comprobar" el boton se
+  apretaba contra el texto y quedaba en tres lineas.
+*/
+.status-line-ask {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.status-line-ask .primary-button {
+  margin-top: 0;
+  white-space: nowrap;
 }
 
 /*

@@ -5,7 +5,7 @@
  * Hasta el 21-11-2026 era un `link-button`, texto suelto, y se perdia en la
  * fila. Pedido del usuario: que se vea como boton y que invite a configurarlo.
  * Es un `icon-button` mas de la fila, con los colores de siempre, y solo el
- * signo "!" va en el color de aviso.
+ * signo "!" va en el color de aviso, como texto (no un circulo: lo pidio asi).
  */
 
 import { t } from './i18n/index.js';

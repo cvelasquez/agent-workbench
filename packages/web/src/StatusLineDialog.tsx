@@ -160,7 +160,7 @@ export function StatusLineDialog({
             sin escribir el archivo; lo edita la CLI, como cualquier pedido.
           */}
           {!active && agentPrompt !== null && onAskAgent !== undefined && (
-            <div className="status-line-actions">
+            <div className="status-line-ask">
               <button className="primary-button" onClick={() => onAskAgent(agentPrompt)}>
                 {t('statusLine.askAgent')}
               </button>

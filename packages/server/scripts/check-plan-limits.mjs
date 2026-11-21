@@ -652,7 +652,8 @@ const limits = (fiveHour, sevenDay) => ({
   check('6.17 "Configurar" sin status line: un boton de la fila con el "!" de aviso, no texto suelto',
     /<button class="icon-button meter-setup-button"><span class="meter-setup-mark" aria-hidden="true">!<\/span>[^<]+<\/button>/.test(setupMarkup) &&
     !setupMarkup.includes('link-button') &&
-    /\.meter-setup-mark \{[^}]*background: var\(--warning\);/.test(css) && !/\.meter-setup-button \{[^}]*(color|background|border)[^}]*var\(--warning\)/.test(css),
+    /\.meter-setup-mark \{[^}]*color: var\(--warning\);/.test(css) && !/\.meter-setup-mark \{[^}]*background/.test(css) &&
+    !/\.meter-setup-button \{[^}]*(color|background|border)[^}]*var\(--warning\)/.test(css),
     setupMarkup);
   const blocked = renderMeter({ compactAction: { ...action, blockedReason: 'Espera al agente.' } });
   check('6.16 si no se puede compactar, el boton se desactiva y explica el motivo',
