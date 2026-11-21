@@ -212,6 +212,12 @@ const server = http.createServer(async (request, response) => {
   return json(response, 404, { error: 'not found' });
 });
 
+// Sin cierre por inactividad. El chequeo bloquea su proceso a ratos (el fixture
+// de la base escribe con `DatabaseSync`, y en el CI de Windows tardo 9 s), y con
+// los 5 s por defecto este servidor cerraba la conexion en reposo mientras tanto:
+// el `fetch` siguiente la reusaba y fallaba con ECONNRESET (CI del 20-11-2026).
+server.keepAliveTimeout = 0;
+
 server.listen(0, '127.0.0.1', () => {
   const { port } = server.address();
   if (mode === 'silent') return;
