@@ -220,9 +220,9 @@ calls and results, images, and each project's memory— in a folder of yours, in
 files you can read without the app.
 
 **It's off by default.** Open it with the backup button at the top of the
-projects sidebar, or from ⚙ Settings. **Measure** tells you how much space it
-would take per CLI, without writing anything, and **Turn on** starts it. From
-then on it copies everything in the sidebar that isn't archived, and copies a
+projects sidebar, or from ⚙ Settings, and **Turn on** starts it. Choosing a
+folder that already holds a backup, like another PC's through a sync service,
+turns it on by itself. From then on it copies everything in the sidebar that isn't archived, and copies a
 conversation again a minute after it stops changing. It never deletes anything
 from that folder.
 
@@ -301,8 +301,9 @@ context meter:
 
 1. Open a Claude Code tab and click **Configure**, next to the meter.
 2. Copy the line it shows and add it to what `~/.claude/settings.json` already
-   has. The app doesn't edit that file: you do. Or, with **Copy a request for
-   your agent**, ask an AI agent to add it for you.
+   has. The app doesn't edit that file: you do, or an AI agent does it for you.
+   **Ask the agent to set it up** opens a new Claude Code tab and sends it the
+   request; **Copy a request for your agent** copies it for any other agent.
 3. Within a couple of seconds, or with **Check**, the dialog says
    **Configured**. The limits show up with the next response.
 
@@ -327,8 +328,9 @@ unknown and the meters stay empty. To turn it on:
 1. Open an Antigravity tab and click **Configure**, next to the meter.
 2. Copy the line it shows and add it to what
    `~/.gemini/antigravity-cli/settings.json` already has. The app doesn't edit
-   that file: you do. Or, with **Copy a request for your agent**, ask an AI
-   agent to add it for you.
+   that file: you do, or an AI agent does it for you. **Ask the agent to set it
+   up** opens a new Antigravity tab and sends it the request; **Copy a request
+   for your agent** copies it for any other agent.
 3. Within a couple of seconds, or with **Check**, the dialog says
    **Configured**.
 

@@ -224,9 +224,9 @@ también se puede desinstalar. El respaldo guarda una copia de tus conversacione
 cada proyecto— en una carpeta tuya, en archivos que puedes leer sin la app.
 
 **Está apagado por defecto.** Ábrelo con el botón del respaldo, arriba en la
-barra de proyectos, o desde ⚙ Ajustes. **Medir** te dice cuánto espacio
-ocuparía por CLI, sin escribir nada, y **Activar** lo pone en marcha. Desde ese
-momento copia todo lo que está en la barra y no está archivado, y vuelve a
+barra de proyectos, o desde ⚙ Ajustes, y **Activar** lo pone en marcha. Si
+eliges una carpeta que ya tiene un respaldo, como el de otra PC por un servicio
+de sincronización, se enciende solo. Desde ese momento copia todo lo que está en la barra y no está archivado, y vuelve a
 copiar una conversación un minuto después de que deja de cambiar. Nunca borra
 nada de esa carpeta.
 
@@ -308,9 +308,10 @@ medidor de contexto:
 1. Abre una pestaña de Claude Code y haz clic en **Configurar**, junto al
    medidor.
 2. Copia la línea que aparece y agrégala a lo que ya tiene
-   `~/.claude/settings.json`. La app no edita ese archivo: lo editas tú. O, con
-   **Copiar pedido para tu agente**, pídele a un agente de IA que la agregue
-   por ti.
+   `~/.claude/settings.json`. La app no edita ese archivo: lo editas tú, o un
+   agente de IA lo hace por ti. **Pedirle al agente que lo configure** abre una
+   pestaña nueva de Claude Code y le manda el pedido; **Copiar pedido para tu
+   agente** lo copia para cualquier otro agente.
 3. En un par de segundos, o con **Comprobar**, el diálogo dice **Configurada**.
    Los límites aparecen con la próxima respuesta.
 
@@ -337,8 +338,9 @@ el estado es desconocido y los medidores quedan vacíos. Para activarla:
    medidor.
 2. Copia la línea que aparece y agrégala a lo que ya tiene
    `~/.gemini/antigravity-cli/settings.json`. La app no edita ese archivo: lo
-   editas tú. O, con **Copiar pedido para tu agente**, pídele a un agente de IA
-   que la agregue por ti.
+   editas tú, o un agente de IA lo hace por ti. **Pedirle al agente que lo
+   configure** abre una pestaña nueva de Antigravity y le manda el pedido;
+   **Copiar pedido para tu agente** lo copia para cualquier otro agente.
 3. En un par de segundos, o con **Comprobar**, el diálogo dice **Configurada**.
 
 La línea corre un pequeño script guardado en la carpeta propia de la app. Guarda

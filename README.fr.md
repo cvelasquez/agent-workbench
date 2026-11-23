@@ -230,9 +230,9 @@ mémoire de chaque projet — dans un dossier à vous, dans des fichiers lisible
 sans l'application.
 
 **Elle est désactivée par défaut.** Ouvrez-la avec le bouton de la sauvegarde,
-en haut de la barre latérale des projets, ou depuis ⚙ Réglages. **Mesurer**
-vous indique l'espace qu'elle occuperait par CLI, sans rien écrire, et
-**Activer** la démarre. Dès lors, elle copie tout ce qui figure dans la barre
+en haut de la barre latérale des projets, ou depuis ⚙ Réglages, et **Activer**
+la démarre. Choisir un dossier qui contient déjà une sauvegarde, comme celle
+d'un autre PC via un service de synchronisation, l'active toute seule. Dès lors, elle copie tout ce qui figure dans la barre
 latérale sans être archivé, et recopie une conversation une minute après
 qu'elle a cessé de changer. Elle ne supprime jamais rien dans ce dossier.
 
@@ -318,8 +318,10 @@ la semaine). Pour les voir à côté de la jauge de contexte :
    jauge.
 2. Copiez la ligne affichée et ajoutez-la à ce que contient déjà
    `~/.claude/settings.json`. L'application ne touche pas à ce fichier : c'est
-   vous qui le modifiez. Ou, avec **Copier une demande pour votre agent**,
-   demandez à un agent d'IA de l'ajouter pour vous.
+   vous qui le modifiez, ou un agent d'IA le fait pour vous. **Demander à
+   l'agent de la configurer** ouvre un nouvel onglet Claude Code et lui envoie
+   la demande ; **Copier une demande pour votre agent** la copie pour tout autre
+   agent.
 3. En quelques secondes, ou avec **Vérifier**, la boîte de dialogue indique
    **Configurée**. Les limites apparaissent avec la réponse suivante.
 
@@ -348,8 +350,10 @@ elle, ses onglets fonctionnent normalement, mais le point de l'onglet indique un
    jauge.
 2. Copiez la ligne affichée et ajoutez-la à ce que contient déjà
    `~/.gemini/antigravity-cli/settings.json`. L'application ne touche pas à ce
-   fichier : c'est vous qui le modifiez. Ou, avec **Copier une demande pour
-   votre agent**, demandez à un agent d'IA de l'ajouter pour vous.
+   fichier : c'est vous qui le modifiez, ou un agent d'IA le fait pour vous.
+   **Demander à l'agent de la configurer** ouvre un nouvel onglet Antigravity et
+   lui envoie la demande ; **Copier une demande pour votre agent** la copie pour
+   tout autre agent.
 3. En quelques secondes, ou avec **Vérifier**, la boîte de dialogue indique
    **Configurée**.
 

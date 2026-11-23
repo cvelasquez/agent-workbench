@@ -3,6 +3,23 @@
 All notable changes to Agent Workbench. Versions follow
 [semantic versioning](https://semver.org).
 
+## 1.1.2 - 2026-11-23
+
+### Changed
+
+- **The backup turns on in one click.** **Measure** is gone: **Turn on** starts
+  it right away. Choosing a folder that already holds a backup, like another
+  PC's through a sync service, turns it on by itself and says so. Moving your
+  own backup, switched off, to another folder doesn't turn it on.
+- **Configure is easier to spot.** When a meter needs its CLI's status line,
+  **Configure** is a button in the conversation bar with an orange **!**.
+- **Ask the agent to set it up.** The status line dialog opens a new tab of that
+  CLI and sends its agent the request to add the line, in the app's language.
+  The app still never edits the CLI's settings: the agent does, where you can
+  see it.
+- A project's previous location shows only when the project is expanded, so
+  the sidebar stays tidy when everything is collapsed.
+
 ## 1.1.1 - 2026-11-20
 
 ### Changed

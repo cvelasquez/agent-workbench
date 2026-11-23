@@ -1116,7 +1116,7 @@
   "startup.retry": "重试",
   "startup.update": "如何更新",
   "statusLine.agentPrompt": "请配置 {{agent}} 的 status line。在文件 {{path}} 中加入下面这段 JSON 的 statusLine 键，不要改动其他键；如果文件不存在，就用这段内容创建它：\n\n{{fragment}}\n\ncommand 的值请原样复制，不要增删引号或斜杠。如果文件里已经有 statusLine，不要替换它，告诉我。不要显示文件的其余内容，也不要打开该文件夹里的其他文件。",
-  "statusLine.askAgent": "让智能体来配置",
+  "statusLine.askAgent": "让代理来配置",
   "statusLine.askAgentHint": "打开一个新的 {{agent}} 标签页，并发送添加这一行的请求。应用不会改动该文件：由 AI 代理编辑，你能看到它做了什么。",
   "statusLine.benefit": "配置 status line 后，此 CLI 的标签页会显示其状态，在它请求使用工具的权限时显示“等待中”提示栏，上下文用量会显示确切的窗口大小，还会显示剩余配额。不配置就无法得知这些信息：CLI 不会把它们写入任何其他文件。",
   "statusLine.check": "检查",

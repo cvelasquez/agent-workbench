@@ -230,9 +230,10 @@ Gedächtnis jedes Projekts – in einem Ordner Ihrer Wahl auf, in Dateien, die S
 auch ohne die App lesen können.
 
 **Standardmäßig ist sie ausgeschaltet.** Sie öffnen sie über die Schaltfläche der
-Sicherung oben in der Projektliste oder über ⚙ Einstellungen. **Messen** zeigt,
-wie viel Platz sie pro CLI belegen würde, ohne etwas zu schreiben, und
-**Einschalten** startet sie. Ab dann kopiert sie alles in der Seitenleiste, was
+Sicherung oben in der Projektliste oder über ⚙ Einstellungen, und
+**Einschalten** startet sie. Wählen Sie einen Ordner, der schon eine Sicherung
+enthält, etwa die eines anderen PCs über einen Sync-Dienst, schaltet sie sich
+von selbst ein. Ab dann kopiert sie alles in der Seitenleiste, was
 nicht archiviert ist, und kopiert eine Unterhaltung erneut, eine Minute nachdem
 sie sich nicht mehr ändert. Aus diesem Ordner löscht sie nie etwas.
 
@@ -321,8 +322,10 @@ Woche). So sehen Sie sie neben der Kontextanzeige:
    neben der Kontextanzeige.
 2. Kopieren Sie die angezeigte Zeile und fügen Sie sie zu dem hinzu, was
    `~/.claude/settings.json` bereits enthält. Die App ändert diese Datei nicht:
-   Sie bearbeiten sie selbst. Oder bitten Sie mit **Anfrage für Ihren
-   Agenten kopieren** einen KI-Agenten, sie für Sie hinzuzufügen.
+   Sie bearbeiten sie selbst, oder ein KI-Agent erledigt das für Sie. **Den
+   Agenten mit der Einrichtung beauftragen** öffnet einen neuen Claude-Code-Tab
+   und schickt ihm die Anfrage; **Anfrage für Ihren Agenten kopieren** kopiert
+   sie für jeden anderen Agenten.
 3. Nach ein paar Sekunden oder mit **Prüfen** zeigt der Dialog **Konfiguriert**
    an. Die Limits erscheinen mit der nächsten Antwort.
 
@@ -351,9 +354,10 @@ leer. So schalten Sie sie ein:
    der Kontextanzeige.
 2. Kopieren Sie die angezeigte Zeile und fügen Sie sie zu dem hinzu, was
    `~/.gemini/antigravity-cli/settings.json` bereits enthält. Die App ändert
-   diese Datei nicht: Sie bearbeiten sie selbst. Oder bitten Sie mit
-   **Anfrage für Ihren Agenten kopieren** einen KI-Agenten, sie für Sie
-   hinzuzufügen.
+   diese Datei nicht: Sie bearbeiten sie selbst, oder ein KI-Agent erledigt das
+   für Sie. **Den Agenten mit der Einrichtung beauftragen** öffnet einen neuen
+   Antigravity-Tab und schickt ihm die Anfrage; **Anfrage für Ihren Agenten
+   kopieren** kopiert sie für jeden anderen Agenten.
 3. Nach ein paar Sekunden oder mit **Prüfen** zeigt der Dialog **Konfiguriert**
    an.
 
