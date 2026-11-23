@@ -1085,7 +1085,12 @@ export function Sidebar({
                 </div>
               )}
 
-              {project.relocations !== undefined && project.relocations.length > 0 && (
+              {/*
+                La ubicacion anterior, solo con el proyecto desplegado (pedido del
+                usuario el 23-11-2026: plegado, la barra queda en orden). "Carpeta
+                no encontrada" si se ve plegado: pide hacer algo.
+              */}
+              {isOpen && project.relocations !== undefined && project.relocations.length > 0 && (
                 <ProjectRelocationLine
                   project={project}
                   removing={removingLocation.has(project.key)}

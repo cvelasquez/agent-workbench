@@ -596,8 +596,8 @@ const exists = async (file) => readFile(file).then(() => true, () => false);
     /title=\{continuation\.title\}/.test(sidebar) && /blockedReason=\{rowContinueBlockedReason\(project\)\}/.test(sidebar));
   check('X2 "Ubicar carpeta…" solo con carpeta que ubicar y con manejador (una ventana remota no lo tiene)',
     /\{!project\.cwdExists && \([\s\S]*?onLocateProject !== null && project\.cwd\.length > 0 && \([\s\S]*?sidebar\.project\.locate/.test(sidebar));
-  check('X2 la linea de la ubicacion anterior sale cuando el proyecto la trae, y cambiar solo con una ubicacion aplicada',
-    /project\.relocations !== undefined && project\.relocations\.length > 0 && \(\s*<ProjectRelocationLine/.test(sidebar) &&
+  check('X2 la linea de la ubicacion anterior sale cuando el proyecto la trae y esta desplegado (23-11-2026), y cambiar solo con una ubicacion aplicada',
+    /\{isOpen && project\.relocations !== undefined && project\.relocations\.length > 0 && \(\s*<ProjectRelocationLine/.test(sidebar) &&
     /onChange !== null && active\.length > 0/.test(sidebar) && /onRemove !== null && \(/.test(sidebar));
   check('X3 App no le da los botones a un equipo remoto: cambian la configuracion del anfitrion',
     /onLocateProject=\{\s*remoteClient\s*\?\s*null/.test(app) && /onRemoveLocation=\{remoteClient \? null : locations\.remove\}/.test(app));
